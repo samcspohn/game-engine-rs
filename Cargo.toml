@@ -1,0 +1,48 @@
+[package]
+name = "rust-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+lto = "fat"
+panic = "abort"
+codegen-units = 1
+
+[dependencies]
+
+component_derive = {path = "derive-macro"}
+
+libloading = "*"
+libc = "*"
+rayon = "*"
+crossbeam = "*"
+once_cell = "*"
+specs = { version = "*", features = [ "parallel" ] }
+rand = "*"
+
+# glam = "*"
+# nalgebra = { version = "*" }
+nalgebra-glm = "*"
+
+vulkano = "*"
+vulkano-shaders = "*"
+winit = "*"
+# The `vulkano_win` crate is the link between `vulkano` and `winit`. Vulkano doesn't know about winit,
+# and winit doesn't know about vulkano, so import a crate that will provide a link between the two.
+vulkano-win = "*"
+
+bytemuck = { version = "*", features = ["derive", "extern_crate_std", "min_const_generics"] }
+cgmath = "*"
+png = "*"
+serde = { version = "*", features = ["derive"] }
+ron = "*"
+
+glium = { git = "https://github.com/glium/glium.git", rev = "60889a2" }
+
+rapier3d = { version = "*", features = [ "simd-stable","parallel" ] }
+
+parking_lot = "*"
+deepmesa = "*"
+force-send-sync = "*"
+assimp = "*"
