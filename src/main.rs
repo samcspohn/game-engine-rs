@@ -5,7 +5,7 @@ use engine::{
     transform::{Transform, Transforms},
     Component, LazyMaker,
 };
-use glm::{Mat4, Vec3};
+use glm::{cross, normalize, vec3, vec4, Mat4, Vec3, Vec4};
 use model::{Normal, Vertex};
 use rust_test::{INDICES, NORMALS, VERTICES};
 
@@ -21,7 +21,7 @@ use std::{
 
 // use rand::prelude::*;
 use rapier3d::{
-    na::{Matrix4, Point3, Vector3},
+    na::{Matrix4, Point3, Quaternion, Vector3},
     prelude::*,
 };
 use rayon::prelude::*;
@@ -132,11 +132,14 @@ use vulkano::{
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
-    event::{Event, WindowEvent},
+    event::{
+        DeviceEvent, ElementState, Event, KeyboardInput, ModifiersState, VirtualKeyCode,
+        WindowEvent,
+    },
     event_loop::{ControlFlow, EventLoop},
+    platform::unix::x11::{ffi::Cursor, util::NormalHints},
     window::{Window, WindowBuilder},
 };
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 struct ModelMat {
@@ -339,22 +342,195 @@ fn main() {
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
     let rotation_start = Instant::now();
 
+    let mut modifiers = ModifiersState::default();
+
+    let mut cam_pos = glm::vec3(0.0 as f32, 0.0, 5.0);
+    let mut cam_rot = glm::quat(1.0, 0.0, 0.0, 0.0);
+
+    let mut key_downs = HashMap::<VirtualKeyCode, bool>::new();
+
     event_loop.run(move |event, _, control_flow| {
         match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                *control_flow = ControlFlow::Exit;
-            }
-            Event::WindowEvent {
-                event: WindowEvent::Resized(_),
-                ..
-            } => {
-                recreate_swapchain = true;
-            }
+            Event::DeviceEvent { event, .. } => match event {
+                DeviceEvent::MouseMotion { delta } => {
+                    // println!("mouse moved: {:?}", delta);
+
+                    let rot = glm::inverse(&glm::quat_to_mat3(&cam_rot));
+
+                    cam_rot = glm::quat_rotate(&cam_rot, delta.0 as f32 * 0.01, &(rot * Vec3::y())); // left/right
+                    cam_rot = glm::quat_rotate(&cam_rot, delta.1 as f32 * -0.01, &(rot * Vec3::x())); // up/down
+
+                    // cam_rot = glm::to_quat(
+                    //     &(glm::quat_to_mat4(&cam_rot)
+                    //         * Mat4::from_scaled_axis(Vec3::y() * delta.0 as f32 * -0.01)),
+                    // );
+                    // cam_rot = glm::to_quat(
+                    //     &(glm::quat_to_mat4(&cam_rot)
+                    //         * Mat4::from_scaled_axis(Vec3::x() * delta.1 as f32 * 0.01)),
+                    // );
+                    let target = glm::quat_to_mat3(&cam_rot) * vec3(0.0, 0.0, 1.0);
+                    
+                    cam_rot = glm::quat_look_at_lh(
+                        // &eye
+                        &target,
+                        &-vec3(0.0, 1.0, 0.0),
+                    );
+
+                    // let target = glm::quat_to_mat3(&cam_rot) * vec3(0.0, 0.0, 1.0);
+                    // cam_rot = glm::quat_look_at_lh(
+                    //     // &eye
+                    //     &target,
+                    //     &vec3(0.0, 1.0, 0.0),
+                    // );
+                    // let forward = target;
+                    // let right = normalize(&cross(&Vec3::y(),&forward));
+                    // let up = normalize(&cross(&forward,&right));
+
+                    // let m00 = right.x;
+                    // let m01 = up.x;
+                    // let m02 = forward.x;
+                    // let m10 = right.x;
+                    // let m11 = up.x;
+                    // let m12 = forward.x;
+                    // let m20 = right.x;
+                    // let m21 = up.x;
+                    // let m22 = forward.x;
+
+                    // // let ret = glm::quat(0.0 as f32,0.0,0.0,0.0);
+
+                    // let w = (1.0f32 + m00 + m11 + m22).sqrt() * 0.5f32;
+                    // let w4_recip = 1.0f32 / (4.0f32 * w);
+                    // let x = (m21 - m12) * w4_recip;
+                    // let y = (m02 - m20) * w4_recip;
+                    // let z = (m10 - m01) * w4_recip;
+
+                    // cam_rot = glm::quat(w,x,y,z);
+
+                    // cam_rot = glm::to_quat(&Matrix4::look_at_rh(
+                    //     &Point3::new(0.0 as f32, 0.0, 0.0),
+                    //     &(glm::quat_to_mat4(&cam_rot) * glm::vec4(0.0 as f32, 0.0, 1.0, 1.0)).xyz()
+                    //         .into(),
+                    //     &Vector3::new(0.0, -1.0, 0.0),
+                    // ));
+
+                    // cam_rot = glm::quat_rotate(
+                    //     &cam_rot,
+                    //     delta.0 as f32 * 0.01,
+                    //     &(glm::quat_to_mat3(&cam_rot) * vec3(0.0, 1.0, 0.0)),
+                    // ); // left/right
+                    // cam_rot = glm::quat_rotate(
+                    //     &cam_rot,
+                    //     delta.1 as f32 * 0.01,
+                    //     &(glm::quat_to_mat3(&cam_rot) * vec3(1.0, 0.0, 0.0)),
+                    // ); // up/down
+                }
+                DeviceEvent::Button { button, state } => match state {
+                    ElementState::Pressed => println!("mouse button {} pressed", button),
+                    ElementState::Released => println!("mouse button {} released", button),
+                },
+                _ => (),
+            },
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            state: ElementState::Released,
+                            virtual_keycode: Some(key),
+                            ..
+                        },
+                    ..
+                } => {
+                    use winit::event::VirtualKeyCode::*;
+                    let result = match key {
+                        Escape => {
+                            *control_flow = ControlFlow::Exit;
+                            Ok(())
+                        }
+                        G => surface.window().set_cursor_grab(true),
+                        L => surface.window().set_cursor_grab(false),
+                        // A => surface.window().set_cursor_grab(),
+                        H => {
+                            surface.window().set_cursor_visible(modifiers.shift());
+                            Ok(())
+                        }
+                        _ => {
+                            key_downs.insert(key.clone(), false);
+                            Ok(())
+                        }
+                    };
+
+                    if let Err(err) = result {
+                        println!("error: {}", err);
+                    }
+                }
+                WindowEvent::Resized(_) => {
+                    recreate_swapchain = true;
+                }
+                WindowEvent::ModifiersChanged(m) => modifiers = m,
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            state: ElementState::Pressed,
+                            virtual_keycode: Some(key),
+                            ..
+                        },
+                    ..
+                } => {
+                    let _ = match key {
+                        _ => {
+                            key_downs.insert(key.clone(), true);
+                        }
+                    };
+                }
+                _ => (),
+            },
+
+            // Event::WindowEvent {
+            //     event: WindowEvent::Resized(_),
+            //     ..
+            // } => {
+            //     recreate_swapchain = true;
+            // }
             Event::RedrawEventsCleared => {
                 ////////////////////////////////////
+                
+                let speed = 0.05;
+                let rot = glm::inverse(&glm::quat_to_mat3(&cam_rot));
+                // forward/backward
+                if *key_downs.get(&VirtualKeyCode::W).unwrap_or(&false) {
+                    cam_pos += rot * vec3(0.0, 0.0, 1.0) * speed;
+                }
+                if *key_downs.get(&VirtualKeyCode::S).unwrap_or(&false) {
+                    cam_pos += rot * vec3(0.0, 0.0, -1.0) * speed;
+                }
+                //left/right
+                if *key_downs.get(&VirtualKeyCode::A).unwrap_or(&false) {
+                    cam_pos += rot * vec3(1.0, 0.0, 0.0) * speed;
+                }
+                if *key_downs.get(&VirtualKeyCode::D).unwrap_or(&false) {
+                    cam_pos += rot * vec3(-1.0, 0.0, 0.0) * speed;
+                }
+                // up/down
+                if *key_downs.get(&VirtualKeyCode::Space).unwrap_or(&false) {
+                    cam_pos += rot * vec3(0.0, 1.0, 0.0) * speed;
+                }
+                if *key_downs.get(&VirtualKeyCode::LShift).unwrap_or(&false) {
+                    cam_pos += rot * vec3(0.0, -1.0, 0.0) * speed;
+                }
+                // roll
+                if *key_downs.get(&VirtualKeyCode::Q).unwrap_or(&false) {
+                    cam_rot = glm::quat_rotate(&cam_rot, 0.03, &(rot * Vec3::z()));
+                    // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0))
+                    //     .xyz()
+                    //     * 0.01
+                }
+                if *key_downs.get(&VirtualKeyCode::E).unwrap_or(&false) {
+                    cam_rot = glm::quat_rotate(&cam_rot, -0.03, &(rot * Vec3::z()));
+                    // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, -1.0, 0.0, 1.0))
+                    //     .xyz()
+                    //     * 0.01
+                }
 
                 physics.step(&gravity);
                 world.update(&physics, &lazy_maker);
@@ -362,18 +538,24 @@ fn main() {
                 lazy_maker.init(&mut world);
 
                 // let x = world.transforms.write().positions[10].lock().clone();
-                let models: Vec<ModelMat> = world
-                    .transforms
-                    .write()
-                    .positions
-                    .iter()
-                    // .filter(|p| {
-                    //     p.lock().z < -10.0
-                    // })
-                    .map(|p| ModelMat {
-                        model: Mat4::new_translation(&p.lock()).into(),
-                    })
-                    .collect();
+                // let mut models: Vec<ModelMat> = world
+                //     .transforms
+                //     .write()
+                //     .positions
+                //     .iter()
+                //     // .filter(|p| {
+                //     //     p.lock().z < -10.0
+                //     // })
+                //     .map(|p| ModelMat {
+                //         model: Mat4::new_translation(&p.lock()).into(),
+                //     })
+                //     .collect();
+                
+                let target = rot * vec3(0.0, 0.0, 1.0);
+                // glm::scale(&Mat4::identity(), &Vector3::new(0.05 as f32, 0.05, 0.1)) * glm::quat_to_mat4(&cam_rot) *
+                let models: Vec<ModelMat> = vec![ModelMat {
+                    model: ( glm::scale(&Mat4::identity(), &Vector3::new(0.5 as f32, 0.5, 0.5)) * glm::inverse(&glm::quat_to_mat4(&cam_rot)) * Mat4::new_translation(&(target))).into(),
+                }];
 
                 // let models = Mat4::new_translation(&x);
                 let instance_buffer = CpuAccessibleBuffer::from_iter(
@@ -436,11 +618,22 @@ fn main() {
                         0.01,
                         100.0,
                     );
-                    let view = Matrix4::look_at_rh(
-                        &Point3::new(0.3 as f32, 0.3, 1.0),
-                        &Point3::new(0.0, 0.0, 0.0),
-                        &Vector3::new(0.0, -1.0, 0.0),
-                    );
+                    // let view = glm::quat_to_mat4(&cam_rot) * glm::Mat4::new_translation(&cam_pos);
+                    // let view = Matrix4::look_at_rh(
+                    //     &cam_pos.into(),
+                    //     &(cam_pos
+                    //         + (glm::quat_to_mat3(&cam_rot) * glm::vec3(0.0 as f32, 0.0, 1.0))
+                    //             .xyz())
+                    //     .into(),
+                    //     &(glm::quat_to_mat3(&cam_rot) * Vector3::new(0.0, 1.0, 0.0)),
+                    // );
+
+                    // let eye = cam_pos; //Vec3::new(self.position.x,self.position.y,self.position.z);
+                    let target = glm::quat_to_mat3(&cam_rot) * Vec3::z();
+                    let up = glm::quat_to_mat3(&cam_rot) * Vec3::y();
+                    let view = glm::inverse(&glm::look_at_lh(&vec3(0.0, 0.0, 0.0), &target, &up));
+                    let view = view * glm::Mat4::new_translation(&cam_pos);
+
                     let scale = glm::scale(&Mat4::identity(), &Vector3::new(0.1 as f32, 0.1, 0.1));
 
                     let uniform_data = vs::ty::Data {
@@ -540,136 +733,6 @@ fn main() {
             _ => (),
         }
     });
-
-    // event_loop.run(move |event, _, control_flow| {
-    //     match event {
-    //         Event::WindowEvent {
-    //             event: WindowEvent::CloseRequested,
-    //             ..
-    //         } => {
-    //             *control_flow = ControlFlow::Exit;
-    //         }
-    //         Event::WindowEvent {
-    //             event: WindowEvent::Resized(_),
-    //             ..
-    //         } => {
-    //             recreate_swapchain = true;
-    //         }
-    //         Event::RedrawEventsCleared => {
-
-    //             ////////////////////////////////////
-    //             ///
-    //             physics.step(&gravity);
-    //             world.update(&physics, &lazy_maker);
-
-    //             lazy_maker.init(&mut world);
-
-    //             ////////////////////////////////////
-
-    //             let dimensions = surface.window().inner_size();
-    //             if dimensions.width == 0 || dimensions.height == 0 {
-    //                 return;
-    //             }
-    //             previous_frame_end.as_mut().unwrap().cleanup_finished();
-    //             if recreate_swapchain {
-    //                 let (new_swapchain, new_images) =
-    //                     match swapchain.recreate(SwapchainCreateInfo {
-    //                         image_extent: dimensions.into(),
-    //                         ..swapchain.create_info()
-    //                     }) {
-    //                         Ok(r) => r,
-    //                         Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
-    //                         Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-    //                     };
-
-    //                 swapchain = new_swapchain;
-    //                 framebuffers = window_size_dependent_setup(
-    //                     &new_images,
-    //                     render_pass.clone(),
-    //                     &mut viewport,
-    //                 );
-    //                 recreate_swapchain = false;
-    //             }
-
-    //             // after which the function call will return an error.
-    //             let (image_num, suboptimal, acquire_future) =
-    //                 match acquire_next_image(swapchain.clone(), None) {
-    //                     Ok(r) => r,
-    //                     Err(AcquireError::OutOfDate) => {
-    //                         recreate_swapchain = true;
-    //                         return;
-    //                     }
-    //                     Err(e) => panic!("Failed to acquire next image: {:?}", e),
-    //                 };
-
-    //             if suboptimal {
-    //                 recreate_swapchain = true;
-    //             }
-    //             let mut builder = AutoCommandBufferBuilder::primary(
-    //                 device.clone(),
-    //                 queue.family(),
-    //                 CommandBufferUsage::OneTimeSubmit,
-    //             )
-    //             .unwrap();
-
-    //             builder
-    //                 // Before we can draw, we have to *enter a render pass*.
-    //                 .begin_render_pass(
-    //                     framebuffers[image_num].clone(),
-    //                     SubpassContents::Inline,
-    //                     vec![[0.0, 0.0, 0.0, 1.0].into()], // clear color
-    //                 )
-    //                 .unwrap()
-    //                 .set_viewport(0, [viewport.clone()])
-    //                 .bind_pipeline_graphics(pipeline.clone())
-    //                 .bind_vertex_buffers(0, vertex_buffer.clone())
-    //                 .draw(vertex_buffer.len() as u32, 1, 0, 0)
-    //                 .unwrap()
-    //                 .end_render_pass()
-    //                 .unwrap();
-
-    //             // Finish building the command buffer by calling `build`.
-    //             let command_buffer = builder.build().unwrap();
-
-    //             let future = previous_frame_end
-    //                 .take()
-    //                 .unwrap()
-    //                 .join(acquire_future)
-    //                 .then_execute(queue.clone(), command_buffer)
-    //                 .unwrap()
-    //                 .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
-    //                 .then_signal_fence_and_flush();
-
-    //             match future {
-    //                 Ok(future) => {
-    //                     previous_frame_end = Some(future.boxed());
-    //                 }
-    //                 Err(FlushError::OutOfDate) => {
-    //                     recreate_swapchain = true;
-    //                     previous_frame_end = Some(sync::now(device.clone()).boxed());
-    //                 }
-    //                 Err(e) => {
-    //                     println!("Failed to flush future: {:?}", e);
-    //                     previous_frame_end = Some(sync::now(device.clone()).boxed());
-    //                 }
-    //             }
-    //         }
-    //         _ => (),
-    //     }
-    // });
-
-    // use std::time::Instant;
-    // let now = Instant::now();
-    // for _ in 0..4000 {
-
-    //     physics.step(&gravity);
-    //     world.update(&physics, &lazy_maker);
-
-    //     lazy_maker.init(&mut world);
-    // }
-    // // println!("{:?}", vals);
-    // let elapsed = now.elapsed() / 4000;
-    // println!("Elapsed: {:.2?}", elapsed);
 }
 
 /// This method is called once during initialization, then again whenever the window is resized

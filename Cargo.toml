@@ -33,7 +33,7 @@ winit = "*"
 vulkano-win = "*"
 
 bytemuck = { version = "*", features = ["derive", "extern_crate_std", "min_const_generics"] }
-cgmath = "*"
+# cgmath = "*"
 png = "*"
 serde = { version = "*", features = ["derive"] }
 ron = "*"
