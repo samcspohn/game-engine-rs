@@ -16,7 +16,7 @@
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator, IntoParallelIterator,
 };
 // use rendering::App;
 // use thiserror::Error;
@@ -335,27 +335,27 @@ fn game_thread_fn(
         physics.step(&gravity);
         world.update(&physics, &lazy_maker);
 
-        const alot: f32 = 10_000_000. / 60.;
+        const ALOT: f32 = 10_000_000. / 60.;
 
         if input.get_mouse_button(&1) {
             let _cam_rot = cam_rot.clone();
             let _cam_pos = cam_pos.clone();
             lazy_maker.append(move |world| {
-                for _ in 0..(alot / 60.) as usize {
-                    let g = world.instantiate();
-                    world.add_component(
-                        g,
-                        Bomb {
-                            t: Transform(-1),
-                            vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
-                                + glm::vec3(rand::random(), rand::random(), rand::random()) * 18.,
-                        },
-                    );
-                    world
-                        .transforms
-                        .read()
-                        .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
-                }
+               (0..(ALOT / 60.) as usize).into_iter().for_each(|_| {
+                let g = world.instantiate();
+                world.add_component(
+                    g,
+                    Bomb {
+                        t: Transform(-1),
+                        vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                            + glm::vec3(rand::random(), rand::random(), rand::random()) * 18.,
+                    },
+                );
+                world
+                    .transforms
+                    .read()
+                    .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
+               });
             });
         }
 

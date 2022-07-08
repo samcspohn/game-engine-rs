@@ -174,12 +174,12 @@ impl World {
             .push(Some(RwLock::new(HashMap::new())));
         ret
     }
-    pub fn add_component<T: 'static + Component>(&mut self, g: GameObject, mut d: T) {
+    pub fn add_component<T: 'static + Component>(&self, g: GameObject, mut d: T) {
         d.init(g.t);
         let key: TypeId = TypeId::of::<T>();
         if let Some(stor) = self
             .components
-            .get_mut(&key)
+            .get(&key)
             .unwrap()
             .write()
             .as_any_mut()
