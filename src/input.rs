@@ -11,6 +11,7 @@ pub struct Input {
     pub key_ups: HashMap<VirtualKeyCode, bool>,
     pub mouse_x: f64,
     pub mouse_y: f64,
+    pub mouse_buttons: HashMap<u32, bool>,
 }
 
 impl Input {
@@ -26,5 +27,8 @@ impl Input {
     }
     pub fn get_mouse_delta(&self,) -> (f64,f64) {
         (self.mouse_x,self.mouse_y)
+    }
+    pub fn get_mouse_button(&self, id: &u32) -> bool{
+        *self.mouse_buttons.get(id).unwrap_or(&false)
     }
 }

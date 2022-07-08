@@ -150,14 +150,14 @@ impl Component for Bomb {
         if let Some((_handle, _hit)) = sys.0.query_pipeline.cast_ray_and_get_normal(
             &&sys.0.collider_set,
             &ray,
-            1.0 / 100.0,
+            1.0 / 60.0,
             false,
             InteractionGroups::all(),
             None,
         ) {
             self.vel = glm::reflect_vec(&vel, &&_hit.normal);
         }
-        trans._move(self.t, self.vel * (1.0 / 100.0));
+        trans._move(self.t, self.vel * (1.0 / 60.0));
         self.vel += glm::vec3(0.0, -9.81, 0.0) * 1.0 / 100.0;
 
         // *pos += vel * (1.0 / 60.0);
@@ -231,7 +231,7 @@ fn game_thread_fn(
     let _root = world.instantiate();
 
     // use rand::Rng;
-    for _ in 0..1_000_000 {
+    for _ in 0..1_000 {
         // bombs
         let g = world.instantiate();
         world.add_component(
@@ -334,6 +334,30 @@ fn game_thread_fn(
         let inst = Instant::now();
         physics.step(&gravity);
         world.update(&physics, &lazy_maker);
+
+        const alot: f32 = 10_000_000. / 60.;
+
+        if input.get_mouse_button(&1) {
+            let _cam_rot = cam_rot.clone();
+            let _cam_pos = cam_pos.clone();
+            lazy_maker.append(move |world| {
+                for _ in 0..(alot / 60.) as usize {
+                    let g = world.instantiate();
+                    world.add_component(
+                        g,
+                        Bomb {
+                            t: Transform(-1),
+                            vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                                + glm::vec3(rand::random(), rand::random(), rand::random()) * 18.,
+                        },
+                    );
+                    world
+                        .transforms
+                        .read()
+                        .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
+                }
+            });
+        }
 
         lazy_maker.init(&mut world);
 
@@ -498,7 +522,7 @@ fn main() {
                     .iter()
                     .next()
                     .unwrap(),
-                present_mode: vulkano::swapchain::PresentMode::Immediate,
+                present_mode: vulkano::swapchain::PresentMode::Fifo,
                 ..Default::default()
             },
         )
@@ -549,8 +573,6 @@ fn main() {
     let mut modifiers = ModifiersState::default();
 
     //////////////////////////////////////////////////
-
-
 
     let mut input = Input {
         ..Default::default()
@@ -608,8 +630,14 @@ fn main() {
                     // println!("mouse moved: {:?}", delta);
                 }
                 DeviceEvent::Button { button, state } => match state {
-                    ElementState::Pressed => println!("mouse button {} pressed", button),
-                    ElementState::Released => println!("mouse button {} released", button),
+                    ElementState::Pressed => {
+                        println!("mouse button {} pressed", button);
+                        input.mouse_buttons.insert(button, true);
+                    }
+                    ElementState::Released => {
+                        println!("mouse button {} released", button);
+                        input.mouse_buttons.insert(button, false);
+                    }
                 },
                 _ => (),
             },
@@ -720,7 +748,7 @@ fn main() {
                 let res = coms.1.send(input.clone());
                 // println!("input sent");
                 if res.is_err() {
-                    return ;
+                    return;
                     // println!("ohno");
                 }
 
@@ -731,7 +759,6 @@ fn main() {
 
                 loops += 1;
 
-                
                 let inst = Instant::now();
                 let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
                 let cube_instance_buffer = fast_buffer(device.clone(), &cube_models);
@@ -745,7 +772,7 @@ fn main() {
                 if dimensions.width == 0 || dimensions.height == 0 {
                     return;
                 }
-                
+
                 let inst2 = Instant::now();
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
 
@@ -857,9 +884,8 @@ fn main() {
                     .unwrap()
                     .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
                     .then_signal_fence_and_flush();
-                
+
                 update_perf("previous frame end future".into(), Instant::now() - inst2);
-                
 
                 match future {
                     Ok(future) => {
