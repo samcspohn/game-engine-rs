@@ -8,7 +8,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug",
-            "program": "${workspaceFolder}/target/debug/rust-test",
+            "program": "${workspaceFolder}/target/release/game-engine-rs",
             "args": [],
             "cwd": "${workspaceFolder}"
         }

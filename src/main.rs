@@ -1,3 +1,99 @@
+// use std::collections::{HashMap, HashSet};
+// use std::ffi::CStr;
+// use std::fs::File;
+// use std::hash::{Hash, Hasher};
+// use std::io::BufReader;
+// use std::mem::size_of;
+// use std::os::raw::c_void;
+// use std::ptr::copy_nonoverlapping as memcpy;
+// use std::{
+//     sync::Arc,
+//     time::{Duration, Instant},
+// };
+
+// use anyhow::{anyhow, Result};
+// use log::*;
+use nalgebra_glm as glm;
+use parking_lot::Mutex;
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
+// use rendering::App;
+// use thiserror::Error;
+// use vulkanalia::loader::{LibloadingLoader, LIBRARY};
+// use vulkanalia::prelude::v1_0::*;
+// use vulkanalia::window as vk_window;
+// use winit::dpi::LogicalSize;
+// use winit::event::{Event, WindowEvent};
+// use winit::event_loop::{ControlFlow, EventLoop};
+// use winit::window::{Window, WindowBuilder};
+
+// use vulkanalia::vk::ExtDebugUtilsExtension;
+// use vulkanalia::vk::KhrSurfaceExtension;
+// use vulkanalia::vk::KhrSwapchainExtension;
+
+// /// Whether the validation layers should be enabled.
+// const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
+// /// The name of the validation layers.
+// const VALIDATION_LAYER: vk::ExtensionName =
+//     vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
+
+// /// The required device extensions.
+// const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
+
+// /// The maximum number of frames that can be processed concurrently.
+// const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
+// use winit::event::{DeviceEvent, ElementState, KeyboardInput, ModifiersState, VirtualKeyCode};
+
+use std::{
+    collections::HashMap,
+    ptr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::{self, Thread},
+    time::{Duration, Instant},
+};
+use vulkano::{
+    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, TypedBufferAccess},
+    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    device::{
+        physical::{PhysicalDevice, PhysicalDeviceType},
+        Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo,
+    },
+    format::Format,
+    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
+    instance::{Instance, InstanceCreateInfo},
+    pipeline::{
+        graphics::{
+            depth_stencil::DepthStencilState,
+            input_assembly::InputAssemblyState,
+            vertex_input::BuffersDefinition,
+            viewport::{Viewport, ViewportState},
+        },
+        GraphicsPipeline, Pipeline, PipelineBindPoint,
+    },
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
+    shader::ShaderModule,
+    swapchain::{
+        acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
+    },
+    sync::{self, FlushError, GpuFuture},
+    DeviceSize,
+};
+use vulkano_win::VkSurfaceBuild;
+use winit::{
+    event::{
+        DeviceEvent, ElementState, Event, KeyboardInput, ModifiersState, VirtualKeyCode,
+        WindowEvent,
+    },
+    event_loop::{ControlFlow, EventLoop},
+    window::{Window, WindowBuilder},
+};
+
 use bytemuck::{Pod, Zeroable};
 use component_derive::component;
 use engine::{
@@ -6,32 +102,34 @@ use engine::{
     Component, LazyMaker,
 };
 use glm::{cross, normalize, vec3, vec4, Mat4, Vec3, Vec4};
-use model::{Normal, Vertex};
-use rust_test::{INDICES, NORMALS, VERTICES};
+
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+// use rust_test::{INDICES, NORMALS, VERTICES};
 
 mod engine;
+mod input;
+mod model;
+mod renderer;
+// mod rendering;
 // use transform::{Transform, Transforms};
 
-use std::{
-    any::{Any, TypeId},
-    cmp::Reverse,
-    collections::{BinaryHeap, HashMap},
-    env,
-};
+use std::env;
 
 // use rand::prelude::*;
-use rapier3d::{
-    na::{Matrix4, Point3, Quaternion, Vector3},
-    prelude::*,
+use rapier3d::prelude::*;
+
+use crate::{
+    engine::{physics::Physics, World},
+    input::Input,
+    model::Mesh,
+    renderer::{ModelMat, RenderPipeline},
+    // renderer::RenderPipeline,
+    terrain::Terrain,
 };
-use rayon::prelude::*;
+use model::{Normal, Vertex};
 
-use crossbeam::queue::SegQueue;
-use nalgebra_glm as glm;
-use parking_lot::{Mutex, RwLock};
-
-use crate::engine::{physics::Physics, World};
-mod model;
+mod terrain;
 
 #[component]
 struct Bomb {
@@ -57,16 +155,7 @@ impl Component for Bomb {
             InteractionGroups::all(),
             None,
         ) {
-            // let hit_point = ray.point_at(hit.toi); // Same as: `ray.origin + ray.dir * toi`
-            // let hit_normal = hit.normal;
-            // let v = nalgebra_glm::vec3(vel.x,vel.y,vel.z);
-            self.vel = nalgebra_glm::reflect_vec(&vel, &&_hit.normal);
-            // let v = v * x;
-            // pos.x = hit_point.x;
-            // pos.y = hit_point.y;
-            // pos.z = hit_point.z;
-
-            // self.vel.y = if vel.y > 0.0 {vel.y} else {-vel.y};
+            self.vel = glm::reflect_vec(&vel, &&_hit.normal);
         }
         trans._move(self.t, self.vel * (1.0 / 100.0));
         self.vel += glm::vec3(0.0, -9.81, 0.0) * 1.0 / 100.0;
@@ -99,62 +188,26 @@ impl Component for Maker {
     }
 }
 
-use std::{sync::Arc, time::Instant};
-use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, TypedBufferAccess},
-    command_buffer::{
-        sys::RenderPassBeginInfo, AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents,
-    },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    device::{
-        physical::{PhysicalDevice, PhysicalDeviceType},
-        Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo,
-    },
-    format::Format,
-    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
-    impl_vertex,
-    instance::{Instance, InstanceCreateInfo},
-    pipeline::{
-        graphics::{
-            depth_stencil::DepthStencilState,
-            input_assembly::InputAssemblyState,
-            vertex_input::BuffersDefinition,
-            viewport::{Viewport, ViewportState},
-        },
-        GraphicsPipeline, Pipeline, PipelineBindPoint,
-    },
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    shader::ShaderModule,
-    swapchain::{
-        acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
-    },
-    sync::{self, FlushError, GpuFuture},
-};
-use vulkano_win::VkSurfaceBuild;
-use winit::{
-    event::{
-        DeviceEvent, ElementState, Event, KeyboardInput, ModifiersState, VirtualKeyCode,
-        WindowEvent,
-    },
-    event_loop::{ControlFlow, EventLoop},
-    platform::unix::x11::{ffi::Cursor, util::NormalHints},
-    window::{Window, WindowBuilder},
-};
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-struct ModelMat {
-    model: [[f32; 4]; 4],
-}
-impl_vertex!(ModelMat, model);
-
-fn main() {
-    env::set_var("RUST_BACKTRACE", "1");
-
+fn game_thread_fn(
+    device: Arc<Device>,
+    coms: (
+        Sender<(
+            Arc<Vec<ModelMat>>,
+            Arc<Vec<ModelMat>>,
+            glm::Vec3,
+            glm::Quat,
+            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
+        )>,
+        Receiver<Input>,
+        Sender<Terrain>,
+    ),
+    running: Arc<AtomicBool>,
+) {
     let mut physics = Physics::new();
 
     /* Create the ground. */
-    let collider = ColliderBuilder::cuboid(100.0, 0.1, 100.0).build();
-    physics.collider_set.insert(collider);
+    // let collider = ColliderBuilder::cuboid(100.0, 0.1, 100.0).build();
+    // physics.collider_set.insert(collider);
 
     /* Create the bounding ball. */
     let rigid_body = RigidBodyBuilder::dynamic()
@@ -177,7 +230,8 @@ fn main() {
 
     let _root = world.instantiate();
 
-    for _ in 0..1_000 {
+    // use rand::Rng;
+    for _ in 0..1_000_000 {
         // bombs
         let g = world.instantiate();
         world.add_component(
@@ -191,10 +245,14 @@ fn main() {
                 ) * 5.0,
             },
         );
-        world
-            .transforms
-            .read()
-            ._move(g.t, glm::vec3(0.0, 10.0, 0.0));
+        world.transforms.read()._move(
+            g.t,
+            glm::vec3(
+                rand::random::<f32>() * 100. - 50.,
+                100.0,
+                rand::random::<f32>() * 100. - 50.,
+            ),
+        );
     }
     // {
     //     // maker
@@ -203,7 +261,167 @@ fn main() {
     // }
     let lazy_maker = LazyMaker::new();
 
+    let mut ter = Terrain {
+        chunks: HashMap::new(),
+        device: device.clone(),
+        terrain_size: 33,
+    };
+    ter.generate(&mut physics.collider_set);
+
+    let res = coms.2.send(ter.clone());
+    if res.is_err() {
+        // println!("ohno");
+    }
+
+    ////////////////////////////////////////////////
+    let mut cam_pos = glm::vec3(0.0 as f32, 0.0, -1.0);
+    let mut cam_rot = glm::quat(1.0, 0.0, 0.0, 0.0);
+
+    // let mut input = Input {
+    //     ..Default::default()
+    // };
+
+    let mut perf = HashMap::<String, Duration>::new();
+
+    let mut update_perf = |k: String, v: Duration| {
+        if let Some(dur) = perf.get_mut(&k) {
+            *dur += v;
+        } else {
+            perf.insert(k, v);
+        }
+    };
+    let mut loops = 0;
+    while running.load(Ordering::SeqCst) {
+        loops += 1;
+        // println!("waiting for input");
+        let input = coms.1.recv().unwrap();
+        // println!("input recvd");
+
+        let speed = 0.3;
+        // forward/backward
+        if input.get_key(&VirtualKeyCode::W) {
+            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
+        }
+        if input.get_key(&VirtualKeyCode::S) {
+            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
+        }
+        //left/right
+        if input.get_key(&VirtualKeyCode::A) {
+            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
+        }
+        if input.get_key(&VirtualKeyCode::D) {
+            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
+        }
+        // up/down
+        if input.get_key(&VirtualKeyCode::Space) {
+            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
+        }
+        if input.get_key(&VirtualKeyCode::LShift) {
+            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
+        }
+
+        cam_rot = glm::quat_rotate(
+            &cam_rot,
+            input.get_mouse_delta().0 as f32 * 0.01,
+            &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
+        );
+        cam_rot = glm::quat_rotate(
+            &cam_rot,
+            input.get_mouse_delta().1 as f32 * 0.01,
+            &Vec3::x(),
+        );
+
+        let inst = Instant::now();
+        physics.step(&gravity);
+        world.update(&physics, &lazy_maker);
+
+        lazy_maker.init(&mut world);
+
+        update_perf("world".into(), Instant::now() - inst);
+
+        // dur += Instant::now() - inst;
+
+        let inst = Instant::now();
+
+        let positions = &world.transforms.read().positions;
+
+        let mut cube_models: Vec<ModelMat> = Vec::with_capacity(positions.len());
+
+        // cube_models.reserve(positions.len());
+        unsafe {
+            cube_models.set_len(positions.len());
+        }
+        let p_iter = positions.par_iter();
+        let m_iter = cube_models.par_iter_mut();
+
+        p_iter.zip_eq(m_iter).chunks(64 * 64).for_each(|slice| {
+            for (x, y) in slice {
+                let x = x.lock();
+                *y = ModelMat {
+                    pos: [x.x, x.y, x.z],
+                };
+            }
+        });
+
+        update_perf("get cube models".into(), Instant::now() - inst);
+        let terrain_models: Vec<ModelMat> = vec![ModelMat {
+            pos: glm::vec3(0., 0., 0.).into(),
+        }];
+        let terrain_models = Arc::new(terrain_models);
+        let cube_models = Arc::new(cube_models);
+        // let terr_chunks = Arc::new(&ter.chunks);
+        // println!("sending models");
+        let res = coms.0.send((
+            terrain_models.clone(),
+            cube_models.clone(),
+            cam_pos.clone(),
+            cam_rot.clone(),
+            // terr_chunks,
+        ));
+        if res.is_err() {
+            // println!("ohno");
+        }
+    }
+    let p = perf.iter();
+    for (k, x) in p {
+        println!("{}: {:?}", k, (*x / loops));
+    }
+}
+
+fn fast_buffer(device: Arc<Device>, data: &Vec<ModelMat>) -> Arc<CpuAccessibleBuffer<[ModelMat]>> {
+    unsafe {
+        // let inst = Instant::now();
+        let uninitialized = CpuAccessibleBuffer::<[ModelMat]>::uninitialized_array(
+            device.clone(),
+            data.len() as DeviceSize,
+            BufferUsage::all(),
+            false,
+        )
+        .unwrap();
+        {
+            let mut mapping = uninitialized.write().unwrap();
+            let mo_iter = data.iter();
+            let m_iter = mapping.iter_mut();
+
+            // let inst = Instant::now();
+            mo_iter.zip(m_iter).for_each(|(i, o)| {
+                // for (i, o) in slice {
+                ptr::write(o, *i);
+                // }
+            });
+            // update_perf("write to buffer".into(), Instant::now() - inst);
+        }
+        uninitialized
+    }
+}
+
+fn main() {
+    env::set_var("RUST_BACKTRACE", "1");
+    // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
+
     /////////////////////////////////////////////////
+
+    let event_loop = EventLoop::new();
 
     let required_extensions = vulkano_win::required_extensions();
     let instance = Instance::new(InstanceCreateInfo {
@@ -212,7 +430,6 @@ fn main() {
     })
     .unwrap();
 
-    let event_loop = EventLoop::new();
     let surface = WindowBuilder::new()
         .build_vk_surface(&event_loop, instance.clone())
         .unwrap();
@@ -272,7 +489,7 @@ fn main() {
             device.clone(),
             surface.clone(),
             SwapchainCreateInfo {
-                min_image_count: surface_capabilities.min_image_count,
+                min_image_count: 4u32,
                 image_format,
                 image_extent: surface.window().inner_size().into(),
                 image_usage: ImageUsage::color_attachment(),
@@ -281,36 +498,17 @@ fn main() {
                     .iter()
                     .next()
                     .unwrap(),
+                present_mode: vulkano::swapchain::PresentMode::Immediate,
                 ..Default::default()
             },
         )
         .unwrap()
     };
 
-    let model = model::load_model();
+    let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone());
 
-    let vertex_buffer =
-        CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, model.vertices)
-            .unwrap();
-    let normals_buffer =
-        CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, model.normals)
-            .unwrap();
-    let index_buffer =
-        CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, model.indeces)
-            .unwrap();
-
-    //     let vertex_buffer =
-    //     CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, VERTICES)
-    //         .unwrap();
-    // let normals_buffer =
-    //     CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, NORMALS).unwrap();
-    // let index_buffer =
-    //     CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, INDICES).unwrap();
-
-    let uniform_buffer = CpuBufferPool::<vs::ty::Data>::new(device.clone(), BufferUsage::all());
-
-    let vs = vs::load(device.clone()).unwrap();
-    let fs = fs::load(device.clone()).unwrap();
+    let uniform_buffer =
+        CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
 
     let render_pass = vulkano::single_pass_renderpass!(
         device.clone(),
@@ -324,7 +522,7 @@ fn main() {
             depth: {
                 load: Clear,
                 store: DontCare,
-                format: Format::D16_UNORM,
+                format: Format::D32_SFLOAT,
                 samples: 1,
             }
         },
@@ -335,94 +533,79 @@ fn main() {
     )
     .unwrap();
 
-    let (mut pipeline, mut framebuffers) =
-        window_size_dependent_setup(device.clone(), &vs, &fs, &images, render_pass.clone());
+    let mut framebuffers =
+        window_size_dependent_setup(device.clone(), &images, render_pass.clone());
+
+    let mut rend = RenderPipeline::new(
+        device.clone(),
+        render_pass.clone(),
+        images[0].dimensions().width_height(),
+    );
     let mut recreate_swapchain = false;
 
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
-    let rotation_start = Instant::now();
+    // let rotation_start = Instant::now();
 
     let mut modifiers = ModifiersState::default();
 
-    let mut cam_pos = glm::vec3(0.0 as f32, 0.0, 5.0);
-    let mut cam_rot = glm::quat(1.0, 0.0, 0.0, 0.0);
+    //////////////////////////////////////////////////
 
-    let mut key_downs = HashMap::<VirtualKeyCode, bool>::new();
+
+
+    let mut input = Input {
+        ..Default::default()
+    };
+
+    let mut perf = HashMap::<String, Duration>::new();
+
+    let (tx, rx): (Sender<Input>, Receiver<Input>) = mpsc::channel();
+    let (rtx, rrx): (
+        Sender<(
+            Arc<Vec<ModelMat>>,
+            Arc<Vec<ModelMat>>,
+            glm::Vec3,
+            glm::Quat,
+            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
+        )>,
+        Receiver<(
+            Arc<Vec<ModelMat>>,
+            Arc<Vec<ModelMat>>,
+            glm::Vec3,
+            glm::Quat,
+            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
+        )>,
+    ) = mpsc::channel();
+    let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
+    let mut running = Arc::new(AtomicBool::new(true));
+
+    let coms = (rrx, tx);
+
+    let _device = device.clone();
+    let game_thread = {
+        // let _perf = perf.clone();
+        let _running = running.clone();
+        thread::spawn(move || game_thread_fn(_device, (rtx, rx, ttx), _running))
+    };
+    let mut game_thread = vec![game_thread];
+
+    let ter = trx.recv().unwrap();
+    // println!("sending input");
+    let _res = coms.1.send(input.clone());
+
+    let mut loops = 0;
 
     event_loop.run(move |event, _, control_flow| {
+        // let game_thread = game_thread.clone();
+        *control_flow = ControlFlow::Poll;
         match event {
+            // Event::MainEventsCleared if !destroying && !minimized => {
+            //     // unsafe { app.render(&window) }.unwrap()
+            // }
             Event::DeviceEvent { event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => {
+                    input.mouse_x = delta.0;
+                    input.mouse_y = delta.1;
                     // println!("mouse moved: {:?}", delta);
-
-                    let rot = glm::inverse(&glm::quat_to_mat3(&cam_rot));
-
-                    cam_rot = glm::quat_rotate(&cam_rot, delta.0 as f32 * 0.01, &(rot * Vec3::y())); // left/right
-                    cam_rot = glm::quat_rotate(&cam_rot, delta.1 as f32 * -0.01, &(rot * Vec3::x())); // up/down
-
-                    // cam_rot = glm::to_quat(
-                    //     &(glm::quat_to_mat4(&cam_rot)
-                    //         * Mat4::from_scaled_axis(Vec3::y() * delta.0 as f32 * -0.01)),
-                    // );
-                    // cam_rot = glm::to_quat(
-                    //     &(glm::quat_to_mat4(&cam_rot)
-                    //         * Mat4::from_scaled_axis(Vec3::x() * delta.1 as f32 * 0.01)),
-                    // );
-                    let target = glm::quat_to_mat3(&cam_rot) * vec3(0.0, 0.0, 1.0);
-                    
-                    cam_rot = glm::quat_look_at_lh(
-                        // &eye
-                        &target,
-                        &-vec3(0.0, 1.0, 0.0),
-                    );
-
-                    // let target = glm::quat_to_mat3(&cam_rot) * vec3(0.0, 0.0, 1.0);
-                    // cam_rot = glm::quat_look_at_lh(
-                    //     // &eye
-                    //     &target,
-                    //     &vec3(0.0, 1.0, 0.0),
-                    // );
-                    // let forward = target;
-                    // let right = normalize(&cross(&Vec3::y(),&forward));
-                    // let up = normalize(&cross(&forward,&right));
-
-                    // let m00 = right.x;
-                    // let m01 = up.x;
-                    // let m02 = forward.x;
-                    // let m10 = right.x;
-                    // let m11 = up.x;
-                    // let m12 = forward.x;
-                    // let m20 = right.x;
-                    // let m21 = up.x;
-                    // let m22 = forward.x;
-
-                    // // let ret = glm::quat(0.0 as f32,0.0,0.0,0.0);
-
-                    // let w = (1.0f32 + m00 + m11 + m22).sqrt() * 0.5f32;
-                    // let w4_recip = 1.0f32 / (4.0f32 * w);
-                    // let x = (m21 - m12) * w4_recip;
-                    // let y = (m02 - m20) * w4_recip;
-                    // let z = (m10 - m01) * w4_recip;
-
-                    // cam_rot = glm::quat(w,x,y,z);
-
-                    // cam_rot = glm::to_quat(&Matrix4::look_at_rh(
-                    //     &Point3::new(0.0 as f32, 0.0, 0.0),
-                    //     &(glm::quat_to_mat4(&cam_rot) * glm::vec4(0.0 as f32, 0.0, 1.0, 1.0)).xyz()
-                    //         .into(),
-                    //     &Vector3::new(0.0, -1.0, 0.0),
-                    // ));
-
-                    // cam_rot = glm::quat_rotate(
-                    //     &cam_rot,
-                    //     delta.0 as f32 * 0.01,
-                    //     &(glm::quat_to_mat3(&cam_rot) * vec3(0.0, 1.0, 0.0)),
-                    // ); // left/right
-                    // cam_rot = glm::quat_rotate(
-                    //     &cam_rot,
-                    //     delta.1 as f32 * 0.01,
-                    //     &(glm::quat_to_mat3(&cam_rot) * vec3(1.0, 0.0, 0.0)),
-                    // ); // up/down
                 }
                 DeviceEvent::Button { button, state } => match state {
                     ElementState::Pressed => println!("mouse button {} pressed", button),
@@ -431,7 +614,20 @@ fn main() {
                 _ => (),
             },
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                    running.store(false, Ordering::SeqCst);
+                    let game_thread = game_thread.remove(0);
+                    let _res = coms.1.send(input.clone());
+
+                    game_thread.join().unwrap();
+                    // game_thread.join();
+                    // *running.lock() = false;
+                    let p = perf.iter();
+                    for (k, x) in p {
+                        println!("{}: {:?}", k, (*x / loops));
+                    }
+                }
                 WindowEvent::KeyboardInput {
                     input:
                         KeyboardInput {
@@ -441,31 +637,21 @@ fn main() {
                         },
                     ..
                 } => {
-                    use winit::event::VirtualKeyCode::*;
-                    let result = match key {
-                        Escape => {
-                            *control_flow = ControlFlow::Exit;
-                            Ok(())
-                        }
-                        G => surface.window().set_cursor_grab(true),
-                        L => surface.window().set_cursor_grab(false),
-                        // A => surface.window().set_cursor_grab(),
-                        H => {
-                            surface.window().set_cursor_visible(modifiers.shift());
-                            Ok(())
-                        }
+                    let _ = match key {
                         _ => {
-                            key_downs.insert(key.clone(), false);
-                            Ok(())
+                            input.key_downs.insert(key.clone(), false);
+                            input.key_ups.insert(key.clone(), true);
                         }
                     };
-
-                    if let Err(err) = result {
-                        println!("error: {}", err);
-                    }
                 }
-                WindowEvent::Resized(_) => {
+                WindowEvent::Resized(_size) => {
                     recreate_swapchain = true;
+                    // if size.width == 0 || size.height == 0 {
+                    //     minimized = true;
+                    // } else {
+                    //     minimized = false;
+                    //     app.resized = true;
+                    // }
                 }
                 WindowEvent::ModifiersChanged(m) => modifiers = m,
                 WindowEvent::KeyboardInput {
@@ -479,101 +665,91 @@ fn main() {
                 } => {
                     let _ = match key {
                         _ => {
-                            key_downs.insert(key.clone(), true);
+                            input.key_presses.insert(key.clone(), true);
+                            input.key_downs.insert(key.clone(), true);
                         }
                     };
                 }
                 _ => (),
             },
-
-            // Event::WindowEvent {
-            //     event: WindowEvent::Resized(_),
-            //     ..
-            // } => {
-            //     recreate_swapchain = true;
-            // }
             Event::RedrawEventsCleared => {
                 ////////////////////////////////////
+
+                let full = Instant::now();
+
+                if input.get_key(&VirtualKeyCode::Escape) {
+                    *control_flow = ControlFlow::Exit;
+                    running.store(false, Ordering::SeqCst);
+                    let game_thread = game_thread.remove(0);
+                    let _res = coms.1.send(input.clone());
+
+                    // let (_, _, _, _) = coms.0.recv().unwrap();
+
+                    game_thread.join().unwrap();
+                    let p = perf.iter();
+                    for (k, x) in p {
+                        println!("{}: {:?}", k, (*x / loops));
+                    }
+                    // for (k, x) in perf.lock().iter() {
+                    //     println!("{}: {:?}", k, (*x / loops));
+                    // }
+                }
+                let mut update_perf = |k: String, v: Duration| {
+                    if let Some(dur) = perf.get_mut(&k) {
+                        *dur += v;
+                    } else {
+                        perf.insert(k, v);
+                    }
+                };
+                static mut grab_mode: bool = true;
+                if input.get_key_press(&VirtualKeyCode::G) {
+                    unsafe {
+                        let _er = surface.window().set_cursor_grab(grab_mode);
+                        grab_mode = !grab_mode;
+                    }
+                }
+                // if input.get_key(&VirtualKeyCode::L) { let _er = surface.window().set_cursor_grab(false); }
+                // A => surface.window().set_cursor_grab(),
+                if input.get_key(&VirtualKeyCode::H) {
+                    surface.window().set_cursor_visible(modifiers.shift());
+                }
+
+                let inst = Instant::now();
+                let (terrain_models, cube_models, cam_pos, cam_rot) = coms.0.recv().unwrap();
+                update_perf("wait for game".into(), Instant::now() - inst);
+                let res = coms.1.send(input.clone());
+                // println!("input sent");
+                if res.is_err() {
+                    return ;
+                    // println!("ohno");
+                }
+
+                input.key_presses.clear();
+                input.key_ups.clear();
+                input.mouse_x = 0.;
+                input.mouse_y = 0.;
+
+                loops += 1;
+
                 
-                let speed = 0.05;
-                let rot = glm::inverse(&glm::quat_to_mat3(&cam_rot));
-                // forward/backward
-                if *key_downs.get(&VirtualKeyCode::W).unwrap_or(&false) {
-                    cam_pos += rot * vec3(0.0, 0.0, 1.0) * speed;
-                }
-                if *key_downs.get(&VirtualKeyCode::S).unwrap_or(&false) {
-                    cam_pos += rot * vec3(0.0, 0.0, -1.0) * speed;
-                }
-                //left/right
-                if *key_downs.get(&VirtualKeyCode::A).unwrap_or(&false) {
-                    cam_pos += rot * vec3(1.0, 0.0, 0.0) * speed;
-                }
-                if *key_downs.get(&VirtualKeyCode::D).unwrap_or(&false) {
-                    cam_pos += rot * vec3(-1.0, 0.0, 0.0) * speed;
-                }
-                // up/down
-                if *key_downs.get(&VirtualKeyCode::Space).unwrap_or(&false) {
-                    cam_pos += rot * vec3(0.0, 1.0, 0.0) * speed;
-                }
-                if *key_downs.get(&VirtualKeyCode::LShift).unwrap_or(&false) {
-                    cam_pos += rot * vec3(0.0, -1.0, 0.0) * speed;
-                }
-                // roll
-                if *key_downs.get(&VirtualKeyCode::Q).unwrap_or(&false) {
-                    cam_rot = glm::quat_rotate(&cam_rot, 0.03, &(rot * Vec3::z()));
-                    // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0))
-                    //     .xyz()
-                    //     * 0.01
-                }
-                if *key_downs.get(&VirtualKeyCode::E).unwrap_or(&false) {
-                    cam_rot = glm::quat_rotate(&cam_rot, -0.03, &(rot * Vec3::z()));
-                    // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, -1.0, 0.0, 1.0))
-                    //     .xyz()
-                    //     * 0.01
-                }
+                let inst = Instant::now();
+                let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
+                let cube_instance_buffer = fast_buffer(device.clone(), &cube_models);
+                update_perf("write to buffer".into(), Instant::now() - inst);
+                //////////////////////////////////
 
-                physics.step(&gravity);
-                world.update(&physics, &lazy_maker);
-
-                lazy_maker.init(&mut world);
-
-                // let x = world.transforms.write().positions[10].lock().clone();
-                // let mut models: Vec<ModelMat> = world
-                //     .transforms
-                //     .write()
-                //     .positions
-                //     .iter()
-                //     // .filter(|p| {
-                //     //     p.lock().z < -10.0
-                //     // })
-                //     .map(|p| ModelMat {
-                //         model: Mat4::new_translation(&p.lock()).into(),
-                //     })
-                //     .collect();
-                
-                let target = rot * vec3(0.0, 0.0, 1.0);
-                // glm::scale(&Mat4::identity(), &Vector3::new(0.05 as f32, 0.05, 0.1)) * glm::quat_to_mat4(&cam_rot) *
-                let models: Vec<ModelMat> = vec![ModelMat {
-                    model: ( glm::scale(&Mat4::identity(), &Vector3::new(0.5 as f32, 0.5, 0.5)) * glm::inverse(&glm::quat_to_mat4(&cam_rot)) * Mat4::new_translation(&(target))).into(),
-                }];
-
-                // let models = Mat4::new_translation(&x);
-                let instance_buffer = CpuAccessibleBuffer::from_iter(
-                    device.clone(),
-                    BufferUsage::all(),
-                    false,
-                    models,
-                )
-                .unwrap();
-
-                ////////////////////////////////////
+                // render_thread = thread::spawn( || {
+                let inst = Instant::now();
 
                 let dimensions = surface.window().inner_size();
                 if dimensions.width == 0 || dimensions.height == 0 {
                     return;
                 }
-
+                
+                let inst2 = Instant::now();
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+                update_perf("previous frame end".into(), Instant::now() - inst2);
 
                 if recreate_swapchain {
                     let (new_swapchain, new_images) =
@@ -587,27 +763,24 @@ fn main() {
                         };
 
                     swapchain = new_swapchain;
-                    let (new_pipeline, new_framebuffers) = window_size_dependent_setup(
+                    let new_framebuffers = window_size_dependent_setup(
                         device.clone(),
-                        &vs,
-                        &fs,
+                        // &vs,
+                        // &fs,
                         &new_images,
                         render_pass.clone(),
                     );
-                    pipeline = new_pipeline;
+                    rend.regen(
+                        device.clone(),
+                        render_pass.clone(),
+                        images[0].dimensions().width_height(),
+                    );
+                    // pipeline = new_pipeline;
                     framebuffers = new_framebuffers;
                     recreate_swapchain = false;
                 }
 
                 let uniform_buffer_subbuffer = {
-                    let elapsed = rotation_start.elapsed();
-                    let rotation =
-                        elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1_000_000_000.0;
-                    // let rotation = cgmath::Matrix3::from_angle_y(cgmath::Rad(rotation as f32));
-                    let axis = nalgebra::Vector3::y_axis();
-                    let angle = rotation as f32;
-                    let rotation = nalgebra::Rotation3::from_axis_angle(&axis, angle);
-
                     // note: this teapot was meant for OpenGL where the origin is at the lower left
                     //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
                     let aspect_ratio =
@@ -616,41 +789,24 @@ fn main() {
                         aspect_ratio,
                         std::f32::consts::FRAC_PI_2 as f32,
                         0.01,
-                        100.0,
+                        10000.0,
                     );
-                    // let view = glm::quat_to_mat4(&cam_rot) * glm::Mat4::new_translation(&cam_pos);
-                    // let view = Matrix4::look_at_rh(
-                    //     &cam_pos.into(),
-                    //     &(cam_pos
-                    //         + (glm::quat_to_mat3(&cam_rot) * glm::vec3(0.0 as f32, 0.0, 1.0))
-                    //             .xyz())
-                    //     .into(),
-                    //     &(glm::quat_to_mat3(&cam_rot) * Vector3::new(0.0, 1.0, 0.0)),
-                    // );
 
-                    // let eye = cam_pos; //Vec3::new(self.position.x,self.position.y,self.position.z);
-                    let target = glm::quat_to_mat3(&cam_rot) * Vec3::z();
-                    let up = glm::quat_to_mat3(&cam_rot) * Vec3::y();
-                    let view = glm::inverse(&glm::look_at_lh(&vec3(0.0, 0.0, 0.0), &target, &up));
-                    let view = view * glm::Mat4::new_translation(&cam_pos);
+                    let rot = glm::quat_to_mat3(&cam_rot);
+                    let target = cam_pos + rot * Vec3::z();
+                    let up = rot * Vec3::y();
+                    let view: Mat4 = glm::look_at_lh(&cam_pos, &target, &up);
 
-                    let scale = glm::scale(&Mat4::identity(), &Vector3::new(0.1 as f32, 0.1, 0.1));
+                    // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
 
-                    let uniform_data = vs::ty::Data {
+                    let uniform_data = renderer::vs::ty::Data {
                         // world: model.into(),
-                        view: (view * scale).into(),
+                        view: view.into(),
                         proj: proj.into(),
                     };
 
                     uniform_buffer.next(uniform_data).unwrap()
                 };
-
-                let layout = pipeline.layout().set_layouts().get(0).unwrap();
-                let set = PersistentDescriptorSet::new(
-                    layout.clone(),
-                    [WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer)],
-                )
-                .unwrap();
 
                 let (image_num, suboptimal, acquire_future) =
                     match acquire_next_image(swapchain.clone(), None) {
@@ -678,35 +834,21 @@ fn main() {
                         SubpassContents::Inline,
                         vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
                     )
-                    .unwrap()
-                    .bind_pipeline_graphics(pipeline.clone())
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        pipeline.layout().clone(),
-                        0,
-                        set.clone(),
-                    )
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex_buffer.clone(),
-                            normals_buffer.clone(),
-                            instance_buffer.clone(),
-                        ),
-                    )
-                    .bind_index_buffer(index_buffer.clone())
-                    .draw_indexed(
-                        index_buffer.len() as u32,
-                        instance_buffer.len() as u32,
-                        0,
-                        0,
-                        0,
-                    )
-                    .unwrap()
-                    .end_render_pass()
                     .unwrap();
+
+                rend.bind_pipeline(&mut builder, &uniform_buffer_subbuffer)
+                    .bind_mesh(&mut builder, cube_instance_buffer, &cube_mesh);
+
+                for (_, z) in ter.chunks.iter() {
+                    for (_, chunk) in z {
+                        rend.bind_mesh(&mut builder, _instance_buffer.clone(), &chunk);
+                    }
+                }
+
+                builder.end_render_pass().unwrap();
                 let command_buffer = builder.build().unwrap();
 
+                let inst2 = Instant::now();
                 let future = previous_frame_end
                     .take()
                     .unwrap()
@@ -715,6 +857,9 @@ fn main() {
                     .unwrap()
                     .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
                     .then_signal_fence_and_flush();
+                
+                update_perf("previous frame end future".into(), Instant::now() - inst2);
+                
 
                 match future {
                     Ok(future) => {
@@ -729,6 +874,10 @@ fn main() {
                         previous_frame_end = Some(sync::now(device.clone()).boxed());
                     }
                 }
+                update_perf("render".into(), Instant::now() - inst);
+                update_perf("full".into(), Instant::now() - full);
+
+                // });
             }
             _ => (),
         }
@@ -738,15 +887,15 @@ fn main() {
 /// This method is called once during initialization, then again whenever the window is resized
 fn window_size_dependent_setup(
     device: Arc<Device>,
-    vs: &ShaderModule,
-    fs: &ShaderModule,
+    // vs: &ShaderModule,
+    // fs: &ShaderModule,
     images: &[Arc<SwapchainImage<Window>>],
     render_pass: Arc<RenderPass>,
-) -> (Arc<GraphicsPipeline>, Vec<Arc<Framebuffer>>) {
+) -> (Vec<Arc<Framebuffer>>) {
     let dimensions = images[0].dimensions().width_height();
 
     let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(device.clone(), dimensions, Format::D16_UNORM).unwrap(),
+        AttachmentImage::transient(device.clone(), dimensions, Format::D32_SFLOAT).unwrap(),
     )
     .unwrap();
 
@@ -765,50 +914,24 @@ fn window_size_dependent_setup(
         })
         .collect::<Vec<_>>();
 
-    // In the triangle example we use a dynamic viewport, as its a simple example.
-    // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
-    // This allows the driver to optimize things, at the cost of slower window resizes.
-    // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
-    let pipeline = GraphicsPipeline::start()
-        .vertex_input_state(
-            BuffersDefinition::new()
-                .vertex::<Vertex>()
-                .vertex::<Normal>()
-                .instance::<ModelMat>(),
-        )
-        .vertex_shader(vs.entry_point("main").unwrap(), ())
-        .input_assembly_state(InputAssemblyState::new())
-        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-            Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                depth_range: 0.0..1.0,
-            },
-        ]))
-        .fragment_shader(fs.entry_point("main").unwrap(), ())
-        .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        .build(device.clone())
-        .unwrap();
-
-    (pipeline, framebuffers)
+    framebuffers
 }
 
-mod vs {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/vert.glsl",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
+// mod vs {
+//     vulkano_shaders::shader! {
+//         ty: "vertex",
+//         path: "src/vert.glsl",
+//         types_meta: {
+//             use bytemuck::{Pod, Zeroable};
 
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        },
-    }
-}
+//             #[derive(Clone, Copy, Zeroable, Pod)]
+//         },
+//     }
+// }
 
-mod fs {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "src/frag.glsl"
-    }
-}
+// mod fs {
+//     vulkano_shaders::shader! {
+//         ty: "fragment",
+//         path: "src/frag.glsl"
+//     }
+// }

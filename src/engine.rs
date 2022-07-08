@@ -147,7 +147,7 @@ pub struct GameObject {
 pub struct World {
     entities: RwLock<Vec<Option<RwLock<HashMap<TypeId, i32>>>>>,
     pub transforms: RwLock<Transforms>,
-    components: HashMap<TypeId, RwLock<Box<dyn StorageBase + 'static + Sync>>>,
+    components: HashMap<TypeId, RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
     root: Transform,
     // bombs: Vec<Option<Mutex<Bomb>>>,
     // makers: Vec<Option<Mutex<Maker>>>,
