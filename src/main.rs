@@ -150,15 +150,15 @@ impl Component for Bomb {
         if let Some((_handle, _hit)) = sys.0.query_pipeline.cast_ray_and_get_normal(
             &&sys.0.collider_set,
             &ray,
-            1.0 / 60.0,
+            1.0 / 144.0,
             false,
             InteractionGroups::all(),
             None,
         ) {
             self.vel = glm::reflect_vec(&vel, &&_hit.normal);
         }
-        trans._move(self.t, self.vel * (1.0 / 60.0));
-        self.vel += glm::vec3(0.0, -9.81, 0.0) * 1.0 / 100.0;
+        trans._move(self.t, self.vel * (1.0 / 144.0));
+        self.vel += glm::vec3(0.0, -9.81, 0.0) * 1.0 / 144.0;
 
         // *pos += vel * (1.0 / 60.0);
     }
@@ -341,7 +341,7 @@ fn game_thread_fn(
             let _cam_rot = cam_rot.clone();
             let _cam_pos = cam_pos.clone();
             lazy_maker.append(move |world| {
-               (0..(ALOT / 60.) as usize).into_iter().for_each(|_| {
+               (0..(ALOT / 60.) as usize).into_par_iter().chunks(16).for_each(|_| {
                 let g = world.instantiate();
                 world.add_component(
                     g,
@@ -529,7 +529,7 @@ fn main() {
         .unwrap()
     };
 
-    let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone());
+    let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), queue.clone());
 
     let uniform_buffer =
         CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
@@ -564,6 +564,7 @@ fn main() {
         device.clone(),
         render_pass.clone(),
         images[0].dimensions().width_height(),
+        queue.clone()
     );
     let mut recreate_swapchain = false;
 
@@ -772,13 +773,15 @@ fn main() {
                 if dimensions.width == 0 || dimensions.height == 0 {
                     return;
                 }
-
+                
                 let inst2 = Instant::now();
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
 
                 update_perf("previous frame end".into(), Instant::now() - inst2);
 
                 if recreate_swapchain {
+                    println!("recreate swapchain");
+                    println!("dimensions {}: {}", dimensions.width, dimensions.height);
                     let (new_swapchain, new_images) =
                         match swapchain.recreate(SwapchainCreateInfo {
                             image_extent: dimensions.into(),
@@ -800,7 +803,7 @@ fn main() {
                     rend.regen(
                         device.clone(),
                         render_pass.clone(),
-                        images[0].dimensions().width_height(),
+                        dimensions.into(),
                     );
                     // pipeline = new_pipeline;
                     framebuffers = new_framebuffers;
@@ -863,12 +866,12 @@ fn main() {
                     )
                     .unwrap();
 
-                rend.bind_pipeline(&mut builder, &uniform_buffer_subbuffer)
-                    .bind_mesh(&mut builder, cube_instance_buffer, &cube_mesh);
+                rend.bind_pipeline(&mut builder)
+                    .bind_mesh(&mut builder, &uniform_buffer_subbuffer, cube_instance_buffer, &cube_mesh);
 
                 for (_, z) in ter.chunks.iter() {
                     for (_, chunk) in z {
-                        rend.bind_mesh(&mut builder, _instance_buffer.clone(), &chunk);
+                        rend.bind_mesh(&mut builder,  &uniform_buffer_subbuffer, _instance_buffer.clone(), &chunk);
                     }
                 }
 

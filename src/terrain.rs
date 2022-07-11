@@ -7,7 +7,7 @@ use rapier3d::prelude::ColliderSet;
 use rapier3d::prelude::*;
 use vulkano::device::Device;
 
-use crate::model::{Mesh, Normal, Vertex};
+use crate::model::{Mesh, Normal, Vertex, UV};
 
 #[derive(Clone)]
 pub struct Terrain {
@@ -32,7 +32,7 @@ impl Terrain {
                     .collect();
                 let ter_indeces: Vec<[u32; 3]> = m
                     .indeces
-                    .windows(3)
+                    .chunks(3)
                     .map(|slice| [slice[0] as u32, slice[1] as u32, slice[2] as u32])
                     .collect();
 
@@ -52,6 +52,7 @@ impl Terrain {
         device: Arc<Device>,
     ) -> Mesh {
         let mut vertices = Vec::new();
+        let mut uvs = Vec::new();
 
         let make_vert = |x: i32, z: i32| {
             let x = x as f32 + (_x * (terrain_size - 1)) as f32;
@@ -71,6 +72,9 @@ impl Terrain {
                 //     position: [_x, _y as f32, _z],
                 // };
                 vertices.push(make_vert(i, j));
+                let x = i as f32 + (_x * (terrain_size - 1)) as f32;
+                let z = j as f32 + (_z * (terrain_size - 1)) as f32;
+                uvs.push(UV { uv: [x, z]})
             }
         }
 
@@ -161,7 +165,7 @@ impl Terrain {
             }
         }
 
-        Mesh::new_procedural(vertices, normals, indeces, device)
+        Mesh::new_procedural(vertices, normals, indeces, uvs, device)
     }
 
     pub fn update(&mut self) {}
