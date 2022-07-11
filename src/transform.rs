@@ -2,7 +2,8 @@ use deepmesa::lists::{linkedlist::Node, LinkedList};
 use force_send_sync::SendSync;
 use glm::Vec3;
 use nalgebra_glm as glm;
-use parking_lot::{Mutex, RwLock};
+// use parking_lot::{Mutex, RwLock};
+use spin::{Mutex,RwLock};
 use std::{cmp::Reverse, collections::BinaryHeap};
 
 struct TransformMeta {

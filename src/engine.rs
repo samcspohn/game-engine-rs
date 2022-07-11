@@ -17,7 +17,8 @@ use rapier3d::prelude::*;
 use rayon::prelude::*;
 
 use crossbeam::queue::SegQueue;
-use parking_lot::{Mutex, RwLock};
+// use parking_lot::{Mutex, RwLock};
+use spin::{Mutex, RwLock};
 
 
 pub struct LazyMaker {
