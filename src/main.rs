@@ -11,13 +11,18 @@
 //     time::{Duration, Instant},
 // };
 
+use egui::plot::{HLine, Line, Plot, Value, Values};
+use egui::{Color32, ColorImage, Ui};
+use egui_vulkano::UpdateTexturesResult;
 // use anyhow::{anyhow, Result};
 // use log::*;
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 use rayon::iter::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator, IntoParallelIterator,
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+    IntoParallelRefMutIterator, ParallelIterator,
 };
+use winit::event::MouseButton;
 // use rendering::App;
 // use thiserror::Error;
 // use vulkanalia::loader::{LibloadingLoader, LIBRARY};
@@ -46,6 +51,7 @@ use rayon::iter::{
 
 // use winit::event::{DeviceEvent, ElementState, KeyboardInput, ModifiersState, VirtualKeyCode};
 
+use std::collections::VecDeque;
 use std::{
     collections::HashMap,
     ptr,
@@ -95,6 +101,7 @@ use winit::{
 };
 
 use bytemuck::{Pod, Zeroable};
+
 use component_derive::component;
 use engine::{
     physics,
@@ -111,6 +118,7 @@ mod engine;
 mod input;
 mod model;
 mod renderer;
+mod texture;
 // mod rendering;
 // use transform::{Transform, Transforms};
 
@@ -119,6 +127,7 @@ use std::env;
 // use rand::prelude::*;
 use rapier3d::prelude::*;
 
+use crate::texture::TextureManager;
 use crate::{
     engine::{physics::Physics, World},
     input::Input,
@@ -190,6 +199,8 @@ impl Component for Maker {
 
 fn game_thread_fn(
     device: Arc<Device>,
+    queue: Arc<vulkano::device::Queue>,
+    texture_manager: Arc<TextureManager>,
     coms: (
         Sender<(
             Arc<Vec<ModelMat>>,
@@ -264,6 +275,8 @@ fn game_thread_fn(
     let mut ter = Terrain {
         chunks: HashMap::new(),
         device: device.clone(),
+        texture_manager: texture_manager.clone(),
+        // queue: queue.clone(),
         terrain_size: 33,
     };
     ter.generate(&mut physics.collider_set);
@@ -337,25 +350,29 @@ fn game_thread_fn(
 
         const ALOT: f32 = 10_000_000. / 60.;
 
-        if input.get_mouse_button(&1) {
+        if input.get_mouse_button(&0) {
             let _cam_rot = cam_rot.clone();
             let _cam_pos = cam_pos.clone();
             lazy_maker.append(move |world| {
-               (0..(ALOT / 60.) as usize).into_par_iter().chunks(16).for_each(|_| {
-                let g = world.instantiate();
-                world.add_component(
-                    g,
-                    Bomb {
-                        t: Transform(-1),
-                        vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
-                            + glm::vec3(rand::random(), rand::random(), rand::random()) * 18.,
-                    },
-                );
-                world
-                    .transforms
-                    .read()
-                    .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
-               });
+                (0..(ALOT / 60.) as usize)
+                    .into_par_iter()
+                    .chunks(16)
+                    .for_each(|_| {
+                        let g = world.instantiate();
+                        world.add_component(
+                            g,
+                            Bomb {
+                                t: Transform(-1),
+                                vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                                    + glm::vec3(rand::random(), rand::random(), rand::random())
+                                        * 18.,
+                            },
+                        );
+                        world
+                            .transforms
+                            .read()
+                            .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
+                    });
             });
         }
 
@@ -441,10 +458,6 @@ fn fast_buffer(device: Arc<Device>, data: &Vec<ModelMat>) -> Arc<CpuAccessibleBu
 
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
-    // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
-
-    /////////////////////////////////////////////////
-
     let event_loop = EventLoop::new();
 
     let required_extensions = vulkano_win::required_extensions();
@@ -513,7 +526,7 @@ fn main() {
             device.clone(),
             surface.clone(),
             SwapchainCreateInfo {
-                min_image_count: 4u32,
+                min_image_count: surface_capabilities.min_image_count,
                 image_format,
                 image_extent: surface.window().inner_size().into(),
                 image_usage: ImageUsage::color_attachment(),
@@ -529,12 +542,18 @@ fn main() {
         .unwrap()
     };
 
-    let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), queue.clone());
+    let texture_manager = Arc::new(TextureManager {
+        device: device.clone(),
+        queue: queue.clone(),
+        textures: Default::default(),
+    });
+
+    let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
 
     let uniform_buffer =
         CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
 
-    let render_pass = vulkano::single_pass_renderpass!(
+    let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
         attachments: {
             color: {
@@ -550,21 +569,29 @@ fn main() {
                 samples: 1,
             }
         },
-        pass: {
-            color: [color],
-            depth_stencil: {depth}
-        }
+        passes: [
+            { color: [color], depth_stencil: {depth}, input: [] },
+            { color: [color], depth_stencil: {}, input: [] } // Create a second renderpass to draw egui
+        ]
     )
     .unwrap();
 
-    let mut framebuffers =
-        window_size_dependent_setup(device.clone(), &images, render_pass.clone());
+    let mut viewport = Viewport {
+        origin: [0.0, 0.0],
+        dimensions: [0.0, 0.0],
+        depth_range: 0.0..1.0,
+    };
+
+    let mut framebuffers = window_size_dependent_setup(&images, device.clone(), render_pass.clone(), &mut viewport);
+
+    // let mut framebuffers =
+    //     window_size_dependent_setup(device.clone(), &images, render_pass.clone());
 
     let mut rend = RenderPipeline::new(
         device.clone(),
         render_pass.clone(),
         images[0].dimensions().width_height(),
-        queue.clone()
+        queue.clone(),
     );
     let mut recreate_swapchain = false;
 
@@ -599,15 +626,24 @@ fn main() {
         )>,
     ) = mpsc::channel();
     let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
-    let mut running = Arc::new(AtomicBool::new(true));
+    let running = Arc::new(AtomicBool::new(true));
 
     let coms = (rrx, tx);
 
     let _device = device.clone();
+    let _queue = queue.clone();
     let game_thread = {
         // let _perf = perf.clone();
         let _running = running.clone();
-        thread::spawn(move || game_thread_fn(_device, (rtx, rx, ttx), _running))
+        thread::spawn(move || {
+            game_thread_fn(
+                _device,
+                _queue,
+                texture_manager.clone(),
+                (rtx, rx, ttx),
+                _running,
+            )
+        })
     };
     let mut game_thread = vec![game_thread];
 
@@ -617,6 +653,26 @@ fn main() {
 
     let mut loops = 0;
 
+    let egui_ctx = egui::Context::default();
+    let mut egui_winit = egui_winit::State::new(4096, surface.window());
+
+    let mut egui_painter = egui_vulkano::Painter::new(
+        device.clone(),
+        queue.clone(),
+        Subpass::from(render_pass.clone(), 1).unwrap(),
+    )
+    .unwrap();
+
+    //Set up some window to look at for the test
+
+    // let mut egui_test = egui_demo_lib::ColorTest::default();
+    // let mut demo_windows = egui_demo_lib::DemoWindows::default();
+    let mut egui_bench = Benchmark::new(1000);
+    // let mut my_texture = egui_ctx.load_texture("my_texture", ColorImage::example());
+
+    let mut frame_time = Instant::now();
+
+    let mut focused = true;
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
         *control_flow = ControlFlow::Poll;
@@ -626,85 +682,120 @@ fn main() {
             // }
             Event::DeviceEvent { event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => {
-                    input.mouse_x = delta.0;
-                    input.mouse_y = delta.1;
+                    if focused {
+                        input.mouse_x = delta.0;
+                        input.mouse_y = delta.1;
+                    }
                     // println!("mouse moved: {:?}", delta);
                 }
-                DeviceEvent::Button { button, state } => match state {
-                    ElementState::Pressed => {
-                        println!("mouse button {} pressed", button);
-                        input.mouse_buttons.insert(button, true);
-                    }
-                    ElementState::Released => {
-                        println!("mouse button {} released", button);
-                        input.mouse_buttons.insert(button, false);
-                    }
-                },
+                // DeviceEvent::Button { button, state } => match state {
+                //     ElementState::Pressed => {
+                //         println!("mouse button {} pressed", button);
+                //         input.mouse_buttons.insert(button, true);
+                //     }
+                //     ElementState::Released => {
+                //         println!("mouse button {} released", button);
+                //         input.mouse_buttons.insert(button, false);
+                //     }
+                // },
                 _ => (),
             },
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                    running.store(false, Ordering::SeqCst);
-                    let game_thread = game_thread.remove(0);
-                    let _res = coms.1.send(input.clone());
+            Event::WindowEvent { event, .. } => {
+                let egui_consumed_event = egui_winit.on_event(&egui_ctx, &event);
+                if !egui_consumed_event {
+                    // do your own event handling here
+                };
+                match event {
+                    WindowEvent::Focused(foc) => {
+                        focused = foc;
+                    }
+                    WindowEvent::CloseRequested => {
+                        *control_flow = ControlFlow::Exit;
+                        running.store(false, Ordering::SeqCst);
+                        let game_thread = game_thread.remove(0);
+                        let _res = coms.1.send(input.clone());
 
-                    game_thread.join().unwrap();
-                    // game_thread.join();
-                    // *running.lock() = false;
-                    let p = perf.iter();
-                    for (k, x) in p {
-                        println!("{}: {:?}", k, (*x / loops));
+                        game_thread.join().unwrap();
+                        // game_thread.join();
+                        // *running.lock() = false;
+                        let p = perf.iter();
+                        for (k, x) in p {
+                            println!("{}: {:?}", k, (*x / loops));
+                        }
                     }
-                }
-                WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            state: ElementState::Released,
-                            virtual_keycode: Some(key),
-                            ..
-                        },
-                    ..
-                } => {
-                    let _ = match key {
-                        _ => {
-                            input.key_downs.insert(key.clone(), false);
-                            input.key_ups.insert(key.clone(), true);
+                    WindowEvent::MouseInput { device_id, state, button, modifiers } => match state {
+                        ElementState::Pressed => {
+                            println!("mouse button {:#?} pressed", button);
+                            input.mouse_buttons.insert(match button {
+                                MouseButton::Left => 0,
+                                MouseButton::Middle => 1,
+                                MouseButton::Right => 2,
+                                MouseButton::Other(x) => x as u32
+                            }, true);
                         }
-                    };
-                }
-                WindowEvent::Resized(_size) => {
-                    recreate_swapchain = true;
-                    // if size.width == 0 || size.height == 0 {
-                    //     minimized = true;
-                    // } else {
-                    //     minimized = false;
-                    //     app.resized = true;
-                    // }
-                }
-                WindowEvent::ModifiersChanged(m) => modifiers = m,
-                WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(key),
-                            ..
-                        },
-                    ..
-                } => {
-                    let _ = match key {
-                        _ => {
-                            input.key_presses.insert(key.clone(), true);
-                            input.key_downs.insert(key.clone(), true);
+                        ElementState::Released => {
+                            println!("mouse button {:#?} released", button);
+                            input.mouse_buttons.insert(match button {
+                                MouseButton::Left => 0,
+                                MouseButton::Middle => 1,
+                                MouseButton::Right => 2,
+                                MouseButton::Other(x) => x as u32
+                            }, false);
                         }
-                    };
+                    },
+                    // WindowEvent::AxisMotion { device_id, axis, value } => {
+                    //     println!("axis {:#?}: {}", axis, value);
+                    // },
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Released,
+                                virtual_keycode: Some(key),
+                                ..
+                            },
+                        ..
+                    } => {
+                        let _ = match key {
+                            _ => {
+                                input.key_downs.insert(key.clone(), false);
+                                input.key_ups.insert(key.clone(), true);
+                            }
+                        };
+                    },
+                    WindowEvent::ModifiersChanged(m) => modifiers = m,
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(key),
+                                ..
+                            },
+                        ..
+                    } => {
+                        let _ = match key {
+                            _ => {
+                                input.key_presses.insert(key.clone(), true);
+                                input.key_downs.insert(key.clone(), true);
+                            }
+                        };
+                    },
+                    WindowEvent::Resized(_size) => {
+                        recreate_swapchain = true;
+                        // if size.width == 0 || size.height == 0 {
+                        //     minimized = true;
+                        // } else {
+                        //     minimized = false;
+                        //     app.resized = true;
+                        // }
+                    }
+                    _ => (),
                 }
-                _ => (),
-            },
+            }
             Event::RedrawEventsCleared => {
                 ////////////////////////////////////
 
                 let full = Instant::now();
+
 
                 if input.get_key(&VirtualKeyCode::Escape) {
                     *control_flow = ControlFlow::Exit;
@@ -773,7 +864,7 @@ fn main() {
                 if dimensions.width == 0 || dimensions.height == 0 {
                     return;
                 }
-                
+
                 let inst2 = Instant::now();
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
 
@@ -782,6 +873,8 @@ fn main() {
                 if recreate_swapchain {
                     println!("recreate swapchain");
                     println!("dimensions {}: {}", dimensions.width, dimensions.height);
+                    let dimensions: [u32; 2] = surface.window().inner_size().into();
+
                     let (new_swapchain, new_images) =
                         match swapchain.recreate(SwapchainCreateInfo {
                             image_extent: dimensions.into(),
@@ -793,21 +886,26 @@ fn main() {
                         };
 
                     swapchain = new_swapchain;
-                    let new_framebuffers = window_size_dependent_setup(
-                        device.clone(),
-                        // &vs,
-                        // &fs,
+
+                    framebuffers = window_size_dependent_setup(
                         &new_images,
-                        render_pass.clone(),
-                    );
-                    rend.regen(
                         device.clone(),
                         render_pass.clone(),
-                        dimensions.into(),
+                        &mut viewport,
                     );
-                    // pipeline = new_pipeline;
-                    framebuffers = new_framebuffers;
+                    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
                     recreate_swapchain = false;
+                    // let new_framebuffers = window_size_dependent_setup(
+                    //     device.clone(),
+                    //     // &vs,
+                    //     // &fs,
+                    //     &new_images,
+                    //     render_pass.clone(),
+                    // );
+                    // rend.regen(device.clone(), render_pass.clone(), dimensions.into());
+                    // // pipeline = new_pipeline;
+                    // framebuffers = new_framebuffers;
+                    // recreate_swapchain = false;
                 }
 
                 let uniform_buffer_subbuffer = {
@@ -830,7 +928,6 @@ fn main() {
                     // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
 
                     let uniform_data = renderer::vs::ty::Data {
-                        // world: model.into(),
                         view: view.into(),
                         proj: proj.into(),
                     };
@@ -858,22 +955,87 @@ fn main() {
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
+
+                egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
+                // demo_windows.ui(&egui_ctx);
+
+                // egui::Window::new("Color test")
+                //     .vscroll(true)
+                //     .show(&egui_ctx, |ui| {
+                //         egui_test.ui(ui);
+                //     });
+
+                // egui::Window::new("Settings").show(&egui_ctx, |ui| {
+                //     egui_ctx.settings_ui(ui);
+                // });
+
+                egui::Window::new("Benchmark")
+                    .default_height(600.0)
+                    .show(&egui_ctx, |ui| {
+                        egui_bench.draw(ui);
+                    });
+
+                // egui::Window::new("Texture test").show(&egui_ctx, |ui| {
+                //     ui.image(my_texture.id(), (200.0, 200.0));
+                //     if ui.button("Reload texture").clicked() {
+                //         // previous TextureHandle is dropped, causing egui to free the texture:
+                //         my_texture = egui_ctx.load_texture("my_texture", ColorImage::example());
+                //     }
+                // });
+
+                // Get the shapes from egui
+                let egui_output = egui_ctx.end_frame();
+                let platform_output = egui_output.platform_output;
+                egui_winit.handle_platform_output(surface.window(), &egui_ctx, platform_output);
+
+                let result = egui_painter
+                    .update_textures(egui_output.textures_delta, &mut builder)
+                    .expect("egui texture error");
+
+                // let wait_for_last_frame = result == UpdateTexturesResult::Changed;
+
                 builder
                     .begin_render_pass(
                         framebuffers[image_num].clone(),
                         SubpassContents::Inline,
                         vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
                     )
-                    .unwrap();
+                    .unwrap()
+                    .set_viewport(0, [viewport.clone()]);
 
-                rend.bind_pipeline(&mut builder)
-                    .bind_mesh(&mut builder, &uniform_buffer_subbuffer, cube_instance_buffer, &cube_mesh);
+                rend.bind_pipeline(&mut builder).bind_mesh(
+                    &mut builder,
+                    &uniform_buffer_subbuffer,
+                    cube_instance_buffer,
+                    &cube_mesh,
+                );
 
                 for (_, z) in ter.chunks.iter() {
                     for (_, chunk) in z {
-                        rend.bind_mesh(&mut builder,  &uniform_buffer_subbuffer, _instance_buffer.clone(), &chunk);
+                        rend.bind_mesh(
+                            &mut builder,
+                            &uniform_buffer_subbuffer,
+                            _instance_buffer.clone(),
+                            &chunk,
+                        );
                     }
                 }
+
+                // Automatically start the next render subpass and draw the gui
+                let size = surface.window().inner_size();
+                let sf: f32 = surface.window().scale_factor() as f32;
+                egui_painter
+                    .draw(
+                        &mut builder,
+                        [(size.width as f32) / sf, (size.height as f32) / sf],
+                        &egui_ctx,
+                        egui_output.shapes,
+                    )
+                    .unwrap();
+
+                egui_bench.push(frame_time.elapsed().as_secs_f64());
+                frame_time = Instant::now();
+
 
                 builder.end_render_pass().unwrap();
                 let command_buffer = builder.build().unwrap();
@@ -914,13 +1076,11 @@ fn main() {
 }
 
 /// This method is called once during initialization, then again whenever the window is resized
-fn window_size_dependent_setup(
+fn _window_size_dependent_setup(
     device: Arc<Device>,
-    // vs: &ShaderModule,
-    // fs: &ShaderModule,
     images: &[Arc<SwapchainImage<Window>>],
     render_pass: Arc<RenderPass>,
-) -> (Vec<Arc<Framebuffer>>) {
+) -> Vec<Arc<Framebuffer>> {
     let dimensions = images[0].dimensions().width_height();
 
     let depth_buffer = ImageView::new_default(
@@ -946,21 +1106,78 @@ fn window_size_dependent_setup(
     framebuffers
 }
 
-// mod vs {
-//     vulkano_shaders::shader! {
-//         ty: "vertex",
-//         path: "src/vert.glsl",
-//         types_meta: {
-//             use bytemuck::{Pod, Zeroable};
 
-//             #[derive(Clone, Copy, Zeroable, Pod)]
-//         },
-//     }
-// }
+fn window_size_dependent_setup(
+    images: &[Arc<SwapchainImage<Window>>],
+    device: Arc<Device>,
+    render_pass: Arc<RenderPass>,
+    viewport: &mut Viewport,
+) -> Vec<Arc<Framebuffer>> {
+    let dimensions = images[0].dimensions().width_height();
+    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
 
-// mod fs {
-//     vulkano_shaders::shader! {
-//         ty: "fragment",
-//         path: "src/frag.glsl"
-//     }
-// }
+    let depth_buffer = ImageView::new_default(
+        AttachmentImage::transient(device.clone(), dimensions, Format::D32_SFLOAT).unwrap(),
+    )
+    .unwrap();
+
+    images
+        .iter()
+        .map(|image| {
+            let view = ImageView::new_default(image.clone()).unwrap();
+            Framebuffer::new(
+                render_pass.clone(),
+                FramebufferCreateInfo {
+                    attachments: vec![view, depth_buffer.clone()],
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>()
+}
+
+pub struct Benchmark {
+    capacity: usize,
+    data: VecDeque<f64>,
+}
+
+impl Benchmark {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            data: VecDeque::with_capacity(capacity),
+        }
+    }
+
+    pub fn draw(&self, ui: &mut Ui) {
+        let iter = self
+            .data
+            .iter()
+            .enumerate()
+            .map(|(i, v)| Value::new(i as f64, *v * 1000.0));
+        let curve = Line::new(Values::from_values_iter(iter)).color(Color32::BLUE);
+        let target = HLine::new(1000.0 / 60.0).color(Color32::RED);
+
+        if let Some(fps) =  self.data.back() {
+            let fps = 1.0 / fps;
+            ui.label(format!("fps: {}",fps));
+        }
+        ui.label("Time in milliseconds that the gui took to draw:");
+        Plot::new("plot")
+            .view_aspect(2.0)
+            .include_y(0)
+            .show(ui, |plot_ui| {
+                plot_ui.line(curve);
+                plot_ui.hline(target)
+            });
+        ui.label("The red line marks the frametime target for drawing at 60 FPS.");
+    }
+
+    pub fn push(&mut self, v: f64) {
+        if self.data.len() >= self.capacity {
+            self.data.pop_front();
+        }
+        self.data.push_back(v);
+    }
+}

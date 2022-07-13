@@ -63,13 +63,14 @@ impl RenderPipeline {
             )
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
-            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-                Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                    depth_range: 0.0..1.0,
-                },
-            ]))
+            // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+            //     Viewport {
+            //         origin: [0.0, 0.0],
+            //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+            //         depth_range: 0.0..1.0,
+            //     },
+            // ]))
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
             .fragment_shader(fs.entry_point("main").unwrap(), ())
             .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
             .depth_stencil_state(DepthStencilState::simple_depth_test())
@@ -83,10 +84,7 @@ impl RenderPipeline {
                 height: 1,
                 array_layers: 1,
             };
-            let mut image_data = vec![255 as u8, 255, 255, 255];
-            // image_data.resize((4) as usize, 0);
-            // reader.next_frame(&mut image_data).unwrap();
-
+            let image_data = vec![255 as u8, 255, 255, 255];
             let image = ImmutableImage::from_iter(
                 image_data,
                 dimensions,
@@ -116,9 +114,6 @@ impl RenderPipeline {
             pipeline,
             def_texture,
             def_sampler,
-            // vertex_buffer,
-            // index_buffer,
-            // normals_buffer,
         }
     }
     pub fn regen(
@@ -128,27 +123,29 @@ impl RenderPipeline {
         dimensions: [u32; 2],
     ) {
         self.pipeline = GraphicsPipeline::start()
-            .vertex_input_state(
-                BuffersDefinition::new()
-                    .vertex::<Vertex>()
-                    .vertex::<Normal>()
-                    .vertex::<UV>()
-                    .instance::<ModelMat>(),
-            )
-            .vertex_shader(self.vs.entry_point("main").unwrap(), ())
-            .input_assembly_state(InputAssemblyState::new())
-            .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-                Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                    depth_range: 0.0..1.0,
-                },
-            ]))
-            .fragment_shader(self.fs.entry_point("main").unwrap(), ())
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            .build(device.clone())
-            .unwrap();
+        .vertex_input_state(
+            BuffersDefinition::new()
+                .vertex::<Vertex>()
+                .vertex::<Normal>()
+                .vertex::<UV>()
+                .instance::<ModelMat>(),
+        )
+        .vertex_shader(self.vs.entry_point("main").unwrap(), ())
+        .input_assembly_state(InputAssemblyState::new())
+        // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+        //     Viewport {
+        //         origin: [0.0, 0.0],
+        //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+        //         depth_range: 0.0..1.0,
+        //     },
+        // ]))
+        .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        .fragment_shader(self.fs.entry_point("main").unwrap(), ())
+        .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
+        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+        .build(device.clone())
+        .unwrap();
     }
 
     pub fn bind_pipeline(
@@ -178,11 +175,11 @@ impl RenderPipeline {
             uniform_buffer_subbuffer.clone(),
         ));
 
-        if let (Some(texture), Some(sampler)) = (mesh.texture.as_ref(), mesh.sampler.as_ref()) {
+        if let Some(texture) = mesh.texture.as_ref() {
             descriptors.push(WriteDescriptorSet::image_view_sampler(
                 1,
-                texture.clone(),
-                sampler.clone(),
+                texture.image.clone(),
+                texture.sampler.clone(),
             ));
         } else {
             descriptors.push(WriteDescriptorSet::image_view_sampler(

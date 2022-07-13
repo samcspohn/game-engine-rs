@@ -207,7 +207,7 @@ impl World {
             }
         }
         // remove entity
-        self.entities.write()[g.t.0 as usize] = None;
+        self.entities.write()[g.t.0 as usize] = None; // todo make read()
 
         // remove transform
         self.transforms.write().remove(g.t);

@@ -5,13 +5,15 @@ use noise::{NoiseFn, Perlin, Point3};
 use nalgebra_glm as glm;
 use rapier3d::prelude::ColliderSet;
 use rapier3d::prelude::*;
-use vulkano::device::Device;
+use vulkano::device::{Device, Queue};
 
-use crate::model::{Mesh, Normal, Vertex, UV};
+use crate::{model::{Mesh, Normal, Vertex, UV}, texture::{Texture, TextureManager}};
 
 #[derive(Clone)]
 pub struct Terrain {
     pub device: Arc<Device>,
+    // pub queue: Arc<Queue>,
+    pub texture_manager: Arc<TextureManager>,
     pub chunks: HashMap<i32, HashMap<i32, Mesh>>,
     pub terrain_size: i32,
 }
@@ -24,7 +26,7 @@ impl Terrain {
             self.chunks.insert(x, HashMap::new());
             for z in -8..8 {
                 let m =
-                    Terrain::generate_chunk(&perlin, x, z, self.terrain_size, self.device.clone());
+                    Terrain::generate_chunk(&perlin, x, z, self.terrain_size, self.device.clone(), self.texture_manager.clone());
                 let ter_verts: Vec<Point<f32>> = m
                     .vertices
                     .iter()
@@ -50,6 +52,8 @@ impl Terrain {
         _z: i32,
         terrain_size: i32,
         device: Arc<Device>,
+        // queue: Arc<Queue>
+        texture_manager: Arc<TextureManager>
     ) -> Mesh {
         let mut vertices = Vec::new();
         let mut uvs = Vec::new();
@@ -165,7 +169,9 @@ impl Terrain {
             }
         }
 
-        Mesh::new_procedural(vertices, normals, indeces, uvs, device)
+        let mut mesh = Mesh::new_procedural(vertices, normals, indeces, uvs, device.clone());
+        mesh.texture = Some(texture_manager.texture("grass.png"));
+        mesh
     }
 
     pub fn update(&mut self) {}
