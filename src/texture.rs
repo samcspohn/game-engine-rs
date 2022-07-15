@@ -10,7 +10,7 @@ use vulkano::{
     device::{Device, Queue},
     format::Format,
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
+    sampler::{Sampler, SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
 };
 
 pub struct TextureManager {

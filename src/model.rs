@@ -1,21 +1,13 @@
 // extern crate assimp;
 
-use std::{io::Cursor, ops::Sub, sync::Arc};
+use std::{ops::Sub, sync::Arc};
 
-use std::fs::File;
-use std::io;
-use std::io::prelude::*;
 // use ai::import::Importer;
 // use assimp as ai;
 use bytemuck::{Pod, Zeroable};
 use tobj;
 // use std::mem::size_of;
 use nalgebra_glm as glm;
-use vulkano::device::Queue;
-use vulkano::format::Format;
-use vulkano::image::view::ImageView;
-use vulkano::image::{ImageDimensions, ImmutableImage, MipmapsCount};
-use vulkano::sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo};
 // use rapier3d::na::Norm;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
@@ -154,7 +146,7 @@ impl Mesh {
                 mesh.face_arities.len()
             );
 
-            let mut next_face = 0;
+            // let mut next_face = 0;
 
             for face in mesh.indices.chunks(3) {
                 indices.push(face[0] as u16);
@@ -236,5 +228,5 @@ impl Mesh {
             // sampler,
         }
     }
-    pub fn draw(&self, amount: i32) {}
+    // pub fn draw(&self, amount: i32) {}
 }

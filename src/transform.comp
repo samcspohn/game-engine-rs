@@ -1,0 +1,24 @@
+ #version 450
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+
+struct ModelMat {
+    vec3 position;
+    float padding;
+};
+
+layout(set = 0, binding = 0) buffer tr {
+    ModelMat transforms[];
+};
+layout(set = 0, binding = 1) buffer p {
+    vec3 positions[];
+};
+
+
+
+void main() {
+    const uint id = gl_GlobalInvocationID.x;
+
+    transforms[id].position = positions[id];
+}

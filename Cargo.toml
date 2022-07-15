@@ -22,7 +22,7 @@ libc = "*"
 rayon = "*"
 crossbeam = "*"
 once_cell = "*"
-specs = { version = "*", features = [ "parallel" ] }
+# specs = { version = "*", features = [ "parallel" ] }
 rand = "*"
 
 # glam = "*"

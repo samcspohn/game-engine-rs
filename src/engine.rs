@@ -20,6 +20,8 @@ use crossbeam::queue::SegQueue;
 // use parking_lot::{Mutex, RwLock};
 use spin::{Mutex, RwLock};
 
+use crate::input::Input;
+
 
 pub struct LazyMaker {
     work: SegQueue<Box<dyn FnOnce(&mut World) + Send + Sync>>,
@@ -46,7 +48,7 @@ impl LazyMaker {
 
 pub trait Component {
     fn init(&mut self, t: Transform);
-    fn update(&mut self, trans: &Transforms, sys: ( &physics::Physics, &LazyMaker));
+    fn update(&mut self, trans: &Transforms, sys: ( &physics::Physics, &LazyMaker, &Input));
 }
 
 
@@ -58,6 +60,7 @@ pub trait StorageBase {
         transforms: &Transforms,
         phys: &physics::Physics,
         lazy_maker: &LazyMaker,
+        input: &Input,
     );
     fn erase(&mut self, i: i32);
 }
@@ -106,6 +109,7 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
         transforms: &Transforms,
         physics: &physics::Physics,
         lazy_maker: &LazyMaker,
+        input: &Input,
     ) {
         (0..self.data.len())
             .into_par_iter()
@@ -114,7 +118,7 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
                 for i in slice {
                     if let Some(d) = &self.data[i] {
                         d.lock()
-                            .update(&transforms, (&physics, &lazy_maker));
+                            .update(&transforms, (&physics, &lazy_maker, &input));
                     }
                 }
             });
@@ -232,12 +236,12 @@ impl World {
         }
     }
 
-    pub fn update(&self,phys: &physics::Physics, lazy_maker: &LazyMaker){
+    pub fn update(&self,phys: &physics::Physics, lazy_maker: &LazyMaker, input: &Input){
         let transforms = self.transforms.read();
 
         for (_, stor) in &self.components {
             stor.read()
-                .update(&transforms, &phys, &lazy_maker);
+                .update(&transforms, &phys, &lazy_maker, &input);
         }
     }
 }

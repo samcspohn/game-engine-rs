@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use winit::event::VirtualKeyCode;
-
+use crate::time::Time;
 
 
 #[derive(Default, Clone)]
@@ -12,6 +12,7 @@ pub struct Input {
     pub mouse_x: f64,
     pub mouse_y: f64,
     pub mouse_buttons: HashMap<u32, bool>,
+    pub time: Time,
 }
 
 impl Input {

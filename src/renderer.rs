@@ -25,12 +25,16 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-use crate::model::{Mesh, Normal, Vertex, UV};
+use crate::{
+    model::{Mesh, Normal, Vertex, UV},
+    transform_compute::GPUVector,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 pub struct ModelMat {
     pub pos: [f32; 3],
+    pub padding: f32,
 }
 impl_vertex!(ModelMat, pos);
 
@@ -58,8 +62,7 @@ impl RenderPipeline {
                 BuffersDefinition::new()
                     .vertex::<Vertex>()
                     .vertex::<Normal>()
-                    .vertex::<UV>()
-                    .instance::<ModelMat>(),
+                    .vertex::<UV>(), // .instance::<ModelMat>(),
             )
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
@@ -123,29 +126,28 @@ impl RenderPipeline {
         dimensions: [u32; 2],
     ) {
         self.pipeline = GraphicsPipeline::start()
-        .vertex_input_state(
-            BuffersDefinition::new()
-                .vertex::<Vertex>()
-                .vertex::<Normal>()
-                .vertex::<UV>()
-                .instance::<ModelMat>(),
-        )
-        .vertex_shader(self.vs.entry_point("main").unwrap(), ())
-        .input_assembly_state(InputAssemblyState::new())
-        // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-        //     Viewport {
-        //         origin: [0.0, 0.0],
-        //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-        //         depth_range: 0.0..1.0,
-        //     },
-        // ]))
-        .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-        .fragment_shader(self.fs.entry_point("main").unwrap(), ())
-        .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
-        .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        .build(device.clone())
-        .unwrap();
+            .vertex_input_state(
+                BuffersDefinition::new()
+                    .vertex::<Vertex>()
+                    .vertex::<Normal>()
+                    .vertex::<UV>(), // .instance::<ModelMat>()
+            )
+            .vertex_shader(self.vs.entry_point("main").unwrap(), ())
+            .input_assembly_state(InputAssemblyState::new())
+            // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+            //     Viewport {
+            //         origin: [0.0, 0.0],
+            //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+            //         depth_range: 0.0..1.0,
+            //     },
+            // ]))
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            .fragment_shader(self.fs.entry_point("main").unwrap(), ())
+            .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
+            .depth_stencil_state(DepthStencilState::simple_depth_test())
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .build(device.clone())
+            .unwrap();
     }
 
     pub fn bind_pipeline(
@@ -162,6 +164,7 @@ impl RenderPipeline {
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         uniform_buffer_subbuffer: &Arc<CpuBufferPoolSubbuffer<Data, Arc<StdMemoryPool>>>,
         instance_buffer: Arc<CpuAccessibleBuffer<[ModelMat]>>,
+        transforms_buffer: &GPUVector<ModelMat>,
         mesh: &Mesh,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
@@ -174,16 +177,20 @@ impl RenderPipeline {
             0,
             uniform_buffer_subbuffer.clone(),
         ));
+        descriptors.push(WriteDescriptorSet::buffer(
+            1,
+            transforms_buffer.data.clone(),
+        ));
 
         if let Some(texture) = mesh.texture.as_ref() {
             descriptors.push(WriteDescriptorSet::image_view_sampler(
-                1,
+                2,
                 texture.image.clone(),
                 texture.sampler.clone(),
             ));
         } else {
             descriptors.push(WriteDescriptorSet::image_view_sampler(
-                1,
+                2,
                 self.def_texture.clone(),
                 self.def_sampler.clone(),
             ));
@@ -228,9 +235,10 @@ impl RenderPipeline {
                     mesh.vertex_buffer.clone(),
                     mesh.normals_buffer.clone(),
                     mesh.uvs_buffer.clone(),
-                    instance_buffer.clone(),
+                    // instance_buffer.clone(),
                 ),
             )
+            // .bind_vertex_buffers(1, transforms_buffer.data.clone())
             .bind_index_buffer(mesh.index_buffer.clone())
             .draw_indexed(
                 mesh.index_buffer.len() as u32,
