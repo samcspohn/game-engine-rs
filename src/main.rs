@@ -564,12 +564,12 @@ fn main() {
                 let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
                 let cube_instance_buffer = fast_buffer(device.clone(), &cube_models);
 
-                // transform_compute::transform_buffer(
-                //     device.clone(),
-                //     queue.clone(),
-                //     &mut transforms_buffer,
-                //     cube_models.to_vec(),
-                // );
+                transform_compute::transform_buffer(
+                    device.clone(),
+                    queue.clone(),
+                    &mut transforms_buffer,
+                    cube_models.to_vec(),
+                );
                 update_perf("write to buffer".into(), Instant::now() - inst);
                 //////////////////////////////////
 
