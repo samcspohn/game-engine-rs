@@ -16,9 +16,14 @@ layout(set = 0, binding = 1) buffer p {
 };
 
 
+layout(set = 0, binding = 2) uniform Data {
+    int num_jobs;
+};
+
 
 void main() {
     const uint id = gl_GlobalInvocationID.x;
-
-    transforms[id].position = positions[id];
+    if(id < num_jobs) {
+        transforms[id].position = positions[id];
+    }
 }

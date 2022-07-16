@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use vulkano::{
-    buffer::{cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, TypedBufferAccess},
+    buffer::{cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, TypedBufferAccess, DeviceLocalBuffer},
     command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
@@ -16,7 +16,7 @@ use vulkano::{
             input_assembly::InputAssemblyState,
             rasterization::{CullMode, RasterizationState},
             vertex_input::BuffersDefinition,
-            viewport::{Viewport, ViewportState},
+            viewport::{ViewportState},
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
@@ -41,8 +41,8 @@ impl_vertex!(ModelMat, pos);
 use self::vs::ty::Data;
 
 pub struct RenderPipeline {
-    vs: Arc<ShaderModule>,
-    fs: Arc<ShaderModule>,
+    _vs: Arc<ShaderModule>,
+    _fs: Arc<ShaderModule>,
     pipeline: Arc<GraphicsPipeline>,
     pub def_texture: Arc<ImageView<ImmutableImage>>,
     pub def_sampler: Arc<Sampler>,
@@ -112,14 +112,14 @@ impl RenderPipeline {
         .unwrap();
 
         RenderPipeline {
-            vs,
-            fs,
+            _vs: vs,
+            _fs: fs,
             pipeline,
             def_texture,
             def_sampler,
         }
     }
-    pub fn regen(
+    pub fn _regen(
         &mut self,
         device: Arc<Device>,
         render_pass: Arc<RenderPass>,
@@ -132,7 +132,7 @@ impl RenderPipeline {
                     .vertex::<Normal>()
                     .vertex::<UV>(), // .instance::<ModelMat>()
             )
-            .vertex_shader(self.vs.entry_point("main").unwrap(), ())
+            .vertex_shader(self._vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
             // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
             //     Viewport {
@@ -142,7 +142,7 @@ impl RenderPipeline {
             //     },
             // ]))
             .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .fragment_shader(self.fs.entry_point("main").unwrap(), ())
+            .fragment_shader(self._fs.entry_point("main").unwrap(), ())
             .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
             .depth_stencil_state(DepthStencilState::simple_depth_test())
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
@@ -164,7 +164,7 @@ impl RenderPipeline {
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         uniform_buffer_subbuffer: &Arc<CpuBufferPoolSubbuffer<Data, Arc<StdMemoryPool>>>,
         instance_buffer: Arc<CpuAccessibleBuffer<[ModelMat]>>,
-        transforms_buffer: &GPUVector<ModelMat>,
+        transforms_buffer: Arc<DeviceLocalBuffer<[ModelMat]>>,
         mesh: &Mesh,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
@@ -179,7 +179,7 @@ impl RenderPipeline {
         ));
         descriptors.push(WriteDescriptorSet::buffer(
             1,
-            transforms_buffer.data.clone(),
+            transforms_buffer.clone(),
         ));
 
         if let Some(texture) = mesh.texture.as_ref() {

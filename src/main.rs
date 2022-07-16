@@ -17,6 +17,7 @@ use egui::{Color32, Ui};
 // use anyhow::{anyhow, Result};
 // use log::*;
 use nalgebra_glm as glm;
+use vulkano::buffer::device_local;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::pipeline::{Pipeline, PipelineBindPoint};
 // use parking_lot::Mutex;
@@ -346,7 +347,7 @@ fn main() {
 
     let mut transforms_buffer = transform_compute::transform_buffer_init(
         device.clone(),
-        queue.clone(),
+        // queue.clone(),
         vec![
             ModelMat {
                 ..Default::default()
@@ -378,7 +379,8 @@ fn main() {
     )
     .expect("Failed to create compute shader");
 
-    
+    let transform_uniforms =
+    CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
 
     let mut focused = true;
     event_loop.run(move |event, _, control_flow| {
@@ -564,12 +566,6 @@ fn main() {
                 let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
                 let cube_instance_buffer = fast_buffer(device.clone(), &cube_models);
 
-                transform_compute::transform_buffer(
-                    device.clone(),
-                    queue.clone(),
-                    &mut transforms_buffer,
-                    cube_models.to_vec(),
-                );
                 update_perf("write to buffer".into(), Instant::now() - inst);
                 //////////////////////////////////
 
@@ -651,20 +647,7 @@ fn main() {
                     uniform_buffer.next(uniform_data).unwrap()
                 };
 
-                let descriptor_set = PersistentDescriptorSet::new(
-                    compute_pipeline
-                        .layout()
-                        .set_layouts()
-                        .get(0) // 0 is the index of the descriptor set.
-                        .unwrap()
-                        .clone(),
-                    [
-                        // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
-                        WriteDescriptorSet::buffer(0, transforms_buffer.data.clone()),
-                        WriteDescriptorSet::buffer(1, cube_instance_buffer.clone()),
-                    ],
-                )
-                .unwrap();
+
 
                 let (image_num, suboptimal, acquire_future) =
                     match acquire_next_image(swapchain.clone(), None) {
@@ -725,6 +708,51 @@ fn main() {
 
                 // let wait_for_last_frame = result == UpdateTexturesResult::Changed;
 
+                let new_transform_buffer = transform_compute::transform_buffer(
+                    device.clone(),
+                    // queue.clone(),
+                    &mut transforms_buffer,
+                    cube_models.to_vec(),
+                );
+
+                let mut curr_transform_buffer = transforms_buffer.data.clone();
+                // let mut transforms_realloced = false;
+
+                if let Some(device_local_buffer) = new_transform_buffer {
+                    builder
+                        .copy_buffer(transforms_buffer.data.clone(), device_local_buffer.clone())
+                        .unwrap();
+                        // transforms_realloced = true;
+                        curr_transform_buffer = device_local_buffer.clone();
+                }
+
+                let transforms_sub_buffer = {
+
+                    // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
+
+                    let uniform_data = cs::ty::Data {
+                        num_jobs: cube_models.len() as i32,
+                    };
+
+                    transform_uniforms.next(uniform_data).unwrap()
+                };
+
+                let descriptor_set = PersistentDescriptorSet::new(
+                    compute_pipeline
+                        .layout()
+                        .set_layouts()
+                        .get(0) // 0 is the index of the descriptor set.
+                        .unwrap()
+                        .clone(),
+                    [
+                        // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
+                        WriteDescriptorSet::buffer(0, curr_transform_buffer.clone()),
+                        WriteDescriptorSet::buffer(1, cube_instance_buffer.clone()),
+                        WriteDescriptorSet::buffer(2, transforms_sub_buffer.clone()),
+                    ],
+                )
+                .unwrap();
+
                 builder
                     .bind_pipeline_compute(compute_pipeline.clone())
                     .bind_descriptor_sets(
@@ -733,7 +761,7 @@ fn main() {
                         0, // Bind this descriptor set to index 0.
                         descriptor_set.clone(),
                     )
-                    .dispatch([cube_models.len() as u32 / 128, 1, 1])
+                    .dispatch([cube_models.len() as u32 / 128 + 1, 1, 1])
                     .unwrap()
                     .begin_render_pass(
                         framebuffers[image_num].clone(),
@@ -747,7 +775,7 @@ fn main() {
                     &mut builder,
                     &uniform_buffer_subbuffer,
                     cube_instance_buffer,
-                    &transforms_buffer,
+                    curr_transform_buffer.clone(),
                     &cube_mesh,
                 );
 
@@ -757,7 +785,7 @@ fn main() {
                             &mut builder,
                             &uniform_buffer_subbuffer,
                             _instance_buffer.clone(),
-                            &transforms_buffer,
+                            curr_transform_buffer.clone(),
                             &chunk,
                         );
                     }
@@ -808,6 +836,8 @@ fn main() {
                         previous_frame_end = Some(sync::now(device.clone()).boxed());
                     }
                 }
+
+                transforms_buffer.data = curr_transform_buffer;
                 update_perf("render".into(), Instant::now() - inst);
                 update_perf("full".into(), Instant::now() - full);
 

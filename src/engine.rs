@@ -13,7 +13,7 @@ use std::{
 };
 
 // use rand::prelude::*;
-use rapier3d::prelude::*;
+// use rapier3d::prelude::*;
 use rayon::prelude::*;
 
 use crossbeam::queue::SegQueue;
@@ -158,6 +158,7 @@ pub struct World {
     // makers: Vec<Option<Mutex<Maker>>>,
 }
 
+#[allow(dead_code)]
 impl World {
     pub fn new() -> World {
         let trans = RwLock::new(Transforms::new());

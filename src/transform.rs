@@ -35,6 +35,8 @@ pub struct Transforms {
 #[derive(Clone, Copy)]
 pub struct Transform(pub i32);
 
+
+#[allow(dead_code)]
 impl Transforms {
     pub fn new() -> Transforms {
         Transforms {

@@ -1,7 +1,7 @@
 use std::{time::{Instant, Duration}, sync::{Arc, mpsc::{Sender, Receiver}, atomic::{AtomicBool, Ordering}}, collections::HashMap};
 use component_derive::component;
 use nalgebra_glm as glm;
-use glm::{cross, normalize, vec3, vec4, Mat4, Vec3, Vec4, };
+use glm::{ vec4, Vec3, };
 use rapier3d::prelude::*;
 use vulkano::device::Device;
 use winit::event::VirtualKeyCode;

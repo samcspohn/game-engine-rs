@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use noise::{NoiseFn, Perlin, Point3};
+use noise::{NoiseFn, Perlin};
 
 use nalgebra_glm as glm;
 use rapier3d::prelude::ColliderSet;
 use rapier3d::prelude::*;
-use vulkano::device::{Device, Queue};
+use vulkano::device::{Device};
 
-use crate::{model::{Mesh, Normal, Vertex, UV}, texture::{Texture, TextureManager}};
+use crate::{model::{Mesh, Normal, Vertex, UV}, texture::{TextureManager}};
 
 #[derive(Clone)]
 pub struct Terrain {
@@ -173,6 +173,6 @@ impl Terrain {
         mesh.texture = Some(texture_manager.texture("grass.png"));
         mesh
     }
-
+    
     pub fn update(&mut self) {}
 }

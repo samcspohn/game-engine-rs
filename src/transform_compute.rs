@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vulkano::{
-    buffer::{BufferContents, BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer},
+    buffer::{BufferContents, BufferUsage, DeviceLocalBuffer},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBuffer},
     device::{Device, Queue},
     sync::GpuFuture,
@@ -20,7 +20,7 @@ where
 
 pub fn transform_buffer_init(
     device: Arc<Device>,
-    queue: Arc<Queue>,
+    // queue: Arc<Queue>,
     positions: Vec<ModelMat>,
 ) -> GPUVector<ModelMat> {
     // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
@@ -50,10 +50,10 @@ pub fn transform_buffer_init(
 
 pub fn transform_buffer(
     device: Arc<Device>,
-    queue: Arc<Queue>,
+    // queue: Arc<Queue>,
     transforms_buffer: &mut GPUVector<ModelMat>,
     positions: Vec<ModelMat>,
-) {
+) -> Option<Arc<DeviceLocalBuffer<[ModelMat]>>> {
     // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
     let len = positions.len();
     // let mut max_len = ((len as f32).log2() + 1.).ceil();
@@ -71,6 +71,7 @@ pub fn transform_buffer(
             device.active_queue_families(),
         )
         .unwrap();
+        // transforms_buffer.data = device_local_buffer;
 
         // // Create one-time command to copy between the buffers.
         // let mut cbb = AutoCommandBufferBuilder::primary(
@@ -90,9 +91,12 @@ pub fn transform_buffer(
         //     .unwrap()
         //     .wait(None /* timeout */)
         //     .unwrap();
-
-        transforms_buffer.data = device_local_buffer;
         transforms_buffer.len = len as u32;
         transforms_buffer.max_len = max_len as u32;
+
+        Some(device_local_buffer)
+    } else {
+        transforms_buffer.len = len as u32;
+        None
     }
 }

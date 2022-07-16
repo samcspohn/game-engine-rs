@@ -15,6 +15,7 @@ pub struct Input {
     pub time: Time,
 }
 
+#[allow(dead_code)]
 impl Input {
 
     pub fn get_key(&self, key: &VirtualKeyCode) -> bool {
