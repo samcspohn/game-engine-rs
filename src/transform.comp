@@ -1,4 +1,5 @@
  #version 450
+#include "util.glsl"
 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
@@ -8,16 +9,24 @@ struct ModelMat {
     float padding;
 };
 
-layout(set = 0, binding = 0) buffer tr {
-    ModelMat transforms[];
+struct MVP {
+    mat4 mvp;
 };
-layout(set = 0, binding = 1) buffer p {
+
+layout(set = 0, binding = 0) buffer p {
     vec3 positions[];
 };
+layout(set = 0, binding = 1) buffer tr {
+    ModelMat transforms[];
+};
+layout(set = 0, binding = 2) buffer m {
+    MVP mvp[];
+};
 
-
-layout(set = 0, binding = 2) uniform Data {
+layout(set = 0, binding = 3) uniform Data {
     int num_jobs;
+    mat4 view;
+    mat4 proj;
 };
 
 
@@ -25,5 +34,6 @@ void main() {
     const uint id = gl_GlobalInvocationID.x;
     if(id < num_jobs) {
         transforms[id].position = positions[id];
+        mvp[id].mvp = proj * view * translate(transforms[id].position);
     }
 }

@@ -10,27 +10,21 @@ layout(location = 2) in vec2 uv;
 layout(location = 0) out vec3 v_normal;
 layout(location = 1) out vec2 coords;
 
-layout(set = 0, binding = 0) uniform Data {
-    mat4 view;
-    mat4 proj;
-} uniforms;
-
-struct ModelMat {
-    vec3 position;
-    float padding;
+struct MVP {
+    mat4 mvp;
 };
 
-layout(set = 0, binding = 1) buffer tr {
-    ModelMat transforms[];
+layout(set = 0, binding = 0) buffer tr {
+    MVP mvp[];
 };
 
     // mat4 world;
 void main() {
     int id = gl_InstanceIndex;
-    mat4 worldview = uniforms.view;
+    // mat4 worldview = uniforms.view;
         // v_normal = transpose(inverse(mat3(worldview))) * normal;
     coords = uv;
     v_normal = normal;
-    vec3 pos = transforms[id].position;
-    gl_Position = uniforms.proj * worldview * vec4(pos + position, 1.0);
+    // mat4 mvp = mvp[id];
+    gl_Position = mvp[id].mvp * vec4(position, 1.0);
 }

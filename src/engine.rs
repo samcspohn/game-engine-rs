@@ -56,7 +56,7 @@ pub trait StorageBase {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn update(
-        &self,
+        &mut self,
         transforms: &Transforms,
         phys: &physics::Physics,
         lazy_maker: &LazyMaker,
@@ -66,7 +66,7 @@ pub trait StorageBase {
 }
 
 pub struct Storage<T> {
-    data: Vec<Option<Mutex<T>>>,
+    data: Vec<Option<T>>,
     avail: BinaryHeap<Reverse<i32>>,
     extent: i32,
 }
@@ -74,11 +74,11 @@ impl<T: 'static + Component> Storage<T> {
     pub fn emplace(&mut self, d: T) -> i32 {
         match self.avail.pop() {
             Some(Reverse(i)) => {
-                self.data[i as usize] = Some(Mutex::new(d));
+                self.data[i as usize] = Some(d);
                 i
             }
             None => {
-                self.data.push(Some(Mutex::new(d)));
+                self.data.push(Some(d));
                 self.extent += 1;
                 self.extent as i32 - 1
             }
@@ -88,7 +88,7 @@ impl<T: 'static + Component> Storage<T> {
         self.data[id as usize] = None;
         self.avail.push(Reverse(id));
     }
-    pub fn get(&self, i: &i32) -> Option<&Mutex<T>> {
+    pub fn get(&self, i: &i32) -> Option<&T> {
         if let Some(d) = &self.data[*i as usize] {
             return Some(d);
         }else{
@@ -105,20 +105,22 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
         self as &mut dyn Any
     }
     fn update(
-        &self,
+        &mut self,
         transforms: &Transforms,
         physics: &physics::Physics,
         lazy_maker: &LazyMaker,
         input: &Input,
     ) {
-        (0..self.data.len())
-            .into_par_iter()
-            .chunks(64 * 64)
+        let chunk_size = (self.data.len() / (64 * 64)).max(1);
+        // (0..self.data.len())
+        self.data
+            .par_iter_mut()
+            .enumerate()
+            .chunks(chunk_size)
             .for_each(|slice| {
-                for i in slice {
-                    if let Some(d) = &self.data[i] {
-                        d.lock()
-                            .update(&transforms, (&physics, &lazy_maker, &input));
+                for (i, o) in slice {
+                    if let Some(d) = o {
+                        d.update(&transforms, (&physics, &lazy_maker, &input));
                     }
                 }
             });
@@ -222,7 +224,7 @@ impl World {
         g: GameObject,
         f: F
 
-    ) where  F:FnOnce(Option<&Mutex<T>>) {
+    ) where  F:FnOnce(Option<&T>) {
         let key: TypeId = TypeId::of::<T>();
 
         if let Some(components) = &self.entities.read()[g.t.0 as usize] {
@@ -237,11 +239,11 @@ impl World {
         }
     }
 
-    pub fn update(&self,phys: &physics::Physics, lazy_maker: &LazyMaker, input: &Input){
+    pub fn update(&mut self,phys: &physics::Physics, lazy_maker: &LazyMaker, input: &Input){
         let transforms = self.transforms.read();
 
         for (_, stor) in &self.components {
-            stor.read()
+            stor.write()
                 .update(&transforms, &phys, &lazy_maker, &input);
         }
     }

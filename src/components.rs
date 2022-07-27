@@ -6,10 +6,11 @@ use std::{
     any::{Any, TypeId},
     cmp::Reverse,
     collections::{BTreeMap, BinaryHeap},
-    fmt::Debug,
-    sync::Mutex, cell::RefCell,
+    fmt::Debug, cell::RefCell,
 };
-use std::{collections::HashMap, sync::RwLock};
+use std::{collections::HashMap};
+// use parking_lot::{RwLock, Mutex};
+use spin::{RwLock, Mutex};
 
 // pub trait AToAny: 'static {
 //     fn as_any(&self) -> &dyn Any;

@@ -206,7 +206,7 @@ fn main() {
                     .iter()
                     .next()
                     .unwrap(),
-                present_mode: vulkano::swapchain::PresentMode::Fifo,
+                present_mode: vulkano::swapchain::PresentMode::Immediate,
                 ..Default::default()
             },
         )
@@ -221,8 +221,8 @@ fn main() {
 
     let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
 
-    let uniform_buffer =
-        CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
+    // let uniform_buffer =
+    //     CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
 
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
@@ -345,7 +345,7 @@ fn main() {
     let mut frame_time = Instant::now();
     // let mut fps_time: f32 = 0.0;
 
-    let mut transforms_buffer = transform_compute::transform_buffer_init(
+    let mut transform_data = transform_compute::transform_buffer_init(
         device.clone(),
         // queue.clone(),
         vec![
@@ -379,8 +379,7 @@ fn main() {
     )
     .expect("Failed to create compute shader");
 
-    let transform_uniforms =
-    CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
+    let transform_uniforms = CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
 
     let mut focused = true;
     event_loop.run(move |event, _, control_flow| {
@@ -545,14 +544,14 @@ fn main() {
                 }
 
                 let inst = Instant::now();
-                let (terrain_models, cube_models, cam_pos, cam_rot) = coms.0.recv().unwrap();
+                let (terrain_models, positions, cam_pos, cam_rot) = coms.0.recv().unwrap();
 
                 update_perf("wait for game".into(), Instant::now() - inst);
                 let res = coms.1.send(input.clone());
                 // println!("input sent");
                 if res.is_err() {
-                    return;
-                    // println!("ohno");
+                    // return;
+                    println!("ohno");
                 }
 
                 input.key_presses.clear();
@@ -564,7 +563,7 @@ fn main() {
 
                 let inst = Instant::now();
                 let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
-                let cube_instance_buffer = fast_buffer(device.clone(), &cube_models);
+                let positions_buffer = fast_buffer(device.clone(), &positions);
 
                 update_perf("write to buffer".into(), Instant::now() - inst);
                 //////////////////////////////////
@@ -620,34 +619,19 @@ fn main() {
                     // recreate_swapchain = false;
                 }
 
-                let uniform_buffer_subbuffer = {
-                    // note: this teapot was meant for OpenGL where the origin is at the lower left
-                    //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
-                    let aspect_ratio =
-                        swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
-                    let proj = glm::perspective(
-                        aspect_ratio,
-                        std::f32::consts::FRAC_PI_2 as f32,
-                        0.01,
-                        10000.0,
-                    );
+                let aspect_ratio =
+                    swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
+                let proj = glm::perspective(
+                    aspect_ratio,
+                    std::f32::consts::FRAC_PI_2 as f32,
+                    0.01,
+                    10000.0,
+                );
 
-                    let rot = glm::quat_to_mat3(&cam_rot);
-                    let target = cam_pos + rot * Vec3::z();
-                    let up = rot * Vec3::y();
-                    let view: Mat4 = glm::look_at_lh(&cam_pos, &target, &up);
-
-                    // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
-
-                    let uniform_data = renderer::vs::ty::Data {
-                        view: view.into(),
-                        proj: proj.into(),
-                    };
-
-                    uniform_buffer.next(uniform_data).unwrap()
-                };
-
-
+                let rot = glm::quat_to_mat3(&cam_rot);
+                let target = cam_pos + rot * Vec3::z();
+                let up = rot * Vec3::y();
+                let view: Mat4 = glm::look_at_lh(&cam_pos, &target, &up);
 
                 let (image_num, suboptimal, acquire_future) =
                     match acquire_next_image(swapchain.clone(), None) {
@@ -671,31 +655,12 @@ fn main() {
                 .unwrap();
 
                 egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
-                // demo_windows.ui(&egui_ctx);
-
-                // egui::Window::new("Color test")
-                //     .vscroll(true)
-                //     .show(&egui_ctx, |ui| {
-                //         egui_test.ui(ui);
-                //     });
-
-                // egui::Window::new("Settings").show(&egui_ctx, |ui| {
-                //     egui_ctx.settings_ui(ui);
-                // });
 
                 egui::Window::new("Benchmark")
                     .default_height(600.0)
                     .show(&egui_ctx, |ui| {
                         egui_bench.draw(ui);
                     });
-
-                // egui::Window::new("Texture test").show(&egui_ctx, |ui| {
-                //     ui.image(my_texture.id(), (200.0, 200.0));
-                //     if ui.button("Reload texture").clicked() {
-                //         // previous TextureHandle is dropped, causing egui to free the texture:
-                //         my_texture = egui_ctx.load_texture("my_texture", ColorImage::example());
-                //     }
-                // });
 
                 // Get the shapes from egui
                 let egui_output = egui_ctx.end_frame();
@@ -708,30 +673,42 @@ fn main() {
 
                 // let wait_for_last_frame = result == UpdateTexturesResult::Changed;
 
-                let new_transform_buffer = transform_compute::transform_buffer(
+                transform_compute::transform_buffer(
                     device.clone(),
                     // queue.clone(),
-                    &mut transforms_buffer,
-                    cube_models.to_vec(),
+                    &mut transform_data,
+                    positions.to_vec(),
                 );
 
-                let mut curr_transform_buffer = transforms_buffer.data.clone();
+                let mut curr_transform_buffer = transform_data.positions.data.clone();
+                let mut curr_mvp_buffer = transform_data.mvp.data.clone();
                 // let mut transforms_realloced = false;
 
-                if let Some(device_local_buffer) = new_transform_buffer {
+                if let Some(new_transform_data) = &transform_data.update {
                     builder
-                        .copy_buffer(transforms_buffer.data.clone(), device_local_buffer.clone())
+                        .copy_buffer(
+                            transform_data.positions.data.clone(),
+                            new_transform_data.positions.data.clone(),
+                        )
+                        .unwrap()
+                        .copy_buffer(
+                            transform_data.mvp.data.clone(),
+                            new_transform_data.mvp.data.clone(),
+                        )
                         .unwrap();
-                        // transforms_realloced = true;
-                        curr_transform_buffer = device_local_buffer.clone();
+                    // transforms_realloced = true;
+                    curr_transform_buffer = new_transform_data.positions.data.clone();
+                    curr_mvp_buffer = new_transform_data.mvp.data.clone();
                 }
 
                 let transforms_sub_buffer = {
-
                     // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
 
                     let uniform_data = cs::ty::Data {
-                        num_jobs: cube_models.len() as i32,
+                        num_jobs: positions.len() as i32,
+                        view: view.into(),
+                        proj: proj.into(),
+                        _dummy0: Default::default(),
                     };
 
                     transform_uniforms.next(uniform_data).unwrap()
@@ -746,9 +723,10 @@ fn main() {
                         .clone(),
                     [
                         // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
-                        WriteDescriptorSet::buffer(0, curr_transform_buffer.clone()),
-                        WriteDescriptorSet::buffer(1, cube_instance_buffer.clone()),
-                        WriteDescriptorSet::buffer(2, transforms_sub_buffer.clone()),
+                        WriteDescriptorSet::buffer(0, positions_buffer.clone()),
+                        WriteDescriptorSet::buffer(1, curr_transform_buffer.clone()),
+                        WriteDescriptorSet::buffer(2, curr_mvp_buffer.clone()),
+                        WriteDescriptorSet::buffer(3, transforms_sub_buffer.clone()),
                     ],
                 )
                 .unwrap();
@@ -761,7 +739,7 @@ fn main() {
                         0, // Bind this descriptor set to index 0.
                         descriptor_set.clone(),
                     )
-                    .dispatch([cube_models.len() as u32 / 128 + 1, 1, 1])
+                    .dispatch([positions.len() as u32 / 128 + 1, 1, 1])
                     .unwrap()
                     .begin_render_pass(
                         framebuffers[image_num].clone(),
@@ -771,11 +749,12 @@ fn main() {
                     .unwrap()
                     .set_viewport(0, [viewport.clone()]);
 
+                // render
                 rend.bind_pipeline(&mut builder).bind_mesh(
                     &mut builder,
-                    &uniform_buffer_subbuffer,
-                    cube_instance_buffer,
-                    curr_transform_buffer.clone(),
+                    // &uniform_buffer_subbuffer,
+                    positions.len() as u32,
+                    curr_mvp_buffer.clone(),
                     &cube_mesh,
                 );
 
@@ -783,9 +762,10 @@ fn main() {
                     for (_, chunk) in z {
                         rend.bind_mesh(
                             &mut builder,
-                            &uniform_buffer_subbuffer,
-                            _instance_buffer.clone(),
-                            curr_transform_buffer.clone(),
+                            // &uniform_buffer_subbuffer,
+                            1,
+                            // _instance_buffer.clone(),
+                            curr_mvp_buffer.clone(),
                             &chunk,
                         );
                     }
@@ -803,7 +783,7 @@ fn main() {
                     )
                     .unwrap();
 
-                input.time.dt = frame_time.elapsed().as_secs_f64() as f32;
+                input.time.dt = (frame_time.elapsed().as_secs_f64() as f32).min(0.1);
 
                 egui_bench.push(frame_time.elapsed().as_secs_f64());
                 frame_time = Instant::now();
@@ -837,7 +817,9 @@ fn main() {
                     }
                 }
 
-                transforms_buffer.data = curr_transform_buffer;
+                transform_data.positions.data = curr_transform_buffer;
+                transform_data.mvp.data = curr_mvp_buffer;
+                transform_data.update = None;
                 update_perf("render".into(), Instant::now() - inst);
                 update_perf("full".into(), Instant::now() - full);
 

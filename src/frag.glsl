@@ -4,7 +4,7 @@ layout(location = 0) in vec3 v_normal;
 layout(location = 1) in vec2 coords;
 layout(location = 0) out vec4 f_color;
 
-layout(set = 0, binding = 2) uniform sampler2D tex;
+layout(set = 0, binding = 1) uniform sampler2D tex;
 
 const vec3 LIGHT = vec3(0.0, 0.0, 1.0);
 

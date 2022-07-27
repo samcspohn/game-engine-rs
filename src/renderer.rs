@@ -27,7 +27,7 @@ use vulkano::{
 
 use crate::{
     model::{Mesh, Normal, Vertex, UV},
-    transform_compute::GPUVector,
+    transform_compute::{GPUVector, MVP},
 };
 
 #[repr(C)]
@@ -38,7 +38,7 @@ pub struct ModelMat {
 }
 impl_vertex!(ModelMat, pos);
 
-use self::vs::ty::Data;
+// use self::vs::ty::Data;
 
 pub struct RenderPipeline {
     _vs: Arc<ShaderModule>,
@@ -162,9 +162,10 @@ impl RenderPipeline {
     pub fn bind_mesh(
         &self,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        uniform_buffer_subbuffer: &Arc<CpuBufferPoolSubbuffer<Data, Arc<StdMemoryPool>>>,
-        instance_buffer: Arc<CpuAccessibleBuffer<[ModelMat]>>,
-        transforms_buffer: Arc<DeviceLocalBuffer<[ModelMat]>>,
+        // uniform_buffer_subbuffer: &Arc<CpuBufferPoolSubbuffer<Data, Arc<StdMemoryPool>>>,
+        // instance_buffer: Arc<CpuAccessibleBuffer<[ModelMat]>>,
+        count: u32,
+        transforms_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
         mesh: &Mesh,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
@@ -173,24 +174,24 @@ impl RenderPipeline {
         // let sampler: Arc<vulkano::sampler::Sampler> = mesh.sampler.unwrap().clone();
 
         let mut descriptors = Vec::new();
+        // descriptors.push(WriteDescriptorSet::buffer(
+        //     0,
+        //     uniform_buffer_subbuffer.clone(),
+        // ));
         descriptors.push(WriteDescriptorSet::buffer(
             0,
-            uniform_buffer_subbuffer.clone(),
-        ));
-        descriptors.push(WriteDescriptorSet::buffer(
-            1,
             transforms_buffer.clone(),
         ));
 
         if let Some(texture) = mesh.texture.as_ref() {
             descriptors.push(WriteDescriptorSet::image_view_sampler(
-                2,
+                1,
                 texture.image.clone(),
                 texture.sampler.clone(),
             ));
         } else {
             descriptors.push(WriteDescriptorSet::image_view_sampler(
-                2,
+                1,
                 self.def_texture.clone(),
                 self.def_sampler.clone(),
             ));
@@ -242,7 +243,7 @@ impl RenderPipeline {
             .bind_index_buffer(mesh.index_buffer.clone())
             .draw_indexed(
                 mesh.index_buffer.len() as u32,
-                instance_buffer.len() as u32,
+                count,
                 0,
                 0,
                 0,

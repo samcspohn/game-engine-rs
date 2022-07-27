@@ -11,8 +11,8 @@ use rayon::prelude::*;
 use crate::{renderer::ModelMat, engine::{transform::{Transform, Transforms}, Component, LazyMaker, physics::{self, Physics}, World}, input::Input, texture::TextureManager, terrain::Terrain};
 
 #[component]
-struct Bomb {
-    vel: glm::Vec3,
+pub struct Bomb {
+    pub vel: glm::Vec3,
 }
 impl Component for Bomb {
     fn init(&mut self, t: Transform) {
@@ -21,7 +21,8 @@ impl Component for Bomb {
     fn update(&mut self, trans: &Transforms, sys: (&physics::Physics, &LazyMaker, &Input)) {
         let pos = trans.get_position(self.t);
         let vel = self.vel;
-        let dt = sys.2.time.dt;
+        // let dt = sys.2.time.dt.min(1./100.);
+        let dt = 1./100.;
         // let dir = vel * (1.0 / 100.0);
         let ray = rapier3d::prelude::Ray {
             origin: point![pos.x, pos.y, pos.z],
@@ -31,12 +32,17 @@ impl Component for Bomb {
             &&sys.0.collider_set,
             &ray,
             dt,
-            false,
+            true,
             InteractionGroups::all(),
             None,
         ) {
             self.vel = glm::reflect_vec(&vel, &&_hit.normal);
         }
+        // if pos.y <= 0. {
+        //     self.vel = glm::reflect_vec(&vel, &glm::vec3(0.,1.,0.));
+        //     pos.y += 0.1;
+        //     trans.set_position(self.t, pos);
+        // }
         trans._move(self.t, self.vel * dt);
         self.vel += glm::vec3(0.0, -9.81, 0.0) * dt;
 
@@ -44,7 +50,7 @@ impl Component for Bomb {
     }
 }
 #[component]
-struct Maker {}
+pub struct Maker {}
 impl Component for Maker {
     fn init(&mut self, t: Transform) {
         self.t = t;
@@ -59,11 +65,11 @@ impl Component for Maker {
                     vel: glm::vec3(rand::random(), rand::random(), rand::random()),
                 },
             );
-            world.get_component::<Bomb, _>(g, |b| {
-                if let Some(b) = b {
-                    b.lock().vel = glm::vec3(rand::random(), rand::random(), rand::random());
-                }
-            });
+            // world.get_component::<Bomb, _>(g, |b| {
+            //     if let Some(b) = b {
+            //         *b.vel = glm::vec3(rand::random(), rand::random(), rand::random());
+            //     }
+            // });
         });
     }
 }
@@ -113,7 +119,7 @@ pub fn game_thread_fn(
     let _root = world.instantiate();
 
     // use rand::Rng;
-    for _ in 0..1_0000 {
+    for _ in 0..1_000_000 {
         // bombs
         let g = world.instantiate();
         world.add_component(
@@ -130,9 +136,9 @@ pub fn game_thread_fn(
         world.transforms.read()._move(
             g.t,
             glm::vec3(
-                rand::random::<f32>() * 10. - 5.,
+                rand::random::<f32>() * 100. - 50.,
                 50.0,
-                rand::random::<f32>() * 10. - 5.,
+                rand::random::<f32>() * 100. - 50.,
             ),
         );
     }
@@ -225,9 +231,11 @@ pub fn game_thread_fn(
             let _cam_rot = cam_rot.clone();
             let _cam_pos = cam_pos.clone();
             lazy_maker.append(move |world| {
-                (0..(ALOT * input.time.dt) as usize)
-                    .into_par_iter()
-                    .chunks(16)
+                let len = (ALOT * input.time.dt) as usize;
+                // let chunk_size =  (len / (64 * 64)).max(1);
+                (0..len)
+                    .into_iter()
+                    // .chunks(chunk_size)
                     .for_each(|_| {
                         let g = world.instantiate();
                         world.add_component(
@@ -266,7 +274,8 @@ pub fn game_thread_fn(
         let p_iter = positions.par_iter();
         let m_iter = cube_models.par_iter_mut();
 
-        p_iter.zip_eq(m_iter).chunks(64 * 64).for_each(|slice| {
+        let chunk_size = (positions.len()  / (64 * 64)).max(1);
+        p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
             for (x, y) in slice {
                 let x = x.lock();
                 *y = ModelMat {
@@ -293,7 +302,7 @@ pub fn game_thread_fn(
             // terr_chunks,
         ));
         if res.is_err() {
-            // println!("ohno");
+            println!("ohno");
         }
     }
     let p = perf.iter();
