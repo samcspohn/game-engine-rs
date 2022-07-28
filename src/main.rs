@@ -785,7 +785,7 @@ fn main() {
 
                 input.time.dt = (frame_time.elapsed().as_secs_f64() as f32).min(0.1);
 
-                egui_bench.push(frame_time.elapsed().as_secs_f64());
+                egui_bench.push(frame_time.elapsed().as_secs_f64(), positions.len());
                 frame_time = Instant::now();
 
                 builder.end_render_pass().unwrap();
@@ -893,6 +893,7 @@ fn window_size_dependent_setup(
 
 pub struct Benchmark {
     capacity: usize,
+    entities: usize,
     data: VecDeque<f64>,
 }
 
@@ -900,6 +901,7 @@ impl Benchmark {
     pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
+            entities: 0,
             data: VecDeque::with_capacity(capacity),
         }
     }
@@ -917,6 +919,7 @@ impl Benchmark {
             let fps = 1.0 / fps;
             ui.label(format!("fps: {}", fps));
         }
+        ui.label(format!("entities: {}", self.entities));
         ui.label("Time in milliseconds that the gui took to draw:");
         Plot::new("plot")
             .view_aspect(2.0)
@@ -928,7 +931,8 @@ impl Benchmark {
         ui.label("The red line marks the frametime target for drawing at 60 FPS.");
     }
 
-    pub fn push(&mut self, v: f64) {
+    pub fn push(&mut self, v: f64, ent: usize) {
+        self.entities = ent;
         if self.data.len() >= self.capacity {
             self.data.pop_front();
         }
