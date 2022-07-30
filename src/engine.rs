@@ -182,6 +182,16 @@ impl World {
             .push(Some(RwLock::new(HashMap::new())));
         ret
     }
+    pub fn instantiate_with_transform(&self, transform: transform::_Transform) -> GameObject {
+        let mut trans = self.transforms.write();
+        let ret = GameObject {
+            t: trans.new_transform_with(self.root, transform),
+        };
+        self.entities
+            .write()
+            .push(Some(RwLock::new(HashMap::new())));
+        ret
+    }
     pub fn add_component<T: 'static + Component>(&self, g: GameObject, mut d: T) {
         d.init(g.t);
         let key: TypeId = TypeId::of::<T>();

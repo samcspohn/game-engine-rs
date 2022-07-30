@@ -100,6 +100,8 @@ use crate::{
 mod game;
 mod terrain;
 
+use rayon::prelude::*;
+
 fn fast_buffer(device: Arc<Device>, data: &Vec<ModelMat>) -> Arc<CpuAccessibleBuffer<[ModelMat]>> {
     unsafe {
         // let inst = Instant::now();
@@ -112,14 +114,15 @@ fn fast_buffer(device: Arc<Device>, data: &Vec<ModelMat>) -> Arc<CpuAccessibleBu
         .unwrap();
         {
             let mut mapping = uninitialized.write().unwrap();
-            let mo_iter = data.iter();
-            let m_iter = mapping.iter_mut();
+            let mo_iter = data.par_iter();
+            let m_iter = mapping.par_iter_mut();
 
             // let inst = Instant::now();
-            mo_iter.zip(m_iter).for_each(|(i, o)| {
-                // for (i, o) in slice {
-                ptr::write(o, *i);
-                // }
+            let chunk_size = (data.len() / (64 * 64)).max(1);
+            mo_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
+                for (i, o) in slice {
+                    ptr::write(o, *i);
+                }
             });
             // update_perf("write to buffer".into(), Instant::now() - inst);
         }
@@ -129,6 +132,9 @@ fn fast_buffer(device: Arc<Device>, data: &Vec<ModelMat>) -> Arc<CpuAccessibleBu
 
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
+
+    // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
+
     let event_loop = EventLoop::new();
 
     let required_extensions = vulkano_win::required_extensions();
@@ -547,6 +553,17 @@ fn main() {
                 let (terrain_models, positions, cam_pos, cam_rot) = coms.0.recv().unwrap();
 
                 update_perf("wait for game".into(), Instant::now() - inst);
+
+                loops += 1;
+
+                let inst = Instant::now();
+                // let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
+                let positions_buffer = fast_buffer(device.clone(), &positions);
+
+                update_perf("write to buffer".into(), Instant::now() - inst);
+
+                /////////////////////////////////////////////////////////////////
+
                 let res = coms.1.send(input.clone());
                 // println!("input sent");
                 if res.is_err() {
@@ -559,13 +576,8 @@ fn main() {
                 input.mouse_x = 0.;
                 input.mouse_y = 0.;
 
-                loops += 1;
+                /////////////////////////////////////////////////////////////////
 
-                let inst = Instant::now();
-                let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
-                let positions_buffer = fast_buffer(device.clone(), &positions);
-
-                update_perf("write to buffer".into(), Instant::now() - inst);
                 //////////////////////////////////
 
                 // render_thread = thread::spawn( || {
@@ -575,11 +587,7 @@ fn main() {
                 if dimensions.width == 0 || dimensions.height == 0 {
                     return;
                 }
-
-                let inst2 = Instant::now();
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
-
-                update_perf("previous frame end".into(), Instant::now() - inst2);
 
                 if recreate_swapchain {
                     println!("recreate swapchain");
@@ -791,7 +799,6 @@ fn main() {
                 builder.end_render_pass().unwrap();
                 let command_buffer = builder.build().unwrap();
 
-                let inst2 = Instant::now();
                 let future = previous_frame_end
                     .take()
                     .unwrap()
@@ -800,8 +807,6 @@ fn main() {
                     .unwrap()
                     .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
                     .then_signal_fence_and_flush();
-
-                update_perf("previous frame end future".into(), Instant::now() - inst2);
 
                 match future {
                     Ok(future) => {

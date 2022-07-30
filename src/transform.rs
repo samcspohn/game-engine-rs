@@ -2,8 +2,8 @@ use deepmesa::lists::{linkedlist::Node, LinkedList};
 use force_send_sync::SendSync;
 use glm::Vec3;
 use nalgebra_glm as glm;
-// use parking_lot::{Mutex, RwLock};
-use spin::{Mutex,RwLock};
+use parking_lot::{Mutex, RwLock};
+// use spin::{Mutex,RwLock};
 use std::{cmp::Reverse, collections::BinaryHeap};
 
 struct TransformMeta {
@@ -30,6 +30,17 @@ pub struct Transforms {
     meta: Vec<Mutex<TransformMeta>>,
     avail: BinaryHeap<Reverse<i32>>,
     extent: i32,
+}
+
+#[derive(Clone, Copy)]
+pub struct _Transform {
+    pub position: glm::Vec3,
+    pub rotation: glm::Quat,
+    pub scale: glm::Vec3,
+
+}
+impl Default for _Transform {
+    fn default() -> Self { _Transform { position: glm::vec3(0.,0.,0.), rotation: glm::quat(1.0, 0.0, 0.0, 0.0), scale: glm::vec3(1.0, 1.0, 1.0) } }
 }
 
 #[derive(Clone, Copy)]
@@ -69,19 +80,22 @@ impl Transforms {
         }
     }
     pub fn new_transform(&mut self, parent: Transform) -> Transform {
+        self.new_transform_with(parent, Default::default())
+    }
+    pub fn new_transform_with(&mut self, parent: Transform, transform: _Transform) -> Transform {
         let ret = match self.avail.pop() {
             Some(Reverse(i)) => {
-                self.positions[i as usize] = Mutex::new(glm::vec3(0.0, 0.0, 0.0));
-                self.rotations[i as usize] = Mutex::new(glm::quat(1.0, 0.0, 0.0, 0.0));
-                self.scales[i as usize] = Mutex::new(glm::vec3(1.0, 1.0, 1.0));
+                self.positions[i as usize] = Mutex::new(transform.position);
+                self.rotations[i as usize] = Mutex::new(transform.rotation);
+                self.scales[i as usize] = Mutex::new(transform.scale);
                 self.meta[i as usize] = Mutex::new(TransformMeta::new());
                 Transform(i)
             }
             None => {
-                self.positions.push(Mutex::new(glm::vec3(0.0, 0.0, 0.0)));
+                self.positions.push(Mutex::new(transform.position));
                 self.rotations
-                    .push(Mutex::new(glm::quat(1.0, 0.0, 0.0, 0.0)));
-                self.scales.push(Mutex::new(glm::vec3(1.0, 1.0, 1.0)));
+                    .push(Mutex::new(transform.rotation));
+                self.scales.push(Mutex::new(transform.scale));
                 self.meta.push(Mutex::new(TransformMeta::new()));
                 self.extent += 1;
                 Transform(self.extent as i32 - 1)

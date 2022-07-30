@@ -1,14 +1,32 @@
-use std::{time::{Instant, Duration}, sync::{Arc, mpsc::{Sender, Receiver}, atomic::{AtomicBool, Ordering}}, collections::HashMap};
 use component_derive::component;
+use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
-use glm::{ vec4, Vec3, };
 use rapier3d::prelude::*;
+use rayon::prelude::*;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, Sender},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 use vulkano::device::Device;
 use winit::event::VirtualKeyCode;
-use rayon::prelude::*;
 // use rapier3d::{na::point, prelude::InteractionGroups};
 
-use crate::{renderer::ModelMat, engine::{transform::{Transform, Transforms}, Component, LazyMaker, physics::{self, Physics}, World}, input::Input, texture::TextureManager, terrain::Terrain};
+use crate::{
+    engine::{
+        physics::{self, Physics},
+        transform::{Transform, Transforms, _Transform},
+        Component, LazyMaker, World,
+    },
+    input::Input,
+    renderer::ModelMat,
+    terrain::Terrain,
+    texture::TextureManager,
+};
 
 #[component]
 pub struct Bomb {
@@ -22,7 +40,7 @@ impl Component for Bomb {
         let pos = trans.get_position(self.t);
         let vel = self.vel;
         // let dt = sys.2.time.dt.min(1./100.);
-        let dt = 1./100.;
+        let dt = 1. / 100.;
         // let dir = vel * (1.0 / 100.0);
         let ray = rapier3d::prelude::Ray {
             origin: point![pos.x, pos.y, pos.z],
@@ -237,7 +255,10 @@ pub fn game_thread_fn(
                     .into_iter()
                     // .chunks(chunk_size)
                     .for_each(|_| {
-                        let g = world.instantiate();
+                        let g = world.instantiate_with_transform(_Transform {
+                            position: _cam_pos - glm::Vec3::y() * 2.,
+                            ..Default::default()
+                        });
                         world.add_component(
                             g,
                             Bomb {
@@ -247,10 +268,10 @@ pub fn game_thread_fn(
                                         * 18.,
                             },
                         );
-                        world
-                            .transforms
-                            .read()
-                            .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
+                        // world
+                        //     .transforms
+                        //     .read()
+                        //     .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
                     });
             });
         }
@@ -274,7 +295,7 @@ pub fn game_thread_fn(
         let p_iter = positions.par_iter();
         let m_iter = cube_models.par_iter_mut();
 
-        let chunk_size = (positions.len()  / (64 * 64)).max(1);
+        let chunk_size = (positions.len() / (64 * 64)).max(1);
         p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
             for (x, y) in slice {
                 let x = x.lock();
