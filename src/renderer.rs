@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use vulkano::{
-    buffer::{cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, TypedBufferAccess, DeviceLocalBuffer},
+    buffer::{
+        cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess, CpuBufferPool,
+    },
     command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
@@ -16,7 +18,7 @@ use vulkano::{
             input_assembly::InputAssemblyState,
             rasterization::{CullMode, RasterizationState},
             vertex_input::BuffersDefinition,
-            viewport::{ViewportState},
+            viewport::ViewportState,
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
@@ -37,6 +39,14 @@ pub struct ModelMat {
     pub padding: f32,
 }
 impl_vertex!(ModelMat, pos);
+
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+pub struct Id {
+    pub id: i32
+}
+impl_vertex!(Id, id);
 
 // use self::vs::ty::Data;
 
@@ -62,7 +72,8 @@ impl RenderPipeline {
                 BuffersDefinition::new()
                     .vertex::<Vertex>()
                     .vertex::<Normal>()
-                    .vertex::<UV>(), // .instance::<ModelMat>(),
+                    .vertex::<UV>()
+                    // .instance::<Id>(),
             )
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
@@ -130,7 +141,8 @@ impl RenderPipeline {
                 BuffersDefinition::new()
                     .vertex::<Vertex>()
                     .vertex::<Normal>()
-                    .vertex::<UV>(), // .instance::<ModelMat>()
+                    .vertex::<UV>()
+                    // .instance::<Id>(),
             )
             .vertex_shader(self._vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
@@ -161,10 +173,12 @@ impl RenderPipeline {
 
     pub fn bind_mesh(
         &self,
+        // device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        // uniform_buffer_subbuffer: &Arc<CpuBufferPoolSubbuffer<Data, Arc<StdMemoryPool>>>,
-        // instance_buffer: Arc<CpuAccessibleBuffer<[ModelMat]>>,
+        instance_buffer: Arc<CpuAccessibleBuffer<[Id]>>,
+        render_uniforms: &CpuBufferPool::<vs::ty::UniformBufferObject>,
         count: u32,
+        offset: u32,
         transforms_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
         mesh: &Mesh,
     ) -> &RenderPipeline {
@@ -178,10 +192,7 @@ impl RenderPipeline {
         //     0,
         //     uniform_buffer_subbuffer.clone(),
         // ));
-        descriptors.push(WriteDescriptorSet::buffer(
-            0,
-            transforms_buffer.clone(),
-        ));
+        descriptors.push(WriteDescriptorSet::buffer(0, transforms_buffer.clone()));
 
         if let Some(texture) = mesh.texture.as_ref() {
             descriptors.push(WriteDescriptorSet::image_view_sampler(
@@ -196,34 +207,25 @@ impl RenderPipeline {
                 self.def_sampler.clone(),
             ));
         }
+        descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
+
+        let render_sub_buffer = {
+            // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
+
+            let uniform_data = vs::ty::UniformBufferObject {
+                offset: offset as i32,
+            };
+
+            render_uniforms.next(uniform_data).unwrap()
+        };
+        descriptors.push(WriteDescriptorSet::buffer(3, render_sub_buffer));
+
+
+        
 
         let set = PersistentDescriptorSet::new(layout.clone(), descriptors).unwrap();
 
-        // let set = PersistentDescriptorSet::new(
-        //     layout.clone(),
-        //     [WriteDescriptorSet::image_view_sampler(
-        //         0,
-        //         mesh.texture.unwrap().clone(),
-        //         mesh.sampler.unwrap().clone(),
-        //     )],
-        // )
-        // .unwrap();
-
-        // let set = PersistentDescriptorSet::new_variable(
-        //     layout.clone(),
-        //     2,
-        //     [WriteDescriptorSet::image_view_sampler_array(
-        //         0,
-        //         0,
-        //         [
-        //             (mascot_texture.clone() as _, sampler.clone()),
-        //             (vulkano_texture.clone() as _, sampler.clone()),
-        //         ],
-        //     )],
-        // )
-        // .unwrap();
-
-        builder
+            builder
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
                 self.pipeline.layout().clone(),
@@ -241,13 +243,7 @@ impl RenderPipeline {
             )
             // .bind_vertex_buffers(1, transforms_buffer.data.clone())
             .bind_index_buffer(mesh.index_buffer.clone())
-            .draw_indexed(
-                mesh.index_buffer.len() as u32,
-                count,
-                0,
-                0,
-                0,
-            )
+            .draw_indexed(mesh.index_buffer.len() as u32, count, 0, 0, 0)
             .unwrap();
         self
     }

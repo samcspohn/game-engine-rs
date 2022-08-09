@@ -43,7 +43,7 @@ impl Default for _Transform {
     fn default() -> Self { _Transform { position: glm::vec3(0.,0.,0.), rotation: glm::quat(1.0, 0.0, 0.0, 0.0), scale: glm::vec3(1.0, 1.0, 1.0) } }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Transform(pub i32);
 
 

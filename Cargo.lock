@@ -780,6 +780,7 @@ dependencies = [
  "libloading",
  "nalgebra-glm",
  "noise",
+ "num_cpus",
  "once_cell",
  "parking_lot 0.12.1",
  "png",
@@ -788,7 +789,6 @@ dependencies = [
  "rayon",
  "ron",
  "serde",
- "spin",
  "tobj",
  "vulkano",
  "vulkano-shaders",
@@ -1971,15 +1971,6 @@ dependencies = [
  "optional",
  "robust",
  "smallvec",
-]
-
-[[package]]
-name = "spin"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c530c2b0d0bf8b69304b39fe2001993e267461948b890cd037d8ad4293fa1a0d"
-dependencies = [
- "lock_api",
 ]
 
 [[package]]

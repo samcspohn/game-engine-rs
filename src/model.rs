@@ -1,6 +1,6 @@
 // extern crate assimp;
 
-use std::{ops::Sub, sync::Arc};
+use std::{ops::Sub, sync::Arc, collections::HashMap};
 
 // use ai::import::Importer;
 // use assimp as ai;
@@ -229,4 +229,43 @@ impl Mesh {
         }
     }
     // pub fn draw(&self, amount: i32) {}
+}
+
+pub struct ModelRenderer {
+    pub mesh: Mesh,
+    pub count: u32
+}
+
+pub struct ModelManager {
+    pub device: Arc<Device>,
+    pub texture_manager: Arc<TextureManager>,
+    pub models: HashMap<String, i32>,
+    pub models_ids: HashMap<i32, ModelRenderer>,
+    pub model_id_gen: i32
+}
+
+impl ModelManager {
+    pub fn from_file(&mut self, path: &str) -> i32 {
+        let id = self.model_id_gen;
+        self.model_id_gen += 1;
+
+        let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
+        let m = ModelRenderer {mesh, count: 1};
+
+        self.models_ids.insert(id, m);
+        self.models.insert(path.into(), id);
+        id
+    }
+
+    pub fn procedural(&mut self, mesh: Mesh) -> i32 {
+        let id = self.model_id_gen;
+        self.model_id_gen += 1;
+        let m = ModelRenderer {mesh, count: 1};
+
+        // let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
+
+        self.models_ids.insert(id, m);
+        id
+        // self.models.insert(path.into(), id);
+    }
 }

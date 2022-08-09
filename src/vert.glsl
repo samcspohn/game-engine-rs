@@ -3,6 +3,7 @@
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
+// layout(location = 3) in int id;
 
 // The per-instance data.
 // layout(location = 3) in vec3 pos;
@@ -17,6 +18,13 @@ struct MVP {
 layout(set = 0, binding = 0) buffer tr {
     MVP mvp[];
 };
+layout(set = 0, binding = 2) buffer id {
+    int ids[];
+};
+
+layout(set = 0, binding = 3) uniform UniformBufferObject {
+    int offset;
+}ubo;
 
     // mat4 world;
 void main() {
@@ -26,5 +34,5 @@ void main() {
     coords = uv;
     v_normal = normal;
     // mat4 mvp = mvp[id];
-    gl_Position = mvp[id].mvp * vec4(position, 1.0);
+    gl_Position = mvp[ids[ubo.offset + id]].mvp * vec4(position, 1.0);
 }

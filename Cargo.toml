@@ -14,7 +14,7 @@ debug = true
 # opt-level = 2
 
 [dependencies]
-
+num_cpus = "*"
 component_derive = {path = "derive-macro"}
 
 libloading = "*"
@@ -47,7 +47,7 @@ glium = { git = "https://github.com/glium/glium.git", rev = "60889a2" }
 rapier3d = { version = "*", features = [ "simd-stable","parallel" ] }
 
 parking_lot = "*"
-spin = "*"
+# spin = "*"
 deepmesa = "*"
 force-send-sync = "*"
 # assimp = "*"

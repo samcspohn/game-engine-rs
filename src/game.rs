@@ -1,10 +1,12 @@
 use component_derive::component;
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
+use parking_lot::Mutex;
 use rapier3d::prelude::*;
 use rayon::prelude::*;
 use std::{
     collections::HashMap,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, Sender},
@@ -12,7 +14,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use vulkano::device::Device;
+use vulkano::{device::Device, buffer::CpuAccessibleBuffer};
 use winit::event::VirtualKeyCode;
 // use rapier3d::{na::point, prelude::InteractionGroups};
 
@@ -20,10 +22,12 @@ use crate::{
     engine::{
         physics::{self, Physics},
         transform::{Transform, Transforms, _Transform},
-        Component, LazyMaker, World,
+        Component, LazyMaker, System, World,
     },
     input::Input,
-    renderer::ModelMat,
+    model::ModelManager,
+    renderer::{ModelMat, Id},
+    renderer_component::{Renderer, RendererManager, Offset},
     terrain::Terrain,
     texture::TextureManager,
 };
@@ -36,8 +40,8 @@ impl Component for Bomb {
     fn init(&mut self, t: Transform) {
         self.t = t;
     }
-    fn update(&mut self, trans: &Transforms, sys: (&physics::Physics, &LazyMaker, &Input)) {
-        let pos = trans.get_position(self.t);
+    fn update(&mut self, sys: &System) {
+        let pos = sys.trans.get_position(self.t);
         let vel = self.vel;
         // let dt = sys.2.time.dt.min(1./100.);
         let dt = 1. / 100.;
@@ -46,8 +50,8 @@ impl Component for Bomb {
             origin: point![pos.x, pos.y, pos.z],
             dir: vel,
         };
-        if let Some((_handle, _hit)) = sys.0.query_pipeline.cast_ray_and_get_normal(
-            &&sys.0.collider_set,
+        if let Some((_handle, _hit)) = sys.physics.query_pipeline.cast_ray_and_get_normal(
+            &&sys.physics.collider_set,
             &ray,
             dt,
             true,
@@ -61,7 +65,7 @@ impl Component for Bomb {
         //     pos.y += 0.1;
         //     trans.set_position(self.t, pos);
         // }
-        trans._move(self.t, self.vel * dt);
+        sys.trans._move(self.t, self.vel * dt);
         self.vel += glm::vec3(0.0, -9.81, 0.0) * dt;
 
         // *pos += vel * (1.0 / 60.0);
@@ -73,8 +77,8 @@ impl Component for Maker {
     fn init(&mut self, t: Transform) {
         self.t = t;
     }
-    fn update(&mut self, trans: &Transforms, sys: (&physics::Physics, &LazyMaker, &Input)) {
-        sys.1.append(|world| {
+    fn update(&mut self, sys: &System) {
+        sys.defer.append(|world, _rm, _mm, ph| {
             let g = world.instantiate();
             world.add_component(
                 g,
@@ -95,17 +99,18 @@ impl Component for Maker {
 pub fn game_thread_fn(
     device: Arc<Device>,
     queue: Arc<vulkano::device::Queue>,
-    texture_manager: Arc<TextureManager>,
+    model_manager: Arc<Mutex<ModelManager>>,
+    // texture_manager: Arc<TextureManager>,
     coms: (
         Sender<(
             Arc<Vec<ModelMat>>,
-            Arc<Vec<ModelMat>>,
             glm::Vec3,
             glm::Quat,
+            Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
         Receiver<Input>,
-        Sender<Terrain>,
+        // Sender<Terrain>,
     ),
     running: Arc<AtomicBool>,
 ) {
@@ -130,15 +135,24 @@ pub fn game_thread_fn(
     /* Create other structures necessary for the simulation. */
     let gravity = vector![0.0, -9.81, 0.0];
 
+    let lazy_maker = LazyMaker::new();
+    let mut renderer_manager = Mutex::new(RendererManager {
+        ..Default::default()
+    });
     let mut world = World::new();
     world.register::<Bomb>();
     world.register::<Maker>();
+    world.register::<Renderer>();
+    world.register::<Terrain>();
 
     let _root = world.instantiate();
 
+    // let sys = System {trans: &world.transforms.read(), physics: &&physics, defer: &lazy_maker, input: &&input};
     // use rand::Rng;
-    for _ in 0..1_000_000 {
-        // bombs
+    {
+        let mut renderer_manager = renderer_manager.lock();
+        for _ in 0..1_000_000 {
+            // bombs
         let g = world.instantiate();
         world.add_component(
             g,
@@ -151,6 +165,7 @@ pub fn game_thread_fn(
                 ) * 5.0,
             },
         );
+        world.add_component(g, Renderer::new(g.t, 0, &mut renderer_manager));
         world.transforms.read()._move(
             g.t,
             glm::vec3(
@@ -160,26 +175,19 @@ pub fn game_thread_fn(
             ),
         );
     }
+}
     // {
     //     // maker
     //     let g = world.instantiate();
     //     world.add_component(g, Maker { t: Transform(-1) });
     // }
-    let lazy_maker = LazyMaker::new();
+    let ter = world.instantiate();
 
-    let mut ter = Terrain {
-        chunks: HashMap::new(),
-        device: device.clone(),
-        texture_manager: texture_manager.clone(),
-        // queue: queue.clone(),
+    world.add_component(ter, Terrain {
+        chunks: Arc::new(Mutex::new(HashMap::new())),
         terrain_size: 33,
-    };
-    ter.generate(&mut physics.collider_set);
-
-    let res = coms.2.send(ter.clone());
-    if res.is_err() {
-        // println!("ohno");
-    }
+        ..Default::default()
+    });
 
     ////////////////////////////////////////////////
     let mut cam_pos = glm::vec3(0.0 as f32, 0.0, -1.0);
@@ -241,14 +249,15 @@ pub fn game_thread_fn(
 
         let inst = Instant::now();
         physics.step(&gravity);
-        world.update(&physics, &lazy_maker, &input);
+        world.update(&physics, &lazy_maker, &input, &model_manager, &renderer_manager);
 
         const ALOT: f32 = 10_000_000. / 60.;
 
         if input.get_mouse_button(&0) {
             let _cam_rot = cam_rot.clone();
             let _cam_pos = cam_pos.clone();
-            lazy_maker.append(move |world| {
+            // let rm = renderer_manager.clone();
+            lazy_maker.append(move |world, rm, mm, ph| {
                 let len = (ALOT * input.time.dt) as usize;
                 // let chunk_size =  (len / (64 * 64)).max(1);
                 (0..len)
@@ -268,6 +277,8 @@ pub fn game_thread_fn(
                                         * 18.,
                             },
                         );
+                        world.add_component(g, Renderer::new(g.t, 0, rm));
+                        // world.add_component(g, d)
                         // world
                         //     .transforms
                         //     .read()
@@ -276,8 +287,10 @@ pub fn game_thread_fn(
             });
         }
 
-        lazy_maker.init(&mut world);
-
+        {
+            lazy_maker.init(&mut world, &mut renderer_manager.lock(), &mut model_manager.lock(), &mut physics);
+        }
+            
         update_perf("world".into(), Instant::now() - inst);
 
         // dur += Instant::now() - inst;
@@ -305,21 +318,29 @@ pub fn game_thread_fn(
                 };
             }
         });
+        {
+            let mut mm = model_manager.lock();
+            if let Some(id) = mm.models.get("src/cube/cube.obj") {
+                let id = id.clone();
+                if let Some(mr) = mm.models_ids.get_mut(&id) {
+                    mr.count = cube_models.len() as u32;
+                }
+            }
+        }
 
         update_perf("get cube models".into(), Instant::now() - inst);
-        let terrain_models: Vec<ModelMat> = vec![ModelMat {
-            pos: glm::vec3(0., 0., 0.).into(),
-            ..Default::default()
-        }];
-        let terrain_models = Arc::new(terrain_models);
         let cube_models = Arc::new(cube_models);
         // let terr_chunks = Arc::new(&ter.chunks);
         // println!("sending models");
+        // let render_data = { let x = renderer_manager.lock().getInstances(device.clone()).clone() };
+        let inst = Instant::now();
+        let render_data = renderer_manager.lock().get_instances();
+        update_perf("get instances".into(), Instant::now() - inst);
         let res = coms.0.send((
-            terrain_models.clone(),
             cube_models.clone(),
             cam_pos.clone(),
             cam_rot.clone(),
+            render_data,
             // terr_chunks,
         ));
         if res.is_err() {

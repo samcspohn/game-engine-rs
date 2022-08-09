@@ -1,42 +1,43 @@
-
-#[path ="transform.rs"] pub mod transform;
-#[path="physics.rs"] pub mod physics;
+#[path = "physics.rs"]
+pub mod physics;
+#[path = "transform.rs"]
+pub mod transform;
 // use component_derive::component;
 
-
-use transform::{Transforms, Transform};
 use std::{
     any::{Any, TypeId},
-
     cmp::Reverse,
     collections::{BinaryHeap, HashMap},
 };
+use tobj::Model;
+use transform::{Transform, Transforms};
 
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 use rayon::prelude::*;
 
 use crossbeam::queue::SegQueue;
-// use parking_lot::{Mutex, RwLock};
-use spin::{Mutex, RwLock};
+use parking_lot::{Mutex, RwLock};
+// use spin::{Mutex, RwLock};
 
-use crate::input::Input;
-
+use crate::{input::Input, model::ModelManager, renderer_component::RendererManager};
 
 pub struct LazyMaker {
-    work: SegQueue<Box<dyn FnOnce(&mut World) + Send + Sync>>,
+    work: SegQueue<
+        Box<dyn FnOnce(&mut World, &mut RendererManager, &mut ModelManager, &mut physics::Physics) + Send + Sync>,
+    >,
 }
 
 impl LazyMaker {
     pub fn append<T: 'static>(&self, f: T)
     where
-        T: FnOnce(&mut World) + Send + Sync,
+        T: FnOnce(&mut World, &mut RendererManager, &mut ModelManager, &mut physics::Physics) + Send + Sync,
     {
         self.work.push(Box::new(f));
     }
-    pub fn init(&self, wrld: &mut World) {
+    pub fn init(&self, wrld: &mut World, rm: &mut RendererManager, mm: &mut ModelManager, ph: &mut physics::Physics) {
         while let Some(w) = self.work.pop() {
-            w(wrld);
+            w(wrld, rm, mm, ph);
         }
     }
     pub fn new() -> LazyMaker {
@@ -46,11 +47,19 @@ impl LazyMaker {
     }
 }
 
-pub trait Component {
-    fn init(&mut self, t: Transform);
-    fn update(&mut self, trans: &Transforms, sys: ( &physics::Physics, &LazyMaker, &Input));
+pub struct System<'a> {
+    pub trans: &'a Transforms,
+    pub physics: &'a crate::engine::physics::Physics,
+    pub defer: &'a crate::engine::LazyMaker,
+    pub input: &'a crate::input::Input,
+    pub modeling: &'a Mutex<crate::ModelManager>,
+    pub rendering: &'a Mutex<crate::RendererManager>,
 }
 
+pub trait Component {
+    fn init(&mut self, t: Transform);
+    fn update(&mut self, sys: &System);
+}
 
 pub trait StorageBase {
     fn as_any(&self) -> &dyn Any;
@@ -61,16 +70,18 @@ pub trait StorageBase {
         phys: &physics::Physics,
         lazy_maker: &LazyMaker,
         input: &Input,
+        modeling: &Mutex<crate::ModelManager>,
+        rendering: &Mutex<crate::RendererManager>,
     );
     fn erase(&mut self, i: i32);
 }
 
 pub struct Storage<T> {
-    data: Vec<Option<T>>,
+    pub data: Vec<Option<T>>,
     avail: BinaryHeap<Reverse<i32>>,
     extent: i32,
 }
-impl<T: 'static + Component> Storage<T> {
+impl<T: 'static> Storage<T> {
     pub fn emplace(&mut self, d: T) -> i32 {
         match self.avail.pop() {
             Some(Reverse(i)) => {
@@ -91,8 +102,15 @@ impl<T: 'static + Component> Storage<T> {
     pub fn get(&self, i: &i32) -> Option<&T> {
         if let Some(d) = &self.data[*i as usize] {
             return Some(d);
-        }else{
+        } else {
             None
+        }
+    }
+    pub fn new() -> Storage<T> {
+        Storage::<T> {
+            data: Vec::new(),
+            avail: BinaryHeap::new(),
+            extent: 0,
         }
     }
 }
@@ -110,8 +128,19 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
         physics: &physics::Physics,
         lazy_maker: &LazyMaker,
         input: &Input,
+        modeling: &Mutex<crate::ModelManager>,
+        rendering: &Mutex<crate::RendererManager>,
     ) {
         let chunk_size = (self.data.len() / (64 * 64)).max(1);
+
+        let sys = System {
+            trans: &transforms,
+            physics,
+            defer: &lazy_maker,
+            input,
+            modeling,
+            rendering,
+        };
         // (0..self.data.len())
         self.data
             .par_iter_mut()
@@ -120,7 +149,7 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
             .for_each(|slice| {
                 for (i, o) in slice {
                     if let Some(d) = o {
-                        d.update(&transforms, (&physics, &lazy_maker, &input));
+                        d.update(&sys);
                     }
                 }
             });
@@ -229,12 +258,10 @@ impl World {
         // remove transform
         self.transforms.write().remove(g.t);
     }
-    pub fn get_component<T: 'static + Send + Sync + Component, F>(
-        &self,
-        g: GameObject,
-        f: F
-
-    ) where  F:FnOnce(Option<&T>) {
+    pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: GameObject, f: F)
+    where
+        F: FnOnce(Option<&T>),
+    {
         let key: TypeId = TypeId::of::<T>();
 
         if let Some(components) = &self.entities.read()[g.t.0 as usize] {
@@ -242,19 +269,25 @@ impl World {
                 if let Some(stor_base) = &self.components.get(&key) {
                     if let Some(stor) = stor_base.write().as_any().downcast_ref::<Storage<T>>() {
                         f(stor.get(id));
-
                     }
                 }
             }
         }
     }
 
-    pub fn update(&mut self,phys: &physics::Physics, lazy_maker: &LazyMaker, input: &Input){
+    pub fn update(
+        &mut self,
+        phys: &physics::Physics,
+        lazy_maker: &LazyMaker,
+        input: &Input,
+        modeling: &Mutex<crate::ModelManager>,
+        rendering: &Mutex<crate::RendererManager>,
+    ) {
         let transforms = self.transforms.read();
 
         for (_, stor) in &self.components {
             stor.write()
-                .update(&transforms, &phys, &lazy_maker, &input);
+                .update(&transforms, &phys, &lazy_maker, &input, modeling, rendering);
         }
     }
 }

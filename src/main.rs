@@ -17,7 +17,8 @@ use egui::{Color32, Ui};
 // use anyhow::{anyhow, Result};
 // use log::*;
 use nalgebra_glm as glm;
-use vulkano::buffer::device_local;
+use parking_lot::Mutex;
+use vulkano::buffer::{device_local, BufferContents};
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::pipeline::{Pipeline, PipelineBindPoint};
 // use parking_lot::Mutex;
@@ -79,6 +80,7 @@ mod renderer;
 mod texture;
 mod time;
 mod transform_compute;
+mod renderer_component;
 // mod rendering;
 // use transform::{Transform, Transforms};
 
@@ -88,6 +90,9 @@ use std::env;
 // use rapier3d::prelude::*;
 
 use crate::game::game_thread_fn;
+use crate::model::ModelManager;
+use crate::renderer::{Id, vs};
+use crate::renderer_component::{RendererManager, Offset};
 use crate::texture::TextureManager;
 use crate::{
     input::Input,
@@ -102,10 +107,10 @@ mod terrain;
 
 use rayon::prelude::*;
 
-fn fast_buffer(device: Arc<Device>, data: &Vec<ModelMat>) -> Arc<CpuAccessibleBuffer<[ModelMat]>> {
+fn fast_buffer<T: Send + Sync + Copy>(device: Arc<Device>, data: &Vec<T>) -> Arc<CpuAccessibleBuffer<[T]>>  where [T]: BufferContents {
     unsafe {
         // let inst = Instant::now();
-        let uninitialized = CpuAccessibleBuffer::<[ModelMat]>::uninitialized_array(
+        let uninitialized = CpuAccessibleBuffer::<[T]>::uninitialized_array(
             device.clone(),
             data.len() as DeviceSize,
             BufferUsage::all(),
@@ -225,7 +230,20 @@ fn main() {
         textures: Default::default(),
     });
 
-    let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
+    let model_manager = ModelManager {
+        device: device.clone(),
+        models: HashMap::new(),
+        models_ids: HashMap::new(),
+        texture_manager,
+        model_id_gen: 0,
+    };
+
+    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
+    
+    let model_manager = Arc::new(Mutex::new(model_manager));
+    {
+        model_manager.lock().from_file("src/cube/cube.obj");
+    }
 
     // let uniform_buffer =
     //     CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
@@ -290,26 +308,27 @@ fn main() {
     let (rtx, rrx): (
         Sender<(
             Arc<Vec<ModelMat>>,
-            Arc<Vec<ModelMat>>,
             glm::Vec3,
             glm::Quat,
+            Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
         Receiver<(
             Arc<Vec<ModelMat>>,
-            Arc<Vec<ModelMat>>,
             glm::Vec3,
             glm::Quat,
+            Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
     ) = mpsc::channel();
-    let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
+    // let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
     let running = Arc::new(AtomicBool::new(true));
 
     let coms = (rrx, tx);
 
     let _device = device.clone();
     let _queue = queue.clone();
+    let _model_manager = model_manager.clone();
     let game_thread = {
         // let _perf = perf.clone();
         let _running = running.clone();
@@ -317,15 +336,16 @@ fn main() {
             game_thread_fn(
                 _device,
                 _queue,
-                texture_manager.clone(),
-                (rtx, rx, ttx),
+                _model_manager,
+                // texture_manager.clone(),
+                (rtx, rx),
                 _running,
             )
         })
     };
     let mut game_thread = vec![game_thread];
 
-    let ter = trx.recv().unwrap();
+    // let ter = trx.recv().unwrap();
     // println!("sending input");
     let _res = coms.1.send(input.clone());
 
@@ -386,6 +406,7 @@ fn main() {
     .expect("Failed to create compute shader");
 
     let transform_uniforms = CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
+    let render_uniforms = CpuBufferPool::<vs::ty::UniformBufferObject>::new(device.clone(), BufferUsage::all());
 
     let mut focused = true;
     event_loop.run(move |event, _, control_flow| {
@@ -550,7 +571,7 @@ fn main() {
                 }
 
                 let inst = Instant::now();
-                let (terrain_models, positions, cam_pos, cam_rot) = coms.0.recv().unwrap();
+                let (positions, cam_pos, cam_rot, instances) = coms.0.recv().unwrap();
 
                 update_perf("wait for game".into(), Instant::now() - inst);
 
@@ -559,6 +580,7 @@ fn main() {
                 let inst = Instant::now();
                 // let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
                 let positions_buffer = fast_buffer(device.clone(), &positions);
+                let _instances = fast_buffer(device.clone(), &instances.1);
 
                 update_perf("write to buffer".into(), Instant::now() - inst);
 
@@ -757,27 +779,43 @@ fn main() {
                     .unwrap()
                     .set_viewport(0, [viewport.clone()]);
 
-                // render
-                rend.bind_pipeline(&mut builder).bind_mesh(
-                    &mut builder,
-                    // &uniform_buffer_subbuffer,
-                    positions.len() as u32,
-                    curr_mvp_buffer.clone(),
-                    &cube_mesh,
-                );
+                {
+                    rend.bind_pipeline(&mut builder);
+                    let mm = model_manager.lock();
+                    for offset in &instances.0 {
+                        if let Some(mr) = mm.models_ids.get(&offset.model_id) {
+                            let count = mr.count;
+                            // let instances = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, rm.transforms).unwrap();
+                            rend.bind_mesh(&mut builder, _instances.clone(), &render_uniforms, count, offset.offset, curr_mvp_buffer.clone(), &mr.mesh);
 
-                for (_, z) in ter.chunks.iter() {
-                    for (_, chunk) in z {
-                        rend.bind_mesh(
-                            &mut builder,
-                            // &uniform_buffer_subbuffer,
-                            1,
-                            // _instance_buffer.clone(),
-                            curr_mvp_buffer.clone(),
-                            &chunk,
-                        );
+                        }
                     }
+                    // for (_, mr) in &mm.models_ids {
+                    //     rend.bind_mesh(&mut builder, mr.count, curr_mvp_buffer.clone(), &mr.mesh);
+                    // }
                 }
+
+                // // render
+                // rend.bind_pipeline(&mut builder).bind_mesh(
+                //     &mut builder,
+                //     // &uniform_buffer_subbuffer,
+                //     positions.len() as u32,
+                //     curr_mvp_buffer.clone(),
+                //     &cube_mesh,
+                // );
+
+                // for (_, z) in ter.chunks.iter() {
+                //     for (_, chunk) in z {
+                //         rend.bind_mesh(
+                //             &mut builder,
+                //             // &uniform_buffer_subbuffer,
+                //             1,
+                //             // _instance_buffer.clone(),
+                //             curr_mvp_buffer.clone(),
+                //             &chunk,
+                //         );
+                //     }
+                // }
 
                 // Automatically start the next render subpass and draw the gui
                 let size = surface.window().inner_size();
