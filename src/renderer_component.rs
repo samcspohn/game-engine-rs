@@ -40,7 +40,11 @@ pub struct Offset {
 impl RendererManager {
     pub fn get_instances(&self) -> Arc<(Vec<Offset>, Vec<Id>)> {
         let mut offsets = Vec::<Offset>::new();
-        let mut all_instances = Vec::<Id>::new();
+
+        let cap = self.renderers.iter().map(|(_,rm)| {
+            rm.transforms.data.len()
+        }).sum();
+        let mut all_instances = Vec::<Id>::with_capacity(cap);
         for (id, rm) in &self.renderers {
             // if let Some(mr) = mm.models_ids.get(&id) {
             let chunk_size = (rm.transforms.data.len() / num_cpus::get()).max(1);
