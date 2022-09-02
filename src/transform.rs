@@ -3,6 +3,7 @@ use force_send_sync::SendSync;
 use glm::Vec3;
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
+use core::panic;
 // use spin::{Mutex,RwLock};
 use std::{cmp::Reverse, collections::BinaryHeap};
 
@@ -83,6 +84,10 @@ impl Transforms {
         self.new_transform_with(parent, Default::default())
     }
     pub fn new_transform_with(&mut self, parent: Transform, transform: _Transform) -> Transform {
+
+        if parent.0 == -1 {
+            panic!("no")
+        }
         let ret = match self.avail.pop() {
             Some(Reverse(i)) => {
                 self.positions[i as usize] = Mutex::new(transform.position);
@@ -117,6 +122,9 @@ impl Transforms {
     pub fn remove(&mut self, t: Transform) {
         {
             let meta = self.meta[t.0 as usize].lock();
+            if meta.parent.0 < 0 {
+                panic!("wat?")
+            }
             self.meta[meta.parent.0 as usize]
                 .lock()
                 .children

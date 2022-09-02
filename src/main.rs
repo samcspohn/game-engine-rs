@@ -784,9 +784,9 @@ fn main() {
                     let mm = model_manager.lock();
                     for offset in &instances.0 {
                         if let Some(mr) = mm.models_ids.get(&offset.model_id) {
-                            let count = mr.count;
+                            // let count = mr.count;
                             // let instances = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, rm.transforms).unwrap();
-                            rend.bind_mesh(&mut builder, _instances.clone(), &render_uniforms, count, offset.offset, curr_mvp_buffer.clone(), &mr.mesh);
+                            rend.bind_mesh(&mut builder, _instances.clone(), &render_uniforms, offset.count, offset.offset, curr_mvp_buffer.clone(), &mr.mesh);
 
                         }
                     }

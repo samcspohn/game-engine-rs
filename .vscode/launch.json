@@ -8,9 +8,19 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug",
+            "program": "${workspaceFolder}/target/debug/game-engine-rs",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "rust: cargo build",
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Release",
             "program": "${workspaceFolder}/target/release/game-engine-rs",
             "args": [],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "rust: cargo build --release",
         }
     ]
 }

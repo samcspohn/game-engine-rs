@@ -9,7 +9,7 @@ use rapier3d::prelude::ColliderSet;
 use rapier3d::prelude::*;
 use vulkano::device::{Device};
 
-use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, texture::{TextureManager}, engine::{Component, transform, World, GameObject}, renderer_component::{RendererManager, RendererInstances, Renderer}};
+use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, texture::{TextureManager}, engine::{Component, transform, World, GameObject, Sys}, renderer_component::{RendererManager, RendererInstances, Renderer}};
 use crate::terrain::transform::Transform;
 
 #[component]
@@ -23,14 +23,17 @@ pub struct Terrain {
 }
 
 impl Terrain {
-    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Mesh>>>>, terrain_size: i32, t: Transform, collider_set: &mut ColliderSet, mm: &mut ModelManager, rm: &mut RendererManager) {
+    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Mesh>>>>, terrain_size: i32, t: Transform) {
+
+        // let collider_set = &world.physics.collider_set;
+        // let mm = &mut world.modeling.lock();
         let perlin = Perlin::new();
         let mut chunks = chunks.lock();
         for x in -8..8 {
             chunks.insert(x, HashMap::new());
             for z in -8..8 {
                 let m =
-                    Terrain::generate_chunk(&perlin, x, z, terrain_size, mm);
+                    Terrain::generate_chunk(&perlin, x, z, terrain_size, &mut world.sys.model_manager.lock());
                 let ter_verts: Vec<Point<f32>> = m
                     .vertices
                     .iter()
@@ -43,13 +46,13 @@ impl Terrain {
                     .collect();
 
                 let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces);
-                collider_set.insert(collider);
+                world.sys.physics.collider_set.insert(collider);
                 
                 chunks.get_mut(&x).unwrap().insert(z, m.clone());
 
-                let m_id = mm.procedural(m);
+                let m_id = world.sys.model_manager.lock().procedural(m);
 
-                world.add_component(GameObject {t}, Renderer::new(t,m_id, rm));
+                world.add_component(GameObject {t}, Renderer::new(t,m_id));
 
 
                 // rm.renderers.insert(m_id, RendererInstances {model_id: m_id, transforms: vec![]});
@@ -185,7 +188,7 @@ impl Terrain {
 }
 
 impl Component for Terrain {
-    fn init(&mut self, t: crate::engine::transform::Transform) {
+    fn init(&mut self, t: Transform, sys: &mut Sys) {
         
     }
     fn update(&mut self, sys: &crate::engine::System) {
@@ -195,9 +198,9 @@ impl Component for Terrain {
         let chunks = self.chunks.clone();
         let ts = self.terrain_size;
         let t = self.t;
-        sys.defer.append(move |world, rm, mm, ph| {
+        sys.defer.append(move |world| {
             
-            Terrain::generate(world, chunks, ts, t, &mut ph.collider_set, mm, rm);
+            Terrain::generate(world, chunks, ts, t);
         });
 
         

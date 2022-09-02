@@ -22,7 +22,7 @@ use crate::{
     engine::{
         physics::{self, Physics},
         transform::{Transform, Transforms, _Transform},
-        Component, LazyMaker, System, World,
+        Component, LazyMaker, System, World, GameObject, Sys,
     },
     input::Input,
     model::ModelManager,
@@ -37,7 +37,7 @@ pub struct Bomb {
     pub vel: glm::Vec3,
 }
 impl Component for Bomb {
-    fn init(&mut self, t: Transform) {
+    fn init(&mut self, t: Transform, sys: &mut Sys) {
         self.t = t;
     }
     fn update(&mut self, sys: &System) {
@@ -58,7 +58,11 @@ impl Component for Bomb {
             InteractionGroups::all(),
             None,
         ) {
-            self.vel = glm::reflect_vec(&vel, &&_hit.normal);
+            let g = GameObject { t: self.t };
+            sys.defer.append(move |world| {
+                world.delete(g);
+            });
+            // self.vel = glm::reflect_vec(&vel, &&_hit.normal);
         }
         // if pos.y <= 0. {
         //     self.vel = glm::reflect_vec(&vel, &glm::vec3(0.,1.,0.));
@@ -74,11 +78,11 @@ impl Component for Bomb {
 #[component]
 pub struct Maker {}
 impl Component for Maker {
-    fn init(&mut self, t: Transform) {
+    fn init(&mut self, t: Transform, sys: &mut Sys) {
         self.t = t;
     }
     fn update(&mut self, sys: &System) {
-        sys.defer.append(|world, _rm, _mm, ph| {
+        sys.defer.append(|world| {
             let g = world.instantiate();
             world.add_component(
                 g,
@@ -121,37 +125,47 @@ pub fn game_thread_fn(
     // physics.collider_set.insert(collider);
 
     /* Create the bounding ball. */
-    let rigid_body = RigidBodyBuilder::dynamic()
-        .translation(vector![0.0, 10.0, 0.0])
-        .build();
-    let collider = ColliderBuilder::ball(0.5).restitution(0.7).build();
-    let ball_body_handle = physics.rigid_body_set.insert(rigid_body);
-    physics.collider_set.insert_with_parent(
-        collider,
-        ball_body_handle,
-        &mut physics.rigid_body_set,
-    );
+    // let rigid_body = RigidBodyBuilder::dynamic()
+    //     .translation(vector![0.0, 10.0, 0.0])
+    //     .build();
+    // let collider = ColliderBuilder::ball(0.5).restitution(0.7).build();
+    // let ball_body_handle = physics.rigid_body_set.insert(rigid_body);
+    // physics.collider_set.insert_with_parent(
+    //     collider,
+    //     ball_body_handle,
+    //     &mut physics.rigid_body_set,
+    // );
 
     /* Create other structures necessary for the simulation. */
     let gravity = vector![0.0, -9.81, 0.0];
 
     let lazy_maker = LazyMaker::new();
-    let mut renderer_manager = Mutex::new(RendererManager {
+    let renderer_manager = Mutex::new(RendererManager {
         ..Default::default()
     });
-    let mut world = World::new();
-    world.register::<Bomb>();
-    world.register::<Maker>();
-    world.register::<Renderer>();
-    world.register::<Terrain>();
+    let mut world = World::new(model_manager,renderer_manager,physics);
+    world.register::<Bomb>(true);
+    world.register::<Maker>(true);
+    world.register::<Renderer>(false);
+    world.register::<Terrain>(true);
 
-    let _root = world.instantiate();
+    // let _root = world.instantiate();
 
     // let sys = System {trans: &world.transforms.read(), physics: &&physics, defer: &lazy_maker, input: &&input};
     // use rand::Rng;
+
+    let ter = world.instantiate();
+
+    world.add_component(ter, Terrain {
+        chunks: Arc::new(Mutex::new(HashMap::new())),
+        terrain_size: 33,
+        ..Default::default()
+    });
+
+
     {
-        let mut renderer_manager = renderer_manager.lock();
-        for _ in 0..1_000_000 {
+        // let mut renderer_manager = world.renderer_manager.lock();
+        for _ in 0..1_000_00 {
             // bombs
         let g = world.instantiate();
         world.add_component(
@@ -165,7 +179,7 @@ pub fn game_thread_fn(
                 ) * 5.0,
             },
         );
-        world.add_component(g, Renderer::new(g.t, 0, &mut renderer_manager));
+        world.add_component(g, Renderer::new(g.t, 0));
         world.transforms.read()._move(
             g.t,
             glm::vec3(
@@ -181,13 +195,7 @@ pub fn game_thread_fn(
     //     let g = world.instantiate();
     //     world.add_component(g, Maker { t: Transform(-1) });
     // }
-    let ter = world.instantiate();
 
-    world.add_component(ter, Terrain {
-        chunks: Arc::new(Mutex::new(HashMap::new())),
-        terrain_size: 33,
-        ..Default::default()
-    });
 
     ////////////////////////////////////////////////
     let mut cam_pos = glm::vec3(0.0 as f32, 0.0, -1.0);
@@ -248,8 +256,8 @@ pub fn game_thread_fn(
         );
 
         let inst = Instant::now();
-        physics.step(&gravity);
-        world.update(&physics, &lazy_maker, &input, &model_manager, &renderer_manager);
+        world.sys.physics.step(&gravity);
+        world.update(&lazy_maker, &input);
 
         const ALOT: f32 = 10_000_000. / 60.;
 
@@ -257,7 +265,7 @@ pub fn game_thread_fn(
             let _cam_rot = cam_rot.clone();
             let _cam_pos = cam_pos.clone();
             // let rm = renderer_manager.clone();
-            lazy_maker.append(move |world, rm, mm, ph| {
+            lazy_maker.append(move |world| {
                 let len = (ALOT * input.time.dt) as usize;
                 // let chunk_size =  (len / (64 * 64)).max(1);
                 (0..len)
@@ -277,7 +285,7 @@ pub fn game_thread_fn(
                                         * 18.,
                             },
                         );
-                        world.add_component(g, Renderer::new(g.t, 0, rm));
+                        world.add_component(g, Renderer::new(g.t, 0));
                         // world.add_component(g, d)
                         // world
                         //     .transforms
@@ -288,7 +296,7 @@ pub fn game_thread_fn(
         }
 
         {
-            lazy_maker.init(&mut world, &mut renderer_manager.lock(), &mut model_manager.lock(), &mut physics);
+            lazy_maker.init(&mut world);
         }
             
         update_perf("world".into(), Instant::now() - inst);
@@ -297,29 +305,35 @@ pub fn game_thread_fn(
 
         let inst = Instant::now();
 
-        let positions = &world.transforms.read().positions;
-
-        let mut cube_models: Vec<ModelMat> = Vec::with_capacity(positions.len());
+        let pos_len = { world.transforms.read().positions.len() };
+        let mut cube_models: Vec<ModelMat> = {
+            
+            Vec::with_capacity(pos_len)
+        };
 
         // cube_models.reserve(positions.len());
         unsafe {
-            cube_models.set_len(positions.len());
+            cube_models.set_len(pos_len);
         }
-        let p_iter = positions.par_iter();
-        let m_iter = cube_models.par_iter_mut();
-
-        let chunk_size = (positions.len() / (64 * 64)).max(1);
-        p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
-            for (x, y) in slice {
-                let x = x.lock();
-                *y = ModelMat {
-                    pos: [x.x, x.y, x.z],
-                    ..Default::default()
-                };
-            }
-        });
         {
-            let mut mm = model_manager.lock();
+            let positions = &mut world.transforms.write().positions;
+            let p_iter = positions.par_iter_mut();
+            let m_iter = cube_models.par_iter_mut();
+            
+            let chunk_size = (pos_len / (64 * 64)).max(1);
+            p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
+                for (x, y) in slice {
+                    let x = x.get_mut();
+                    // let x = x.lock();
+                    *y = ModelMat {
+                        pos: [x.x, x.y, x.z],
+                        ..Default::default()
+                    };
+                }
+            });
+        }
+        {
+            let mut mm = world.sys.model_manager.lock();
             if let Some(id) = mm.models.get("src/cube/cube.obj") {
                 let id = id.clone();
                 if let Some(mr) = mm.models_ids.get_mut(&id) {
@@ -334,7 +348,7 @@ pub fn game_thread_fn(
         // println!("sending models");
         // let render_data = { let x = renderer_manager.lock().getInstances(device.clone()).clone() };
         let inst = Instant::now();
-        let render_data = renderer_manager.lock().get_instances();
+        let render_data = world.sys.renderer_manager.lock().get_instances();
         update_perf("get instances".into(), Instant::now() - inst);
         let res = coms.0.send((
             cube_models.clone(),
