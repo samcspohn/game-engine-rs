@@ -17,8 +17,9 @@ use egui::{Color32, Ui};
 // use anyhow::{anyhow, Result};
 // use log::*;
 use nalgebra_glm as glm;
-use parking_lot::Mutex;
-use vulkano::buffer::{device_local, BufferContents};
+use parking_lot::{Mutex, RwLock};
+use vulkano::buffer::{device_local, BufferContents, DeviceLocalBuffer, BufferSlice};
+use vulkano::command_buffer::DrawIndexedIndirectCommand;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::pipeline::{Pipeline, PipelineBindPoint};
 // use parking_lot::Mutex;
@@ -77,10 +78,10 @@ mod engine;
 mod input;
 mod model;
 mod renderer;
+mod renderer_component;
 mod texture;
 mod time;
 mod transform_compute;
-mod renderer_component;
 // mod rendering;
 // use transform::{Transform, Transforms};
 
@@ -91,8 +92,8 @@ use std::env;
 
 use crate::game::game_thread_fn;
 use crate::model::ModelManager;
-use crate::renderer::{Id, vs};
-use crate::renderer_component::{RendererManager, Offset};
+use crate::renderer::{vs, Id};
+use crate::renderer_component::{ur, Offset, RendererManager};
 use crate::texture::TextureManager;
 use crate::{
     input::Input,
@@ -105,9 +106,15 @@ use crate::{
 mod game;
 mod terrain;
 
-use rayon::prelude::*;
+use rayon::{prelude::*, vec};
 
-fn fast_buffer<T: Send + Sync + Copy>(device: Arc<Device>, data: &Vec<T>) -> Arc<CpuAccessibleBuffer<[T]>>  where [T]: BufferContents {
+fn fast_buffer<T: Send + Sync + Copy>(
+    device: Arc<Device>,
+    data: &Vec<T>,
+) -> Arc<CpuAccessibleBuffer<[T]>>
+where
+    [T]: BufferContents,
+{
     unsafe {
         // let inst = Instant::now();
         let uninitialized = CpuAccessibleBuffer::<[T]>::uninitialized_array(
@@ -238,8 +245,10 @@ fn main() {
         model_id_gen: 0,
     };
 
+    let renderer_manager = Arc::new(RwLock::new(RendererManager::new(device.clone())));
+
     // let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
-    
+
     let model_manager = Arc::new(Mutex::new(model_manager));
     {
         model_manager.lock().from_file("src/cube/cube.obj");
@@ -310,14 +319,14 @@ fn main() {
             Arc<Vec<ModelMat>>,
             glm::Vec3,
             glm::Quat,
-            Arc<(Vec<Offset>, Vec<Id>)>,
+            // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
         Receiver<(
             Arc<Vec<ModelMat>>,
             glm::Vec3,
             glm::Quat,
-            Arc<(Vec<Offset>, Vec<Id>)>,
+            // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
     ) = mpsc::channel();
@@ -329,6 +338,7 @@ fn main() {
     let _device = device.clone();
     let _queue = queue.clone();
     let _model_manager = model_manager.clone();
+    let _renderer_manager = renderer_manager.clone();
     let game_thread = {
         // let _perf = perf.clone();
         let _running = running.clone();
@@ -337,6 +347,7 @@ fn main() {
                 _device,
                 _queue,
                 _model_manager,
+                _renderer_manager,
                 // texture_manager.clone(),
                 (rtx, rx),
                 _running,
@@ -406,7 +417,7 @@ fn main() {
     .expect("Failed to create compute shader");
 
     let transform_uniforms = CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
-    let render_uniforms = CpuBufferPool::<vs::ty::UniformBufferObject>::new(device.clone(), BufferUsage::all());
+    // let render_uniforms = CpuBufferPool::<vs::ty::UniformBufferObject>::new(device.clone(), BufferUsage::all());
 
     let mut focused = true;
     event_loop.run(move |event, _, control_flow| {
@@ -571,7 +582,7 @@ fn main() {
                 }
 
                 let inst = Instant::now();
-                let (positions, cam_pos, cam_rot, instances) = coms.0.recv().unwrap();
+                let (positions, cam_pos, cam_rot) = coms.0.recv().unwrap();
 
                 update_perf("wait for game".into(), Instant::now() - inst);
 
@@ -580,7 +591,7 @@ fn main() {
                 let inst = Instant::now();
                 // let _instance_buffer = fast_buffer(device.clone(), &terrain_models);
                 let positions_buffer = fast_buffer(device.clone(), &positions);
-                let _instances = fast_buffer(device.clone(), &instances.1);
+                // let _instances = fast_buffer(device.clone(), &instances.1);
 
                 update_perf("write to buffer".into(), Instant::now() - inst);
 
@@ -770,53 +781,196 @@ fn main() {
                         descriptor_set.clone(),
                     )
                     .dispatch([positions.len() as u32 / 128 + 1, 1, 1])
-                    .unwrap()
-                    .begin_render_pass(
-                        framebuffers[image_num].clone(),
-                        SubpassContents::Inline,
-                        vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
-                    )
-                    .unwrap()
-                    .set_viewport(0, [viewport.clone()]);
+                    .unwrap();
 
+                // compute shader renderers
                 {
-                    rend.bind_pipeline(&mut builder);
-                    let mm = model_manager.lock();
-                    for offset in &instances.0 {
-                        if let Some(mr) = mm.models_ids.get(&offset.model_id) {
+                    let renderer_manager = renderer_manager.read();
+                    let renderer_pipeline = &renderer_manager.pipeline;
+                    let renderers = &mut renderer_manager.renderers.write();
+
+                    builder.bind_pipeline_compute(renderer_pipeline.clone());
+
+                    for (_, i) in renderers.iter_mut() {
+                        if i.transforms_gpu_len < i.transforms.data.len() as i32 {
+                            let len = i.transforms.data.len();
+                            let max_len = (len as f32 + 1.).log2().ceil();
+                            let max_len = (2 as u32).pow(max_len as u32);
+
+                            i.transforms_gpu_len = max_len as i32;
+
+                            let copy_buffer = i.transforms_gpu.clone();
+                            unsafe {
+                                i.transforms_gpu = CpuAccessibleBuffer::uninitialized_array(
+                                    device.clone(),
+                                    i.transforms_gpu_len as u64,
+                                    BufferUsage::all(),
+                                    false,
+                                )
+                                .unwrap();
+                                i.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(device.clone(), i.transforms_gpu_len as u64, BufferUsage::all(), false).unwrap();
+                            }
+
+                            builder
+                                .copy_buffer(copy_buffer, i.transforms_gpu.clone())
+                                .unwrap();
+                        }
+                        let updates: Vec<i32> = i
+                            .transform_updates
+                            .iter()
+                            .flat_map(|(id, t)| vec![id.clone(), t.clone()].into_iter())
+                            .collect();
+
+                        let mm = model_manager.lock();
+                        if let Some(mr) = mm.models_ids.get(&i.model_id) {
                             // let count = mr.count;
                             // let instances = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, rm.transforms).unwrap();
-                            rend.bind_mesh(&mut builder, _instances.clone(), &render_uniforms, offset.count, offset.offset, curr_mvp_buffer.clone(), &mr.mesh);
+                            // rend.bind_mesh(&mut builder, i.renderers_gpu.clone(), &render_uniforms, 1, 0, curr_mvp_buffer.clone(), &mr.mesh);
 
+                            let indirect = DrawIndexedIndirectCommand {
+                                index_count: mr.mesh.indeces.len() as u32,
+                                instance_count: 0,
+                                first_index: 0,
+                                vertex_offset: 0,
+                                first_instance: 0,
+                            };
+                            let indirect_buffer = CpuAccessibleBuffer::from_iter(
+                                device.clone(),
+                                BufferUsage::all(),
+                                false,
+                                vec![indirect],
+                            )
+                            .unwrap();
+                            i.indirect = indirect_buffer;
+                        }
+
+                        if updates.len() > 0 {
+                            let update_num = i.transform_updates.len();
+                            let updates_buffer = CpuAccessibleBuffer::from_iter(
+                                device.clone(),
+                                BufferUsage::all(),
+                                false,
+                                updates,
+                            )
+                            .unwrap();
+
+                            i.transform_updates.clear();
+                            // let atomic = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, vec![0]).unwrap();
+
+                            // stage 0
+                            let uniforms = renderer_manager
+                                .uniform
+                                .next(ur::ty::Data {
+                                    num_jobs: update_num as i32,
+                                    stage: 0,
+                                })
+                                .unwrap();
+
+                            let update_renderers_set = PersistentDescriptorSet::new(
+                                renderer_pipeline
+                                    .layout()
+                                    .set_layouts()
+                                    .get(0) // 0 is the index of the descriptor set.
+                                    .unwrap()
+                                    .clone(),
+                                [
+                                    // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
+                                    WriteDescriptorSet::buffer(0, updates_buffer.clone()),
+                                    WriteDescriptorSet::buffer(1, i.transforms_gpu.clone()),
+                                    WriteDescriptorSet::buffer(2, i.renderers_gpu.clone()),
+                                    WriteDescriptorSet::buffer(3, i.indirect.clone()),
+                                    WriteDescriptorSet::buffer(4, uniforms.clone()),
+                                ],
+                            )
+                            .unwrap();
+
+                            builder
+                                .bind_descriptor_sets(
+                                    PipelineBindPoint::Compute,
+                                    renderer_pipeline.layout().clone(),
+                                    0, // Bind this descriptor set to index 0.
+                                    update_renderers_set.clone(),
+                                )
+                                .dispatch([update_num as u32 / 128 + 1, 1, 1])
+                                .unwrap();
+                        }
+
+                        // stage 1
+                        let uniforms = renderer_manager
+                            .uniform
+                            .next(ur::ty::Data {
+                                num_jobs: i.transforms.data.len() as i32,
+                                stage: 1,
+                            })
+                            .unwrap();
+                        let update_renderers_set = PersistentDescriptorSet::new(
+                            renderer_pipeline
+                                .layout()
+                                .set_layouts()
+                                .get(0) // 0 is the index of the descriptor set.
+                                .unwrap()
+                                .clone(),
+                            [
+                                // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
+                                WriteDescriptorSet::buffer(
+                                    0,
+                                    CpuAccessibleBuffer::from_iter(
+                                        device.clone(),
+                                        BufferUsage::all(),
+                                        false,
+                                        vec![0],
+                                    )
+                                    .unwrap(),
+                                ),
+                                WriteDescriptorSet::buffer(1, i.transforms_gpu.clone()),
+                                WriteDescriptorSet::buffer(2, i.renderers_gpu.clone()),
+                                WriteDescriptorSet::buffer(3, i.indirect.clone()),
+                                WriteDescriptorSet::buffer(4, uniforms.clone()),
+                            ],
+                        )
+                        .unwrap();
+                        builder
+                            .bind_descriptor_sets(
+                                PipelineBindPoint::Compute,
+                                renderer_pipeline.layout().clone(),
+                                0, // Bind this descriptor set to index 0.
+                                update_renderers_set.clone(),
+                            )
+                            .dispatch([i.transforms.data.len() as u32 / 128 + 1, 1, 1])
+                            .unwrap();
+                    }
+                }
+                {
+                    let renderer_manager = renderer_manager.read();
+                    // let renderer_pipeline = &renderer_manager.pipeline;
+                    let renderers = &mut renderer_manager.renderers.read();
+                    
+                    builder
+                        .begin_render_pass(
+                            framebuffers[image_num].clone(),
+                            SubpassContents::Inline,
+                            vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
+                        )
+                        .unwrap()
+                        .set_viewport(0, [viewport.clone()]);
+                        
+                        rend.bind_pipeline(&mut builder);
+                        
+                        let mm = model_manager.lock();
+                        
+                        for (_, i) in renderers.iter() {
+                            if let Some(mr) = mm.models_ids.get(&i.model_id) {
+                                rend.bind_mesh(
+                                    &mut builder,
+                                    i.renderers_gpu.clone(),
+                                    curr_mvp_buffer.clone(),
+                                    &mr.mesh,
+                                i.indirect.clone(),
+                            );
                         }
                     }
-                    // for (_, mr) in &mm.models_ids {
-                    //     rend.bind_mesh(&mut builder, mr.count, curr_mvp_buffer.clone(), &mr.mesh);
-                    // }
                 }
-
-                // // render
-                // rend.bind_pipeline(&mut builder).bind_mesh(
-                //     &mut builder,
-                //     // &uniform_buffer_subbuffer,
-                //     positions.len() as u32,
-                //     curr_mvp_buffer.clone(),
-                //     &cube_mesh,
-                // );
-
-                // for (_, z) in ter.chunks.iter() {
-                //     for (_, chunk) in z {
-                //         rend.bind_mesh(
-                //             &mut builder,
-                //             // &uniform_buffer_subbuffer,
-                //             1,
-                //             // _instance_buffer.clone(),
-                //             curr_mvp_buffer.clone(),
-                //             &chunk,
-                //         );
-                //     }
-                // }
-
+                    
                 // Automatically start the next render subpass and draw the gui
                 let size = surface.window().inner_size();
                 let sf: f32 = surface.window().scale_factor() as f32;
@@ -845,6 +999,20 @@ fn main() {
                     .unwrap()
                     .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
                     .then_signal_fence_and_flush();
+
+
+                // for (_, i) in renderer_manager.read().renderers.read().iter() {
+                //     // let a = i.indirect.read();
+                //     // let b = a.as_deref().unwrap();
+                //     // if b[0].index_count == 36 {
+                //     //     println!("{:?}", b[0].instance_count);
+                //     // }
+                //     let a = i.renderers_gpu.read();
+                //     let b = a.as_deref().unwrap();
+                //     if b.len() > 1 {
+                //         println!("{:?}", b[0]);
+                //     }
+                // }
 
                 match future {
                     Ok(future) => {

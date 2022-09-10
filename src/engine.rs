@@ -64,7 +64,7 @@ pub struct System<'a> {
     pub defer: &'a crate::engine::LazyMaker,
     pub input: &'a crate::input::Input,
     pub modeling: &'a Mutex<crate::ModelManager>,
-    pub rendering: &'a Mutex<crate::RendererManager>,
+    pub rendering: &'a RwLock<crate::RendererManager>,
 }
 
 pub trait Component {
@@ -83,7 +83,7 @@ pub trait StorageBase {
         lazy_maker: &LazyMaker,
         input: &Input,
         modeling: &Mutex<crate::ModelManager>,
-        rendering: &Mutex<crate::RendererManager>,
+        rendering: &RwLock<crate::RendererManager>,
     );
     fn erase(&mut self, i: i32);
     fn deinit(&mut self, i: i32, t: Transform, sys: &mut Sys);
@@ -144,7 +144,7 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
         lazy_maker: &LazyMaker,
         input: &Input,
         modeling: &Mutex<crate::ModelManager>,
-        rendering: &Mutex<crate::RendererManager>,
+        rendering: &RwLock<crate::RendererManager>,
     ) {
         if !self.has_update {
             return;
@@ -202,7 +202,7 @@ pub struct GameObject {
 
 pub struct Sys {
     pub model_manager: Arc<Mutex<ModelManager>>,
-    pub renderer_manager: Mutex<RendererManager>,
+    pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub physics: Physics, // bombs: Vec<Option<Mutex<Bomb>>>,
 }
 // #[derive(Default)]
@@ -220,7 +220,7 @@ pub struct World {
 impl World {
     pub fn new(
         modeling: Arc<Mutex<ModelManager>>,
-        renderer_manager: Mutex<RendererManager>,
+        renderer_manager: Arc<RwLock<RendererManager>>,
         physics: Physics,
     ) -> World {
         let trans = RwLock::new(Transforms::new());

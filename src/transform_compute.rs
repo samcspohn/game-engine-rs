@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytemuck::{Zeroable, Pod};
 use vulkano::{
     buffer::{BufferContents, BufferUsage, DeviceLocalBuffer},
-    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBuffer},
+    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBuffer, PrimaryAutoCommandBuffer},
     device::{Device, Queue},
     sync::GpuFuture, impl_vertex,
 };
@@ -36,6 +36,7 @@ where
 
 pub fn transform_buffer_init(
     device: Arc<Device>,
+    // builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     // queue: Arc<Queue>,
     positions: Vec<ModelMat>,
 ) -> TransformData {

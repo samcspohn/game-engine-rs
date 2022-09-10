@@ -5,7 +5,7 @@ use vulkano::{
     buffer::{
         cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess, CpuBufferPool,
     },
-    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
+    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer, DrawIndexedIndirectCommand},
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
     format::Format,
@@ -175,12 +175,13 @@ impl RenderPipeline {
         &self,
         // device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        instance_buffer: Arc<CpuAccessibleBuffer<[Id]>>,
-        render_uniforms: &CpuBufferPool::<vs::ty::UniformBufferObject>,
-        count: u32,
-        offset: u32,
+        instance_buffer: Arc<CpuAccessibleBuffer<[i32]>>,
+        // render_uniforms: &CpuBufferPool::<vs::ty::UniformBufferObject>,
+        // count: u32,
+        // offset: u32,
         transforms_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
         mesh: &Mesh,
+        indirect_buffer: Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
@@ -209,19 +210,20 @@ impl RenderPipeline {
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
 
-        let render_sub_buffer = {
-            // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
+        // let render_sub_buffer = {
+        //     // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
 
-            let uniform_data = vs::ty::UniformBufferObject {
-                offset: offset as i32,
-            };
+        //     let uniform_data = vs::ty::UniformBufferObject {
+        //         offset: offset as i32,
+        //     };
 
-            render_uniforms.next(uniform_data).unwrap()
-        };
-        descriptors.push(WriteDescriptorSet::buffer(3, render_sub_buffer));
+        //     render_uniforms.next(uniform_data).unwrap()
+        // };
+        // descriptors.push(WriteDescriptorSet::buffer(3, render_sub_buffer));
 
 
-        
+        // let indirect = DrawIndexedIndirectCommand {index_count: mesh.index_buffer.len() as u32, instance_count: count, first_index: 0, vertex_offset: 0,first_instance: 0};
+        // let indirect_buffer = CpuAccessibleBuffer::from(indirect);
 
         let set = PersistentDescriptorSet::new(layout.clone(), descriptors).unwrap();
 
@@ -243,7 +245,7 @@ impl RenderPipeline {
             )
             // .bind_vertex_buffers(1, transforms_buffer.data.clone())
             .bind_index_buffer(mesh.index_buffer.clone())
-            .draw_indexed(mesh.index_buffer.len() as u32, count, 0, 0, 0)
+            .draw_indexed_indirect(indirect_buffer)
             .unwrap();
         self
     }
