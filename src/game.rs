@@ -1,7 +1,9 @@
 use component_derive::component;
+use crossbeam::queue::SegQueue;
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
+use puffin_egui::puffin;
 use rapier3d::prelude::*;
 use rayon::prelude::*;
 use std::{
@@ -26,8 +28,9 @@ use crate::{
     },
     input::Input,
     model::ModelManager,
+    perf::Perf,
     renderer::{Id, ModelMat},
-    renderer_component::{Offset, Renderer, RendererManager},
+    renderer_component2::{Offset, Renderer, RendererManager},
     terrain::Terrain,
     texture::TextureManager,
 };
@@ -43,8 +46,8 @@ impl Component for Bomb {
     fn update(&mut self, sys: &System) {
         let pos = sys.trans.get_position(self.t);
         let vel = self.vel;
-        // let dt = sys.2.time.dt.min(1./100.);
-        let dt = 1. / 100.;
+        let dt = sys.input.time.dt.min(1./ 20.);
+        // let dt = 1. / 100.;
         // let dir = vel * (1.0 / 100.0);
         let ray = rapier3d::prelude::Ray {
             origin: point![pos.x, pos.y, pos.z],
@@ -159,6 +162,7 @@ pub fn game_thread_fn(
         Terrain {
             chunks: Arc::new(Mutex::new(HashMap::new())),
             terrain_size: 33,
+            chunk_range: 9,
             ..Default::default()
         },
     );
@@ -204,15 +208,23 @@ pub fn game_thread_fn(
     //     ..Default::default()
     // };
 
-    let mut perf = HashMap::<String, Duration>::new();
+    // let mut perf = HashMap::<String, SegQueue<Duration>>::new();
 
-    let mut update_perf = |k: String, v: Duration| {
-        if let Some(dur) = perf.get_mut(&k) {
-            *dur += v;
-        } else {
-            perf.insert(k, v);
-        }
+    let mut perf = Perf {
+        data: HashMap::new(),
     };
+
+    // let mut update_perf = |k: String, v: Duration| {
+    //     if let Some(q) = perf.get_mut(&k) {
+    //         q.push(v);
+    //     } else {
+    //         perf.insert(k, SegQueue::new());
+    //         if let Some(q) = perf.get_mut(&k) {
+    //             q.push(v);
+    //         }
+
+    //     }
+    // };
     let mut loops = 0;
     while running.load(Ordering::SeqCst) {
         loops += 1;
@@ -220,114 +232,124 @@ pub fn game_thread_fn(
         let input = coms.1.recv().unwrap();
         // println!("input recvd");
 
-        let speed = 20.0 * input.time.dt;
-        // forward/backward
-        if input.get_key(&VirtualKeyCode::W) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
-        }
-        if input.get_key(&VirtualKeyCode::S) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
-        }
-        //left/right
-        if input.get_key(&VirtualKeyCode::A) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
-        }
-        if input.get_key(&VirtualKeyCode::D) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
-        }
-        // up/down
-        if input.get_key(&VirtualKeyCode::Space) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
-        }
-        if input.get_key(&VirtualKeyCode::LShift) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
-        }
-
-        cam_rot = glm::quat_rotate(
-            &cam_rot,
-            input.get_mouse_delta().0 as f32 * 0.01,
-            &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
-        );
-        cam_rot = glm::quat_rotate(
-            &cam_rot,
-            input.get_mouse_delta().1 as f32 * 0.01,
-            &Vec3::x(),
-        );
-
-        let inst = Instant::now();
-        world.sys.physics.step(&gravity);
-        world.update(&lazy_maker, &input);
-
-        const ALOT: f32 = 10_000_000. / 60.;
-
-        if input.get_mouse_button(&0) {
-            let _cam_rot = cam_rot.clone();
-            let _cam_pos = cam_pos.clone();
-            // let rm = renderer_manager.clone();
-            lazy_maker.append(move |world| {
-                let len = (ALOT * input.time.dt) as usize;
-                // let chunk_size =  (len / (64 * 64)).max(1);
-                (0..len)
-                    .into_iter()
-                    // .chunks(chunk_size)
-                    .for_each(|_| {
-                        let g = world.instantiate_with_transform(_Transform {
-                            position: _cam_pos - glm::Vec3::y() * 2.,
-                            ..Default::default()
-                        });
-                        world.add_component(
-                            g,
-                            Bomb {
-                                t: Transform(-1),
-                                vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
-                                    + glm::vec3(rand::random(), rand::random(), rand::random())
-                                        * 18.,
-                            },
-                        );
-                        world.add_component(g, Renderer::new(g.t, 0));
-                        // world.add_component(g, d)
-                        // world
-                        //     .transforms
-                        //     .read()
-                        //     .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
-                    });
-            });
-        }
-
         {
-            lazy_maker.init(&mut world);
-        }
+            puffin::profile_scope!("world update");
+            let inst = Instant::now();
+            world.sys.physics.step(&gravity);
+            world.update(&lazy_maker, &input);
 
-        update_perf("world".into(), Instant::now() - inst);
-
-        let inst = Instant::now();
-
-        let pos_len = { world.transforms.read().positions.len() };
-        let mut positions_to_buffer: Vec<ModelMat> = { Vec::with_capacity(pos_len) };
-
-        unsafe {
-            positions_to_buffer.set_len(pos_len);
-        }
-        {
-            let positions = &mut world.transforms.write().positions;
-            let p_iter = positions.par_iter_mut();
-            let m_iter = positions_to_buffer.par_iter_mut();
-
-            let chunk_size = (pos_len / (64 * 64)).max(1);
-            p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
-                for (x, y) in slice {
-                    let x = x.get_mut();
-                    // let x = x.lock();
-                    *y = ModelMat {
-                        pos: [x.x, x.y, x.z],
-                        ..Default::default()
-                    };
+            let speed = 20.0 * input.time.dt;
+            if !input.get_key(&VirtualKeyCode::LControl) {
+                // forward/backward
+                if input.get_key(&VirtualKeyCode::W) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
                 }
-            });
+                if input.get_key(&VirtualKeyCode::S) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
+                }
+                //left/right
+                if input.get_key(&VirtualKeyCode::A) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
+                }
+                if input.get_key(&VirtualKeyCode::D) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
+                }
+                // up/down
+                if input.get_key(&VirtualKeyCode::Space) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
+                }
+                if input.get_key(&VirtualKeyCode::LShift) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
+                }
+
+                cam_rot = glm::quat_rotate(
+                    &cam_rot,
+                    input.get_mouse_delta().0 as f32 * 0.01,
+                    &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
+                );
+                cam_rot = glm::quat_rotate(
+                    &cam_rot,
+                    input.get_mouse_delta().1 as f32 * 0.01,
+                    &Vec3::x(),
+                );
+                const ALOT: f32 = 10_000_000. / 60.;
+                if input.get_mouse_button(&0) {
+                    let _cam_rot = cam_rot.clone();
+                    let _cam_pos = cam_pos.clone();
+                    // let rm = renderer_manager.clone();
+                    lazy_maker.append(move |world| {
+                        let len = (ALOT * input.time.dt.min(1.0/30.0)) as usize;
+                        // let chunk_size =  (len / (64 * 64)).max(1);
+                        (0..len)
+                            .into_iter()
+                            // .chunks(chunk_size)
+                            .for_each(|_| {
+                                let g = world.instantiate_with_transform(_Transform {
+                                    position: _cam_pos - glm::Vec3::y() * 2.,
+                                    ..Default::default()
+                                });
+                                world.add_component(
+                                    g,
+                                    Bomb {
+                                        t: Transform(-1),
+                                        vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                                            + glm::vec3(
+                                                rand::random(),
+                                                rand::random(),
+                                                rand::random(),
+                                            ) * 18.,
+                                    },
+                                );
+                                world.add_component(g, Renderer::new(g.t, 0));
+                            });
+                    });
+                }
+            }
+
+            {
+                lazy_maker.init(&mut world);
+            }
+
+            perf.update("world".into(), Instant::now() - inst);
         }
 
-        update_perf("get positions".into(), Instant::now() - inst);
-        let positions_to_buffer = Arc::new(positions_to_buffer);
+        let positions_to_buffer = {
+            puffin::profile_scope!("prepare transforms");
+            let inst = Instant::now();
+
+            let pos_len = { world.transforms.read().positions.len() };
+            let mut positions_to_buffer: Vec<ModelMat> = { Vec::with_capacity(pos_len) };
+
+            unsafe {
+                positions_to_buffer.set_len(pos_len);
+            }
+            {
+                let positions = &mut world.transforms.write().positions;
+                let p_iter = positions.par_iter_mut();
+                let m_iter = positions_to_buffer.par_iter_mut();
+
+                let chunk_size = (pos_len / (64 * 64)).max(1);
+                p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
+                    for (x, y) in slice {
+                        let x = x.get_mut();
+                        // let x = x.lock();
+                        *y = ModelMat {
+                            pos: [x.x, x.y, x.z],
+                            ..Default::default()
+                        };
+                    }
+                });
+            }
+
+            perf.update("get positions".into(), Instant::now() - inst);
+            Arc::new(positions_to_buffer)
+        };
 
         let res = coms.0.send((
             positions_to_buffer.clone(),
@@ -340,8 +362,12 @@ pub fn game_thread_fn(
             println!("ohno");
         }
     }
-    let p = perf.iter();
-    for (k, x) in p {
-        println!("{}: {:?}", k, (*x / loops));
-    }
+    perf.print();
+    // let p = perf.iter();
+    // for (k, x) in p {
+    //     for (k, x) in p {
+    //         let len = x.len();
+    //         println!("{}: {:?}", k, (x.into_iter().map(|a| a).sum::<Duration>() / len as u32));
+    //     }
+    // }
 }

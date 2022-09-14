@@ -20,7 +20,7 @@ use crossbeam::queue::SegQueue;
 use parking_lot::{Mutex, RwLock};
 // use spin::{Mutex, RwLock};
 
-use crate::{input::Input, model::ModelManager, renderer_component::RendererManager};
+use crate::{input::Input, model::ModelManager, renderer_component2::RendererManager};
 
 use self::physics::Physics;
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use vulkano::{
     buffer::{
-        cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess, CpuBufferPool,
+        cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess, CpuBufferPool, BufferSlice,
     },
     command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer, DrawIndexedIndirectCommand},
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
@@ -175,24 +175,15 @@ impl RenderPipeline {
         &self,
         // device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        instance_buffer: Arc<CpuAccessibleBuffer<[i32]>>,
-        // render_uniforms: &CpuBufferPool::<vs::ty::UniformBufferObject>,
-        // count: u32,
-        // offset: u32,
+        instance_buffer: Arc<BufferSlice<[i32], CpuAccessibleBuffer<[i32]>>>,
         transforms_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
         mesh: &Mesh,
-        indirect_buffer: Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>,
+        indirect_buffer: Arc<BufferSlice<[DrawIndexedIndirectCommand], CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>>,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
-        // let texture: Arc<ImageView<ImmutableImage>> =  mesh.texture.unwrap().clone();
-        // let sampler: Arc<vulkano::sampler::Sampler> = mesh.sampler.unwrap().clone();
-
         let mut descriptors = Vec::new();
-        // descriptors.push(WriteDescriptorSet::buffer(
-        //     0,
-        //     uniform_buffer_subbuffer.clone(),
-        // ));
+
         descriptors.push(WriteDescriptorSet::buffer(0, transforms_buffer.clone()));
 
         if let Some(texture) = mesh.texture.as_ref() {
@@ -209,22 +200,6 @@ impl RenderPipeline {
             ));
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
-
-        // let render_sub_buffer = {
-        //     // let scale = glm::scale(&Mat4::identity(), &Vec3::new(0.1 as f32, 0.1, 0.1));
-
-        //     let uniform_data = vs::ty::UniformBufferObject {
-        //         offset: offset as i32,
-        //     };
-
-        //     render_uniforms.next(uniform_data).unwrap()
-        // };
-        // descriptors.push(WriteDescriptorSet::buffer(3, render_sub_buffer));
-
-
-        // let indirect = DrawIndexedIndirectCommand {index_count: mesh.index_buffer.len() as u32, instance_count: count, first_index: 0, vertex_offset: 0,first_instance: 0};
-        // let indirect_buffer = CpuAccessibleBuffer::from(indirect);
-
         let set = PersistentDescriptorSet::new(layout.clone(), descriptors).unwrap();
 
             builder

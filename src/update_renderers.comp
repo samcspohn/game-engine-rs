@@ -1,17 +1,6 @@
  #version 450
 #include "util.glsl"
 
-layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
-
-layout(set = 0, binding = 0) buffer u {
-    ivec2 updates[];
-};
-layout(set = 0, binding = 1) buffer t {
-    int transforms[];
-};
-layout(set = 0, binding = 2) buffer r {
-    int renderers[];
-};
 
 struct VkDrawIndexedIndirectCommand {
     int    indexCount;
@@ -21,30 +10,55 @@ struct VkDrawIndexedIndirectCommand {
     uint    firstInstance;
 };
 
-layout(set = 0, binding = 3) buffer a {
-    VkDrawIndexedIndirectCommand atomic[];
+struct ModelMat {
+    vec3 position;
+    float padding;
 };
 
 
-layout(set = 0, binding = 4) uniform Data {
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer u {
+    ivec2 updates[];
+};
+layout(set = 0, binding = 1) buffer t_id {
+    int transform_ids[];
+};
+layout(set = 0, binding = 2) buffer r {
+    int renderers[];
+};
+layout(set = 0, binding = 3) buffer a {
+    VkDrawIndexedIndirectCommand indirect[];
+};
+layout(set = 0, binding = 4) buffer t {
+    ModelMat transforms[];
+};
+
+
+layout(set = 0, binding = 5) uniform Data {
     int num_jobs;
     int stage;
+    mat4 view;
 };
 
 
 void main() {
     const uint id = gl_GlobalInvocationID.x;
-    if(id < num_jobs) {
         switch(stage) {
             case 0:
-                transforms[updates[id].x] = updates[id].y;
+                if(id < num_jobs) {
+                    transform_ids[updates[id].x] = updates[id].y;
+                }
+                if(id == 0) {
+                    indirect[0].instanceCount = 0;
+                }
                 break;
             case 1:
-                if( transforms[id] != -1) {
-                    uint r_id = atomicAdd(atomic[0].instanceCount,1);
-                    renderers[r_id] = transforms[id];
+
+                if(id < num_jobs && transform_ids[id] != -1 && (view * vec4(transforms[transform_ids[id]].position, 1)).z < 0.f) {
+                    uint r_id = atomicAdd(indirect[0].instanceCount,1);
+                    renderers[r_id] = transform_ids[id];
                 }
                 break;
         }
-    }
 }

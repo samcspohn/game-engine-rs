@@ -29,9 +29,10 @@ pub struct RendererInstances {
     pub model_id: i32,
     // pub transforms: Vec<Id>
     pub transforms: Storage<Id>,
-    pub transforms_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
+    pub transform_ids_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
     pub renderers_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
-    pub indirect: Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>,
+    pub updates_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
+    pub indirect: Option<Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>>,
     pub transforms_gpu_len: i32,
     pub transform_updates: HashMap<i32, i32>,
 }
@@ -195,7 +196,7 @@ impl Component for Renderer {
                 let mut ri = RendererInstances {
                     model_id: self.model_id,
                     transforms: Storage::new(false),
-                    transforms_gpu: CpuAccessibleBuffer::from_iter(
+                    transform_ids_gpu: CpuAccessibleBuffer::from_iter(
                         rm.device.clone(),
                         BufferUsage::all(),
                         true,
@@ -209,13 +210,21 @@ impl Component for Renderer {
                         vec![0],
                     )
                     .unwrap(),
-                    indirect: CpuAccessibleBuffer::from_iter(
+                    updates_gpu: CpuAccessibleBuffer::from_iter(
                         rm.device.clone(),
                         BufferUsage::all(),
                         true,
-                        vec![DrawIndexedIndirectCommand {index_count: 0, instance_count: 0, first_index: 0, vertex_offset: 0,first_instance: 0}],
+                        vec![0],
                     )
                     .unwrap(),
+                    indirect: None,
+                    // indirect: CpuAccessibleBuffer::from_iter(
+                    //     rm.device.clone(),
+                    //     BufferUsage::all(),
+                    //     true,
+                    //     vec![DrawIndexedIndirectCommand {index_count: 0, instance_count: 0, first_index: 0, vertex_offset: 0,first_instance: 0}],
+                    // )
+                    // .unwrap(),
                     transforms_gpu_len: 1,
                     transform_updates: HashMap::new(),
                 };

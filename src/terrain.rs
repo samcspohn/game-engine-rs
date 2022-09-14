@@ -9,7 +9,7 @@ use rapier3d::prelude::ColliderSet;
 use rapier3d::prelude::*;
 use vulkano::device::{Device};
 
-use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, texture::{TextureManager}, engine::{Component, transform, World, GameObject, Sys}, renderer_component::{RendererManager, RendererInstances, Renderer}};
+use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, texture::{TextureManager}, engine::{Component, transform, World, GameObject, Sys}, renderer_component2::{RendererManager, Renderer}};
 use crate::terrain::transform::Transform;
 
 #[component]
@@ -18,26 +18,27 @@ pub struct Terrain {
     // pub device: Arc<Device>,
     // pub queue: Arc<Queue>,
     // pub texture_manager: Arc<TextureManager>,
-    pub chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Mesh>>>>,
+    pub chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Transform>>>>,
     pub terrain_size: i32,
+    pub chunk_range: i32,
 }
 
 impl Terrain {
-    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Mesh>>>>, terrain_size: i32, t: Transform) {
+    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Transform>>>>, terrain_size: i32, chunk_range: i32, t: Transform) {
 
         // let collider_set = &world.physics.collider_set;
         // let mm = &mut world.modeling.lock();
         let perlin = Perlin::new();
         let mut chunks = chunks.lock();
-        for x in -8..8 {
+        for x in -chunk_range..chunk_range {
             chunks.insert(x, HashMap::new());
-            for z in -8..8 {
+            for z in -chunk_range..chunk_range {
                 let m =
                     Terrain::generate_chunk(&perlin, x, z, terrain_size, &mut world.sys.model_manager.lock());
                 let ter_verts: Vec<Point<f32>> = m
                     .vertices
                     .iter()
-                    .map(|v| point![v.position[0], v.position[1], v.position[2]])
+                    .map(|v| point![v.position[0] + (x * (terrain_size - 1)) as f32, v.position[1], v.position[2] + (z * (terrain_size - 1)) as f32])
                     .collect();
                 let ter_indeces: Vec<[u32; 3]> = m
                     .indeces
@@ -48,11 +49,14 @@ impl Terrain {
                 let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces);
                 world.sys.physics.collider_set.insert(collider);
                 
-                chunks.get_mut(&x).unwrap().insert(z, m.clone());
-
                 let m_id = world.sys.model_manager.lock().procedural(m);
 
-                world.add_component(GameObject {t}, Renderer::new(t,m_id));
+                let g = world.instantiate_with_transform(transform::_Transform { position: glm::vec3((x * (terrain_size - 1)) as f32, 0.0, (z * (terrain_size - 1)) as f32), ..Default::default() });
+                world.add_component(g, Renderer::new(g.t, m_id));
+                chunks.get_mut(&x).unwrap().insert(z, g.t);
+
+
+                // world.add_component(GameObject {t}, Renderer::new(t,m_id));
 
 
                 // rm.renderers.insert(m_id, RendererInstances {model_id: m_id, transforms: vec![]});
@@ -71,10 +75,10 @@ impl Terrain {
         let mut uvs = Vec::new();
 
         let make_vert = |x: i32, z: i32| {
-            let x = x as f32 + (_x * (terrain_size - 1)) as f32;
-            let z = z as f32 + (_z * (terrain_size - 1)) as f32;
+            let __x = x as f32 + (_x * (terrain_size - 1)) as f32;
+            let __z = z as f32 + (_z * (terrain_size - 1)) as f32;
             Vertex {
-                position: [x, noise.get([x as f64 / 50., z as f64 / 50.]) as f32 * 10., z],
+                position: [x as f32, noise.get([__x as f64 / 50., __z as f64 / 50.]) as f32 * 10., z as f32],
             }
         };
 
@@ -198,9 +202,10 @@ impl Component for Terrain {
         let chunks = self.chunks.clone();
         let ts = self.terrain_size;
         let t = self.t;
+        let chunk_range = self.chunk_range;
         sys.defer.append(move |world| {
             
-            Terrain::generate(world, chunks, ts, t);
+            Terrain::generate(world, chunks, ts, chunk_range, t);
         });
 
         
