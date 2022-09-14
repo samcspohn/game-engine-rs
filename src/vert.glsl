@@ -22,9 +22,9 @@ layout(set = 0, binding = 2) buffer id {
     int ids[];
 };
 
-layout(set = 0, binding = 3) uniform UniformBufferObject {
-    int offset;
-}ubo;
+// layout(set = 0, binding = 3) uniform UniformBufferObject {
+//     int offset;
+// }ubo;
 
     // mat4 world;
 void main() {
@@ -34,5 +34,5 @@ void main() {
     coords = uv;
     v_normal = normal;
     // mat4 mvp = mvp[id];
-    gl_Position = mvp[ids[ubo.offset + id]].mvp * vec4(position, 1.0);
+    gl_Position = mvp[ids[id]].mvp * vec4(position, 1.0);
 }

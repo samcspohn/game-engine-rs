@@ -1,7 +1,9 @@
 use component_derive::component;
+use crossbeam::queue::SegQueue;
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
+use puffin_egui::puffin;
 use rapier3d::prelude::*;
 use rayon::prelude::*;
 use std::{
@@ -14,7 +16,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use vulkano::{device::Device, buffer::CpuAccessibleBuffer};
+use vulkano::{buffer::CpuAccessibleBuffer, device::Device};
 use winit::event::VirtualKeyCode;
 // use rapier3d::{na::point, prelude::InteractionGroups};
 
@@ -22,12 +24,13 @@ use crate::{
     engine::{
         physics::{self, Physics},
         transform::{Transform, Transforms, _Transform},
-        Component, LazyMaker, System, World, GameObject, Sys,
+        Component, GameObject, LazyMaker, Sys, System, World,
     },
     input::Input,
     model::ModelManager,
-    renderer::{ModelMat, Id},
-    renderer_component::{Renderer, RendererManager, Offset},
+    perf::Perf,
+    renderer::{Id, ModelMat},
+    renderer_component2::{Offset, Renderer, RendererManager},
     terrain::Terrain,
     texture::TextureManager,
 };
@@ -43,8 +46,8 @@ impl Component for Bomb {
     fn update(&mut self, sys: &System) {
         let pos = sys.trans.get_position(self.t);
         let vel = self.vel;
-        // let dt = sys.2.time.dt.min(1./100.);
-        let dt = 1. / 100.;
+        let dt = sys.input.time.dt.min(1./ 20.);
+        // let dt = 1. / 100.;
         // let dir = vel * (1.0 / 100.0);
         let ray = rapier3d::prelude::Ray {
             origin: point![pos.x, pos.y, pos.z],
@@ -58,11 +61,11 @@ impl Component for Bomb {
             InteractionGroups::all(),
             None,
         ) {
-            let g = GameObject { t: self.t };
-            sys.defer.append(move |world| {
-                world.delete(g);
-            });
-            // self.vel = glm::reflect_vec(&vel, &&_hit.normal);
+            // let g = GameObject { t: self.t };
+            // sys.defer.append(move |world| {
+            //     world.delete(g);
+            // });
+            self.vel = glm::reflect_vec(&vel, &&_hit.normal);
         }
         // if pos.y <= 0. {
         //     self.vel = glm::reflect_vec(&vel, &glm::vec3(0.,1.,0.));
@@ -104,13 +107,14 @@ pub fn game_thread_fn(
     device: Arc<Device>,
     queue: Arc<vulkano::device::Queue>,
     model_manager: Arc<Mutex<ModelManager>>,
+    renderer_manager: Arc<RwLock<RendererManager>>,
     // texture_manager: Arc<TextureManager>,
     coms: (
         Sender<(
             Arc<Vec<ModelMat>>,
             glm::Vec3,
             glm::Quat,
-            Arc<(Vec<Offset>, Vec<Id>)>,
+            // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
         Receiver<Input>,
@@ -140,10 +144,7 @@ pub fn game_thread_fn(
     let gravity = vector![0.0, -9.81, 0.0];
 
     let lazy_maker = LazyMaker::new();
-    let renderer_manager = Mutex::new(RendererManager {
-        ..Default::default()
-    });
-    let mut world = World::new(model_manager,renderer_manager,physics);
+    let mut world = World::new(model_manager, renderer_manager.clone(), physics);
     world.register::<Bomb>(true);
     world.register::<Maker>(true);
     world.register::<Renderer>(false);
@@ -156,46 +157,48 @@ pub fn game_thread_fn(
 
     let ter = world.instantiate();
 
-    world.add_component(ter, Terrain {
-        chunks: Arc::new(Mutex::new(HashMap::new())),
-        terrain_size: 33,
-        ..Default::default()
-    });
-
+    world.add_component(
+        ter,
+        Terrain {
+            chunks: Arc::new(Mutex::new(HashMap::new())),
+            terrain_size: 33,
+            chunk_range: 9,
+            ..Default::default()
+        },
+    );
 
     {
         // let mut renderer_manager = world.renderer_manager.lock();
-        for _ in 0..1_000_00 {
+        for _ in 0..1_000_000 {
             // bombs
-        let g = world.instantiate();
-        world.add_component(
-            g,
-            Bomb {
-                t: Transform(-1),
-                vel: glm::vec3(
-                    rand::random::<f32>() - 0.5,
-                    rand::random::<f32>() - 0.5,
-                    rand::random::<f32>() - 0.5,
-                ) * 5.0,
-            },
-        );
-        world.add_component(g, Renderer::new(g.t, 0));
-        world.transforms.read()._move(
-            g.t,
-            glm::vec3(
-                rand::random::<f32>() * 100. - 50.,
-                50.0,
-                rand::random::<f32>() * 100. - 50.,
-            ),
-        );
+            let g = world.instantiate();
+            world.add_component(
+                g,
+                Bomb {
+                    t: Transform(-1),
+                    vel: glm::vec3(
+                        rand::random::<f32>() - 0.5,
+                        rand::random::<f32>() - 0.5,
+                        rand::random::<f32>() - 0.5,
+                    ) * 5.0,
+                },
+            );
+            world.add_component(g, Renderer::new(g.t, 0));
+            world.transforms.read()._move(
+                g.t,
+                glm::vec3(
+                    rand::random::<f32>() * 100. - 50.,
+                    50.0,
+                    rand::random::<f32>() * 100. - 50.,
+                ),
+            );
+        }
     }
-}
     // {
     //     // maker
     //     let g = world.instantiate();
     //     world.add_component(g, Maker { t: Transform(-1) });
     // }
-
 
     ////////////////////////////////////////////////
     let mut cam_pos = glm::vec3(0.0 as f32, 0.0, -1.0);
@@ -205,15 +208,23 @@ pub fn game_thread_fn(
     //     ..Default::default()
     // };
 
-    let mut perf = HashMap::<String, Duration>::new();
+    // let mut perf = HashMap::<String, SegQueue<Duration>>::new();
 
-    let mut update_perf = |k: String, v: Duration| {
-        if let Some(dur) = perf.get_mut(&k) {
-            *dur += v;
-        } else {
-            perf.insert(k, v);
-        }
+    let mut perf = Perf {
+        data: HashMap::new(),
     };
+
+    // let mut update_perf = |k: String, v: Duration| {
+    //     if let Some(q) = perf.get_mut(&k) {
+    //         q.push(v);
+    //     } else {
+    //         perf.insert(k, SegQueue::new());
+    //         if let Some(q) = perf.get_mut(&k) {
+    //             q.push(v);
+    //         }
+
+    //     }
+    // };
     let mut loops = 0;
     while running.load(Ordering::SeqCst) {
         loops += 1;
@@ -221,148 +232,142 @@ pub fn game_thread_fn(
         let input = coms.1.recv().unwrap();
         // println!("input recvd");
 
-        let speed = 20.0 * input.time.dt;
-        // forward/backward
-        if input.get_key(&VirtualKeyCode::W) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
-        }
-        if input.get_key(&VirtualKeyCode::S) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
-        }
-        //left/right
-        if input.get_key(&VirtualKeyCode::A) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
-        }
-        if input.get_key(&VirtualKeyCode::D) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
-        }
-        // up/down
-        if input.get_key(&VirtualKeyCode::Space) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
-        }
-        if input.get_key(&VirtualKeyCode::LShift) {
-            cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
-        }
-
-        cam_rot = glm::quat_rotate(
-            &cam_rot,
-            input.get_mouse_delta().0 as f32 * 0.01,
-            &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
-        );
-        cam_rot = glm::quat_rotate(
-            &cam_rot,
-            input.get_mouse_delta().1 as f32 * 0.01,
-            &Vec3::x(),
-        );
-
-        let inst = Instant::now();
-        world.sys.physics.step(&gravity);
-        world.update(&lazy_maker, &input);
-
-        const ALOT: f32 = 10_000_000. / 60.;
-
-        if input.get_mouse_button(&0) {
-            let _cam_rot = cam_rot.clone();
-            let _cam_pos = cam_pos.clone();
-            // let rm = renderer_manager.clone();
-            lazy_maker.append(move |world| {
-                let len = (ALOT * input.time.dt) as usize;
-                // let chunk_size =  (len / (64 * 64)).max(1);
-                (0..len)
-                    .into_iter()
-                    // .chunks(chunk_size)
-                    .for_each(|_| {
-                        let g = world.instantiate_with_transform(_Transform {
-                            position: _cam_pos - glm::Vec3::y() * 2.,
-                            ..Default::default()
-                        });
-                        world.add_component(
-                            g,
-                            Bomb {
-                                t: Transform(-1),
-                                vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
-                                    + glm::vec3(rand::random(), rand::random(), rand::random())
-                                        * 18.,
-                            },
-                        );
-                        world.add_component(g, Renderer::new(g.t, 0));
-                        // world.add_component(g, d)
-                        // world
-                        //     .transforms
-                        //     .read()
-                        //     .set_position(g.t, _cam_pos - glm::Vec3::y() * 2.);
-                    });
-            });
-        }
-
         {
-            lazy_maker.init(&mut world);
-        }
-            
-        update_perf("world".into(), Instant::now() - inst);
+            puffin::profile_scope!("world update");
+            let inst = Instant::now();
+            world.sys.physics.step(&gravity);
+            world.update(&lazy_maker, &input);
 
-        // dur += Instant::now() - inst;
-
-        let inst = Instant::now();
-
-        let pos_len = { world.transforms.read().positions.len() };
-        let mut cube_models: Vec<ModelMat> = {
-            
-            Vec::with_capacity(pos_len)
-        };
-
-        // cube_models.reserve(positions.len());
-        unsafe {
-            cube_models.set_len(pos_len);
-        }
-        {
-            let positions = &mut world.transforms.write().positions;
-            let p_iter = positions.par_iter_mut();
-            let m_iter = cube_models.par_iter_mut();
-            
-            let chunk_size = (pos_len / (64 * 64)).max(1);
-            p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
-                for (x, y) in slice {
-                    let x = x.get_mut();
-                    // let x = x.lock();
-                    *y = ModelMat {
-                        pos: [x.x, x.y, x.z],
-                        ..Default::default()
-                    };
+            let speed = 20.0 * input.time.dt;
+            if !input.get_key(&VirtualKeyCode::LControl) {
+                // forward/backward
+                if input.get_key(&VirtualKeyCode::W) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
                 }
-            });
-        }
-        {
-            let mut mm = world.sys.model_manager.lock();
-            if let Some(id) = mm.models.get("src/cube/cube.obj") {
-                let id = id.clone();
-                if let Some(mr) = mm.models_ids.get_mut(&id) {
-                    mr.count = cube_models.len() as u32;
+                if input.get_key(&VirtualKeyCode::S) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
+                }
+                //left/right
+                if input.get_key(&VirtualKeyCode::A) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
+                }
+                if input.get_key(&VirtualKeyCode::D) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
+                }
+                // up/down
+                if input.get_key(&VirtualKeyCode::Space) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
+                }
+                if input.get_key(&VirtualKeyCode::LShift) {
+                    cam_pos +=
+                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
+                }
+
+                cam_rot = glm::quat_rotate(
+                    &cam_rot,
+                    input.get_mouse_delta().0 as f32 * 0.01,
+                    &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
+                );
+                cam_rot = glm::quat_rotate(
+                    &cam_rot,
+                    input.get_mouse_delta().1 as f32 * 0.01,
+                    &Vec3::x(),
+                );
+                const ALOT: f32 = 10_000_000. / 60.;
+                if input.get_mouse_button(&0) {
+                    let _cam_rot = cam_rot.clone();
+                    let _cam_pos = cam_pos.clone();
+                    // let rm = renderer_manager.clone();
+                    lazy_maker.append(move |world| {
+                        let len = (ALOT * input.time.dt.min(1.0/30.0)) as usize;
+                        // let chunk_size =  (len / (64 * 64)).max(1);
+                        (0..len)
+                            .into_iter()
+                            // .chunks(chunk_size)
+                            .for_each(|_| {
+                                let g = world.instantiate_with_transform(_Transform {
+                                    position: _cam_pos - glm::Vec3::y() * 2.,
+                                    ..Default::default()
+                                });
+                                world.add_component(
+                                    g,
+                                    Bomb {
+                                        t: Transform(-1),
+                                        vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                                            + glm::vec3(
+                                                rand::random(),
+                                                rand::random(),
+                                                rand::random(),
+                                            ) * 18.,
+                                    },
+                                );
+                                world.add_component(g, Renderer::new(g.t, 0));
+                            });
+                    });
                 }
             }
+
+            {
+                lazy_maker.init(&mut world);
+            }
+
+            perf.update("world".into(), Instant::now() - inst);
         }
 
-        update_perf("get cube models".into(), Instant::now() - inst);
-        let cube_models = Arc::new(cube_models);
-        // let terr_chunks = Arc::new(&ter.chunks);
-        // println!("sending models");
-        // let render_data = { let x = renderer_manager.lock().getInstances(device.clone()).clone() };
-        let inst = Instant::now();
-        let render_data = world.sys.renderer_manager.lock().get_instances();
-        update_perf("get instances".into(), Instant::now() - inst);
+        let positions_to_buffer = {
+            puffin::profile_scope!("prepare transforms");
+            let inst = Instant::now();
+
+            let pos_len = { world.transforms.read().positions.len() };
+            let mut positions_to_buffer: Vec<ModelMat> = { Vec::with_capacity(pos_len) };
+
+            unsafe {
+                positions_to_buffer.set_len(pos_len);
+            }
+            {
+                let positions = &mut world.transforms.write().positions;
+                let p_iter = positions.par_iter_mut();
+                let m_iter = positions_to_buffer.par_iter_mut();
+
+                let chunk_size = (pos_len / (64 * 64)).max(1);
+                p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
+                    for (x, y) in slice {
+                        let x = x.get_mut();
+                        // let x = x.lock();
+                        *y = ModelMat {
+                            pos: [x.x, x.y, x.z],
+                            ..Default::default()
+                        };
+                    }
+                });
+            }
+
+            perf.update("get positions".into(), Instant::now() - inst);
+            Arc::new(positions_to_buffer)
+        };
+
         let res = coms.0.send((
-            cube_models.clone(),
+            positions_to_buffer.clone(),
             cam_pos.clone(),
             cam_rot.clone(),
-            render_data,
+            // render_data,
             // terr_chunks,
         ));
         if res.is_err() {
             println!("ohno");
         }
     }
-    let p = perf.iter();
-    for (k, x) in p {
-        println!("{}: {:?}", k, (*x / loops));
-    }
+    perf.print();
+    // let p = perf.iter();
+    // for (k, x) in p {
+    //     for (k, x) in p {
+    //         let len = x.len();
+    //         println!("{}: {:?}", k, (x.into_iter().map(|a| a).sum::<Duration>() / len as u32));
+    //     }
+    // }
 }
