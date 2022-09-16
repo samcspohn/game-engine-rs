@@ -10,9 +10,10 @@ struct VkDrawIndexedIndirectCommand {
     uint    firstInstance;
 };
 
-struct ModelMat {
+struct transform {
     vec3 position;
-    float padding;
+    vec4 rotation;
+    vec3 scale;
 };
 
 struct transform_id {
@@ -36,7 +37,7 @@ layout(set = 0, binding = 3) buffer a {
     VkDrawIndexedIndirectCommand indirect[];
 };
 layout(set = 0, binding = 4) buffer t {
-    ModelMat transforms[];
+    transform transforms[];
 };
 
 layout(set = 0, binding = 5) buffer o {

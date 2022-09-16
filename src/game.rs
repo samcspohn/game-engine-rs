@@ -33,6 +33,7 @@ use crate::{
     renderer_component2::{Offset, Renderer, RendererManager},
     terrain::Terrain,
     texture::TextureManager,
+    transform_compute::cs::ty::transform,
 };
 
 #[component]
@@ -46,7 +47,7 @@ impl Component for Bomb {
     fn update(&mut self, sys: &System) {
         let pos = sys.trans.get_position(self.t);
         let vel = self.vel;
-        let dt = sys.input.time.dt.min(1./ 20.);
+        let dt = sys.input.time.dt.min(1. / 20.);
         // let dt = 1. / 100.;
         // let dir = vel * (1.0 / 100.0);
         let ray = rapier3d::prelude::Ray {
@@ -72,6 +73,7 @@ impl Component for Bomb {
         //     pos.y += 0.1;
         //     trans.set_position(self.t, pos);
         // }
+        // sys.trans.rotate(self.t, &glm::Vec3::y(), 3.0 * dt);
         sys.trans._move(self.t, self.vel * dt);
         self.vel += glm::vec3(0.0, -9.81, 0.0) * dt;
 
@@ -111,7 +113,10 @@ pub fn game_thread_fn(
     // texture_manager: Arc<TextureManager>,
     coms: (
         Sender<(
-            Arc<Vec<ModelMat>>,
+            Arc<(
+                usize,
+                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+            )>,
             glm::Vec3,
             glm::Quat,
             // Arc<(Vec<Offset>, Vec<Id>)>,
@@ -123,7 +128,7 @@ pub fn game_thread_fn(
     running: Arc<AtomicBool>,
 ) {
     let mut physics = Physics::new();
-
+    // rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build_global().unwrap();
     /* Create the ground. */
     // let collider = ColliderBuilder::cuboid(100.0, 0.1, 100.0).build();
     // physics.collider_set.insert(collider);
@@ -284,7 +289,7 @@ pub fn game_thread_fn(
                     let _cam_pos = cam_pos.clone();
                     // let rm = renderer_manager.clone();
                     lazy_maker.append(move |world| {
-                        let len = (ALOT * input.time.dt.min(1.0/30.0)) as usize;
+                        let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
                         // let chunk_size =  (len / (64 * 64)).max(1);
                         (0..len)
                             .into_iter()
@@ -319,37 +324,38 @@ pub fn game_thread_fn(
             perf.update("world".into(), Instant::now() - inst);
         }
 
+        // let positions_to_buffer = {
+        //     puffin::profile_scope!("prepare transforms");
+
+        //     let pos_len = { world.transforms.read().positions.len() };
+        //     let mut positions_to_buffer: Vec<[f32;3]> = { Vec::with_capacity(pos_len) };
+
+        //     unsafe {
+        //         positions_to_buffer.set_len(pos_len);
+        //     }
+        //     {
+        //         let positions = &mut world.transforms.write().positions;
+        //         let p_iter = positions.par_iter_mut();
+        //         let m_iter = positions_to_buffer.par_iter_mut();
+
+        //         let chunk_size = (pos_len / (64 * 64)).max(1);
+        //         p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
+        //             for (x, y) in slice {
+        //                 let x = x.get_mut();
+        //                 // let x = x.lock();
+        //                 *y = [x.x, x.y, x.z];
+        //             }
+        //         });
+        //     }
+
+        //     Arc::new(positions_to_buffer)
+        // };
+        let inst = Instant::now();
         let positions_to_buffer = {
-            puffin::profile_scope!("prepare transforms");
-            let inst = Instant::now();
-
-            let pos_len = { world.transforms.read().positions.len() };
-            let mut positions_to_buffer: Vec<ModelMat> = { Vec::with_capacity(pos_len) };
-
-            unsafe {
-                positions_to_buffer.set_len(pos_len);
-            }
-            {
-                let positions = &mut world.transforms.write().positions;
-                let p_iter = positions.par_iter_mut();
-                let m_iter = positions_to_buffer.par_iter_mut();
-
-                let chunk_size = (pos_len / (64 * 64)).max(1);
-                p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
-                    for (x, y) in slice {
-                        let x = x.get_mut();
-                        // let x = x.lock();
-                        *y = ModelMat {
-                            pos: [x.x, x.y, x.z],
-                            ..Default::default()
-                        };
-                    }
-                });
-            }
-
-            perf.update("get positions".into(), Instant::now() - inst);
-            Arc::new(positions_to_buffer)
+            puffin::profile_scope!("get transform data");
+            world.transforms.write().get_transform_data_updates()
         };
+        perf.update("get transform data".into(), Instant::now() - inst);
 
         let res = coms.0.send((
             positions_to_buffer.clone(),

@@ -1,88 +1,415 @@
-use std::sync::Arc;
+use std::{ptr, sync::Arc};
 
-use bytemuck::{Zeroable, Pod};
+use bytemuck::{Pod, Zeroable};
+use nalgebra_glm as glm;
+use puffin_egui::puffin;
 use vulkano::{
-    buffer::{BufferContents, BufferUsage, DeviceLocalBuffer},
-    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBuffer, PrimaryAutoCommandBuffer},
+    buffer::{
+        BufferContents, BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer,
+        TypedBufferAccess,
+    },
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        PrimaryCommandBuffer,
+    },
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
-    sync::GpuFuture, impl_vertex,
+    impl_vertex,
+    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    sync::GpuFuture,
+    DeviceSize,
 };
 
-use crate::ModelMat;
+use crate::engine::transform::POS_U;
 
+use self::cs::ty::{transform, Data};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 pub struct MVP {
-    pub mvp: [[f32; 4];4],
+    pub mvp: [[f32; 4]; 4],
 }
 impl_vertex!(MVP, mvp);
 
-pub struct TransformData {
-    pub positions: GPUVector<ModelMat>,
-    pub mvp: GPUVector<MVP>,
+pub struct TransformCompute {
+    pub transform: Arc<DeviceLocalBuffer<[transform]>>,
+    pub mvp: Arc<DeviceLocalBuffer<[MVP]>>,
 }
 
+pub mod cs {
+    vulkano_shaders::shader! {
+        ty: "compute",
+        path: "src/transform.comp",
+        types_meta: {
+            use bytemuck::{Pod, Zeroable};
 
-impl TransformData {
-    pub fn update(&mut self, 
+            #[derive(Clone, Copy, Zeroable, Pod)]
+        },
+    }
+}
+
+impl TransformCompute {
+    pub fn update(
+        &mut self,
         device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        positions_len: usize) {
-              // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
-    let len = positions_len;
-    // let mut max_len = ((len as f32).log2() + 1.).ceil();
-    let max_len = (len as f32 + 1.).log2().ceil();
-    let max_len = (2 as u32).pow(max_len as u32);
+        positions_len: usize,
+    ) {
+        let len = positions_len;
+        // let mut max_len = ((len as f32).log2() + 1.).ceil();
+        let max_len = (len as f32 + 1.).log2().ceil();
+        let max_len = (2 as u32).pow(max_len as u32);
 
-    let transform_data = self;
+        let transform_data = self;
 
-    if transform_data.positions.max_len < len as u32 {
-        // Create a buffer array on the GPU with enough space for `PARTICLE_COUNT` number of `Vertex`.
-        let device_local_buffer = DeviceLocalBuffer::<[ModelMat]>::array(
-            device.clone(),
-            max_len as vulkano::DeviceSize,
-            BufferUsage::storage_buffer()
-                | BufferUsage::vertex_buffer_transfer_destination()
-                | BufferUsage::transfer_source(), // Specify use as a storage buffer, vertex buffer, and transfer destination.
-            device.active_queue_families(),
-        )
-        .unwrap();
-        transform_data.positions.len = len as u32;
-        transform_data.positions.max_len = max_len as u32;
+        if transform_data.transform.len() < len as u64 {
+            let device_local_buffer = DeviceLocalBuffer::<[transform]>::array(
+                device.clone(),
+                max_len as vulkano::DeviceSize,
+                BufferUsage::storage_buffer()
+                    | BufferUsage::vertex_buffer_transfer_destination()
+                    | BufferUsage::transfer_source(),
+                device.active_queue_families(),
+            )
+            .unwrap();
+            let copy_buffer = transform_data.transform.clone();
 
-        transform_data.mvp.len = len as u32;
-        transform_data.mvp.max_len = max_len as u32;
+            transform_data.transform = device_local_buffer.clone();
+            builder
+                .copy_buffer(copy_buffer, transform_data.transform.clone())
+                .unwrap();
 
-        let copy_buffer = transform_data.positions.data.clone();
+            let device_local_buffer = DeviceLocalBuffer::<[MVP]>::array(
+                device.clone(),
+                max_len as vulkano::DeviceSize,
+                BufferUsage::storage_buffer()
+                    | BufferUsage::vertex_buffer_transfer_destination()
+                    | BufferUsage::transfer_source(),
+                device.active_queue_families(),
+            )
+            .unwrap();
 
-        transform_data.positions.data = device_local_buffer.clone();
-        builder
-        .copy_buffer(copy_buffer, transform_data.positions.data.clone())
-        .unwrap();
+            let copy_buffer = transform_data.mvp.clone();
 
-        let device_local_buffer = DeviceLocalBuffer::<[MVP]>::array(
-            device.clone(),
-            max_len as vulkano::DeviceSize,
-            BufferUsage::storage_buffer()
-                | BufferUsage::vertex_buffer_transfer_destination()
-                | BufferUsage::transfer_source(), // Specify use as a storage buffer, vertex buffer, and transfer destination.
-            device.active_queue_families(),
-        )
-        .unwrap();
-
-        let copy_buffer = transform_data.mvp.data.clone();
-
-        transform_data.mvp.data = device_local_buffer.clone();
-        builder
-        .copy_buffer(copy_buffer, transform_data.mvp.data.clone())
-        .unwrap();
-
-    } else {
-        transform_data.positions.len = len as u32;
-        transform_data.mvp.len = len as u32;
-    }
+            transform_data.mvp = device_local_buffer.clone();
+            builder
+                .copy_buffer(copy_buffer, transform_data.mvp.clone())
+                .unwrap();
         }
+    }
+    pub fn get_position_update_data(
+        // tc: &TransformCompute,
+        device: Arc<Device>,
+        transform_data: Arc<(
+            usize,
+            Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+        )>,
+    ) -> Option<(Arc<CpuAccessibleBuffer<[i32]>>, Arc<CpuAccessibleBuffer<[[f32; 3]]>>)>{
+        let transform_ids_len_pos: u64 = transform_data
+            .1
+            .iter()
+            .map(|x| x.0[POS_U].len() as u64)
+            .sum();
+
+        if transform_ids_len_pos > 0 {
+            let transform_ids_buffer_pos = unsafe {
+                puffin::profile_scope!("transform_ids_buffer");
+                // let inst = Instant::now();
+                let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                    device.clone(),
+                    transform_ids_len_pos as DeviceSize,
+                    BufferUsage::all(),
+                    false,
+                )
+                .unwrap();
+                {
+                    let mut mapping = uninitialized.write().unwrap();
+                    let mut offset = 0;
+                    for i in &transform_data.1 {
+                        let j = &i.0[POS_U];
+                        let j_iter = j.iter();
+                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                        j_iter.zip(m_iter).for_each(|(j, m)| {
+                            // for  in slice {
+                            ptr::write(m, *j);
+                            // }
+                        });
+                        offset += j.len();
+                    }
+                }
+                uninitialized
+            };
+            let position_updates_buffer = unsafe {
+                puffin::profile_scope!("position_updates_buffer");
+                // let inst = Instant::now();
+                let uninitialized = {
+                    puffin::profile_scope!("position_updates_buffer: alloc");
+                    CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                        device.clone(),
+                        transform_ids_len_pos as DeviceSize,
+                        BufferUsage::all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                {
+                    let mut mapping = uninitialized.write().unwrap();
+                    let mut offset = 0;
+                    for i in &transform_data.1 {
+                        let j = &i.1;
+                        let j_iter = j.iter();
+                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                        j_iter.zip(m_iter).for_each(|(j, m)| {
+                            // for  in slice {
+                            ptr::write(m, *j);
+                            // }
+                        });
+                        offset += j.len()
+                    }
+                }
+                uninitialized
+            };
+            Some((transform_ids_buffer_pos, position_updates_buffer))
+        } else {
+            None
+        }
+    }
+
+    pub fn update_positions(
+        &self,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        view: glm::Mat4,
+        proj: glm::Mat4,
+        transform_uniforms: &CpuBufferPool<Data>,
+        compute_pipeline: Arc<ComputePipeline>,
+        position_update_data: Option<(
+            Arc<CpuAccessibleBuffer<[i32]>>,
+            Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
+        )>,
+    ) {
+        // stage 0
+        puffin::profile_scope!("update positions");
+
+        if let Some((transform_ids_buffer, updates_buffer)) = position_update_data {
+            let transforms_sub_buffer = {
+                let uniform_data = cs::ty::Data {
+                    num_jobs: transform_ids_buffer.len() as i32,
+                    stage: 0,
+                    view: view.into(),
+                    proj: proj.into(),
+                    _dummy0: Default::default(),
+                };
+                transform_uniforms.next(uniform_data).unwrap()
+            };
+
+            let descriptor_set = PersistentDescriptorSet::new(
+                compute_pipeline
+                    .layout()
+                    .set_layouts()
+                    .get(0) // 0 is the index of the descriptor set.
+                    .unwrap()
+                    .clone(),
+                [
+                    WriteDescriptorSet::buffer(0, updates_buffer.clone()),
+                    WriteDescriptorSet::buffer(1, self.transform.clone()),
+                    WriteDescriptorSet::buffer(2, self.mvp.clone()),
+                    WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
+                    WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+                ],
+            )
+            .unwrap();
+
+            builder
+                .bind_pipeline_compute(compute_pipeline.clone())
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Compute,
+                    compute_pipeline.layout().clone(),
+                    0, // Bind this descriptor set to index 0.
+                    descriptor_set.clone(),
+                )
+                .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
+                .unwrap();
+        }
+    }
+    pub fn update_rotations(
+        &self,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        view: glm::Mat4,
+        proj: glm::Mat4,
+        transform_uniforms: &CpuBufferPool<Data>,
+        compute_pipeline: Arc<ComputePipeline>,
+        rotation_update_data: Option<(
+            Arc<CpuAccessibleBuffer<[i32]>>,
+            Arc<CpuAccessibleBuffer<[[f32; 4]]>>,
+        )>,
+    ) {
+        puffin::profile_scope!("update rotations");
+        // stage 1
+        if let Some((transform_ids_buffer, updates_buffer)) = rotation_update_data {
+            let transforms_sub_buffer = {
+                let uniform_data = cs::ty::Data {
+                    num_jobs: transform_ids_buffer.len() as i32,
+                    stage: 1,
+                    view: view.into(),
+                    proj: proj.into(),
+                    _dummy0: Default::default(),
+                };
+                transform_uniforms.next(uniform_data).unwrap()
+            };
+
+            let descriptor_set = PersistentDescriptorSet::new(
+                compute_pipeline
+                    .layout()
+                    .set_layouts()
+                    .get(0) // 0 is the index of the descriptor set.
+                    .unwrap()
+                    .clone(),
+                [
+                    WriteDescriptorSet::buffer(0, updates_buffer.clone()),
+                    WriteDescriptorSet::buffer(1, self.transform.clone()),
+                    WriteDescriptorSet::buffer(2, self.mvp.clone()),
+                    WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
+                    WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+                ],
+            )
+            .unwrap();
+
+            builder
+                .bind_pipeline_compute(compute_pipeline.clone())
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Compute,
+                    compute_pipeline.layout().clone(),
+                    0, // Bind this descriptor set to index 0.
+                    descriptor_set.clone(),
+                )
+                .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
+                .unwrap();
+        }
+    }
+    pub fn update_scales(
+        &self,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        view: glm::Mat4,
+        proj: glm::Mat4,
+        transform_uniforms: &CpuBufferPool<Data>,
+        compute_pipeline: Arc<ComputePipeline>,
+        scale_update_data: Option<(
+            Arc<CpuAccessibleBuffer<[i32]>>,
+            Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
+        )>,
+    ) {
+        puffin::profile_scope!("update scales");
+        // stage 2
+        if let Some((transform_ids_buffer, updates_buffer)) = scale_update_data {
+            let transforms_sub_buffer = {
+                let uniform_data = cs::ty::Data {
+                    num_jobs: transform_ids_buffer.len() as i32,
+                    stage: 2,
+                    view: view.into(),
+                    proj: proj.into(),
+                    _dummy0: Default::default(),
+                };
+                transform_uniforms.next(uniform_data).unwrap()
+            };
+
+            let descriptor_set = PersistentDescriptorSet::new(
+                compute_pipeline
+                    .layout()
+                    .set_layouts()
+                    .get(0) // 0 is the index of the descriptor set.
+                    .unwrap()
+                    .clone(),
+                [
+                    WriteDescriptorSet::buffer(0, updates_buffer.clone()),
+                    WriteDescriptorSet::buffer(1, self.transform.clone()),
+                    WriteDescriptorSet::buffer(2, self.mvp.clone()),
+                    WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
+                    WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+                ],
+            )
+            .unwrap();
+
+            builder
+                .bind_pipeline_compute(compute_pipeline.clone())
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Compute,
+                    compute_pipeline.layout().clone(),
+                    0, // Bind this descriptor set to index 0.
+                    descriptor_set.clone(),
+                )
+                .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
+                .unwrap();
+        }
+    }
+    pub fn update_mvp(
+        &self,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        device: Arc<Device>,
+        view: glm::Mat4,
+        proj: glm::Mat4,
+        transform_uniforms: &CpuBufferPool<Data>,
+        compute_pipeline: Arc<ComputePipeline>,
+        transforms_len: i32,
+    ) {
+        puffin::profile_scope!("update mvp");
+        // stage 3
+        let transforms_sub_buffer = {
+            let uniform_data = cs::ty::Data {
+                num_jobs: transforms_len,
+                stage: 3,
+                view: view.into(),
+                proj: proj.into(),
+                _dummy0: Default::default(),
+            };
+            transform_uniforms.next(uniform_data).unwrap()
+        };
+
+        let descriptor_set = PersistentDescriptorSet::new(
+            compute_pipeline
+                .layout()
+                .set_layouts()
+                .get(0) // 0 is the index of the descriptor set.
+                .unwrap()
+                .clone(),
+            [
+                WriteDescriptorSet::buffer(
+                    0,
+                    CpuAccessibleBuffer::from_iter(
+                        device.clone(),
+                        BufferUsage::all(),
+                        false,
+                        vec![0],
+                    )
+                    .unwrap(),
+                ),
+                WriteDescriptorSet::buffer(1, self.transform.clone()),
+                WriteDescriptorSet::buffer(2, self.mvp.clone()),
+                WriteDescriptorSet::buffer(
+                    3,
+                    CpuAccessibleBuffer::from_iter(
+                        device.clone(),
+                        BufferUsage::all(),
+                        false,
+                        vec![0],
+                    )
+                    .unwrap(),
+                ),
+                WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+            ],
+        )
+        .unwrap();
+
+        builder
+            .bind_pipeline_compute(compute_pipeline.clone())
+            .bind_descriptor_sets(
+                PipelineBindPoint::Compute,
+                compute_pipeline.layout().clone(),
+                0, // Bind this descriptor set to index 0.
+                descriptor_set.clone(),
+            )
+            .dispatch([transforms_len as u32 / 128 + 1, 1, 1])
+            .unwrap();
+    }
 }
 pub struct GPUVector<T>
 where
@@ -93,13 +420,12 @@ where
     pub max_len: u32,
 }
 
-
 pub fn transform_buffer_init(
     device: Arc<Device>,
     // builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     // queue: Arc<Queue>,
-    positions: Vec<ModelMat>,
-) -> TransformData {
+    positions: Vec<transform>,
+) -> TransformCompute {
     // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
     // let len = 2_000_000;
     let len = positions.len();
@@ -108,7 +434,7 @@ pub fn transform_buffer_init(
     let max_len = (2 as u32).pow(max_len as u32);
 
     // Create a buffer array on the GPU with enough space for `PARTICLE_COUNT` number of `Vertex`.
-    let device_local_buffer = DeviceLocalBuffer::<[ModelMat]>::array(
+    let device_local_buffer = DeviceLocalBuffer::<[transform]>::array(
         device.clone(),
         max_len as vulkano::DeviceSize,
         BufferUsage::storage_buffer()
@@ -117,12 +443,7 @@ pub fn transform_buffer_init(
         device.active_queue_families(),
     )
     .unwrap();
-    let pos = GPUVector {
-        data: device_local_buffer,
-        len: len as u32,
-        max_len: max_len as u32,
-    };
-
+    let pos = device_local_buffer;
 
     let device_local_buffer = DeviceLocalBuffer::<[MVP]>::array(
         device.clone(),
@@ -133,11 +454,10 @@ pub fn transform_buffer_init(
         device.active_queue_families(),
     )
     .unwrap();
-    let mvp = GPUVector {
-        data: device_local_buffer,
-        len: len as u32,
-        max_len: max_len as u32,
-    };
+    let mvp = device_local_buffer;
 
-    TransformData { positions: pos, mvp: mvp }
+    TransformCompute {
+        transform: pos,
+        mvp: mvp,
+    }
 }

@@ -4,9 +4,10 @@
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 
-struct ModelMat {
+struct transform {
     vec3 position;
-    float padding;
+    vec4 rotation;
+    vec3 scale;
 };
 
 struct MVP {
@@ -14,17 +15,23 @@ struct MVP {
 };
 
 layout(set = 0, binding = 0) buffer p {
-    vec3 positions[];
+    float to_buffer[];
 };
 layout(set = 0, binding = 1) buffer tr {
-    ModelMat transforms[];
+    transform transforms[];
 };
 layout(set = 0, binding = 2) buffer m {
     MVP mvp[];
 };
 
-layout(set = 0, binding = 3) uniform Data {
+layout(set = 0, binding = 3) buffer _t {
+    int transform_ids[];
+};
+
+
+layout(set = 0, binding = 4) uniform Data {
     int num_jobs;
+    int stage;
     mat4 view;
     mat4 proj;
 };
@@ -33,7 +40,28 @@ layout(set = 0, binding = 3) uniform Data {
 void main() {
     const uint id = gl_GlobalInvocationID.x;
     if(id < num_jobs) {
-        transforms[id].position = positions[id];
-        mvp[id].mvp = proj * view * translate(transforms[id].position);
+        switch(stage) {
+            case 0:
+                {
+                    int i = int(id) * 3;
+                    transforms[transform_ids[id]].position = vec3(to_buffer[i],to_buffer[i + 1],to_buffer[i+2]);
+                }
+                break;
+             case 1:
+                {
+                    int i = int(id) * 4;
+                    transforms[transform_ids[id]].rotation = vec4(to_buffer[i],to_buffer[i + 1],to_buffer[i+2], to_buffer[i+3]);
+                }
+                break;
+             case 2:
+                {
+                    int i = int(id) * 3;
+                    transforms[transform_ids[id]].scale = vec3(to_buffer[i],to_buffer[i + 1],to_buffer[i+2]);
+                }
+                break;
+            case 3:
+                mvp[id].mvp = proj * view * translate(transforms[id].position) * rotate(transforms[id].rotation) * scale(transforms[id].scale);
+                break;
+        }
     }
 }

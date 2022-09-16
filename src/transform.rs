@@ -1,15 +1,22 @@
 use core::panic;
 use deepmesa::lists::{linkedlist::Node, LinkedList};
 use force_send_sync::SendSync;
-use glm::{Vec3, Quat, Mat3};
+use glm::{Mat3, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
-use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
+use rayon::prelude::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+    IntoParallelRefMutIterator, ParallelIterator,
+};
 // use spin::{Mutex,RwLock};
+use puffin_egui::puffin;
 use std::{
     cmp::Reverse,
     collections::BinaryHeap,
-    sync::{atomic::{AtomicBool, Ordering}, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 struct TransformMeta {
@@ -35,7 +42,7 @@ pub struct Transforms {
     scales: Vec<Mutex<glm::Vec3>>,
     meta: Vec<Mutex<TransformMeta>>,
     avail: BinaryHeap<Reverse<i32>>,
-    updates: Vec<[AtomicBool;3]>,
+    updates: Vec<[AtomicBool; 3]>,
     extent: i32,
 }
 
@@ -99,7 +106,11 @@ impl Transforms {
                     .push(Mutex::new(glm::quat(1.0, 0.0, 0.0, 0.0)));
                 self.scales.push(Mutex::new(glm::vec3(1.0, 1.0, 1.0)));
                 self.meta.push(Mutex::new(TransformMeta::new()));
-                self.updates.push([AtomicBool::new(true),AtomicBool::new(true),AtomicBool::new(true)]);
+                self.updates.push([
+                    AtomicBool::new(true),
+                    AtomicBool::new(true),
+                    AtomicBool::new(true),
+                ]);
                 self.extent += 1;
                 Transform(self.extent as i32 - 1)
             }
@@ -128,7 +139,11 @@ impl Transforms {
                 self.rotations.push(Mutex::new(transform.rotation));
                 self.scales.push(Mutex::new(transform.scale));
                 self.meta.push(Mutex::new(TransformMeta::new()));
-                self.updates.push([AtomicBool::new(true),AtomicBool::new(true),AtomicBool::new(true)]);
+                self.updates.push([
+                    AtomicBool::new(true),
+                    AtomicBool::new(true),
+                    AtomicBool::new(true),
+                ]);
                 self.extent += 1;
                 Transform(self.extent as i32 - 1)
             }
@@ -173,7 +188,6 @@ impl Transforms {
         self.updates[t.0 as usize][SCL_U].store(true, Ordering::Relaxed);
     }
 
-
     pub fn forward(&self, t: Transform) -> glm::Vec3 {
         glm::quat_to_mat3(&*self.rotations[t.0 as usize].lock()) * glm::Vec3::z()
     }
@@ -188,7 +202,7 @@ impl Transforms {
         *self.positions[t.0 as usize].lock() += v;
         self.u_pos(t);
     }
-    fn move_child(&self, t: Transform, v: Vec3){
+    fn move_child(&self, t: Transform, v: Vec3) {
         self._move(t, v);
         for child in self.meta[t.0 as usize].lock().children.read().iter() {
             self.move_child(*child, v);
@@ -201,7 +215,6 @@ impl Transforms {
         for child in self.meta[t.0 as usize].lock().children.read().iter() {
             self.move_child(*child, v);
         }
-
     }
     pub fn get_position(&self, t: Transform) -> Vec3 {
         *self.positions[t.0 as usize].lock()
@@ -235,7 +248,6 @@ impl Transforms {
         for child in self.meta[tc.0 as usize].lock().children.read().iter() {
             self.set_rotation_child(*child, &rot, &pos)
         }
-
     }
     pub fn get_scale(&self, t: Transform) -> Vec3 {
         *self.scales[t.0 as usize].lock()
@@ -246,7 +258,7 @@ impl Transforms {
         let scl = *self.scales[t.0 as usize].lock();
         self.scale(t, glm::vec3(s.x / scl.x, s.y / scl.y, s.z / scl.z));
     }
-    pub fn scale(&self, t: Transform, s: Vec3){
+    pub fn scale(&self, t: Transform, s: Vec3) {
         let mut scl = self.positions[t.0 as usize].lock();
         *scl = mul_vec3(&s, &*scl);
         self.u_scl(t);
@@ -255,7 +267,7 @@ impl Transforms {
             self.scale_child(*child, &pos, &s);
         }
     }
-    fn scale_child(&self, t: Transform, p:& Vec3, s: &Vec3) {
+    fn scale_child(&self, t: Transform, p: &Vec3, s: &Vec3) {
         let mut scl = self.scales[t.0 as usize].lock();
         let mut posi = self.positions[t.0 as usize].lock();
 
@@ -285,46 +297,134 @@ impl Transforms {
         let mut pos = self.positions[t.0 as usize].lock();
 
         *pos = *pos + glm::rotate_vec3(&(*pos - p), radians, &ax);
-        *rot = glm::quat_rotate(&*rot, radians, &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * ax));
+        *rot = glm::quat_rotate(
+            &*rot,
+            radians,
+            &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * ax),
+        );
         for child in self.meta[t.0 as usize].lock().children.read().iter() {
             self.rotate_child(*child, axis, p, r, radians);
         }
     }
 
-    pub fn get_transform_data_updates(&mut self) -> Arc<(usize, Vec<Arc<(Vec<Vec<i32>>, Vec<f32>, Vec<f32>, Vec<f32>)>>)> {
-        let pos_iter = self.positions.par_iter_mut();
-        let rot_iter = self.rotations.par_iter_mut();
-        let scl_iter = self.scales.par_iter_mut();
+    pub fn get_transform_data_updates(
+        &mut self,
+    ) -> Arc<(
+        usize,
+        Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+    )> {
+        // let pos_iter = self.positions.par_iter_mut();
+        // let rot_iter = self.rotations.par_iter_mut();
+        // let scl_iter = self.scales.par_iter_mut();
         let len = self.updates.len();
-        let u_iter = self.updates.par_iter_mut();
+        // let u_iter = self.updates.par_iter_mut();
 
-        let transform_data = u_iter.zip_eq(pos_iter).zip_eq(rot_iter).zip_eq(scl_iter).enumerate().chunks(len / num_cpus::get()).map(|x| {
-            let mut transform_ids = vec![Vec::<i32>::with_capacity(len),Vec::<i32>::with_capacity(len),Vec::<i32>::with_capacity(len)];
-            let mut pos = Vec::<f32>::with_capacity(len);
-            let mut rot = Vec::<f32>::with_capacity(len);
-            let mut scl = Vec::<f32>::with_capacity(len);
-            for (i,(((u,p),r),s)) in x {
-                if u[POS_U].load(Ordering::Relaxed) {
-                    transform_ids[POS_U].push(i as i32);
-                    let p = p.get_mut();
-                    pos.append(&mut vec![p.x,p.y,p.z, 1.0]);
-                    u[POS_U].store(false, Ordering::Relaxed);
+        let transform_data = Mutex::new(Vec::<
+            Arc<(
+                std::vec::Vec<std::vec::Vec<i32>>,
+                std::vec::Vec<[f32; 3]>,
+                std::vec::Vec<[f32; 4]>,
+                std::vec::Vec<[f32; 3]>,
+            )>,
+        >::new());
+        (0..num_cpus::get()).into_par_iter().for_each(|id| {
+            let mut transform_ids = vec![
+                Vec::<i32>::with_capacity(len),
+                Vec::<i32>::with_capacity(len),
+                Vec::<i32>::with_capacity(len),
+            ];
+            let mut pos = Vec::<[f32; 3]>::with_capacity(len);
+            let mut rot = Vec::<[f32; 4]>::with_capacity(len);
+            let mut scl = Vec::<[f32; 3]>::with_capacity(len);
+            {
+                let start = len / num_cpus::get() * id;
+                let mut end = start + len / num_cpus::get();
+                if id == num_cpus::get() - 1 {
+                    end = len;
                 }
-                if u[ROT_U].load(Ordering::Relaxed) {
-                    transform_ids[ROT_U].push(i as i32);
-                    let r = r.get_mut();
-                    rot.append(&mut vec![r.w, r.i,r.j,r.k]);
-                    u[ROT_U].store(false, Ordering::Relaxed);
-                }
-                if u[SCL_U].load(Ordering::Relaxed) {
-                    transform_ids[SCL_U].push(i as i32);
-                    let s = s.get_mut();
-                    scl.append(&mut vec![s.x,s.y,s.z, 1.0]);
-                    u[SCL_U].store(false, Ordering::Relaxed);
+
+                let u = &self.updates;
+                let p = &self.positions;
+                let r = &self.rotations;
+                let s = &self.scales;
+
+                puffin::profile_scope!("collect data");
+                for i in start..end {
+                    if u[i][POS_U].load(Ordering::Relaxed) {
+                        transform_ids[POS_U].push(i as i32);
+                        let p = p[i].lock();
+                        // p.data
+                        pos.push([p.x, p.y, p.z]);
+                        u[i][POS_U].store(false, Ordering::Relaxed);
+                    }
+                    if u[i][ROT_U].load(Ordering::Relaxed) {
+                        transform_ids[ROT_U].push(i as i32);
+                        let r = r[i].lock();
+                        // let a: [f32;4] = r.coords.into();
+                        rot.push([r.w, r.k, r.j, r.i]);
+                        u[i][ROT_U].store(false, Ordering::Relaxed);
+                    }
+                    if u[i][SCL_U].load(Ordering::Relaxed) {
+                        transform_ids[SCL_U].push(i as i32);
+                        let s = s[i].lock();
+                        scl.push([s.x, s.y, s.z]);
+                        u[i][SCL_U].store(false, Ordering::Relaxed);
+                    }
                 }
             }
-            Arc::new((transform_ids, pos, rot, scl))
-        }).collect::<Vec<Arc<(Vec<Vec<i32>>,Vec<f32>,Vec<f32>,Vec<f32>)>>>();
-        Arc::new((len,transform_data))
+            {
+                puffin::profile_scope!("wrap in Arc");
+                let ret = Arc::new((transform_ids, pos, rot, scl));
+                transform_data.lock().push(ret);
+            }
+        });
+        // let transform_data = u_iter
+        //     .zip_eq(pos_iter)
+        //     .zip_eq(rot_iter)
+        //     .zip_eq(scl_iter)
+        //     .enumerate()
+        //     .chunks(len / num_cpus::get())
+        //     .map(|x| {
+        //         let mut transform_ids = vec![
+        //             Vec::<i32>::with_capacity(len),
+        //             Vec::<i32>::with_capacity(len),
+        //             Vec::<i32>::with_capacity(len),
+        //         ];
+        //         let mut pos = Vec::<[f32; 3]>::with_capacity(len);
+        //         let mut rot = Vec::<[f32; 4]>::with_capacity(len);
+        //         let mut scl = Vec::<[f32; 3]>::with_capacity(len);
+        //         {
+
+        //             puffin::profile_scope!("collect data");
+        //             for (i, (((u, p), r), s)) in x {
+        //             if u[POS_U].load(Ordering::Relaxed) {
+        //                 transform_ids[POS_U].push(i as i32);
+        //                 let p = p.get_mut();
+        //                 // p.data
+        //                 pos.push([p.x, p.y, p.z]);
+        //                 u[POS_U].store(false, Ordering::Relaxed);
+        //             }
+        //             if u[ROT_U].load(Ordering::Relaxed) {
+        //                 transform_ids[ROT_U].push(i as i32);
+        //                 let r = r.get_mut();
+        //                 // let a: [f32;4] = r.coords.into();
+        //                 rot.push([r.w, r.k, r.j, r.i]);
+        //                 u[ROT_U].store(false, Ordering::Relaxed);
+        //             }
+        //             if u[SCL_U].load(Ordering::Relaxed) {
+        //                 transform_ids[SCL_U].push(i as i32);
+        //                 let s = s.get_mut();
+        //                 scl.push([s.x, s.y, s.z]);
+        //                 u[SCL_U].store(false, Ordering::Relaxed);
+        //             }
+        //         }
+        //     }
+        //     {
+        //         puffin::profile_scope!("wrap in Arc");
+        //         Arc::new((transform_ids, pos, rot, scl))
+        //     }
+        //     })
+        //     .collect::<Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>>();
+        Arc::new((len, transform_data.into_inner()))
     }
 }
