@@ -659,228 +659,229 @@ fn main() {
                 /////////////////////////////////////////////////////////////////   
                 
 
-                // let position_update_data = TransformCompute::get_position_update_data(device.clone(), transform_data.clone());
-                let transform_ids_len_pos: u64 = transform_data
-                    .1
-                    .iter()
-                    .map(|x| x.0[POS_U].len() as u64)
-                    .sum();
+                let position_update_data = transform_compute.get_position_update_data(device.clone(), transform_data.clone());
+                // let transform_ids_len_pos: u64 = transform_data
+                //     .1
+                //     .iter()
+                //     .map(|x| x.0[POS_U].len() as u64)
+                //     .sum();
 
-                let position_update_data = if transform_ids_len_pos > 0 {
-                    let transform_ids_buffer_pos = unsafe {
-                        puffin::profile_scope!("transform_ids_buffer");
-                        // let inst = Instant::now();
-                        let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                            device.clone(),
-                            transform_ids_len_pos as DeviceSize,
-                            BufferUsage::all(),
-                            false,
-                        )
-                        .unwrap();
-                        {
-                            let mut mapping = uninitialized.write().unwrap();
-                            let mut offset = 0;
-                            for i in &transform_data.1 {
-                                let j = &i.0[POS_U];
-                                let j_iter = j.iter();
-                                let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                                j_iter.zip(m_iter).for_each(|(j, m)| {
-                                    // for  in slice {
-                                    ptr::write(m, *j);
-                                    // }
-                                });
-                                offset += j.len();
-                            }
-                        }
-                        uninitialized
-                    };
-                    let position_updates_buffer = unsafe {
-                        puffin::profile_scope!("position_updates_buffer");
-                        // let inst = Instant::now();
-                        let uninitialized = {
-                            puffin::profile_scope!("position_updates_buffer: alloc");
-                            CpuAccessibleBuffer::<[[f32;3]]>::uninitialized_array(
-                                device.clone(),
-                                transform_ids_len_pos as DeviceSize,
-                                BufferUsage::all(),
-                                false,
-                            )
-                            .unwrap()
-                        };
-                        {
-                            // let mut offset = 0;
-                            // let mut offsets = Vec::new();
-                            // for i in &transform_data.1 { 
-                            //     offsets.push(offset);
-                            //     offset += i.0[POS_U].len();
-                            // }
-                            // (0..num_cpus::get()).into_iter().for_each(|id| {
-                            //     for i in &transform_data.1 {
-                            //         let j = &i.0[POS_U];
-                            //     }
-                            // });
+                // let position_update_data = if transform_ids_len_pos > 0 {
+                //     let transform_ids_buffer_pos = unsafe {
+                //         puffin::profile_scope!("transform_ids_buffer");
+                //         // let inst = Instant::now();
+                //         let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                //             device.clone(),
+                //             transform_ids_len_pos as DeviceSize,
+                //             BufferUsage::all(),
+                //             false,
+                //         )
+                //         .unwrap();
+                //         {
+                //             let mut mapping = uninitialized.write().unwrap();
+                //             let mut offset = 0;
+                //             for i in &transform_data.1 {
+                //                 let j = &i.0[POS_U];
+                //                 let j_iter = j.iter();
+                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
+                //                     // for  in slice {
+                //                     ptr::write(m, *j);
+                //                     // }
+                //                 });
+                //                 offset += j.len();
+                //             }
+                //         }
+                //         uninitialized
+                //     };
+                //     let position_updates_buffer = unsafe {
+                //         puffin::profile_scope!("position_updates_buffer");
+                //         // let inst = Instant::now();
+                //         let uninitialized = {
+                //             puffin::profile_scope!("position_updates_buffer: alloc");
+                //             CpuAccessibleBuffer::<[[f32;3]]>::uninitialized_array(
+                //                 device.clone(),
+                //                 transform_ids_len_pos as DeviceSize,
+                //                 BufferUsage::all(),
+                //                 false,
+                //             )
+                //             .unwrap()
+                //         };
+                //         {
+                //             // let mut offset = 0;
+                //             // let mut offsets = Vec::new();
+                //             // for i in &transform_data.1 { 
+                //             //     offsets.push(offset);
+                //             //     offset += i.0[POS_U].len();
+                //             // }
+                //             // (0..num_cpus::get()).into_iter().for_each(|id| {
+                //             //     for i in &transform_data.1 {
+                //             //         let j = &i.0[POS_U];
+                //             //     }
+                //             // });
 
-                            let mut mapping = uninitialized.write().unwrap();
-                            let mut offset = 0;
-                            for i in &transform_data.1 {
-                                let j = &i.1;
-                                let j_iter = j.iter();
-                                let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                                j_iter.zip(m_iter).for_each(|(j, m)| {
-                                    // for  in slice {
-                                    ptr::write(m, *j);
-                                    // }
-                                });
-                                offset += j.len()
-                            }
-                        }
-                        uninitialized
-                    };
-                    Some((transform_ids_buffer_pos, position_updates_buffer))
-                } else {
-                    None
-                };
+                //             let mut mapping = uninitialized.write().unwrap();
+                //             let mut offset = 0;
+                //             for i in &transform_data.1 {
+                //                 let j = &i.1;
+                //                 let j_iter = j.iter();
+                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
+                //                     // for  in slice {
+                //                     ptr::write(m, *j);
+                //                     // }
+                //                 });
+                //                 offset += j.len()
+                //             }
+                //         }
+                //         uninitialized
+                //     };
+                //     Some((transform_ids_buffer_pos, position_updates_buffer))
+                // } else {
+                //     None
+                // };
                 /////////////////////////////////////////////////////////////////////////////////////////
 
-                let transform_ids_len_rot: u64 = transform_data
-                    .1
-                    .iter()
-                    .map(|x| x.0[ROT_U].len() as u64)
-                    .sum();
-                let rotation_update_data = if transform_ids_len_rot > 0 {
-                    let transform_ids_buffer_rot = unsafe {
-                        puffin::profile_scope!("transform_ids_buffer");
-                        // let inst = Instant::now();
-                        let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                            device.clone(),
-                            transform_ids_len_rot as DeviceSize,
-                            BufferUsage::all(),
-                            false,
-                        )
-                        .unwrap();
-                        {
-                            let mut mapping = uninitialized.write().unwrap();
-                            let mut offset = 0;
-                            for i in &transform_data.1 {
-                                let j = &i.0[ROT_U];
-                                let j_iter = j.iter();
-                                let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                                j_iter.zip(m_iter).for_each(|(j, m)| {
-                                    // for  in slice {
-                                    ptr::write(m, *j);
-                                    // }
-                                });
-                                offset += j.len();
-                            }
-                        }
-                        uninitialized
-                    };
-                    let rotation_updates_buffer = unsafe {
-                        puffin::profile_scope!("position_updates_buffer");
-                        // let inst = Instant::now();
-                        let uninitialized = {
-                            puffin::profile_scope!("position_updates_buffer: alloc");
-                            CpuAccessibleBuffer::<[[f32;4]]>::uninitialized_array(
-                                device.clone(),
-                                transform_ids_len_rot as DeviceSize,
-                                BufferUsage::all(),
-                                false,
-                            )
-                            .unwrap()
-                        };
-                        {
-                            let mut mapping = uninitialized.write().unwrap();
-                            let mut offset = 0;
-                            for i in &transform_data.1 {
-                                let j = &i.2;
-                                let j_iter = j.iter();
-                                let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                                j_iter.zip(m_iter).for_each(|(j, m)| {
-                                    // for  in slice {
-                                    ptr::write(m, *j);
-                                    // }
-                                });
-                                offset += j.len()
-                            }
-                        }
-                        uninitialized
-                    };
-                    Some((transform_ids_buffer_rot, rotation_updates_buffer))
-                } else {
-                    None
-                };
+                let rotation_update_data = transform_compute.get_rotation_update_data(device.clone(), transform_data.clone());
+                // let transform_ids_len_rot: u64 = transform_data
+                //     .1
+                //     .iter()
+                //     .map(|x| x.0[ROT_U].len() as u64)
+                //     .sum();
+                // let rotation_update_data = if transform_ids_len_rot > 0 {
+                //     let transform_ids_buffer_rot = unsafe {
+                //         puffin::profile_scope!("transform_ids_buffer");
+                //         // let inst = Instant::now();
+                //         let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                //             device.clone(),
+                //             transform_ids_len_rot as DeviceSize,
+                //             BufferUsage::all(),
+                //             false,
+                //         )
+                //         .unwrap();
+                //         {
+                //             let mut mapping = uninitialized.write().unwrap();
+                //             let mut offset = 0;
+                //             for i in &transform_data.1 {
+                //                 let j = &i.0[ROT_U];
+                //                 let j_iter = j.iter();
+                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
+                //                     // for  in slice {
+                //                     ptr::write(m, *j);
+                //                     // }
+                //                 });
+                //                 offset += j.len();
+                //             }
+                //         }
+                //         uninitialized
+                //     };
+                //     let rotation_updates_buffer = unsafe {
+                //         puffin::profile_scope!("position_updates_buffer");
+                //         // let inst = Instant::now();
+                //         let uninitialized = {
+                //             puffin::profile_scope!("position_updates_buffer: alloc");
+                //             CpuAccessibleBuffer::<[[f32;4]]>::uninitialized_array(
+                //                 device.clone(),
+                //                 transform_ids_len_rot as DeviceSize,
+                //                 BufferUsage::all(),
+                //                 false,
+                //             )
+                //             .unwrap()
+                //         };
+                //         {
+                //             let mut mapping = uninitialized.write().unwrap();
+                //             let mut offset = 0;
+                //             for i in &transform_data.1 {
+                //                 let j = &i.2;
+                //                 let j_iter = j.iter();
+                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
+                //                     // for  in slice {
+                //                     ptr::write(m, *j);
+                //                     // }
+                //                 });
+                //                 offset += j.len()
+                //             }
+                //         }
+                //         uninitialized
+                //     };
+                //     Some((transform_ids_buffer_rot, rotation_updates_buffer))
+                // } else {
+                //     None
+                // };
 
                 ///////////////////////////////////////////////////////////////////////////////////
+                let scale_update_data = transform_compute.get_scale_update_data(device.clone(), transform_data.clone());
+                // let transform_ids_len_scl: u64 = transform_data
+                //     .1
+                //     .iter()
+                //     .map(|x| x.0[SCL_U].len() as u64)
+                //     .sum();
+                // let scale_update_data = if transform_ids_len_scl > 0 {
+                //     let transform_ids_buffer_scale = unsafe {
+                //         puffin::profile_scope!("transform_ids_buffer");
+                //         // let inst = Instant::now();
+                //         let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                //             device.clone(),
+                //             transform_ids_len_scl as DeviceSize,
+                //             BufferUsage::all(),
+                //             false,
+                //         )
+                //         .unwrap();
+                //         {
+                //             let mut mapping = uninitialized.write().unwrap();
+                //             let mut offset = 0;
+                //             for i in &transform_data.1 {
+                //                 let j = &i.0[SCL_U];
+                //                 let j_iter = j.iter();
+                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
+                //                     // for  in slice {
+                //                     ptr::write(m, *j);
+                //                     // }
+                //                 });
+                //                 offset += j.len();
+                //             }
+                //         }
+                //         uninitialized
+                //     };
 
-                let transform_ids_len_scl: u64 = transform_data
-                    .1
-                    .iter()
-                    .map(|x| x.0[SCL_U].len() as u64)
-                    .sum();
-                let scale_update_data = if transform_ids_len_scl > 0 {
-                    let transform_ids_buffer_scale = unsafe {
-                        puffin::profile_scope!("transform_ids_buffer");
-                        // let inst = Instant::now();
-                        let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                            device.clone(),
-                            transform_ids_len_scl as DeviceSize,
-                            BufferUsage::all(),
-                            false,
-                        )
-                        .unwrap();
-                        {
-                            let mut mapping = uninitialized.write().unwrap();
-                            let mut offset = 0;
-                            for i in &transform_data.1 {
-                                let j = &i.0[SCL_U];
-                                let j_iter = j.iter();
-                                let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                                j_iter.zip(m_iter).for_each(|(j, m)| {
-                                    // for  in slice {
-                                    ptr::write(m, *j);
-                                    // }
-                                });
-                                offset += j.len();
-                            }
-                        }
-                        uninitialized
-                    };
+                //     let scale_updates_buffer = unsafe {
+                //         puffin::profile_scope!("position_updates_buffer");
 
-                    let scale_updates_buffer = unsafe {
-                        puffin::profile_scope!("position_updates_buffer");
-
-                        // let inst = Instant::now();
-                        let uninitialized = {
-                            puffin::profile_scope!("position_updates_buffer: alloc");
-                            CpuAccessibleBuffer::<[[f32;3]]>::uninitialized_array(
-                                device.clone(),
-                                transform_ids_len_scl as DeviceSize,
-                                BufferUsage::all(),
-                                false,
-                            )
-                            .unwrap()
-                        };
-                        {
-                            let mut mapping = uninitialized.write().unwrap();
-                            let mut offset = 0;
-                            for i in &transform_data.1 {
-                                let j = &i.3;
-                                let j_iter = j.iter();
-                                let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                                j_iter.zip(m_iter).for_each(|(j, m)| {
-                                    // for  in slice {
-                                    ptr::write(m, *j);
-                                    // }
-                                });
-                                offset += j.len()
-                            }
-                        }
-                        uninitialized
-                    };
-                    Some((transform_ids_buffer_scale, scale_updates_buffer))
-                } else {
-                    None
-                };
+                //         // let inst = Instant::now();
+                //         let uninitialized = {
+                //             puffin::profile_scope!("position_updates_buffer: alloc");
+                //             CpuAccessibleBuffer::<[[f32;3]]>::uninitialized_array(
+                //                 device.clone(),
+                //                 transform_ids_len_scl as DeviceSize,
+                //                 BufferUsage::all(),
+                //                 false,
+                //             )
+                //             .unwrap()
+                //         };
+                //         {
+                //             let mut mapping = uninitialized.write().unwrap();
+                //             let mut offset = 0;
+                //             for i in &transform_data.1 {
+                //                 let j = &i.3;
+                //                 let j_iter = j.iter();
+                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
+                //                     // for  in slice {
+                //                     ptr::write(m, *j);
+                //                     // }
+                //                 });
+                //                 offset += j.len()
+                //             }
+                //         }
+                //         uninitialized
+                //     };
+                //     Some((transform_ids_buffer_scale, scale_updates_buffer))
+                // } else {
+                //     None
+                // };
 
                 perf.update("write to buffer".into(), Instant::now() - inst);
 
@@ -961,8 +962,8 @@ fn main() {
                     recreate_swapchain = true;
                 }
 
-                let builder = {
-                    puffin::profile_scope!("builder");
+                // let builder = {
+                    // puffin::profile_scope!("builder");
                     let mut builder = AutoCommandBufferBuilder::primary(
                         device.clone(),
                         queue.family(),
@@ -1156,65 +1157,65 @@ fn main() {
 
                         // stage 3
                         transform_compute.update_mvp(&mut builder, device.clone(), view.clone(), proj.clone(), &transform_uniforms, compute_pipeline.clone(), transform_data.0 as i32);
-                    //     let transforms_sub_buffer = {
-                    //         let uniform_data = cs::ty::Data {
-                    //             num_jobs: transform_data.0 as i32,
-                    //             stage: 3,
-                    //             view: view.into(),
-                    //             proj: proj.into(),
-                    //             _dummy0: Default::default(),
-                    //         };
-                    //         transform_uniforms.next(uniform_data).unwrap()
-                    //     };
+                        // let transforms_sub_buffer = {
+                        //     let uniform_data = cs::ty::Data {
+                        //         num_jobs: transform_data.0 as i32,
+                        //         stage: 3,
+                        //         view: view.into(),
+                        //         proj: proj.into(),
+                        //         _dummy0: Default::default(),
+                        //     };
+                        //     transform_uniforms.next(uniform_data).unwrap()
+                        // };
 
-                    //     let descriptor_set = PersistentDescriptorSet::new(
-                    //         compute_pipeline
-                    //             .layout()
-                    //             .set_layouts()
-                    //             .get(0) // 0 is the index of the descriptor set.
-                    //             .unwrap()
-                    //             .clone(),
-                    //         [
-                    //             WriteDescriptorSet::buffer(
-                    //                 0,
-                    //                 CpuAccessibleBuffer::from_iter(
-                    //                     device.clone(),
-                    //                     BufferUsage::all(),
-                    //                     false,
-                    //                     vec![0],
-                    //                 )
-                    //                 .unwrap(),
-                    //             ),
-                    //             WriteDescriptorSet::buffer(
-                    //                 1,
-                    //                 transform_compute.transform.clone(),
-                    //             ),
-                    //             WriteDescriptorSet::buffer(2, transform_compute.mvp.clone()),
-                    //             WriteDescriptorSet::buffer(
-                    //                 3,
-                    //                 CpuAccessibleBuffer::from_iter(
-                    //                     device.clone(),
-                    //                     BufferUsage::all(),
-                    //                     false,
-                    //                     vec![0],
-                    //                 )
-                    //                 .unwrap(),
-                    //             ),
-                    //             WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
-                    //         ],
-                    //     )
-                    //     .unwrap();
+                        // let descriptor_set = PersistentDescriptorSet::new(
+                        //     compute_pipeline
+                        //         .layout()
+                        //         .set_layouts()
+                        //         .get(0) // 0 is the index of the descriptor set.
+                        //         .unwrap()
+                        //         .clone(),
+                        //     [
+                        //         WriteDescriptorSet::buffer(
+                        //             0,
+                        //             CpuAccessibleBuffer::from_iter(
+                        //                 device.clone(),
+                        //                 BufferUsage::all(),
+                        //                 false,
+                        //                 vec![0],
+                        //             )
+                        //             .unwrap(),
+                        //         ),
+                        //         WriteDescriptorSet::buffer(
+                        //             1,
+                        //             transform_compute.transform.clone(),
+                        //         ),
+                        //         WriteDescriptorSet::buffer(2, transform_compute.mvp.clone()),
+                        //         WriteDescriptorSet::buffer(
+                        //             3,
+                        //             CpuAccessibleBuffer::from_iter(
+                        //                 device.clone(),
+                        //                 BufferUsage::all(),
+                        //                 false,
+                        //                 vec![0],
+                        //             )
+                        //             .unwrap(),
+                        //         ),
+                        //         WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+                        //     ],
+                        // )
+                        // .unwrap();
 
-                    //     builder
-                    //         .bind_pipeline_compute(compute_pipeline.clone())
-                    //         .bind_descriptor_sets(
-                    //             PipelineBindPoint::Compute,
-                    //             compute_pipeline.layout().clone(),
-                    //             0, // Bind this descriptor set to index 0.
-                    //             descriptor_set.clone(),
-                    //         )
-                    //         .dispatch([transform_data.0 as u32 / 128 + 1, 1, 1])
-                    //         .unwrap();
+                        // builder
+                        //     .bind_pipeline_compute(compute_pipeline.clone())
+                        //     .bind_descriptor_sets(
+                        //         PipelineBindPoint::Compute,
+                        //         compute_pipeline.layout().clone(),
+                        //         0, // Bind this descriptor set to index 0.
+                        //         descriptor_set.clone(),
+                        //     )
+                        //     .dispatch([transform_data.0 as u32 / 128 + 1, 1, 1])
+                        //     .unwrap();
                     // }
 
                     // compute shader renderers
@@ -1487,8 +1488,8 @@ fn main() {
                     frame_time = Instant::now();
 
                     builder.end_render_pass().unwrap();
-                    builder
-                };
+                    // builder
+                // };
 
                 let command_buffer = {
                     puffin::profile_scope!("builder build");

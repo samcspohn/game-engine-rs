@@ -20,7 +20,7 @@ use vulkano::{
     DeviceSize,
 };
 
-use crate::engine::transform::POS_U;
+use crate::engine::transform::{POS_U, ROT_U, SCL_U};
 
 use self::cs::ty::{transform, Data};
 
@@ -99,12 +99,16 @@ impl TransformCompute {
     }
     pub fn get_position_update_data(
         // tc: &TransformCompute,
+        &self,
         device: Arc<Device>,
         transform_data: Arc<(
             usize,
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
         )>,
-    ) -> Option<(Arc<CpuAccessibleBuffer<[i32]>>, Arc<CpuAccessibleBuffer<[[f32; 3]]>>)>{
+    ) -> Option<(
+        Arc<CpuAccessibleBuffer<[i32]>>,
+        Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
+    )> {
         let transform_ids_len_pos: u64 = transform_data
             .1
             .iter()
@@ -170,6 +174,168 @@ impl TransformCompute {
                 uninitialized
             };
             Some((transform_ids_buffer_pos, position_updates_buffer))
+        } else {
+            None
+        }
+    }
+    pub fn get_rotation_update_data(
+        // tc: &TransformCompute,
+        &self,
+        device: Arc<Device>,
+        transform_data: Arc<(
+            usize,
+            Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+        )>,
+    ) -> Option<(
+        Arc<CpuAccessibleBuffer<[i32]>>,
+        Arc<CpuAccessibleBuffer<[[f32; 4]]>>,
+    )> {
+        let transform_ids_len_rot: u64 = transform_data
+            .1
+            .iter()
+            .map(|x| x.0[ROT_U].len() as u64)
+            .sum();
+        if transform_ids_len_rot > 0 {
+            let transform_ids_buffer_rot = unsafe {
+                puffin::profile_scope!("transform_ids_buffer");
+                // let inst = Instant::now();
+                let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                    device.clone(),
+                    transform_ids_len_rot as DeviceSize,
+                    BufferUsage::all(),
+                    false,
+                )
+                .unwrap();
+                {
+                    let mut mapping = uninitialized.write().unwrap();
+                    let mut offset = 0;
+                    for i in &transform_data.1 {
+                        let j = &i.0[ROT_U];
+                        let j_iter = j.iter();
+                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                        j_iter.zip(m_iter).for_each(|(j, m)| {
+                            // for  in slice {
+                            ptr::write(m, *j);
+                            // }
+                        });
+                        offset += j.len();
+                    }
+                }
+                uninitialized
+            };
+            let rotation_updates_buffer = unsafe {
+                puffin::profile_scope!("position_updates_buffer");
+                // let inst = Instant::now();
+                let uninitialized = {
+                    puffin::profile_scope!("position_updates_buffer: alloc");
+                    CpuAccessibleBuffer::<[[f32; 4]]>::uninitialized_array(
+                        device.clone(),
+                        transform_ids_len_rot as DeviceSize,
+                        BufferUsage::all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                {
+                    let mut mapping = uninitialized.write().unwrap();
+                    let mut offset = 0;
+                    for i in &transform_data.1 {
+                        let j = &i.2;
+                        let j_iter = j.iter();
+                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                        j_iter.zip(m_iter).for_each(|(j, m)| {
+                            // for  in slice {
+                            ptr::write(m, *j);
+                            // }
+                        });
+                        offset += j.len()
+                    }
+                }
+                uninitialized
+            };
+            Some((transform_ids_buffer_rot, rotation_updates_buffer))
+        } else {
+            None
+        }
+    }
+    pub fn get_scale_update_data(
+        // tc: &TransformCompute,
+        &self,
+        device: Arc<Device>,
+        transform_data: Arc<(
+            usize,
+            Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+        )>,
+    ) -> Option<(
+        Arc<CpuAccessibleBuffer<[i32]>>,
+        Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
+    )> {
+        let transform_ids_len_scl: u64 = transform_data
+            .1
+            .iter()
+            .map(|x| x.0[SCL_U].len() as u64)
+            .sum();
+        if transform_ids_len_scl > 0 {
+            let transform_ids_buffer_scale = unsafe {
+                puffin::profile_scope!("transform_ids_buffer");
+                // let inst = Instant::now();
+                let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                    device.clone(),
+                    transform_ids_len_scl as DeviceSize,
+                    BufferUsage::all(),
+                    false,
+                )
+                .unwrap();
+                {
+                    let mut mapping = uninitialized.write().unwrap();
+                    let mut offset = 0;
+                    for i in &transform_data.1 {
+                        let j = &i.0[SCL_U];
+                        let j_iter = j.iter();
+                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                        j_iter.zip(m_iter).for_each(|(j, m)| {
+                            // for  in slice {
+                            ptr::write(m, *j);
+                            // }
+                        });
+                        offset += j.len();
+                    }
+                }
+                uninitialized
+            };
+
+            let scale_updates_buffer = unsafe {
+                puffin::profile_scope!("position_updates_buffer");
+
+                // let inst = Instant::now();
+                let uninitialized = {
+                    puffin::profile_scope!("position_updates_buffer: alloc");
+                    CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                        device.clone(),
+                        transform_ids_len_scl as DeviceSize,
+                        BufferUsage::all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                {
+                    let mut mapping = uninitialized.write().unwrap();
+                    let mut offset = 0;
+                    for i in &transform_data.1 {
+                        let j = &i.3;
+                        let j_iter = j.iter();
+                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                        j_iter.zip(m_iter).for_each(|(j, m)| {
+                            // for  in slice {
+                            ptr::write(m, *j);
+                            // }
+                        });
+                        offset += j.len()
+                    }
+                }
+                uninitialized
+            };
+            Some((transform_ids_buffer_scale, scale_updates_buffer))
         } else {
             None
         }
