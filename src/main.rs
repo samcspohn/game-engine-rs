@@ -102,8 +102,8 @@ use crate::perf::Perf;
 use crate::renderer::{vs, Id};
 use crate::renderer_component2::{ur, Offset, RendererManager};
 use crate::texture::TextureManager;
-use crate::transform_compute::{cs, TransformCompute};
 use crate::transform_compute::cs::ty::transform;
+use crate::transform_compute::{cs, TransformCompute};
 use crate::{
     input::Input,
     model::Mesh,
@@ -333,14 +333,20 @@ fn main() {
     let (tx, rx): (Sender<Input>, Receiver<Input>) = mpsc::channel();
     let (rtx, rrx): (
         Sender<(
-            Arc<(usize, Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>)>,
+            Arc<(
+                usize,
+                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+            )>,
             glm::Vec3,
             glm::Quat,
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
         Receiver<(
-            Arc<(usize, Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>)>,
+            Arc<(
+                usize,
+                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+            )>,
             glm::Vec3,
             glm::Quat,
             // Arc<(Vec<Offset>, Vec<Id>)>,
@@ -656,232 +662,16 @@ fn main() {
                 input.mouse_x = 0.;
                 input.mouse_y = 0.;
 
-                /////////////////////////////////////////////////////////////////   
-                
+                /////////////////////////////////////////////////////////////////
 
-                let position_update_data = transform_compute.get_position_update_data(device.clone(), transform_data.clone());
-                // let transform_ids_len_pos: u64 = transform_data
-                //     .1
-                //     .iter()
-                //     .map(|x| x.0[POS_U].len() as u64)
-                //     .sum();
+                let position_update_data = transform_compute
+                    .get_position_update_data(device.clone(), transform_data.clone());
 
-                // let position_update_data = if transform_ids_len_pos > 0 {
-                //     let transform_ids_buffer_pos = unsafe {
-                //         puffin::profile_scope!("transform_ids_buffer");
-                //         // let inst = Instant::now();
-                //         let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                //             device.clone(),
-                //             transform_ids_len_pos as DeviceSize,
-                //             BufferUsage::all(),
-                //             false,
-                //         )
-                //         .unwrap();
-                //         {
-                //             let mut mapping = uninitialized.write().unwrap();
-                //             let mut offset = 0;
-                //             for i in &transform_data.1 {
-                //                 let j = &i.0[POS_U];
-                //                 let j_iter = j.iter();
-                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
-                //                     // for  in slice {
-                //                     ptr::write(m, *j);
-                //                     // }
-                //                 });
-                //                 offset += j.len();
-                //             }
-                //         }
-                //         uninitialized
-                //     };
-                //     let position_updates_buffer = unsafe {
-                //         puffin::profile_scope!("position_updates_buffer");
-                //         // let inst = Instant::now();
-                //         let uninitialized = {
-                //             puffin::profile_scope!("position_updates_buffer: alloc");
-                //             CpuAccessibleBuffer::<[[f32;3]]>::uninitialized_array(
-                //                 device.clone(),
-                //                 transform_ids_len_pos as DeviceSize,
-                //                 BufferUsage::all(),
-                //                 false,
-                //             )
-                //             .unwrap()
-                //         };
-                //         {
-                //             // let mut offset = 0;
-                //             // let mut offsets = Vec::new();
-                //             // for i in &transform_data.1 { 
-                //             //     offsets.push(offset);
-                //             //     offset += i.0[POS_U].len();
-                //             // }
-                //             // (0..num_cpus::get()).into_iter().for_each(|id| {
-                //             //     for i in &transform_data.1 {
-                //             //         let j = &i.0[POS_U];
-                //             //     }
-                //             // });
+                let rotation_update_data = transform_compute
+                    .get_rotation_update_data(device.clone(), transform_data.clone());
 
-                //             let mut mapping = uninitialized.write().unwrap();
-                //             let mut offset = 0;
-                //             for i in &transform_data.1 {
-                //                 let j = &i.1;
-                //                 let j_iter = j.iter();
-                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
-                //                     // for  in slice {
-                //                     ptr::write(m, *j);
-                //                     // }
-                //                 });
-                //                 offset += j.len()
-                //             }
-                //         }
-                //         uninitialized
-                //     };
-                //     Some((transform_ids_buffer_pos, position_updates_buffer))
-                // } else {
-                //     None
-                // };
-                /////////////////////////////////////////////////////////////////////////////////////////
-
-                let rotation_update_data = transform_compute.get_rotation_update_data(device.clone(), transform_data.clone());
-                // let transform_ids_len_rot: u64 = transform_data
-                //     .1
-                //     .iter()
-                //     .map(|x| x.0[ROT_U].len() as u64)
-                //     .sum();
-                // let rotation_update_data = if transform_ids_len_rot > 0 {
-                //     let transform_ids_buffer_rot = unsafe {
-                //         puffin::profile_scope!("transform_ids_buffer");
-                //         // let inst = Instant::now();
-                //         let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                //             device.clone(),
-                //             transform_ids_len_rot as DeviceSize,
-                //             BufferUsage::all(),
-                //             false,
-                //         )
-                //         .unwrap();
-                //         {
-                //             let mut mapping = uninitialized.write().unwrap();
-                //             let mut offset = 0;
-                //             for i in &transform_data.1 {
-                //                 let j = &i.0[ROT_U];
-                //                 let j_iter = j.iter();
-                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
-                //                     // for  in slice {
-                //                     ptr::write(m, *j);
-                //                     // }
-                //                 });
-                //                 offset += j.len();
-                //             }
-                //         }
-                //         uninitialized
-                //     };
-                //     let rotation_updates_buffer = unsafe {
-                //         puffin::profile_scope!("position_updates_buffer");
-                //         // let inst = Instant::now();
-                //         let uninitialized = {
-                //             puffin::profile_scope!("position_updates_buffer: alloc");
-                //             CpuAccessibleBuffer::<[[f32;4]]>::uninitialized_array(
-                //                 device.clone(),
-                //                 transform_ids_len_rot as DeviceSize,
-                //                 BufferUsage::all(),
-                //                 false,
-                //             )
-                //             .unwrap()
-                //         };
-                //         {
-                //             let mut mapping = uninitialized.write().unwrap();
-                //             let mut offset = 0;
-                //             for i in &transform_data.1 {
-                //                 let j = &i.2;
-                //                 let j_iter = j.iter();
-                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
-                //                     // for  in slice {
-                //                     ptr::write(m, *j);
-                //                     // }
-                //                 });
-                //                 offset += j.len()
-                //             }
-                //         }
-                //         uninitialized
-                //     };
-                //     Some((transform_ids_buffer_rot, rotation_updates_buffer))
-                // } else {
-                //     None
-                // };
-
-                ///////////////////////////////////////////////////////////////////////////////////
-                let scale_update_data = transform_compute.get_scale_update_data(device.clone(), transform_data.clone());
-                // let transform_ids_len_scl: u64 = transform_data
-                //     .1
-                //     .iter()
-                //     .map(|x| x.0[SCL_U].len() as u64)
-                //     .sum();
-                // let scale_update_data = if transform_ids_len_scl > 0 {
-                //     let transform_ids_buffer_scale = unsafe {
-                //         puffin::profile_scope!("transform_ids_buffer");
-                //         // let inst = Instant::now();
-                //         let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                //             device.clone(),
-                //             transform_ids_len_scl as DeviceSize,
-                //             BufferUsage::all(),
-                //             false,
-                //         )
-                //         .unwrap();
-                //         {
-                //             let mut mapping = uninitialized.write().unwrap();
-                //             let mut offset = 0;
-                //             for i in &transform_data.1 {
-                //                 let j = &i.0[SCL_U];
-                //                 let j_iter = j.iter();
-                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
-                //                     // for  in slice {
-                //                     ptr::write(m, *j);
-                //                     // }
-                //                 });
-                //                 offset += j.len();
-                //             }
-                //         }
-                //         uninitialized
-                //     };
-
-                //     let scale_updates_buffer = unsafe {
-                //         puffin::profile_scope!("position_updates_buffer");
-
-                //         // let inst = Instant::now();
-                //         let uninitialized = {
-                //             puffin::profile_scope!("position_updates_buffer: alloc");
-                //             CpuAccessibleBuffer::<[[f32;3]]>::uninitialized_array(
-                //                 device.clone(),
-                //                 transform_ids_len_scl as DeviceSize,
-                //                 BufferUsage::all(),
-                //                 false,
-                //             )
-                //             .unwrap()
-                //         };
-                //         {
-                //             let mut mapping = uninitialized.write().unwrap();
-                //             let mut offset = 0;
-                //             for i in &transform_data.1 {
-                //                 let j = &i.3;
-                //                 let j_iter = j.iter();
-                //                 let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                //                 j_iter.zip(m_iter).for_each(|(j, m)| {
-                //                     // for  in slice {
-                //                     ptr::write(m, *j);
-                //                     // }
-                //                 });
-                //                 offset += j.len()
-                //             }
-                //         }
-                //         uninitialized
-                //     };
-                //     Some((transform_ids_buffer_scale, scale_updates_buffer))
-                // } else {
-                //     None
-                // };
+                let scale_update_data =
+                    transform_compute.get_scale_update_data(device.clone(), transform_data.clone());
 
                 perf.update("write to buffer".into(), Instant::now() - inst);
 
@@ -963,368 +753,244 @@ fn main() {
                 }
 
                 // let builder = {
-                    // puffin::profile_scope!("builder");
-                    let mut builder = AutoCommandBufferBuilder::primary(
+                // puffin::profile_scope!("builder");
+                let mut builder = AutoCommandBufferBuilder::primary(
+                    device.clone(),
+                    queue.family(),
+                    CommandBufferUsage::OneTimeSubmit,
+                )
+                .unwrap();
+
+                egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
+
+                {
+                    let profiler_ui = |ui: &mut egui::Ui| {
+                        if fps_queue.len() > 0 {
+                            let fps: f32 = fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
+                            ui.label(format!("fps: {}", 1.0 / fps));
+                        }
+                        puffin_egui::profiler_ui(ui);
+                        // if let Some(fps) = self.data.back() {
+                        //     let fps = 1.0 / fps;
+                        //     ui.label(format!("fps: {}", fps));
+                        // }
+                        // ui.label(format!("entities: {}", self.entities));
+                    };
+
+                    puffin::profile_function!();
+                    let mut open = true;
+                    egui::Window::new("Profiler")
+                        .default_size([600.0, 600.0])
+                        .open(&mut open)
+                        .show(&egui_ctx, profiler_ui);
+                }
+                // Get the shapes from egui
+                let egui_output = egui_ctx.end_frame();
+                let platform_output = egui_output.platform_output;
+                egui_winit.handle_platform_output(surface.window(), &egui_ctx, platform_output);
+
+                let _result = egui_painter
+                    .update_textures(egui_output.textures_delta, &mut builder)
+                    .expect("egui texture error");
+
+                // compute shader transforms
+                transform_compute.update(device.clone(), &mut builder, transform_data.0);
+                // {
+                //     puffin::profile_scope!("update transforms");
+                // stage 0
+                transform_compute.update_positions(
+                    &mut builder,
+                    view.clone(),
+                    proj.clone(),
+                    &transform_uniforms,
+                    compute_pipeline.clone(),
+                    position_update_data,
+                );
+
+                // stage 1
+                transform_compute.update_rotations(
+                    &mut builder,
+                    view.clone(),
+                    proj.clone(),
+                    &transform_uniforms,
+                    compute_pipeline.clone(),
+                    rotation_update_data,
+                );
+
+                // stage 2
+                transform_compute.update_scales(
+                    &mut builder,
+                    view.clone(),
+                    proj.clone(),
+                    &transform_uniforms,
+                    compute_pipeline.clone(),
+                    scale_update_data,
+                );
+
+                // stage 3
+                transform_compute.update_mvp(
+                    &mut builder,
+                    device.clone(),
+                    view.clone(),
+                    proj.clone(),
+                    &transform_uniforms,
+                    compute_pipeline.clone(),
+                    transform_data.0 as i32,
+                );
+
+                // compute shader renderers
+                {
+                    puffin::profile_scope!("process renderers");
+                    let mut rm = renderer_manager.write();
+                    let renderer_pipeline = rm.pipeline.clone();
+                    // let renderers = &mut renderer_manager.renderers.write();
+
+                    builder.bind_pipeline_compute(renderer_pipeline.clone());
+
+                    if !lock_cull {
+                        cull_view = view.clone();
+                    }
+
+                    // for (_, i) in renderers.iter_mut() {
+                    if rm.transforms_gpu_len < rm.transforms.data.len() as i32 {
+                        let len = rm.transforms.data.len();
+                        let max_len = (len as f32 + 1.).log2().ceil();
+                        let max_len = (2 as u32).pow(max_len as u32);
+
+                        rm.transforms_gpu_len = max_len as i32;
+
+                        let copy_buffer = rm.transform_ids_gpu.clone();
+                        unsafe {
+                            rm.transform_ids_gpu = CpuAccessibleBuffer::uninitialized_array(
+                                device.clone(),
+                                rm.transforms_gpu_len as u64,
+                                BufferUsage::all(),
+                                false,
+                            )
+                            .unwrap();
+                            rm.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
+                                device.clone(),
+                                rm.transforms_gpu_len as u64,
+                                BufferUsage::all(),
+                                false,
+                            )
+                            .unwrap();
+                        }
+
+                        builder
+                            .copy_buffer(copy_buffer, rm.transform_ids_gpu.clone())
+                            .unwrap();
+                    }
+                    let updates: Vec<i32> = rm
+                        .updates
+                        .iter()
+                        .flat_map(|(id, t)| {
+                            vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()]
+                                .into_iter()
+                        })
+                        .collect();
+
+                    let mut indirect_vec = Vec::new();
+                    for i in &rm.indirect.data {
+                        indirect_vec.push(i.as_ref().unwrap().clone());
+                    }
+                    rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
                         device.clone(),
-                        queue.family(),
-                        CommandBufferUsage::OneTimeSubmit,
+                        BufferUsage::all(),
+                        false,
+                        indirect_vec,
                     )
                     .unwrap();
 
-                    egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
-
-                    {
-                        let profiler_ui = |ui: &mut egui::Ui| {
-                            if fps_queue.len() > 0 {
-                                let fps: f32 =
-                                    fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
-                                ui.label(format!("fps: {}", 1.0 / fps));
-                            }
-                            puffin_egui::profiler_ui(ui);
-                            // if let Some(fps) = self.data.back() {
-                            //     let fps = 1.0 / fps;
-                            //     ui.label(format!("fps: {}", fps));
-                            // }
-                            // ui.label(format!("entities: {}", self.entities));
-                        };
-
-                        puffin::profile_function!();
-                        let mut open = true;
-                        egui::Window::new("Profiler")
-                            .default_size([600.0, 600.0])
-                            .open(&mut open)
-                            .show(&egui_ctx, profiler_ui);
+                    let mut offset_vec = Vec::new();
+                    let mut offset = 0;
+                    for (_, m_id) in rm.indirect_model.read().iter() {
+                        offset_vec.push(offset);
+                        if let Some(ind) = rm.model_indirect.read().get(&m_id) {
+                            offset += ind.count;
+                        }
                     }
-                    // Get the shapes from egui
-                    let egui_output = egui_ctx.end_frame();
-                    let platform_output = egui_output.platform_output;
-                    egui_winit.handle_platform_output(surface.window(), &egui_ctx, platform_output);
 
-                    let _result = egui_painter
-                        .update_textures(egui_output.textures_delta, &mut builder)
-                        .expect("egui texture error");
+                    let offsets_buffer = CpuAccessibleBuffer::from_iter(
+                        device.clone(),
+                        BufferUsage::all(),
+                        false,
+                        offset_vec,
+                    )
+                    .unwrap();
 
-                    // compute shader transforms
-                    transform_compute.update(device.clone(), &mut builder, transform_data.0);
-                    // {
-                    //     puffin::profile_scope!("update transforms");
-                        // stage 0
-                        transform_compute.update_positions(&mut builder, view.clone(), proj.clone(), &transform_uniforms, compute_pipeline.clone(), position_update_data);
-
-                        // if let Some((transform_ids_buffer, updates_buffer)) = position_update_data {
-                        //     let transforms_sub_buffer = {
-                        //         let uniform_data = cs::ty::Data {
-                        //             num_jobs: transform_ids_len_pos as i32,
-                        //             stage: 0,
-                        //             view: view.into(),
-                        //             proj: proj.into(),
-                        //             _dummy0: Default::default(),
-                        //         };
-                        //         transform_uniforms.next(uniform_data).unwrap()
-                        //     };
-
-                        //     let descriptor_set = PersistentDescriptorSet::new(
-                        //         compute_pipeline
-                        //             .layout()
-                        //             .set_layouts()
-                        //             .get(0) // 0 is the index of the descriptor set.
-                        //             .unwrap()
-                        //             .clone(),
-                        //         [
-                        //             WriteDescriptorSet::buffer(0, updates_buffer.clone()),
-                        //             WriteDescriptorSet::buffer(
-                        //                 1,
-                        //                 transform_compute.transform.clone(),
-                        //             ),
-                        //             WriteDescriptorSet::buffer(
-                        //                 2,
-                        //                 transform_compute.mvp.clone(),
-                        //             ),
-                        //             WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
-                        //             WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
-                        //         ],
-                        //     )
-                        //     .unwrap();
-
-                        //     builder
-                        //         .bind_pipeline_compute(compute_pipeline.clone())
-                        //         .bind_descriptor_sets(
-                        //             PipelineBindPoint::Compute,
-                        //             compute_pipeline.layout().clone(),
-                        //             0, // Bind this descriptor set to index 0.
-                        //             descriptor_set.clone(),
-                        //         )
-                        //         .dispatch([transform_ids_len_pos as u32 / 128 + 1, 1, 1])
-                        //         .unwrap();
-                        // }
-                        // stage 1
-                        transform_compute.update_rotations(&mut builder, view.clone(), proj.clone(), &transform_uniforms, compute_pipeline.clone(), rotation_update_data);
-                        // if let Some((transform_ids_buffer, updates_buffer)) = rotation_update_data {
-                        //     let transforms_sub_buffer = {
-                        //         let uniform_data = cs::ty::Data {
-                        //             num_jobs: transform_ids_len_pos as i32,
-                        //             stage: 1,
-                        //             view: view.into(),
-                        //             proj: proj.into(),
-                        //             _dummy0: Default::default(),
-                        //         };
-                        //         transform_uniforms.next(uniform_data).unwrap()
-                        //     };
-
-                        //     let descriptor_set = PersistentDescriptorSet::new(
-                        //         compute_pipeline
-                        //             .layout()
-                        //             .set_layouts()
-                        //             .get(0) // 0 is the index of the descriptor set.
-                        //             .unwrap()
-                        //             .clone(),
-                        //         [
-                        //             WriteDescriptorSet::buffer(0, updates_buffer.clone()),
-                        //             WriteDescriptorSet::buffer(
-                        //                 1,
-                        //                 transform_compute.transform.clone(),
-                        //             ),
-                        //             WriteDescriptorSet::buffer(
-                        //                 2,
-                        //                 transform_compute.mvp.clone(),
-                        //             ),
-                        //             WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
-                        //             WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
-                        //         ],
-                        //     )
-                        //     .unwrap();
-
-                        //     builder
-                        //         .bind_pipeline_compute(compute_pipeline.clone())
-                        //         .bind_descriptor_sets(
-                        //             PipelineBindPoint::Compute,
-                        //             compute_pipeline.layout().clone(),
-                        //             0, // Bind this descriptor set to index 0.
-                        //             descriptor_set.clone(),
-                        //         )
-                        //         .dispatch([transform_ids_len_pos as u32 / 128 + 1, 1, 1])
-                        //         .unwrap();
-                        // }
-
-                        // stage 2
-                        transform_compute.update_scales(&mut builder, view.clone(), proj.clone(), &transform_uniforms, compute_pipeline.clone(), scale_update_data);
-                        // if let Some((transform_ids_buffer, updates_buffer)) = scale_update_data {
-                        //     let transforms_sub_buffer = {
-                        //         let uniform_data = cs::ty::Data {
-                        //             num_jobs: transform_ids_len_pos as i32,
-                        //             stage: 2,
-                        //             view: view.into(),
-                        //             proj: proj.into(),
-                        //             _dummy0: Default::default(),
-                        //         };
-                        //         transform_uniforms.next(uniform_data).unwrap()
-                        //     };
-
-                        //     let descriptor_set = PersistentDescriptorSet::new(
-                        //         compute_pipeline
-                        //             .layout()
-                        //             .set_layouts()
-                        //             .get(0) // 0 is the index of the descriptor set.
-                        //             .unwrap()
-                        //             .clone(),
-                        //         [
-                        //             WriteDescriptorSet::buffer(0, updates_buffer.clone()),
-                        //             WriteDescriptorSet::buffer(
-                        //                 1,
-                        //                 transform_compute.transform.clone(),
-                        //             ),
-                        //             WriteDescriptorSet::buffer(
-                        //                 2,
-                        //                 transform_compute.mvp.clone(),
-                        //             ),
-                        //             WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
-                        //             WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
-                        //         ],
-                        //     )
-                        //     .unwrap();
-
-                        //     builder
-                        //         .bind_pipeline_compute(compute_pipeline.clone())
-                        //         .bind_descriptor_sets(
-                        //             PipelineBindPoint::Compute,
-                        //             compute_pipeline.layout().clone(),
-                        //             0, // Bind this descriptor set to index 0.
-                        //             descriptor_set.clone(),
-                        //         )
-                        //         .dispatch([transform_ids_len_pos as u32 / 128 + 1, 1, 1])
-                        //         .unwrap();
-                        // }
-
-                        // stage 3
-                        transform_compute.update_mvp(&mut builder, device.clone(), view.clone(), proj.clone(), &transform_uniforms, compute_pipeline.clone(), transform_data.0 as i32);
-                        // let transforms_sub_buffer = {
-                        //     let uniform_data = cs::ty::Data {
-                        //         num_jobs: transform_data.0 as i32,
-                        //         stage: 3,
-                        //         view: view.into(),
-                        //         proj: proj.into(),
-                        //         _dummy0: Default::default(),
-                        //     };
-                        //     transform_uniforms.next(uniform_data).unwrap()
-                        // };
-
-                        // let descriptor_set = PersistentDescriptorSet::new(
-                        //     compute_pipeline
-                        //         .layout()
-                        //         .set_layouts()
-                        //         .get(0) // 0 is the index of the descriptor set.
-                        //         .unwrap()
-                        //         .clone(),
-                        //     [
-                        //         WriteDescriptorSet::buffer(
-                        //             0,
-                        //             CpuAccessibleBuffer::from_iter(
-                        //                 device.clone(),
-                        //                 BufferUsage::all(),
-                        //                 false,
-                        //                 vec![0],
-                        //             )
-                        //             .unwrap(),
-                        //         ),
-                        //         WriteDescriptorSet::buffer(
-                        //             1,
-                        //             transform_compute.transform.clone(),
-                        //         ),
-                        //         WriteDescriptorSet::buffer(2, transform_compute.mvp.clone()),
-                        //         WriteDescriptorSet::buffer(
-                        //             3,
-                        //             CpuAccessibleBuffer::from_iter(
-                        //                 device.clone(),
-                        //                 BufferUsage::all(),
-                        //                 false,
-                        //                 vec![0],
-                        //             )
-                        //             .unwrap(),
-                        //         ),
-                        //         WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
-                        //     ],
-                        // )
-                        // .unwrap();
-
-                        // builder
-                        //     .bind_pipeline_compute(compute_pipeline.clone())
-                        //     .bind_descriptor_sets(
-                        //         PipelineBindPoint::Compute,
-                        //         compute_pipeline.layout().clone(),
-                        //         0, // Bind this descriptor set to index 0.
-                        //         descriptor_set.clone(),
-                        //     )
-                        //     .dispatch([transform_data.0 as u32 / 128 + 1, 1, 1])
-                        //     .unwrap();
-                    // }
-
-                    // compute shader renderers
                     {
-                        puffin::profile_scope!("process renderers");
-                        let mut rm = renderer_manager.write();
-                        let renderer_pipeline = rm.pipeline.clone();
-                        // let renderers = &mut renderer_manager.renderers.write();
-
-                        builder.bind_pipeline_compute(renderer_pipeline.clone());
-
-                        if !lock_cull {
-                            cull_view = view.clone();
+                        puffin::profile_scope!("update renderers: stage 0");
+                        let update_num = rm.updates.len();
+                        if updates.len() > 0 {
+                            rm.updates_gpu = CpuAccessibleBuffer::from_iter(
+                                device.clone(),
+                                BufferUsage::all(),
+                                false,
+                                updates,
+                            )
+                            .unwrap();
                         }
+                        rm.updates.clear();
 
-                        // for (_, i) in renderers.iter_mut() {
-                        if rm.transforms_gpu_len < rm.transforms.data.len() as i32 {
-                            let len = rm.transforms.data.len();
-                            let max_len = (len as f32 + 1.).log2().ceil();
-                            let max_len = (2 as u32).pow(max_len as u32);
-
-                            rm.transforms_gpu_len = max_len as i32;
-
-                            let copy_buffer = rm.transform_ids_gpu.clone();
-                            unsafe {
-                                rm.transform_ids_gpu = CpuAccessibleBuffer::uninitialized_array(
-                                    device.clone(),
-                                    rm.transforms_gpu_len as u64,
-                                    BufferUsage::all(),
-                                    false,
-                                )
-                                .unwrap();
-                                rm.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
-                                    device.clone(),
-                                    rm.transforms_gpu_len as u64,
-                                    BufferUsage::all(),
-                                    false,
-                                )
-                                .unwrap();
-                            }
-
-                            builder
-                                .copy_buffer(copy_buffer, rm.transform_ids_gpu.clone())
-                                .unwrap();
-                        }
-                        let updates: Vec<i32> = rm
-                            .updates
-                            .iter()
-                            .flat_map(|(id, t)| {
-                                vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()]
-                                    .into_iter()
+                        // stage 0
+                        let uniforms = rm
+                            .uniform
+                            .next(ur::ty::Data {
+                                num_jobs: update_num as i32,
+                                stage: 0,
+                                view: cull_view.into(),
+                                _dummy0: Default::default(),
                             })
-                            .collect();
+                            .unwrap();
 
-                        let mut indirect_vec = Vec::new();
-                        for i in &rm.indirect.data {
-                            indirect_vec.push(i.as_ref().unwrap().clone());
-                        }
-                        rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
-                            device.clone(),
-                            BufferUsage::all(),
-                            false,
-                            indirect_vec,
+                        let update_renderers_set = PersistentDescriptorSet::new(
+                            renderer_pipeline
+                                .layout()
+                                .set_layouts()
+                                .get(0) // 0 is the index of the descriptor set.
+                                .unwrap()
+                                .clone(),
+                            [
+                                // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
+                                WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
+                                WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
+                                WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
+                                WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
+                                WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
+                                WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
+                                WriteDescriptorSet::buffer(6, uniforms.clone()),
+                            ],
                         )
                         .unwrap();
 
-                        let mut offset_vec = Vec::new();
-                        let mut offset = 0;
-                        for (_, m_id) in rm.indirect_model.read().iter() {
-                            offset_vec.push(offset);
-                            if let Some(ind) = rm.model_indirect.read().get(&m_id) {
-                                offset += ind.count;
-                            }
-                        }
-
-                        let offsets_buffer = CpuAccessibleBuffer::from_iter(
-                            device.clone(),
-                            BufferUsage::all(),
-                            false,
-                            offset_vec,
-                        )
-                        .unwrap();
-
-                        {
-                            puffin::profile_scope!("update renderers: stage 0");
-                            let update_num = rm.updates.len();
-                            if updates.len() > 0 {
-                                rm.updates_gpu = CpuAccessibleBuffer::from_iter(
-                                    device.clone(),
-                                    BufferUsage::all(),
-                                    false,
-                                    updates,
-                                )
-                                .unwrap();
-                            }
-                            rm.updates.clear();
-
-                            // stage 0
-                            let uniforms = rm
-                                .uniform
+                        builder
+                            .bind_descriptor_sets(
+                                PipelineBindPoint::Compute,
+                                renderer_pipeline.layout().clone(),
+                                0, // Bind this descriptor set to index 0.
+                                update_renderers_set.clone(),
+                            )
+                            .dispatch([update_num as u32 / 128 + 1, 1, 1])
+                            .unwrap();
+                    }
+                    {
+                        puffin::profile_scope!("update renderers: stage 1");
+                        // stage 1
+                        let uniforms = {
+                            puffin::profile_scope!("update renderers: stage 1: uniform data");
+                            rm.uniform
                                 .next(ur::ty::Data {
-                                    num_jobs: update_num as i32,
-                                    stage: 0,
+                                    num_jobs: rm.transforms.data.len() as i32,
+                                    stage: 1,
                                     view: cull_view.into(),
                                     _dummy0: Default::default(),
                                 })
-                                .unwrap();
-
-                            let update_renderers_set = PersistentDescriptorSet::new(
+                                .unwrap()
+                        };
+                        let update_renderers_set = {
+                            puffin::profile_scope!("update renderers: stage 1: descriptor set");
+                            PersistentDescriptorSet::new(
                                 renderer_pipeline
                                     .layout()
                                     .set_layouts()
@@ -1332,7 +998,6 @@ fn main() {
                                     .unwrap()
                                     .clone(),
                                 [
-                                    // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
                                     WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
                                     WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
                                     WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
@@ -1345,8 +1010,12 @@ fn main() {
                                     WriteDescriptorSet::buffer(6, uniforms.clone()),
                                 ],
                             )
-                            .unwrap();
-
+                            .unwrap()
+                        };
+                        {
+                            puffin::profile_scope!(
+                                "update renderers: stage 1: bind pipeline/dispatch"
+                            );
                             builder
                                 .bind_descriptor_sets(
                                     PipelineBindPoint::Compute,
@@ -1354,141 +1023,89 @@ fn main() {
                                     0, // Bind this descriptor set to index 0.
                                     update_renderers_set.clone(),
                                 )
-                                .dispatch([update_num as u32 / 128 + 1, 1, 1])
+                                .dispatch([rm.transforms.data.len() as u32 / 128 + 1, 1, 1])
                                 .unwrap();
                         }
-                        {
-                            puffin::profile_scope!("update renderers: stage 1");
-                            // stage 1
-                            let uniforms = {
-                                puffin::profile_scope!("update renderers: stage 1: uniform data");
-                                rm.uniform
-                                    .next(ur::ty::Data {
-                                        num_jobs: rm.transforms.data.len() as i32,
-                                        stage: 1,
-                                        view: cull_view.into(),
-                                        _dummy0: Default::default(),
-                                    })
-                                    .unwrap()
-                            };
-                            let update_renderers_set = {
-                                puffin::profile_scope!("update renderers: stage 1: descriptor set");
-                                PersistentDescriptorSet::new(
-                                    renderer_pipeline
-                                        .layout()
-                                        .set_layouts()
-                                        .get(0) // 0 is the index of the descriptor set.
-                                        .unwrap()
-                                        .clone(),
-                                    [
-                                        WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
-                                        WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
-                                        WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
-                                        WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                                        WriteDescriptorSet::buffer(
-                                            4,
-                                            transform_compute.transform.clone(),
-                                        ),
-                                        WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
-                                        WriteDescriptorSet::buffer(6, uniforms.clone()),
-                                    ],
-                                )
-                                .unwrap()
-                            };
-                            {
-                                puffin::profile_scope!(
-                                    "update renderers: stage 1: bind pipeline/dispatch"
-                                );
-                                builder
-                                    .bind_descriptor_sets(
-                                        PipelineBindPoint::Compute,
-                                        renderer_pipeline.layout().clone(),
-                                        0, // Bind this descriptor set to index 0.
-                                        update_renderers_set.clone(),
-                                    )
-                                    .dispatch([rm.transforms.data.len() as u32 / 128 + 1, 1, 1])
-                                    .unwrap();
-                            }
-                        }
-                        // }
                     }
-                    {
-                        puffin::profile_scope!("render meshes");
-                        let rm = renderer_manager.read();
-                        // let renderer_pipeline = &renderer_manager.pipeline;
-                        // let renderers = &mut renderer_manager.renderers.read();
+                    // }
+                }
+                {
+                    puffin::profile_scope!("render meshes");
+                    let rm = renderer_manager.read();
+                    // let renderer_pipeline = &renderer_manager.pipeline;
+                    // let renderers = &mut renderer_manager.renderers.read();
 
-                        builder
-                            .begin_render_pass(
-                                framebuffers[image_num].clone(),
-                                SubpassContents::Inline,
-                                vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
-                            )
-                            .unwrap()
-                            .set_viewport(0, [viewport.clone()]);
+                    builder
+                        .begin_render_pass(
+                            framebuffers[image_num].clone(),
+                            SubpassContents::Inline,
+                            vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
+                        )
+                        .unwrap()
+                        .set_viewport(0, [viewport.clone()]);
 
-                        rend.bind_pipeline(&mut builder);
+                    rend.bind_pipeline(&mut builder);
 
-                        let mm = model_manager.lock();
+                    let mm = model_manager.lock();
 
-                        let mut offset = 0;
+                    let mut offset = 0;
 
-                        for (_ind_id, m_id) in rm.indirect_model.read().iter() {
-                            if let Some(ind) = rm.model_indirect.read().get(&m_id) {
-                                if let Some(mr) = mm.models_ids.get(&m_id) {
-                                    if let Some(indirect_buffer) =
+                    for (_ind_id, m_id) in rm.indirect_model.read().iter() {
+                        if let Some(ind) = rm.model_indirect.read().get(&m_id) {
+                            if let Some(mr) = mm.models_ids.get(&m_id) {
+                                if let Some(indirect_buffer) =
+                                    BufferSlice::from_typed_buffer_access(
+                                        rm.indirect_buffer.clone(),
+                                    )
+                                    .slice(ind.id as u64..(ind.id + 1) as u64)
+                                {
+                                    // println!("{}",indirect_buffer.len());
+                                    if let Some(renderer_buffer) =
                                         BufferSlice::from_typed_buffer_access(
-                                            rm.indirect_buffer.clone(),
+                                            rm.renderers_gpu.clone(),
                                         )
-                                        .slice(ind.id as u64..(ind.id + 1) as u64)
+                                        .slice(offset..(offset + ind.count as u64) as u64)
                                     {
-                                        // println!("{}",indirect_buffer.len());
-                                        if let Some(renderer_buffer) =
-                                            BufferSlice::from_typed_buffer_access(
-                                                rm.renderers_gpu.clone(),
-                                            )
-                                            .slice(offset..(offset + ind.count as u64) as u64)
-                                        {
-                                            // println!("{}",renderer_buffer.len());
-                                            rend.bind_mesh(
-                                                &mut builder,
-                                                renderer_buffer.clone(),
-                                                transform_compute.mvp.clone(),
-                                                &mr.mesh,
-                                                indirect_buffer.clone(),
-                                            );
-                                        }
+                                        // println!("{}",renderer_buffer.len());
+                                        rend.bind_mesh(
+                                            &mut builder,
+                                            renderer_buffer.clone(),
+                                            transform_compute.mvp.clone(),
+                                            &mr.mesh,
+                                            indirect_buffer.clone(),
+                                        );
                                     }
                                 }
-                                offset += ind.count as u64;
                             }
+                            offset += ind.count as u64;
                         }
                     }
+                }
 
-                    // Automatically start the next render subpass and draw the gui
-                    let size = surface.window().inner_size();
-                    let sf: f32 = surface.window().scale_factor() as f32;
-                    egui_painter
-                        .draw(
-                            &mut builder,
-                            [(size.width as f32) / sf, (size.height as f32) / sf],
-                            &egui_ctx,
-                            egui_output.shapes,
-                        )
-                        .unwrap();
+                // Automatically start the next render subpass and draw the gui
+                let size = surface.window().inner_size();
+                let sf: f32 = surface.window().scale_factor() as f32;
+                egui_painter
+                    .draw(
+                        &mut builder,
+                        [(size.width as f32) / sf, (size.height as f32) / sf],
+                        &egui_ctx,
+                        egui_output.shapes,
+                    )
+                    .unwrap();
 
-                    input.time.dt = (frame_time.elapsed().as_secs_f64() as f32).min(0.1);
+                input.time.dt = (frame_time.elapsed().as_secs_f64() as f32).min(0.1);
 
-                    fps_queue.push_back(input.time.dt);
-                    if fps_queue.len() > 100 {
-                        fps_queue.pop_front();
-                    }
+                fps_queue.push_back(input.time.dt);
+                if fps_queue.len() > 100 {
+                    fps_queue.pop_front();
+                }
 
-                    // egui_bench.push(frame_time.elapsed().as_secs_f64(), positions.len());
-                    frame_time = Instant::now();
+                // egui_bench.push(frame_time.elapsed().as_secs_f64(), positions.len());
+                frame_time = Instant::now();
 
-                    builder.end_render_pass().unwrap();
-                    // builder
+                builder.end_render_pass().unwrap();
+                // builder
                 // };
 
                 let command_buffer = {
