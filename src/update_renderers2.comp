@@ -72,7 +72,8 @@ void main() {
             case 1:
                 int t_id = transform_ids[id].id;
                 int ind_id = transform_ids[id].indirect_id;
-                if(t_id != -1 && (view * vec4(transforms[t_id].position, 1)).z < 0.f) {
+                // && (view * vec4(transforms[t_id].position, 1)).z < 0.f
+                if(t_id != -1 ) {
                     uint r_id = atomicAdd(indirect[ind_id].instanceCount,1);
                     renderers[offsets[ind_id] + r_id] = t_id;
                 }

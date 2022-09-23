@@ -1,4 +1,5 @@
 use component_derive::component;
+use core::time;
 use crossbeam::queue::SegQueue;
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
@@ -30,7 +31,7 @@ use crate::{
     model::ModelManager,
     perf::Perf,
     renderer::{Id, ModelMat},
-    renderer_component2::{Offset, Renderer, RendererManager},
+    renderer_component2::{Offset, Renderer, RendererData, RendererManager},
     terrain::Terrain,
     texture::TextureManager,
     transform_compute::cs::ty::transform,
@@ -62,11 +63,11 @@ impl Component for Bomb {
             InteractionGroups::all(),
             None,
         ) {
-            // let g = GameObject { t: self.t };
-            // sys.defer.append(move |world| {
-            //     world.delete(g);
-            // });
-            self.vel = glm::reflect_vec(&vel, &&_hit.normal);
+            let g = GameObject { t: self.t };
+            sys.defer.append(move |world| {
+                world.delete(g);
+            });
+            // self.vel = glm::reflect_vec(&vel, &&_hit.normal);
         }
         // if pos.y <= 0. {
         //     self.vel = glm::reflect_vec(&vel, &glm::vec3(0.,1.,0.));
@@ -119,6 +120,7 @@ pub fn game_thread_fn(
             )>,
             glm::Vec3,
             glm::Quat,
+            RendererData,
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
@@ -174,7 +176,7 @@ pub fn game_thread_fn(
 
     {
         // let mut renderer_manager = world.renderer_manager.lock();
-        for _ in 0..1_000_000 {
+        for _ in 0..1  {
             // bombs
             let g = world.instantiate();
             world.add_component(
@@ -193,7 +195,7 @@ pub fn game_thread_fn(
                 g.t,
                 glm::vec3(
                     rand::random::<f32>() * 100. - 50.,
-                    50.0,
+                    50.0 + rand::random::<f32>() * 100.,
                     rand::random::<f32>() * 100. - 50.,
                 ),
             );
@@ -209,39 +211,23 @@ pub fn game_thread_fn(
     let mut cam_pos = glm::vec3(0.0 as f32, 0.0, -1.0);
     let mut cam_rot = glm::quat(1.0, 0.0, 0.0, 0.0);
 
-    // let mut input = Input {
-    //     ..Default::default()
-    // };
-
-    // let mut perf = HashMap::<String, SegQueue<Duration>>::new();
-
     let mut perf = Perf {
         data: HashMap::new(),
     };
 
-    // let mut update_perf = |k: String, v: Duration| {
-    //     if let Some(q) = perf.get_mut(&k) {
-    //         q.push(v);
-    //     } else {
-    //         perf.insert(k, SegQueue::new());
-    //         if let Some(q) = perf.get_mut(&k) {
-    //             q.push(v);
-    //         }
-
-    //     }
-    // };
-    let mut loops = 0;
     while running.load(Ordering::SeqCst) {
-        loops += 1;
         // println!("waiting for input");
         let input = coms.1.recv().unwrap();
         // println!("input recvd");
 
         {
-            puffin::profile_scope!("world update");
+            puffin::profile_scope!("game loop");
             let inst = Instant::now();
-            world.sys.physics.step(&gravity);
-            world.update(&lazy_maker, &input);
+            {
+                puffin::profile_scope!("world update");
+                world.sys.physics.step(&gravity);
+                world.update(&lazy_maker, &input);
+            }
 
             let speed = 20.0 * input.time.dt;
             if !input.get_key(&VirtualKeyCode::LControl) {
@@ -283,20 +269,22 @@ pub fn game_thread_fn(
                     input.get_mouse_delta().1 as f32 * 0.01,
                     &Vec3::x(),
                 );
-                const ALOT: f32 = 10_000_000. / 60.;
+                // const ALOT: f32 = 10_000_000. / 60.;
                 if input.get_mouse_button(&0) {
                     let _cam_rot = cam_rot.clone();
                     let _cam_pos = cam_pos.clone();
                     // let rm = renderer_manager.clone();
                     lazy_maker.append(move |world| {
-                        let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
+                        let len = 1;//(ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
                         // let chunk_size =  (len / (64 * 64)).max(1);
                         (0..len)
                             .into_iter()
                             // .chunks(chunk_size)
                             .for_each(|_| {
                                 let g = world.instantiate_with_transform(_Transform {
-                                    position: _cam_pos - glm::Vec3::y() * 2.,
+                                    position: _cam_pos
+                                        + glm::quat_to_mat3(&_cam_rot)
+                                            * (glm::Vec3::y() * 4. - glm::Vec3::z() * 6.),
                                     ..Default::default()
                                 });
                                 world.add_component(
@@ -318,7 +306,8 @@ pub fn game_thread_fn(
             }
 
             {
-                lazy_maker.init(&mut world);
+                puffin::profile_scope!("defered");
+                lazy_maker.do_defered(&mut world);
             }
 
             perf.update("world".into(), Instant::now() - inst);
@@ -357,13 +346,47 @@ pub fn game_thread_fn(
         };
         perf.update("get transform data".into(), Instant::now() - inst);
 
+        let mut rm = renderer_manager.write();
+        // let a = rm.model_indirect.read();
+        // let b = a.deref();
+        let inst = Instant::now();
+        let renderer_data = RendererData {
+            model_indirect: rm
+                .model_indirect
+                .read()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            indirect_model: rm
+                .indirect_model
+                .read()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            updates: rm
+                .updates
+                .iter()
+                .flat_map(|(id, t)| {
+                    vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()].into_iter()
+                })
+                .collect(),
+            transforms_len: rm.transforms.data.len() as i32,
+        };
+        rm.updates.clear();
+        perf.update("get renderer data".into(), Instant::now() - inst);
+
+        // std::thread::sleep(Duration::from_millis(5));
+        let inst = Instant::now();
+
         let res = coms.0.send((
             positions_to_buffer.clone(),
             cam_pos.clone(),
             cam_rot.clone(),
+            renderer_data,
             // render_data,
             // terr_chunks,
         ));
+        perf.update("send data".into(), Instant::now() - inst);
         if res.is_err() {
             println!("ohno");
         }

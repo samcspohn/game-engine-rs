@@ -1,11 +1,15 @@
-use std::{collections::{HashMap, BTreeMap}, rc::Rc, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    rc::Rc,
+    sync::Arc,
+};
 
 use crate::{
     engine::{transform::Transform, Component, Storage, Sys, World},
     fast_buffer,
     renderer::Id,
 };
-use bytemuck::{Zeroable, Pod};
+use bytemuck::{Pod, Zeroable};
 use component_derive::component;
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::{
@@ -51,6 +55,7 @@ pub mod ur {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Indirect {
     pub id: i32,
     pub count: i32,
@@ -63,14 +68,16 @@ pub struct TransformId {
     pub transform_id: i32,
 }
 
-pub struct RendererManager {
-    pub model_indirect: RwLock<BTreeMap<i32, Indirect>>,
-    pub indirect_model: RwLock<BTreeMap<i32, i32>>,
+pub struct RendererData {
+    pub model_indirect: BTreeMap<i32, Indirect>,
+    pub indirect_model: BTreeMap<i32, i32>,
+    pub transforms_len: i32,
 
-    pub transforms: Storage<TransformId>,
-    pub updates: HashMap<i32, TransformId>,
+    pub updates: Vec<i32>,
+}
+
+pub struct SharedRendererData {
     pub transform_ids_gpu: Arc<CpuAccessibleBuffer<[TransformId]>>,
-    pub transforms_gpu_len: i32,
     pub renderers_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
     pub updates_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
     pub indirect: Storage<DrawIndexedIndirectCommand>,
@@ -79,7 +86,27 @@ pub struct RendererManager {
     pub device: Arc<Device>,
     pub shader: Arc<ShaderModule>,
     pub pipeline: Arc<ComputePipeline>,
-    pub uniform: CpuBufferPool<ur::ty::Data>,
+    pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
+}
+
+pub struct RendererManager {
+    pub model_indirect: RwLock<BTreeMap<i32, Indirect>>,
+    pub indirect_model: RwLock<BTreeMap<i32, i32>>,
+
+    pub transforms: Storage<TransformId>,
+    pub updates: HashMap<i32, TransformId>,
+    pub shr_data: RwLock<SharedRendererData>,
+    // pub transform_ids_gpu: Arc<CpuAccessibleBuffer<[TransformId]>>,
+    // pub transforms_gpu_len: i32,
+    // pub renderers_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
+    // pub updates_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
+    // pub indirect: Storage<DrawIndexedIndirectCommand>,
+    // pub indirect_buffer: Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>,
+
+    // pub device: Arc<Device>,
+    // pub shader: Arc<ShaderModule>,
+    // pub pipeline: Arc<ComputePipeline>,
+    // pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
 }
 
 pub struct Offset {
@@ -107,48 +134,53 @@ impl RendererManager {
             indirect_model: RwLock::new(BTreeMap::new()),
             updates: HashMap::new(),
             transforms: Storage::new(false),
-            transform_ids_gpu: CpuAccessibleBuffer::from_iter(
-                device.clone(),
-                BufferUsage::all(),
-                true,
-                vec![TransformId {indirect_id: -1, transform_id: -1}],
-            )
-            .unwrap(),
-            renderers_gpu: CpuAccessibleBuffer::from_iter(
-                device.clone(),
-                BufferUsage::all(),
-                true,
-                vec![0],
-            )
-            .unwrap(),
-            updates_gpu: CpuAccessibleBuffer::from_iter(
-                device.clone(),
-                BufferUsage::all(),
-                true,
-                vec![0],
-            )
-            .unwrap(),
-            indirect: Storage::new(false),
-            indirect_buffer: CpuAccessibleBuffer::from_iter(
-                device.clone(),
-                BufferUsage::all(),
-                true,
-                vec![DrawIndexedIndirectCommand {
-                    index_count: 0,
-                    instance_count: 0,
-                    first_index: 0,
-                    vertex_offset: 0,
-                    first_instance: 0,
-                }],
-            )
-            .unwrap(),
-            // transforms_gpu_len: 1,
-            // transform_updates: HashMap::new(),
-            device: device.clone(),
-            shader,
-            pipeline,
-            uniform: CpuBufferPool::<ur::ty::Data>::new(device.clone(), BufferUsage::all()),
-            transforms_gpu_len: 1,
+            shr_data: RwLock::new(SharedRendererData {
+                transform_ids_gpu: CpuAccessibleBuffer::from_iter(
+                    device.clone(),
+                    BufferUsage::all(),
+                    true,
+                    vec![TransformId {
+                        indirect_id: -1,
+                        transform_id: -1,
+                    }],
+                )
+                .unwrap(),
+                renderers_gpu: CpuAccessibleBuffer::from_iter(
+                    device.clone(),
+                    BufferUsage::all(),
+                    true,
+                    vec![0],
+                )
+                .unwrap(),
+                updates_gpu: CpuAccessibleBuffer::from_iter(
+                    device.clone(),
+                    BufferUsage::all(),
+                    true,
+                    vec![0],
+                )
+                .unwrap(),
+                indirect: Storage::new(false),
+                indirect_buffer: CpuAccessibleBuffer::from_iter(
+                    device.clone(),
+                    BufferUsage::all(),
+                    true,
+                    vec![DrawIndexedIndirectCommand {
+                        index_count: 0,
+                        instance_count: 0,
+                        first_index: 0,
+                        vertex_offset: 0,
+                        first_instance: 0,
+                    }],
+                )
+                .unwrap(),
+                device: device.clone(),
+                shader,
+                pipeline,
+                uniform: Arc::new(CpuBufferPool::<ur::ty::Data>::new(
+                    device.clone(),
+                    BufferUsage::all(),
+                )),
+            }),
         }
     }
 }
@@ -194,21 +226,25 @@ impl Component for Renderer {
         };
 
         if ind_id == -1 {
-            ind_id = rm.indirect.emplace(DrawIndexedIndirectCommand {
-                index_count: sys
-                    .model_manager
-                    .lock()
-                    .models_ids
-                    .get(&self.model_id)
-                    .unwrap()
-                    .mesh
-                    .indeces
-                    .len() as u32,
-                instance_count: 0,
-                first_index: 0,
-                vertex_offset: 0,
-                first_instance: 0,
-            });
+            ind_id = rm
+                .shr_data
+                .write()
+                .indirect
+                .emplace(DrawIndexedIndirectCommand {
+                    index_count: sys
+                        .model_manager
+                        .lock()
+                        .models_ids
+                        .get(&self.model_id)
+                        .unwrap()
+                        .mesh
+                        .indeces
+                        .len() as u32,
+                    instance_count: 0,
+                    first_index: 0,
+                    vertex_offset: 0,
+                    first_instance: 0,
+                });
             rm.model_indirect.write().insert(
                 self.model_id,
                 Indirect {
@@ -230,7 +266,7 @@ impl Component for Renderer {
             },
         );
     }
-    fn deinit(&mut self, t: Transform, sys: &mut Sys) {
+    fn deinit(&mut self, _t: Transform, sys: &mut Sys) {
         sys.renderer_manager
             .write()
             .model_indirect
@@ -247,5 +283,5 @@ impl Component for Renderer {
         );
         sys.renderer_manager.write().transforms.erase(self.id);
     }
-    fn update(&mut self, sys: &crate::engine::System) {}
+    fn update(&mut self, _sys: &crate::engine::System) {}
 }

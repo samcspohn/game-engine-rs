@@ -7,7 +7,7 @@ pub mod transform;
 use std::{
     any::{Any, TypeId},
     cmp::Reverse,
-    collections::{BinaryHeap, HashMap}, sync::Arc,
+    collections::{BinaryHeap, HashMap}, sync::{Arc, atomic::AtomicBool},
 };
 use tobj::Model;
 use transform::{Transform, Transforms};
@@ -43,7 +43,7 @@ impl LazyMaker {
     {
         self.work.push(Box::new(f));
     }
-    pub fn init(
+    pub fn do_defered(
         &self,
         wrld: &mut World,
     ) {
@@ -89,9 +89,12 @@ pub trait StorageBase {
     fn deinit(&mut self, i: i32, t: Transform, sys: &mut Sys);
 }
 
+
+// use pqueue::Queue;
 pub struct Storage<T> {
     pub data: Vec<Option<T>>,
-    avail: BinaryHeap<Reverse<i32>>,
+    pub valid: Vec<AtomicBool>,
+    avail: pqueue::Queue<Reverse<i32>>,
     extent: i32,
     has_update: bool,
 }
@@ -123,7 +126,8 @@ impl<T: 'static> Storage<T> {
     pub fn new(has_update: bool) -> Storage<T> {
         Storage::<T> {
             data: Vec::new(),
-            avail: BinaryHeap::new(),
+            valid: Vec::new(),
+            avail: pqueue::Queue::new(),
             extent: 0,
             has_update,
         }
@@ -288,12 +292,7 @@ impl World {
     }
     pub fn register<T: 'static + Send + Sync + Component>(&mut self, has_update: bool) {
         let key: TypeId = TypeId::of::<T>();
-        let data = Storage::<T> {
-            data: Vec::new(),
-            avail: BinaryHeap::new(),
-            extent: 0,
-            has_update,
-        };
+        let data = Storage::<T>::new(has_update);
         self.components
             .insert(key.clone(), RwLock::new(Box::new(data)));
     }
