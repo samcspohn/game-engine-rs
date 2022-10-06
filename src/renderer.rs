@@ -3,9 +3,12 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use vulkano::{
     buffer::{
-        cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess, CpuBufferPool, BufferSlice,
+        cpu_pool::CpuBufferPoolSubbuffer, BufferSlice, CpuAccessibleBuffer, CpuBufferPool,
+        DeviceLocalBuffer, TypedBufferAccess,
     },
-    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer, DrawIndexedIndirectCommand},
+    command_buffer::{
+        AutoCommandBufferBuilder, DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
+    },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
     format::Format,
@@ -29,7 +32,7 @@ use vulkano::{
 
 use crate::{
     model::{Mesh, Normal, Vertex, UV},
-    transform_compute::{GPUVector, MVP},
+    transform_compute::MVP,
 };
 
 #[repr(C)]
@@ -40,11 +43,10 @@ pub struct ModelMat {
 }
 impl_vertex!(ModelMat, pos);
 
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 pub struct Id {
-    pub id: i32
+    pub id: i32,
 }
 impl_vertex!(Id, id);
 
@@ -72,8 +74,7 @@ impl RenderPipeline {
                 BuffersDefinition::new()
                     .vertex::<Vertex>()
                     .vertex::<Normal>()
-                    .vertex::<UV>()
-                    // .instance::<Id>(),
+                    .vertex::<UV>(), // .instance::<Id>(),
             )
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
@@ -141,8 +142,7 @@ impl RenderPipeline {
                 BuffersDefinition::new()
                     .vertex::<Vertex>()
                     .vertex::<Normal>()
-                    .vertex::<UV>()
-                    // .instance::<Id>(),
+                    .vertex::<UV>(), // .instance::<Id>(),
             )
             .vertex_shader(self._vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
@@ -176,15 +176,20 @@ impl RenderPipeline {
         // device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         instance_buffer: Arc<BufferSlice<[i32], CpuAccessibleBuffer<[i32]>>>,
-        transforms_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
+        mvp_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
         mesh: &Mesh,
-        indirect_buffer: Arc<BufferSlice<[DrawIndexedIndirectCommand], CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>>,
+        indirect_buffer: Arc<
+            BufferSlice<
+                [DrawIndexedIndirectCommand],
+                CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>,
+            >,
+        >,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
         let mut descriptors = Vec::new();
 
-        descriptors.push(WriteDescriptorSet::buffer(0, transforms_buffer.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(0, mvp_buffer.clone()));
 
         if let Some(texture) = mesh.texture.as_ref() {
             descriptors.push(WriteDescriptorSet::image_view_sampler(
@@ -202,7 +207,7 @@ impl RenderPipeline {
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
         let set = PersistentDescriptorSet::new(layout.clone(), descriptors).unwrap();
 
-            builder
+        builder
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
                 self.pipeline.layout().clone(),

@@ -378,53 +378,6 @@ impl Transforms {
                 transform_data.lock().push(ret);
             }
         });
-        // let transform_data = u_iter
-        //     .zip_eq(pos_iter)
-        //     .zip_eq(rot_iter)
-        //     .zip_eq(scl_iter)
-        //     .enumerate()
-        //     .chunks(len / num_cpus::get())
-        //     .map(|x| {
-        //         let mut transform_ids = vec![
-        //             Vec::<i32>::with_capacity(len),
-        //             Vec::<i32>::with_capacity(len),
-        //             Vec::<i32>::with_capacity(len),
-        //         ];
-        //         let mut pos = Vec::<[f32; 3]>::with_capacity(len);
-        //         let mut rot = Vec::<[f32; 4]>::with_capacity(len);
-        //         let mut scl = Vec::<[f32; 3]>::with_capacity(len);
-        //         {
-
-        //             puffin::profile_scope!("collect data");
-        //             for (i, (((u, p), r), s)) in x {
-        //             if u[POS_U].load(Ordering::Relaxed) {
-        //                 transform_ids[POS_U].push(i as i32);
-        //                 let p = p.get_mut();
-        //                 // p.data
-        //                 pos.push([p.x, p.y, p.z]);
-        //                 u[POS_U].store(false, Ordering::Relaxed);
-        //             }
-        //             if u[ROT_U].load(Ordering::Relaxed) {
-        //                 transform_ids[ROT_U].push(i as i32);
-        //                 let r = r.get_mut();
-        //                 // let a: [f32;4] = r.coords.into();
-        //                 rot.push([r.w, r.k, r.j, r.i]);
-        //                 u[ROT_U].store(false, Ordering::Relaxed);
-        //             }
-        //             if u[SCL_U].load(Ordering::Relaxed) {
-        //                 transform_ids[SCL_U].push(i as i32);
-        //                 let s = s.get_mut();
-        //                 scl.push([s.x, s.y, s.z]);
-        //                 u[SCL_U].store(false, Ordering::Relaxed);
-        //             }
-        //         }
-        //     }
-        //     {
-        //         puffin::profile_scope!("wrap in Arc");
-        //         Arc::new((transform_ids, pos, rot, scl))
-        //     }
-        //     })
-        //     .collect::<Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>>();
         Arc::new((len, transform_data.into_inner()))
     }
 }

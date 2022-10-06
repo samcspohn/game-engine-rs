@@ -1,0 +1,48 @@
+#version 450
+#include "util.glsl"
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+struct transform {
+    vec3 position;
+    vec4 rotation;
+    vec3 scale;
+};
+
+struct particle {
+    int emitter_id;
+    vec4 rot;
+    int proto_id ;
+};
+
+// struct particle_emitter_prototype {
+
+// };
+
+
+layout(set = 0, binding = 0) buffer t {
+    transform transforms[];
+};
+layout(set = 0, binding = 1) buffer p {
+    particle particles[];
+};
+layout(set = 0, binding = 2) buffer _p {
+    vec3 position[];
+};
+
+
+layout(set = 0, binding = 3) uniform Data {
+    int num_jobs;
+    float dt;
+    // int stage;
+    // mat4 view;
+};
+
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
+    // transforms[0].position = vec3(0,0,0);
+    if(id < num_jobs) {
+        particles[id].rot = lookAt(vec3(0,0,0),vec3(0,1,0));
+        position[id] += normalize(position[id]) * dt;
+    }
+}

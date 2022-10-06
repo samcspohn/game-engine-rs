@@ -22,8 +22,10 @@ libc = "*"
 rayon = "*"
 crossbeam = "*"
 once_cell = "*"
+pqueue = "*"
 # specs = { version = "*", features = [ "parallel" ] }
 rand = "*"
+scoped_threadpool = "*"
 
 # glam = "*"
 # nalgebra = { version = "*" }

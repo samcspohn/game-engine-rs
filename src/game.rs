@@ -63,11 +63,11 @@ impl Component for Bomb {
             InteractionGroups::all(),
             None,
         ) {
-            let g = GameObject { t: self.t };
-            sys.defer.append(move |world| {
-                world.delete(g);
-            });
-            // self.vel = glm::reflect_vec(&vel, &&_hit.normal);
+            // let g = GameObject { t: self.t };
+            // sys.defer.append(move |world| {
+            //     world.delete(g);
+            // });
+            self.vel = glm::reflect_vec(&vel, &&_hit.normal);
         }
         // if pos.y <= 0. {
         //     self.vel = glm::reflect_vec(&vel, &glm::vec3(0.,1.,0.));
@@ -176,7 +176,7 @@ pub fn game_thread_fn(
 
     {
         // let mut renderer_manager = world.renderer_manager.lock();
-        for _ in 0..1  {
+        for _ in 0..0  {
             // bombs
             let g = world.instantiate();
             world.add_component(

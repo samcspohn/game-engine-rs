@@ -25,6 +25,7 @@ use vulkano::buffer::{
 };
 use vulkano::command_buffer::DrawIndexedIndirectCommand;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
+use vulkano::device::Features;
 use vulkano::pipeline::{Pipeline, PipelineBindPoint};
 use winit::dpi::LogicalSize;
 // use parking_lot::Mutex;
@@ -90,6 +91,7 @@ mod renderer_component2;
 mod texture;
 mod time;
 mod transform_compute;
+mod particles;
 // mod rendering;
 // use transform::{Transform, Transforms};
 
@@ -203,12 +205,18 @@ fn main() {
         physical_device.properties().device_type,
     );
 
+    let features = Features {
+        geometry_shader: true,
+        ..Default::default()
+    };
+
     let (device, mut queues) = Device::new(
         physical_device,
         DeviceCreateInfo {
             enabled_extensions: physical_device
                 .required_extensions()
                 .union(&device_extensions),
+            enabled_features: features,
             queue_create_infos: vec![QueueCreateInfo::family(queue_family)],
             ..Default::default()
         },
@@ -449,6 +457,8 @@ fn main() {
     .expect("Failed to create compute shader");
 
     let transform_uniforms = CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
+
+    let particles = particles::ParticleCompute::new(device.clone(), render_pass.clone(), swapchain.clone(), queue.clone());
 
     let mut fps_queue = std::collections::VecDeque::new();
     // let render_uniforms = CpuBufferPool::<vs::ty::UniformBufferObject>::new(device.clone(), BufferUsage::all());
@@ -935,7 +945,7 @@ fn main() {
                                 WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
                                 WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
                                 WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                                // WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
+                                WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
                                 WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
                                 WriteDescriptorSet::buffer(6, uniforms.clone()),
                             ],
@@ -980,10 +990,10 @@ fn main() {
                                     WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
                                     WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
                                     WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                                    // WriteDescriptorSet::buffer(
-                                    //     4,
-                                    //     transform_compute.transform.clone(),
-                                    // ),
+                                    WriteDescriptorSet::buffer(
+                                        4,
+                                        transform_compute.transform.clone(),
+                                    ),
                                     WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
                                     WriteDescriptorSet::buffer(6, uniforms.clone()),
                                 ],
@@ -1006,7 +1016,41 @@ fn main() {
                         }
                     }
                     // }
+                    particles.particle_update(device.clone(), &mut builder, transform_compute.transform.clone(), input.time.dt);
                 }
+                // let uniform_sub_buffer = {
+                //     let uniform_data = particles::cs::ty::Data {
+                //         num_jobs: particles::MAX_PARTICLES,
+                //         dt: input.time.dt,
+                //     };
+                //     particles.compute_uniforms.next(uniform_data).unwrap()
+                // };
+                // let descriptor_set = PersistentDescriptorSet::new(
+                //     particles.compute_pipeline
+                //         .layout()
+                //         .set_layouts()
+                //         .get(0) // 0 is the index of the descriptor set.
+                //         .unwrap()
+                //         .clone(),
+                //     [
+                //         // WriteDescriptorSet::buffer(0, transform.clone()),
+                //         WriteDescriptorSet::buffer(1, particles.particles.clone()),
+                //         WriteDescriptorSet::buffer(2, particles.particle_positions.clone()),
+                //         WriteDescriptorSet::buffer(3, uniform_sub_buffer.clone()),
+                //     ],
+                // )
+                // .unwrap();
+        
+                // builder
+                //     .bind_pipeline_compute(particles.compute_pipeline.clone())
+                //     .bind_descriptor_sets(
+                //         PipelineBindPoint::Compute,
+                //         particles.compute_pipeline.layout().clone(),
+                //         0, // Bind this descriptor set to index 0.
+                //         descriptor_set.clone(),
+                //     )
+                //     .dispatch([particles::MAX_PARTICLES as u32 / 256 + 1, 1, 1])
+                //     .unwrap();
                 {
                     puffin::profile_scope!("render meshes");
                     // let rm = renderer_manager.read();
@@ -1059,6 +1103,7 @@ fn main() {
                         }
                     }
                 }
+                particles.render_particles(&mut builder, view.clone(), proj.clone());
 
                 // Automatically start the next render subpass and draw the gui
                 let size = surface.window().inner_size();

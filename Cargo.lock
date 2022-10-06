@@ -826,11 +826,13 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "png",
+ "pqueue",
  "puffin_egui",
  "rand",
  "rapier3d",
  "rayon",
  "ron",
+ "scoped_threadpool",
  "serde",
  "tobj",
  "vulkano",
@@ -1712,6 +1714,12 @@ dependencies = [
  "inflate",
  "num-iter",
 ]
+
+[[package]]
+name = "pqueue"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2145d14f09d5fc7fe7134b556146599c2929af5b1f1e3a0ecc9d582a9b85e4d"
 
 [[package]]
 name = "proc-macro-crate"
