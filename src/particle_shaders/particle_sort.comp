@@ -1,0 +1,175 @@
+#version 450
+#include "../util.glsl"
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+struct particle {
+    vec3 vel;
+    int emitter_id;
+    vec4 rot;
+    int proto_id;
+    int sorted;
+};
+
+struct _a {
+    vec4 rot;
+    vec3 pos;
+    uint key;
+    int proto_id;
+    float life;
+};
+struct DispatchIndirectCommand{
+    uint    x;
+    uint    y;
+    uint    z;
+};
+struct VkDrawIndirectCommand {
+    uint    vertexCount;
+    uint    instanceCount;
+    uint    firstVertex;
+    uint    firstInstance;
+};
+struct pos_lif {
+    vec3 pos;
+    float life;
+};
+
+
+layout(set = 0, binding = 0) buffer _a1 {
+    _a a1[];
+};
+layout(set = 0, binding = 1) buffer _a2 {
+    _a a2[];
+};
+layout(set = 0, binding = 2) buffer p {
+    particle particles[];
+};
+layout(set = 0, binding = 3) buffer _p {
+    pos_lif p_l[];
+};
+layout(set = 0, binding = 4) buffer l {
+    DispatchIndirectCommand indirect[];
+};
+layout(set = 0, binding = 5) buffer a_c {
+    int avail_count[];
+};
+layout(set = 0, binding = 6) uniform Data {
+    int num_jobs;
+    int stage;
+    mat4 view;
+};
+layout(set = 0, binding = 7) buffer b {
+    uint buckets[];
+};
+layout(set = 0, binding = 8) buffer d {
+    VkDrawIndirectCommand draw[];
+};
+const int MAX_PARTICLES = 8 * 1024 * 1024;
+
+// shared uint[512] local_buckets;
+shared uint[128] local_sums;
+void main() {
+    int id = int(gl_GlobalInvocationID.x);// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
+    // transforms[0].position = vec3(0,0,0);
+    
+    int jobs = int(num_jobs >= 0) * num_jobs + int(num_jobs < 0) * avail_count[0];
+
+    if(id < jobs) {
+        switch(stage) {
+            case 0:
+                // update sorted for particles
+                // particles[a1[id].p_id].sorted = id;
+                avail_count[0] = 0;
+
+                break;
+            case 1:
+                // add particles to sort buffer / update particle keys
+                float z = (view * vec4(p_l[id].pos, 1.0)).z;
+                // int i = particles[id].sorted;
+                if(p_l[id].life > 0.f) { // add to sort or update
+                    int i = atomicAdd(avail_count[0],1); // elements to sort
+                    a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
+                    // a1[i].p_id = id;
+                    a1[i].rot = particles[id].rot;
+                    a1[i].pos = p_l[id].pos;
+                    a1[i].life = p_l[id].life;
+                    a1[i].proto_id = particles[id].proto_id;
+                }
+
+
+                // float z = (view * vec4(p_l[id].pos, 1.0)).z;
+                // int i = particles[id].sorted;
+                // if(z < 0.f && p_l[id].life > 0) { // add to sort or update
+                //     if(i > -1){
+                //         a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
+                //     }else{
+                //         i = atomicAdd(avail_count[0],1); // elements to sort
+                //         a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
+                //         a1[i].p_id = id;
+                //     }
+                // } else if((p_l[id].life < 0 || z >= 0.f) && particles[id].sorted != -1){ // remove from sort
+                //     particles[id].sorted = -1;
+                //     a1[i].key = 4294967295; // will be sorted to end
+                //     a1[i].p_id = -1;
+                //     atomicAdd(avail_count[1],1); // subtract after keys have been moved to end
+                // }
+                break;
+            case 2:
+                if (id == 0){
+                    indirect[0].x = avail_count[0] / 128 + 1 ; // for 3
+                    indirect[0].y = 1;
+                    indirect[0].z = 1;
+                }
+                buckets[id] = 0;
+                // barrier();
+                break;
+            case 3:
+                if(id < avail_count[0])
+                {
+                    atomicAdd(buckets[a1[id].key >> 16],1);
+                }
+                // barrier();
+
+                break;
+            case 4:
+                uint start = id * 512;
+                uint end = start + 512;
+                uint temp = buckets[start];
+                buckets[start] = 0;
+                for(uint i = start + 1; i < end; i++){
+                    uint temp2 = buckets[i];
+                    buckets[i] = temp;
+                    temp += temp2;
+                }
+                local_sums[id] = temp;
+                barrier();
+
+                if (id == 0){
+                    temp = local_sums[0];
+                    for(uint i = 1; i < 128; i++){
+                        uint temp2 = local_sums[i];
+                        local_sums[i] = temp;
+                        temp += temp2;
+                    }
+                }
+                barrier();
+                 for(uint i = start; i < end; i++){
+                    buckets[i] += local_sums[id];
+                }
+                break;
+            case 5:
+                if(id < avail_count[0]){
+                    a2[atomicAdd(buckets[a1[id].key >> 16],1) - 1] = a1[id];
+                }
+                break;
+
+            case 6:
+                // avail_count[0] -= avail_count[1];
+                // avail_count[1] = 0;
+                indirect[0].x = avail_count[0] / 128 + 1; // for 0
+                indirect[0].y = 1;
+                indirect[0].z = 1;
+                draw[0].vertexCount = avail_count[0];// avail_count[0];
+                 break;
+        }
+    }
+}

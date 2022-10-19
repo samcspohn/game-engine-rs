@@ -9,14 +9,32 @@ struct transform {
 };
 
 struct particle {
+    vec3 vel;
     int emitter_id;
     vec4 rot;
-    int proto_id ;
+    int proto_id;
+    int sorted;
 };
 
+struct particle_template {
+    vec3 color;
+    float speed;
+    float emission_rate;
+};
+
+struct emitter {
+    vec3 pos;
+    float emission;
+    int template_id;
+};
 // struct particle_emitter_prototype {
 
 // };
+
+struct pos_lif {
+    vec3 pos;
+    float life;
+};
 
 
 layout(set = 0, binding = 0) buffer t {
@@ -26,23 +44,87 @@ layout(set = 0, binding = 1) buffer p {
     particle particles[];
 };
 layout(set = 0, binding = 2) buffer _p {
-    vec3 position[];
+    pos_lif p_l[];
+};
+// layout(set = 0, binding = 3) buffer l {
+//     float life[];
+// };
+layout(set = 0, binding = 4) buffer a {
+    uint avail[];
+};
+layout(set = 0, binding = 5) buffer e {
+    emitter emitters[];
+};
+layout(set = 0, binding = 6) buffer a_c {
+    int avail_count;
+};
+layout(set = 0, binding = 7) buffer p_t {
+    particle_template templates[];
 };
 
+const int MAX_PARTICLES = 8 * 1024 * 1024;
 
-layout(set = 0, binding = 3) uniform Data {
+
+layout(set = 0, binding = 8) uniform Data {
     int num_jobs;
     float dt;
-    // int stage;
+    float time;
+    int stage;
+    vec3 cam_pos;
+    vec4 cam_rot;
     // mat4 view;
 };
 
+vec4 look_at = lookAt(vec3(rotate(cam_rot) * vec4(0,0,1,1)).xyz, 
+        vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
+
+
+float rand(float i) {
+    return sin(float(i) * 8.96 + time * 5.5);
+}
+
+void update_particle(uint id) {
+    if(p_l[id].life > 0.0){
+        p_l[id].pos += particles[id].vel * dt;
+        // particles[id].rot = lookAt(vec3(rotate(cam_rot) * vec4(0,0,1,1)).xyz, 
+        // vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
+        particles[id].rot = look_at;
+        p_l[id].life -= dt;
+        if(p_l[id].life < 0.0) {
+            int avail_id = atomicAdd(avail_count,-1);
+            avail[avail_id - 1] = id;
+        }
+    }
+}
+
+void update_emitter(uint id) {
+
+    particle_template templ = templates[emitters[id].template_id];
+    if(emitters[id].emission > 1.0) {
+        int avail_id = min(atomicAdd(avail_count,1),MAX_PARTICLES - 1);
+        uint i = avail[avail_id];
+        atomicMin(avail_count,MAX_PARTICLES);
+        particles[i].vel = normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4), rand(id + i * 2.4))) * templ.speed;
+        particles[i].proto_id = emitters[id].template_id;
+        p_l[i].pos = emitters[id].pos;
+        p_l[i].life = 1.0;
+        emitters[id].emission = 0.0;
+    } else {
+        emitters[id].emission += templ.emission_rate * dt; // 10 particles/sec
+    }
+}
 
 void main() {
     uint id = gl_GlobalInvocationID.x;// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
     // transforms[0].position = vec3(0,0,0);
     if(id < num_jobs) {
-        particles[id].rot = lookAt(vec3(0,0,0),vec3(0,1,0));
-        position[id] += normalize(position[id]) * dt;
+        switch(stage) {
+            case 0:
+                update_emitter(id);
+                break;
+            case 1:
+                update_particle(id);
+                break;
+        }
     }
 }

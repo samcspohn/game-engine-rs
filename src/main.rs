@@ -24,6 +24,10 @@ use vulkano::buffer::{
     device_local, BufferContents, BufferSlice, DeviceLocalBuffer, TypedBufferAccess,
 };
 use vulkano::command_buffer::DrawIndexedIndirectCommand;
+use vulkano::command_buffer::pool::UnsafeCommandPoolAlloc;
+use vulkano::command_buffer::pool::standard::StandardCommandPoolBuilder;
+use vulkano::command_buffer::synced::SyncCommandBufferBuilder;
+use vulkano::command_buffer::sys::{UnsafeCommandBufferBuilder, CommandBufferBeginInfo};
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::Features;
 use vulkano::pipeline::{Pipeline, PipelineBindPoint};
@@ -87,11 +91,12 @@ mod model;
 mod perf;
 mod renderer;
 // mod renderer_component;
+mod particle_sort;
+mod particles;
 mod renderer_component2;
 mod texture;
 mod time;
 mod transform_compute;
-mod particles;
 // mod rendering;
 // use transform::{Transform, Transforms};
 
@@ -458,7 +463,12 @@ fn main() {
 
     let transform_uniforms = CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
 
-    let particles = particles::ParticleCompute::new(device.clone(), render_pass.clone(), swapchain.clone(), queue.clone());
+    let mut particles = particles::ParticleCompute::new(
+        device.clone(),
+        render_pass.clone(),
+        // swapchain.clone(),
+        queue.clone(),
+    );
 
     let mut fps_queue = std::collections::VecDeque::new();
     // let render_uniforms = CpuBufferPool::<vs::ty::UniformBufferObject>::new(device.clone(), BufferUsage::all());
@@ -746,6 +756,17 @@ fn main() {
                 )
                 .unwrap();
 
+                // let mut builder = SyncCommandBufferBuilder::new(pool_alloc, begin_info)
+                
+                // let mut builder = unsafe {UnsafeCommandBufferBuilder::new(UnsafeCommandPoolAlloc {
+                //     handle: todo!(),
+                //     device.clone(),
+                //     level: CommandBufferLevel::Primary,,
+                // }, CommandBufferBeginInfo {
+                //     CommandBufferUsage::OneTimeSubmit,
+                //     ..Default::default()
+                // },)};
+
                 egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
 
                 {
@@ -1016,46 +1037,36 @@ fn main() {
                         }
                     }
                     // }
-                    particles.particle_update(device.clone(), &mut builder, transform_compute.transform.clone(), input.time.dt);
+                    particles.emitter_update(
+                        device.clone(),
+                        &mut builder,
+                        transform_compute.transform.clone(),
+                        input.time.dt,
+                        input.time.time,
+                        cam_pos.into(),
+                        cam_rot.coords.into(),
+                    );
+                    particles.particle_update(
+                        device.clone(),
+                        &mut builder,
+                        transform_compute.transform.clone(),
+                        input.time.dt,
+                        input.time.time,
+                        cam_pos.into(),
+                        cam_rot.coords.into(),
+                    );
+                    particles.sort.sort(
+                        view.into(),
+                        particles.particles.clone(),
+                        particles.particle_positions_lifes.clone(),
+                        device.clone(),
+                        queue.clone(),
+                        &mut builder,
+                    );
                 }
-                // let uniform_sub_buffer = {
-                //     let uniform_data = particles::cs::ty::Data {
-                //         num_jobs: particles::MAX_PARTICLES,
-                //         dt: input.time.dt,
-                //     };
-                //     particles.compute_uniforms.next(uniform_data).unwrap()
-                // };
-                // let descriptor_set = PersistentDescriptorSet::new(
-                //     particles.compute_pipeline
-                //         .layout()
-                //         .set_layouts()
-                //         .get(0) // 0 is the index of the descriptor set.
-                //         .unwrap()
-                //         .clone(),
-                //     [
-                //         // WriteDescriptorSet::buffer(0, transform.clone()),
-                //         WriteDescriptorSet::buffer(1, particles.particles.clone()),
-                //         WriteDescriptorSet::buffer(2, particles.particle_positions.clone()),
-                //         WriteDescriptorSet::buffer(3, uniform_sub_buffer.clone()),
-                //     ],
-                // )
-                // .unwrap();
-        
-                // builder
-                //     .bind_pipeline_compute(particles.compute_pipeline.clone())
-                //     .bind_descriptor_sets(
-                //         PipelineBindPoint::Compute,
-                //         particles.compute_pipeline.layout().clone(),
-                //         0, // Bind this descriptor set to index 0.
-                //         descriptor_set.clone(),
-                //     )
-                //     .dispatch([particles::MAX_PARTICLES as u32 / 256 + 1, 1, 1])
-                //     .unwrap();
+
                 {
                     puffin::profile_scope!("render meshes");
-                    // let rm = renderer_manager.read();
-                    // let renderer_pipeline = &renderer_manager.pipeline;
-                    // let renderers = &mut renderer_manager.renderers.read();
 
                     builder
                         .begin_render_pass(
@@ -1117,6 +1128,7 @@ fn main() {
                     )
                     .unwrap();
 
+                input.time.time += input.time.dt;
                 input.time.dt = (frame_time.elapsed().as_secs_f64() as f32).min(0.1);
 
                 fps_queue.push_back(input.time.dt);

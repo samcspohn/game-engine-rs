@@ -577,14 +577,6 @@ impl TransformCompute {
             .unwrap();
     }
 }
-pub struct GPUVector<T>
-where
-    [T]: BufferContents,
-{
-    pub data: Arc<DeviceLocalBuffer<[T]>>,
-    pub len: u32,
-    pub max_len: u32,
-}
 
 pub fn transform_buffer_init(
     device: Arc<Device>,
