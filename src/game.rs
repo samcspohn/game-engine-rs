@@ -1,6 +1,6 @@
 use component_derive::component;
-use core::time;
-use crossbeam::queue::SegQueue;
+
+
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
@@ -9,32 +9,28 @@ use rapier3d::prelude::*;
 use rayon::prelude::*;
 use std::{
     collections::HashMap,
-    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, Sender},
         Arc,
     },
-    time::{Duration, Instant},
+    time::{Instant},
 };
-use vulkano::{buffer::CpuAccessibleBuffer, device::Device};
+use vulkano::{device::Device};
 use winit::event::VirtualKeyCode;
 // use rapier3d::{na::point, prelude::InteractionGroups};
 
 use crate::{
     engine::{
-        physics::{self, Physics},
-        transform::{Transform, Transforms, _Transform},
-        Component, GameObject, LazyMaker, Sys, System, World,
+        physics::{Physics},
+        transform::{Transform, _Transform},
+        Component, LazyMaker, Sys, System, World,
     },
     input::Input,
     model::ModelManager,
     perf::Perf,
-    renderer::{Id, ModelMat},
-    renderer_component2::{Offset, Renderer, RendererData, RendererManager},
+    renderer_component2::{Renderer, RendererData, RendererManager},
     terrain::Terrain,
-    texture::TextureManager,
-    transform_compute::cs::ty::transform,
 };
 
 #[component]
@@ -42,7 +38,7 @@ pub struct Bomb {
     pub vel: glm::Vec3,
 }
 impl Component for Bomb {
-    fn init(&mut self, t: Transform, sys: &mut Sys) {
+    fn init(&mut self, t: Transform, _sys: &mut Sys) {
         self.t = t;
     }
     fn update(&mut self, sys: &System) {
@@ -84,7 +80,7 @@ impl Component for Bomb {
 #[component]
 pub struct Maker {}
 impl Component for Maker {
-    fn init(&mut self, t: Transform, sys: &mut Sys) {
+    fn init(&mut self, t: Transform, _sys: &mut Sys) {
         self.t = t;
     }
     fn update(&mut self, sys: &System) {
@@ -107,8 +103,8 @@ impl Component for Maker {
 }
 
 pub fn game_thread_fn(
-    device: Arc<Device>,
-    queue: Arc<vulkano::device::Queue>,
+    _device: Arc<Device>,
+    _queue: Arc<vulkano::device::Queue>,
     model_manager: Arc<Mutex<ModelManager>>,
     renderer_manager: Arc<RwLock<RendererManager>>,
     // texture_manager: Arc<TextureManager>,
@@ -129,7 +125,7 @@ pub fn game_thread_fn(
     ),
     running: Arc<AtomicBool>,
 ) {
-    let mut physics = Physics::new();
+    let physics = Physics::new();
     // rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build_global().unwrap();
     /* Create the ground. */
     // let collider = ColliderBuilder::cuboid(100.0, 0.1, 100.0).build();

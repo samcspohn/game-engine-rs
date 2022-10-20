@@ -52,29 +52,27 @@ layout(set = 0, binding = 5) buffer a {
 
 void main() {
     int i = id[0];
-    // if (sorted[i].life > 0){
+    mat4 model = translate(sorted[i].pos) * rotate(sorted[i].rot);
+    mat4 mvp = proj * view * model;
+    particle_template templ = templates[sorted[i].proto_id];
+    gl_Position = mvp * vec4(-.5, .5, 0.0, 1.0);
+    color = vec4(templ.color, sorted[i].life * 0.5);
+    EmitVertex();
 
-        mat4 model = translate(sorted[i].pos) * rotate(sorted[i].rot);
-        mat4 mvp = proj * view * model;
-        particle_template templ = templates[sorted[i].proto_id];
-        gl_Position = mvp * vec4(-.5, .5, 0.0, 1.0);
-        color = vec4(templ.color, sorted[i].life * 0.5);
-        EmitVertex();
+    gl_Position = mvp * vec4( -.5, -.5, 0.0, 1.0);
+    color = vec4(templ.color, sorted[i].life * 0.5);
+    EmitVertex();
+    
+    gl_Position = mvp * vec4( .5, .5, 0.0, 1.0);
+    color = vec4(templ.color, sorted[i].life * 0.5);
+    EmitVertex();
 
-        gl_Position = mvp * vec4( -.5, -.5, 0.0, 1.0);
-        color = vec4(templ.color, sorted[i].life * 0.5);
-        EmitVertex();
-        
-        gl_Position = mvp * vec4( .5, .5, 0.0, 1.0);
-        color = vec4(templ.color, sorted[i].life * 0.5);
-        EmitVertex();
+    gl_Position = mvp * vec4( .5, -.5, 0.0, 1.0);
+    color = vec4(templ.color, sorted[i].life * 0.5);
+    EmitVertex();
+    
+    EndPrimitive();
 
-        gl_Position = mvp * vec4( .5, -.5, 0.0, 1.0);
-        color = vec4(templ.color, sorted[i].life * 0.5);
-        EmitVertex();
-        
-        EndPrimitive();
-    // }
     // int i = id[0];
     // int _i = sorted[0].proto_id;
 

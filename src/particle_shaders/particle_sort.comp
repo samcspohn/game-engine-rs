@@ -71,7 +71,7 @@ void main() {
     int id = int(gl_GlobalInvocationID.x);// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
     // transforms[0].position = vec3(0,0,0);
     
-    int jobs = int(num_jobs >= 0) * num_jobs + int(num_jobs < 0) * avail_count[0];
+    int jobs = num_jobs >= 0 ? num_jobs : avail_count[0];
 
     if(id < jobs) {
         switch(stage) {
@@ -85,7 +85,7 @@ void main() {
                 // add particles to sort buffer / update particle keys
                 float z = (view * vec4(p_l[id].pos, 1.0)).z;
                 // int i = particles[id].sorted;
-                if(p_l[id].life > 0.f) { // add to sort or update
+                if(p_l[id].life > 0.f && z < 0.f) { // add to sort or update
                     int i = atomicAdd(avail_count[0],1); // elements to sort
                     a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
                     // a1[i].p_id = id;
@@ -115,20 +115,17 @@ void main() {
                 break;
             case 2:
                 if (id == 0){
-                    indirect[0].x = avail_count[0] / 128 + 1 ; // for 3
+                    indirect[0].x = avail_count[0] / 128 + 1 ; // for 3   MAX_PARTICLES / 128 + 1 ;
                     indirect[0].y = 1;
                     indirect[0].z = 1;
                 }
                 buckets[id] = 0;
-                // barrier();
                 break;
             case 3:
                 if(id < avail_count[0])
                 {
                     atomicAdd(buckets[a1[id].key >> 16],1);
                 }
-                // barrier();
-
                 break;
             case 4:
                 uint start = id * 512;

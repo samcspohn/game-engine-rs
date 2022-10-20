@@ -7,9 +7,9 @@ pub mod transform;
 use std::{
     any::{Any, TypeId},
     cmp::Reverse,
-    collections::{BinaryHeap, HashMap}, sync::{Arc, atomic::AtomicBool},
+    collections::{HashMap}, sync::{Arc, atomic::AtomicBool},
 };
-use tobj::Model;
+
 use transform::{Transform, Transforms};
 
 // use rand::prelude::*;
@@ -69,7 +69,7 @@ pub struct System<'a> {
 
 pub trait Component {
     fn init(&mut self, t: Transform, sys: &mut Sys);
-    fn deinit(&mut self, t: Transform, sys: &mut Sys) {}
+    fn deinit(&mut self, _t: Transform, _sys: &mut Sys) {}
     fn update(&mut self, sys: &System);
 }
 
@@ -169,7 +169,7 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
             .enumerate()
             .chunks(chunk_size)
             .for_each(|slice| {
-                for (i, o) in slice {
+                for (_i, o) in slice {
                     if let Some(d) = o {
                         d.update(&sys);
                     }

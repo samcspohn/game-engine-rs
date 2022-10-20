@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use vulkano::{
     buffer::{
-        cpu_pool::CpuBufferPoolSubbuffer, BufferSlice, CpuAccessibleBuffer, CpuBufferPool,
-        DeviceLocalBuffer, TypedBufferAccess,
+        BufferSlice, CpuAccessibleBuffer,
+        DeviceLocalBuffer,
     },
     command_buffer::{
         AutoCommandBufferBuilder, DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
@@ -14,7 +14,6 @@ use vulkano::{
     format::Format,
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
     impl_vertex,
-    memory::pool::StdMemoryPool,
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState,
@@ -64,7 +63,7 @@ impl RenderPipeline {
     pub fn new(
         device: Arc<Device>,
         render_pass: Arc<RenderPass>,
-        dimensions: [u32; 2],
+        _dimensions: [u32; 2],
         queue: Arc<Queue>,
     ) -> RenderPipeline {
         let vs = vs::load(device.clone()).unwrap();
@@ -135,7 +134,7 @@ impl RenderPipeline {
         &mut self,
         device: Arc<Device>,
         render_pass: Arc<RenderPass>,
-        dimensions: [u32; 2],
+        _dimensions: [u32; 2],
     ) {
         self.pipeline = GraphicsPipeline::start()
             .vertex_input_state(

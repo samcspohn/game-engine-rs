@@ -5,8 +5,7 @@ use glm::{Mat3, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-    IntoParallelRefMutIterator, ParallelIterator,
+    IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
 };
 // use spin::{Mutex,RwLock};
 use puffin_egui::puffin;

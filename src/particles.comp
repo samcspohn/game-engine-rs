@@ -76,7 +76,7 @@ layout(set = 0, binding = 8) uniform Data {
 };
 
 vec4 look_at = lookAt(vec3(rotate(cam_rot) * vec4(0,0,1,1)).xyz, 
-        vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
+        vec3(rotate(cam_rot) * vec4(0.000001,1,0.000001,1)).xyz);
 
 
 float rand(float i) {
@@ -86,7 +86,7 @@ float rand(float i) {
 void update_particle(uint id) {
     if(p_l[id].life > 0.0){
         p_l[id].pos += particles[id].vel * dt;
-        // particles[id].rot = lookAt(vec3(rotate(cam_rot) * vec4(0,0,1,1)).xyz, 
+        // particles[id].rot = lookAt(vec3(rotate(cam_rot) * vec4(0,0,-1,1)).xyz, 
         // vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
         particles[id].rot = look_at;
         p_l[id].life -= dt;

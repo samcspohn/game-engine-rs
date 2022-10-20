@@ -5,11 +5,11 @@ use noise::{NoiseFn, Perlin};
 
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
-use rapier3d::prelude::ColliderSet;
-use rapier3d::prelude::*;
-use vulkano::device::{Device};
 
-use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, texture::{TextureManager}, engine::{Component, transform, World, GameObject, Sys}, renderer_component2::{RendererManager, Renderer}};
+use rapier3d::prelude::*;
+
+
+use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, engine::{Component, transform, World, Sys}, renderer_component2::{Renderer}};
 use crate::terrain::transform::Transform;
 
 #[component]
@@ -24,7 +24,7 @@ pub struct Terrain {
 }
 
 impl Terrain {
-    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Transform>>>>, terrain_size: i32, chunk_range: i32, t: Transform) {
+    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Transform>>>>, terrain_size: i32, chunk_range: i32, _t: Transform) {
 
         // let collider_set = &world.physics.collider_set;
         // let mm = &mut world.modeling.lock();
@@ -192,7 +192,7 @@ impl Terrain {
 }
 
 impl Component for Terrain {
-    fn init(&mut self, t: Transform, sys: &mut Sys) {
+    fn init(&mut self, _t: Transform, _sys: &mut Sys) {
         
     }
     fn update(&mut self, sys: &crate::engine::System) {

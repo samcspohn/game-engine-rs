@@ -1,11 +1,11 @@
-use std::{mem::swap, sync::Arc};
+use std::{sync::Arc};
 
-use crate::{particles::MAX_PARTICLES, transform_compute::cs::ty::transform};
-use nalgebra_glm as glm;
+use crate::{particles::MAX_PARTICLES};
+
 use vulkano::{
     buffer::{
-        BufferAccess, BufferSlice, BufferUsage, CpuAccessibleBuffer, CpuBufferPool,
-        DeviceLocalBuffer, TypedBufferAccess,
+        BufferUsage, CpuAccessibleBuffer, CpuBufferPool,
+        DeviceLocalBuffer,
     },
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, DispatchIndirectCommand, DrawIndirectCommand,
@@ -13,17 +13,9 @@ use vulkano::{
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
-    format::Format,
-    image::{
-        view::{ImageView, ImageViewCreateInfo},
-        ImageDimensions, ImmutableImage, MipmapsCount, StorageImage,
-    },
     pipeline::{
         ComputePipeline, Pipeline, PipelineBindPoint,
     },
-    render_pass::{RenderPass, Subpass},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
-    swapchain::Swapchain,
     sync::{self, FlushError, GpuFuture},
     DeviceSize,
 };
@@ -176,7 +168,7 @@ impl ParticleSort {
                 match future {
                     Ok(_) => {}
                     Err(FlushError::OutOfDate) => {}
-                    Err(e) => {}
+                    Err(_e) => {}
                 }
             }
             Err(e) => {
@@ -214,8 +206,8 @@ impl ParticleSort {
         view: [[f32; 4]; 4],
         particles: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::particle]>>,
         particle_positions_lifes: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::pos_lif]>>,
-        device: Arc<Device>,
-        queue: Arc<Queue>,
+        _device: Arc<Device>,
+        _queue: Arc<Queue>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     ) {
         // let dimensions = ImageDimensions::Dim2d {
@@ -260,13 +252,14 @@ impl ParticleSort {
                                num_jobs: i32| {
             let indirect = match stage {
                 // dispatch
-                0 => self.indirect[0].clone(),
+                // 0 => self.indirect[0].clone(),
                 3 => self.indirect[0].clone(),
                 5 => self.indirect[0].clone(),
                 _ => self.indirect[1].clone(),
             };
             let bound_indirect = match stage {
                 // update
+                0 => self.indirect[0].clone(),
                 2 => self.indirect[0].clone(),
                 6 => self.indirect[0].clone(),
                 _ => self.indirect[1].clone(),
@@ -302,8 +295,6 @@ impl ParticleSort {
                         descriptor_set.clone(),
                     )
                     .dispatch_indirect(indirect.clone())
-                    .unwrap()
-                    .copy_buffer(self.indirect[0].clone(), self.indirect[1].clone())
                     .unwrap();
             } else {
                 builder
@@ -315,8 +306,6 @@ impl ParticleSort {
                         descriptor_set.clone(),
                     )
                     .dispatch([num_jobs as u32 / 128 + 1, 1, 1])
-                    .unwrap()
-                    .copy_buffer(self.indirect[0].clone(), self.indirect[1].clone())
                     .unwrap();
             }
         };

@@ -21,13 +21,13 @@ use puffin_egui::*;
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
 use vulkano::buffer::{
-    device_local, BufferContents, BufferSlice, DeviceLocalBuffer, TypedBufferAccess,
+    BufferContents, BufferSlice, TypedBufferAccess,
 };
-use vulkano::command_buffer::DrawIndexedIndirectCommand;
-use vulkano::command_buffer::pool::UnsafeCommandPoolAlloc;
-use vulkano::command_buffer::pool::standard::StandardCommandPoolBuilder;
-use vulkano::command_buffer::synced::SyncCommandBufferBuilder;
-use vulkano::command_buffer::sys::{UnsafeCommandBufferBuilder, CommandBufferBeginInfo};
+
+
+
+
+
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::Features;
 use vulkano::pipeline::{Pipeline, PipelineBindPoint};
@@ -40,7 +40,7 @@ use winit::dpi::LogicalSize;
 use winit::event::MouseButton;
 
 use std::collections::VecDeque;
-use std::ops::{Deref, DerefMut};
+
 use std::{
     collections::HashMap,
     ptr,
@@ -105,27 +105,24 @@ use std::env;
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
-use crate::engine::transform::{POS_U, ROT_U, SCL_U};
+
 use crate::game::game_thread_fn;
 use crate::model::ModelManager;
 use crate::perf::Perf;
-use crate::renderer::{vs, Id};
-use crate::renderer_component2::{ur, Offset, RendererData, RendererManager};
+
+use crate::renderer_component2::{ur, RendererData, RendererManager};
 use crate::texture::TextureManager;
 use crate::transform_compute::cs::ty::transform;
-use crate::transform_compute::{cs, TransformCompute};
+use crate::transform_compute::{cs};
 use crate::{
     input::Input,
-    model::Mesh,
-    renderer::{ModelMat, RenderPipeline},
-    // renderer::RenderPipeline,
-    terrain::Terrain,
+    renderer::{RenderPipeline},
 };
 
 mod game;
 mod terrain;
 
-use rayon::{prelude::*, vec};
+use rayon::{prelude::*};
 
 fn fast_buffer<T: Send + Sync + Copy>(
     device: Arc<Device>,
@@ -401,7 +398,7 @@ fn main() {
     // println!("sending input");
     let _res = coms.1.send(input.clone());
 
-    let mut loops = 0;
+    let _loops = 0;
 
     let egui_ctx = egui::Context::default();
     let mut egui_winit = egui_winit::State::new(4096, surface.window());

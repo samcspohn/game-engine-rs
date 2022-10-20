@@ -24,10 +24,9 @@ use vulkano::{
     },
     render_pass::{RenderPass, Subpass},
     sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
-    swapchain::Swapchain,
     sync::{self, FlushError, GpuFuture},
 };
-use winit::window::Window;
+
 
 pub mod cs {
     vulkano_shaders::shader! {
@@ -46,7 +45,7 @@ pub mod vs {
         ty: "vertex",
         path: "src/particle_shaders/particles.vert",
         types_meta: {
-            use bytemuck::{Pod, Zeroable};
+            
 
             #[derive(Clone, Copy, Zeroable, Pod)]
         },
@@ -72,7 +71,7 @@ pub mod fs {
 }
 
 pub const MAX_PARTICLES: i32 = 8 * 1024 * 1024 * 4;
-pub const NUM_EMITTERS: i32 = 260_000 * 4;
+pub const NUM_EMITTERS: i32 = 250_000 * 4;
 
 pub struct ParticleCompute {
     pub sort: ParticleSort,
@@ -281,7 +280,7 @@ impl ParticleCompute {
                 match future {
                     Ok(_) => {}
                     Err(FlushError::OutOfDate) => {}
-                    Err(e) => {}
+                    Err(_e) => {}
                 }
             }
             Err(e) => {
@@ -394,9 +393,9 @@ impl ParticleCompute {
 
     pub fn emitter_update(
         &self,
-        device: Arc<Device>,
+        _device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        transform: Arc<DeviceLocalBuffer<[transform]>>,
+        _transform: Arc<DeviceLocalBuffer<[transform]>>,
         dt: f32,
         time: f32,
         cam_pos: [f32; 3],
@@ -449,9 +448,9 @@ impl ParticleCompute {
 
     pub fn particle_update(
         &self,
-        device: Arc<Device>,
+        _device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        transform: Arc<DeviceLocalBuffer<[transform]>>,
+        _transform: Arc<DeviceLocalBuffer<[transform]>>,
         dt: f32,
         time: f32,
         cam_pos: [f32; 3],
@@ -523,7 +522,6 @@ impl ParticleCompute {
         //     0,
         //     self.particle_positions_lifes.clone(),
         // ));
-        // descriptors.push(WriteDescriptorSet::buffer(1, self.particle_lifes.clone()));
         // descriptors.push(WriteDescriptorSet::buffer(2, self.particles.clone()));
         descriptors.push(WriteDescriptorSet::buffer(
             3,

@@ -1,19 +1,16 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    rc::Rc,
     sync::Arc,
 };
 
 use crate::{
-    engine::{transform::Transform, Component, Storage, Sys, World},
-    fast_buffer,
-    renderer::Id,
+    engine::{transform::Transform, Component, Storage, Sys},
 };
 use bytemuck::{Pod, Zeroable};
 use component_derive::component;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{RwLock};
 use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+    IndexedParallelIterator, ParallelIterator,
 };
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool},
@@ -107,12 +104,6 @@ pub struct RendererManager {
     // pub shader: Arc<ShaderModule>,
     // pub pipeline: Arc<ComputePipeline>,
     // pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
-}
-
-pub struct Offset {
-    pub offset: u32,
-    pub count: u32,
-    pub model_id: i32,
 }
 
 impl RendererManager {
