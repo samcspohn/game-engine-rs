@@ -101,20 +101,20 @@ impl ParticleCompute {
         let q = glm::Quat::identity();
 
         // particles
-        let particles: Vec<cs::ty::particle> = (0..MAX_PARTICLES)
-            .into_iter()
-            .map(|_| cs::ty::particle {
-                emitter_id: 0,
-                rot: q.coords.into(),
-                proto_id: 0,
-                _dummy0: Default::default(),
-                vel: [0., 0., 0.],
-                sorted: -1,
-            })
-            .collect();
-        let copy_buffer =
-            CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, particles)
-                .unwrap();
+        // let particles: Vec<cs::ty::particle> = (0..MAX_PARTICLES)
+        //     .into_iter()
+        //     .map(|_| cs::ty::particle {
+        //         emitter_id: 0,
+        //         rot: q.coords.into(),
+        //         template_id: 0,
+        //         _dummy0: Default::default(),
+        //         vel: [0., 0., 0.],
+        //         sorted: -1,
+        //     })
+        //     .collect();
+        // let copy_buffer =
+        //     CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, particles)
+        //         .unwrap();
         let particles = DeviceLocalBuffer::<[cs::ty::particle]>::array(
             device.clone(),
             MAX_PARTICLES as vulkano::DeviceSize,
@@ -130,7 +130,7 @@ impl ParticleCompute {
         )
         .unwrap();
 
-        builder.copy_buffer(copy_buffer, particles.clone()).unwrap();
+        // builder.copy_buffer(copy_buffer, particles.clone()).unwrap();
 
         // positions
         let particle_positions_lifes: Vec<cs::ty::pos_lif> = (0..MAX_PARTICLES)
@@ -138,6 +138,9 @@ impl ParticleCompute {
             .map(|_| cs::ty::pos_lif {
                 pos: [0., 0., 0.],
                 life: 0.,
+                rot: [1.,0.,0.,0.],
+                template_id: 0,
+                _dummy0: Default::default(),
             })
             .collect();
         let copy_buffer = CpuAccessibleBuffer::from_iter(
@@ -518,10 +521,10 @@ impl ParticleCompute {
             self.render_uniforms.next(uniform_data).unwrap()
         };
 
-        // descriptors.push(WriteDescriptorSet::buffer(
-        //     0,
-        //     self.particle_positions_lifes.clone(),
-        // ));
+        descriptors.push(WriteDescriptorSet::buffer(
+            0,
+            self.particle_positions_lifes.clone(),
+        ));
         // descriptors.push(WriteDescriptorSet::buffer(2, self.particles.clone()));
         descriptors.push(WriteDescriptorSet::buffer(
             3,
@@ -558,8 +561,8 @@ impl ParticleCompute {
         // .draw(MAX_PARTICLES as u32, 1, 0, 0)
         // .unwrap();
 
-        let temp = self.sort.a1.clone();
-        self.sort.a1 = self.sort.a2.clone();
-        self.sort.a2 = temp.clone();
+        // let temp = self.sort.a1.clone();
+        // self.sort.a1 = self.sort.a2.clone();
+        // self.sort.a2 = temp.clone();
     }
 }

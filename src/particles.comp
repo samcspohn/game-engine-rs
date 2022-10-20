@@ -1,5 +1,6 @@
 #version 450
 #include "util.glsl"
+#include "particle_shaders/particle.glsl"
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 struct transform {
@@ -8,19 +9,6 @@ struct transform {
     vec3 scale;
 };
 
-struct particle {
-    vec3 vel;
-    int emitter_id;
-    vec4 rot;
-    int proto_id;
-    int sorted;
-};
-
-struct particle_template {
-    vec3 color;
-    float speed;
-    float emission_rate;
-};
 
 struct emitter {
     vec3 pos;
@@ -30,11 +18,6 @@ struct emitter {
 // struct particle_emitter_prototype {
 
 // };
-
-struct pos_lif {
-    vec3 pos;
-    float life;
-};
 
 
 layout(set = 0, binding = 0) buffer t {
@@ -75,9 +58,10 @@ layout(set = 0, binding = 8) uniform Data {
     // mat4 view;
 };
 
-vec4 look_at = lookAt(vec3(rotate(cam_rot) * vec4(0,0,1,1)).xyz, 
-        vec3(rotate(cam_rot) * vec4(0.000001,1,0.000001,1)).xyz);
+// vec4 look_at = lookAt(vec3(rotate(cam_rot) * vec4(0,0,1,1)).xyz, 
+//         vec3(rotate(cam_rot) * vec4(0.,1,0.,1)).xyz);
 
+vec4 look_at = lookAt(rotate3(cam_rot) * vec3(0,0,1), rotate3(cam_rot) * vec3(0,1,0));
 
 float rand(float i) {
     return sin(float(i) * 8.96 + time * 5.5);
@@ -88,7 +72,7 @@ void update_particle(uint id) {
         p_l[id].pos += particles[id].vel * dt;
         // particles[id].rot = lookAt(vec3(rotate(cam_rot) * vec4(0,0,-1,1)).xyz, 
         // vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
-        particles[id].rot = look_at;
+        p_l[id].rot = look_at;
         p_l[id].life -= dt;
         if(p_l[id].life < 0.0) {
             int avail_id = atomicAdd(avail_count,-1);
@@ -105,7 +89,7 @@ void update_emitter(uint id) {
         uint i = avail[avail_id];
         atomicMin(avail_count,MAX_PARTICLES);
         particles[i].vel = normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4), rand(id + i * 2.4))) * templ.speed;
-        particles[i].proto_id = emitters[id].template_id;
+        p_l[i].template_id = emitters[id].template_id;
         p_l[i].pos = emitters[id].pos;
         p_l[i].life = 1.0;
         emitters[id].emission = 0.0;

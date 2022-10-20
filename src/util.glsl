@@ -31,25 +31,35 @@ mat4 rotate(mat4 m, vec4 q){
 	return m * r;
 }
 mat4 rotate(vec4 q){
-	mat4 r1 = {{q.w,q.z,-q.y,q.x},{-q.z,q.w,q.x,q.y},{q.y,-q.x,q.w,q.z},{-q.x,-q.y,-q.z,q.w}};
-	mat4 r2 = {{q.w,q.z,-q.y,-q.x},{-q.z,q.w,q.x,-q.y},{q.y,-q.x,q.w,-q.z},{q.x,q.y,q.z,q.w}};
-	mat4 r = r1 * r2;
-	r[0][3] = r[1][3] = r[2][3] = r[3][0] = r[3][1] = r[3][2] = 0;
-	r[3][3] = 1;
-	return r;
-	// float x = q.x;
-	// float y = q.y;
-	// float z = q.z;
-	// float s = q.w;
-	// float x2 = x * x;
-	// float y2 = y * y;
-	// float z2 = z * z;
-
-	// mat4 r = {{1.f - 2.f * y2 - 2.f * z2, 2.f * x * y - 2.f * s * z, 2.f * x * z + 2.f * s * y, 0.f},
-	// {2.f * x * y + 2.f * s * z, 1.f - 2.f * x2 - 2.f * z2, 2.f * y*z-2.f*s*x, 0.f},
-	// {2.f*x*z-2.f*s*y,2.f*y*z+2.f*s*x,1.f-2.f*x2-2.f*y2,0.f},
-	// {0.f,0.f,0.f,1.f,}};
+	// mat4 r1 = {{q.w,q.z,-q.y,q.x},{-q.z,q.w,q.x,q.y},{q.y,-q.x,q.w,q.z},{-q.x,-q.y,-q.z,q.w}};
+	// mat4 r2 = {{q.w,q.z,-q.y,-q.x},{-q.z,q.w,q.x,-q.y},{q.y,-q.x,q.w,-q.z},{q.x,q.y,q.z,q.w}};
+	// mat4 r = r1 * r2;
+	// r[0][3] = r[1][3] = r[2][3] = r[3][0] = r[3][1] = r[3][2] = 0;
+	// r[3][3] = 1;
 	// return r;
+	float x = q.x;
+	float y = q.y;
+	float z = q.z;
+	float s = q.w;
+	float x2 = x * x;
+	float y2 = y * y;
+	float z2 = z * z;
+
+	mat4 r = {{1.f - 2.f * y2 - 2.f * z2, 2.f * x * y - 2.f * s * z, 2.f * x * z + 2.f * s * y, 0.f},
+	{2.f * x * y + 2.f * s * z, 1.f - 2.f * x2 - 2.f * z2, 2.f * y*z-2.f*s*x, 0.f},
+	{2.f*x*z-2.f*s*y,2.f*y*z+2.f*s*x,1.f-2.f*x2-2.f*y2,0.f},
+	{0.f,0.f,0.f,1.f,}};
+	return transpose(r);
+}
+mat3 rotate3(vec4 q) {
+	float qx2 = q.x * q.x;
+	float qy2 = q.y * q.y;
+	float qz2 = q.z * q.z;
+	mat3 r = {{1 - 2*qy2 - 2*qz2,	2*q.x*q.y - 2*q.z*q.w,	2*q.x*q.z + 2*q.y*q.w},
+			{2*q.x*q.y + 2*q.z*q.w,	1 - 2*qx2 - 2*qz2,		2*q.y*q.z - 2*q.x*q.w},
+			{2*q.x*q.z - 2*q.y*q.w,	2*q.y*q.z + 2*q.x*q.w,	1 - 2*qx2 - 2*qy2}};
+	// r = transpose(r);
+	return transpose(r);
 }
 mat4 identity(){
 	mat4 i = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};

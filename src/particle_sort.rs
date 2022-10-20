@@ -34,7 +34,7 @@ pub mod cs {
 
 pub struct ParticleSort {
     pub a1: Arc<DeviceLocalBuffer<[cs::ty::_a]>>,
-    pub a2: Arc<DeviceLocalBuffer<[cs::ty::_a]>>,
+    pub a2: Arc<DeviceLocalBuffer<[i32]>>,
     pub buckets: Arc<DeviceLocalBuffer<[u32]>>,
     pub avail_count: Arc<DeviceLocalBuffer<[i32]>>,
     // pub sort_jobs: Arc<DeviceLocalBuffer<i32>>,
@@ -66,7 +66,7 @@ impl ParticleSort {
             device.active_queue_families(),
         )
         .unwrap();
-        let a2 = DeviceLocalBuffer::<[cs::ty::_a]>::array(
+        let a2 = DeviceLocalBuffer::<[i32]>::array(
             device.clone(),
             MAX_PARTICLES as vulkano::DeviceSize,
             BufferUsage::all(),
@@ -274,7 +274,7 @@ impl ParticleSort {
                 [
                     WriteDescriptorSet::buffer(0, self.a1.clone()),
                     WriteDescriptorSet::buffer(1, self.a2.clone()),
-                    WriteDescriptorSet::buffer(2, particles.clone()),
+                    // WriteDescriptorSet::buffer(2, particles.clone()),
                     WriteDescriptorSet::buffer(3, particle_positions_lifes.clone()),
                     WriteDescriptorSet::buffer(4, bound_indirect.clone()),
                     WriteDescriptorSet::buffer(5, self.avail_count.clone()),

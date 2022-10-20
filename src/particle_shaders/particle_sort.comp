@@ -1,22 +1,18 @@
 #version 450
 #include "../util.glsl"
+#include "particle.glsl"
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-struct particle {
-    vec3 vel;
-    int emitter_id;
-    vec4 rot;
-    int proto_id;
-    int sorted;
-};
 
-struct _a {
-    vec4 rot;
-    vec3 pos;
-    uint key;
-    int proto_id;
-    float life;
-};
+
+// struct _a {
+//     // vec4 rot;
+//     // vec3 pos;
+//     uint key;
+//     // int proto_id;
+//     // float life;
+//     int p_id;
+// };
 struct DispatchIndirectCommand{
     uint    x;
     uint    y;
@@ -28,17 +24,30 @@ struct VkDrawIndirectCommand {
     uint    firstVertex;
     uint    firstInstance;
 };
-struct pos_lif {
-    vec3 pos;
-    float life;
-};
+
+// struct particle {
+//     vec3 vel;
+//     int emitter_id;
+//     int sorted;
+// };
+// struct particle_template {
+//     vec3 color;
+//     float speed;
+//     float emission_rate;
+// };
+// struct pos_lif {
+//     vec3 pos;
+//     float life;
+//     vec4 rot;
+//     int template_id;
+// };
 
 
 layout(set = 0, binding = 0) buffer _a1 {
     _a a1[];
 };
 layout(set = 0, binding = 1) buffer _a2 {
-    _a a2[];
+    int a2[];
 };
 layout(set = 0, binding = 2) buffer p {
     particle particles[];
@@ -87,12 +96,13 @@ void main() {
                 // int i = particles[id].sorted;
                 if(p_l[id].life > 0.f && z < 0.f) { // add to sort or update
                     int i = atomicAdd(avail_count[0],1); // elements to sort
+                    z = -sqrt(-z);
                     a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
-                    // a1[i].p_id = id;
-                    a1[i].rot = particles[id].rot;
-                    a1[i].pos = p_l[id].pos;
-                    a1[i].life = p_l[id].life;
-                    a1[i].proto_id = particles[id].proto_id;
+                    a1[i].p_id = id;
+                    // a1[i].rot = p_l[id].rot;
+                    // a1[i].pos = p_l[id].pos;
+                    // a1[i].life = p_l[id].life;
+                    // a1[i].proto_id = p_l[id].template_id;
                 }
 
 
@@ -155,7 +165,7 @@ void main() {
                 break;
             case 5:
                 if(id < avail_count[0]){
-                    a2[atomicAdd(buckets[a1[id].key >> 16],1) - 1] = a1[id];
+                    a2[atomicAdd(buckets[a1[id].key >> 16],1) - 1] = a1[id].p_id;
                 }
                 break;
 
