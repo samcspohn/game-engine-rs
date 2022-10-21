@@ -29,6 +29,9 @@ layout(set = 0, binding = 1) buffer p {
 layout(set = 0, binding = 2) buffer _p {
     pos_lif p_l[];
 };
+layout(set = 0, binding = 9) buffer pt {
+    int template_ids[];
+};
 // layout(set = 0, binding = 3) buffer l {
 //     float life[];
 // };
@@ -72,7 +75,7 @@ void update_particle(uint id) {
         p_l[id].pos += particles[id].vel * dt;
         // particles[id].rot = lookAt(vec3(rotate(cam_rot) * vec4(0,0,-1,1)).xyz, 
         // vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
-        p_l[id].rot = look_at;
+        particles[id].rot = look_at;
         p_l[id].life -= dt;
         if(p_l[id].life < 0.0) {
             int avail_id = atomicAdd(avail_count,-1);
@@ -89,7 +92,7 @@ void update_emitter(uint id) {
         uint i = avail[avail_id];
         atomicMin(avail_count,MAX_PARTICLES);
         particles[i].vel = normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4), rand(id + i * 2.4))) * templ.speed;
-        p_l[i].template_id = emitters[id].template_id;
+        template_ids[i] = emitters[id].template_id;
         p_l[i].pos = emitters[id].pos;
         p_l[i].life = 1.0;
         emitters[id].emission = 0.0;

@@ -20,13 +20,7 @@ use puffin_egui::*;
 // use log::*;
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
-use vulkano::buffer::{
-    BufferContents, BufferSlice, TypedBufferAccess,
-};
-
-
-
-
+use vulkano::buffer::{BufferContents, BufferSlice, TypedBufferAccess};
 
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::Features;
@@ -105,24 +99,20 @@ use std::env;
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
-
 use crate::game::game_thread_fn;
 use crate::model::ModelManager;
 use crate::perf::Perf;
 
 use crate::renderer_component2::{ur, RendererData, RendererManager};
 use crate::texture::TextureManager;
+use crate::transform_compute::cs;
 use crate::transform_compute::cs::ty::transform;
-use crate::transform_compute::{cs};
-use crate::{
-    input::Input,
-    renderer::{RenderPipeline},
-};
+use crate::{input::Input, renderer::RenderPipeline};
 
 mod game;
 mod terrain;
 
-use rayon::{prelude::*};
+use rayon::prelude::*;
 
 fn fast_buffer<T: Send + Sync + Copy>(
     device: Arc<Device>,
@@ -754,7 +744,7 @@ fn main() {
                 .unwrap();
 
                 // let mut builder = SyncCommandBufferBuilder::new(pool_alloc, begin_info)
-                
+
                 // let mut builder = unsafe {UnsafeCommandBufferBuilder::new(UnsafeCommandPoolAlloc {
                 //     handle: todo!(),
                 //     device.clone(),
@@ -1111,7 +1101,13 @@ fn main() {
                         }
                     }
                 }
-                particles.render_particles(&mut builder, view.clone(), proj.clone());
+                particles.render_particles(
+                    &mut builder,
+                    view.clone(),
+                    proj.clone(),
+                    cam_rot.coords.into(),
+                    cam_pos.into(),
+                );
 
                 // Automatically start the next render subpass and draw the gui
                 let size = surface.window().inner_size();
