@@ -192,9 +192,12 @@ impl Terrain {
 }
 
 impl Component for Terrain {
-    fn init(&mut self, _t: Transform, _sys: &mut Sys) {
-        
+    fn assign_transform(&mut self, t: Transform) {
+        self.t = t;
     }
+    // fn init(&mut self, _t: Transform, _sys: &mut Sys) {
+        
+    // }
     fn update(&mut self, sys: &crate::engine::System) {
 
         if self.chunks.lock().len() > 0 { return; }

@@ -202,7 +202,7 @@ impl ParticleSort {
     //     builder.copy
     // }
     pub fn sort(
-        &mut self,
+        &self,
         view: [[f32; 4]; 4],
         particles: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::particle]>>,
         particle_positions_lifes: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::pos_lif]>>,

@@ -324,6 +324,13 @@ fn main() {
 
     //////////////////////////////////////////////////
 
+    let mut particles = Arc::new(particles::ParticleCompute::new(
+        device.clone(),
+        render_pass.clone(),
+        // swapchain.clone(),
+        queue.clone(),
+    ));
+
     let mut input = Input {
         ..Default::default()
     };
@@ -332,61 +339,6 @@ fn main() {
     let mut perf = Perf {
         data: HashMap::<String, SegQueue<Duration>>::new(),
     };
-
-    let (tx, rx): (Sender<Input>, Receiver<Input>) = mpsc::channel();
-    let (rtx, rrx): (
-        Sender<(
-            Arc<(
-                usize,
-                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
-            )>,
-            glm::Vec3,
-            glm::Quat,
-            RendererData,
-            // Arc<(Vec<Offset>, Vec<Id>)>,
-            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
-        )>,
-        Receiver<(
-            Arc<(
-                usize,
-                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
-            )>,
-            glm::Vec3,
-            glm::Quat,
-            RendererData,
-            // Arc<(Vec<Offset>, Vec<Id>)>,
-            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
-        )>,
-    ) = mpsc::channel();
-    // let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
-    let running = Arc::new(AtomicBool::new(true));
-
-    let coms = (rrx, tx);
-
-    let _device = device.clone();
-    let _queue = queue.clone();
-    let _model_manager = model_manager.clone();
-    let _renderer_manager = renderer_manager.clone();
-    let game_thread = {
-        // let _perf = perf.clone();
-        let _running = running.clone();
-        thread::spawn(move || {
-            game_thread_fn(
-                _device,
-                _queue,
-                _model_manager,
-                _renderer_manager,
-                // texture_manager.clone(),
-                (rtx, rx),
-                _running,
-            )
-        })
-    };
-    let mut game_thread = vec![game_thread];
-
-    // let ter = trx.recv().unwrap();
-    // println!("sending input");
-    let _res = coms.1.send(input.clone());
 
     let _loops = 0;
 
@@ -425,17 +377,6 @@ fn main() {
         ],
     );
 
-    // mod cs {
-    //     vulkano_shaders::shader! {
-    //         ty: "compute",
-    //         path: "src/transform.comp",
-    //         types_meta: {
-    //             use bytemuck::{Pod, Zeroable};
-
-    //             #[derive(Clone, Copy, Zeroable, Pod)]
-    //         },
-    //     }
-    // }
     let cs = cs::load(device.clone()).unwrap();
 
     // Create compute-pipeline for applying compute shader to vertices.
@@ -450,13 +391,6 @@ fn main() {
 
     let transform_uniforms = CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
 
-    let mut particles = particles::ParticleCompute::new(
-        device.clone(),
-        render_pass.clone(),
-        // swapchain.clone(),
-        queue.clone(),
-    );
-
     let mut fps_queue = std::collections::VecDeque::new();
     // let render_uniforms = CpuBufferPool::<vs::ty::UniformBufferObject>::new(device.clone(), BufferUsage::all());
 
@@ -467,6 +401,67 @@ fn main() {
     let mut cull_view = glm::Mat4::identity();
     let mut lock_cull = false;
     let mut first_frame = true;
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+    let (tx, rx): (Sender<Input>, Receiver<Input>) = mpsc::channel();
+    let (rtx, rrx): (
+        Sender<(
+            Arc<(
+                usize,
+                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+            )>,
+            glm::Vec3,
+            glm::Quat,
+            RendererData,
+            Arc<Mutex<Vec<crate::particles::cs::ty::emitter_init>>>,
+            // Arc<(Vec<Offset>, Vec<Id>)>,
+            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
+        )>,
+        Receiver<(
+            Arc<(
+                usize,
+                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
+            )>,
+            glm::Vec3,
+            glm::Quat,
+            RendererData,
+            Arc<Mutex<Vec<crate::particles::cs::ty::emitter_init>>>,
+            // Arc<(Vec<Offset>, Vec<Id>)>,
+            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
+        )>,
+    ) = mpsc::channel();
+    // let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
+    let running = Arc::new(AtomicBool::new(true));
+
+    let coms = (rrx, tx);
+
+    let _device = device.clone();
+    let _queue = queue.clone();
+    let _model_manager = model_manager.clone();
+    let _renderer_manager = renderer_manager.clone();
+    let _particles = particles.clone();
+    let game_thread = {
+        // let _perf = perf.clone();
+        let _running = running.clone();
+        thread::spawn(move || {
+            game_thread_fn(
+                _device,
+                _queue,
+                _model_manager,
+                _renderer_manager,
+                _particles,
+                // texture_manager.clone(),
+                (rtx, rx),
+                _running,
+            )
+        })
+    };
+    let mut game_thread = vec![game_thread];
+
+    // let ter = trx.recv().unwrap();
+    // println!("sending input");
+    let _res = coms.1.send(input.clone());
+
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
         *control_flow = ControlFlow::Poll;
@@ -626,13 +621,13 @@ fn main() {
                     surface.window().set_cursor_visible(modifiers.shift());
                 }
 
-                let (transform_data, cam_pos, cam_rot, rd) = {
+                let (transform_data, cam_pos, cam_rot, rd, emitter_inits) = {
                     puffin::profile_scope!("wait for game");
                     let inst = Instant::now();
-                    let (positions, cam_pos, cam_rot, renderer_data) = coms.0.recv().unwrap();
+                    let (positions, cam_pos, cam_rot, renderer_data, emitter_inits) = coms.0.recv().unwrap();
 
                     perf.update("wait for game".into(), Instant::now() - inst);
-                    (positions, cam_pos, cam_rot, renderer_data)
+                    (positions, cam_pos, cam_rot, renderer_data, emitter_inits)
                 };
 
                 /////////////////////////////////////////////////////////////////
@@ -1023,34 +1018,45 @@ fn main() {
                                 .unwrap();
                         }
                     }
-                    // }
-                    particles.emitter_update(
-                        device.clone(),
-                        &mut builder,
-                        transform_compute.transform.clone(),
-                        input.time.dt,
-                        input.time.time,
-                        cam_pos.into(),
-                        cam_rot.coords.into(),
-                    );
-                    particles.particle_update(
-                        device.clone(),
-                        &mut builder,
-                        transform_compute.transform.clone(),
-                        input.time.dt,
-                        input.time.time,
-                        cam_pos.into(),
-                        cam_rot.coords.into(),
-                    );
-                    particles.sort.sort(
-                        view.into(),
-                        particles.particles.clone(),
-                        particles.particle_positions_lifes.clone(),
-                        device.clone(),
-                        queue.clone(),
-                        &mut builder,
-                    );
                 }
+                // let particles = particles.read();
+                particles.emitter_init(
+                    device.clone(),
+                    &mut builder,
+                    transform_compute.transform.clone(),
+                    emitter_inits.clone(),
+                    input.time.dt,
+                    input.time.time,
+                    cam_pos.into(),
+                    cam_rot.coords.into(),
+                );
+                particles.emitter_update(
+                    device.clone(),
+                    &mut builder,
+                    transform_compute.transform.clone(),
+                    input.time.dt,
+                    input.time.time,
+                    cam_pos.into(),
+                    cam_rot.coords.into(),
+                );
+                particles.particle_update(
+                    device.clone(),
+                    &mut builder,
+                    transform_compute.transform.clone(),
+                    input.time.dt,
+                    input.time.time,
+                    cam_pos.into(),
+                    cam_rot.coords.into(),
+                );
+                particles.sort.sort(
+                    view.into(),
+                    particles.particles.clone(),
+                    particles.particle_positions_lifes.clone(),
+                    device.clone(),
+                    queue.clone(),
+                    &mut builder,
+                );
+                // }
 
                 {
                     puffin::profile_scope!("render meshes");
@@ -1101,6 +1107,7 @@ fn main() {
                         }
                     }
                 }
+                // let particles = particles.read();
                 particles.render_particles(
                     &mut builder,
                     view.clone(),

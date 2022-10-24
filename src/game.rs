@@ -30,7 +30,7 @@ use crate::{
     model::ModelManager,
     perf::Perf,
     renderer_component2::{Renderer, RendererData, RendererManager},
-    terrain::Terrain,
+    terrain::Terrain, particles::{ParticleCompute, ParticleEmitter, cs::ty::emitter_init},
 };
 
 #[component]
@@ -38,7 +38,7 @@ pub struct Bomb {
     pub vel: glm::Vec3,
 }
 impl Component for Bomb {
-    fn init(&mut self, t: Transform, _sys: &mut Sys) {
+    fn assign_transform(&mut self, t: Transform) {
         self.t = t;
     }
     fn update(&mut self, sys: &System) {
@@ -80,9 +80,12 @@ impl Component for Bomb {
 #[component]
 pub struct Maker {}
 impl Component for Maker {
-    fn init(&mut self, t: Transform, _sys: &mut Sys) {
+    fn assign_transform(&mut self, t: Transform) {
         self.t = t;
     }
+    // fn init(&mut self, t: Transform, _sys: &mut Sys) {
+    //     self.t = t;
+    // }
     fn update(&mut self, sys: &System) {
         sys.defer.append(|world| {
             let g = world.instantiate();
@@ -107,6 +110,7 @@ pub fn game_thread_fn(
     _queue: Arc<vulkano::device::Queue>,
     model_manager: Arc<Mutex<ModelManager>>,
     renderer_manager: Arc<RwLock<RendererManager>>,
+    particles: Arc<ParticleCompute>,
     // texture_manager: Arc<TextureManager>,
     coms: (
         Sender<(
@@ -117,6 +121,7 @@ pub fn game_thread_fn(
             glm::Vec3,
             glm::Quat,
             RendererData,
+            Arc<Mutex<Vec<crate::particles::cs::ty::emitter_init>>>,
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
@@ -147,11 +152,12 @@ pub fn game_thread_fn(
     let gravity = vector![0.0, -9.81, 0.0];
 
     let lazy_maker = LazyMaker::new();
-    let mut world = World::new(model_manager, renderer_manager.clone(), physics);
-    world.register::<Bomb>(true);
-    world.register::<Maker>(true);
+    let mut world = World::new(model_manager, renderer_manager.clone(), physics, particles);
     world.register::<Renderer>(false);
+    world.register::<ParticleEmitter>(false);
+    world.register::<Maker>(true);
     world.register::<Terrain>(true);
+    world.register::<Bomb>(true);
 
     // let _root = world.instantiate();
 
@@ -296,6 +302,7 @@ pub fn game_thread_fn(
                                     },
                                 );
                                 world.add_component(g, Renderer::new(g.t, 0));
+                                world.add_component(g, ParticleEmitter::new(0));
                             });
                     });
                 }
@@ -369,6 +376,11 @@ pub fn game_thread_fn(
             transforms_len: rm.transforms.data.len() as i32,
         };
         rm.updates.clear();
+
+        let emitter_inits = world.sys.particles.emitter_inits.lock().clone();
+        let mut lock = world.sys.particles.emitter_inits.lock(); 
+        *lock = Arc::new(Mutex::new(Vec::new()));
+
         perf.update("get renderer data".into(), Instant::now() - inst);
 
         // std::thread::sleep(Duration::from_millis(5));
@@ -379,6 +391,7 @@ pub fn game_thread_fn(
             cam_pos.clone(),
             cam_rot.clone(),
             renderer_data,
+            emitter_inits,
             // render_data,
             // terr_chunks,
         ));

@@ -20,7 +20,7 @@ use crossbeam::queue::SegQueue;
 use parking_lot::{Mutex, RwLock};
 // use spin::{Mutex, RwLock};
 
-use crate::{input::Input, model::ModelManager, renderer_component2::RendererManager};
+use crate::{input::Input, model::ModelManager, renderer_component2::RendererManager, particles::ParticleCompute};
 
 use self::physics::Physics;
 
@@ -68,9 +68,10 @@ pub struct System<'a> {
 }
 
 pub trait Component {
-    fn init(&mut self, t: Transform, sys: &mut Sys);
-    fn deinit(&mut self, _t: Transform, _sys: &mut Sys) {}
-    fn update(&mut self, sys: &System);
+    fn assign_transform(&mut self, t: Transform);
+    fn init(&mut self, id: i32, sys: &mut Sys) {}
+    fn deinit(&mut self,id: i32, _sys: &mut Sys) {}
+    fn update(&mut self, sys: &System) {}
 }
 
 pub trait StorageBase {
@@ -86,7 +87,8 @@ pub trait StorageBase {
         rendering: &RwLock<crate::RendererManager>,
     );
     fn erase(&mut self, i: i32);
-    fn deinit(&mut self, i: i32, t: Transform, sys: &mut Sys);
+    fn deinit(&mut self, i: i32, sys: &mut Sys);
+    fn init(&mut self, i: i32, sys: &mut Sys);
 }
 
 
@@ -194,8 +196,11 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
     fn erase(&mut self, i: i32) {
         self.erase(i);
     }
-    fn deinit(&mut self, i: i32, t: Transform, sys: &mut Sys) {
-        self.data[i as usize].as_mut().unwrap().deinit(t, sys);
+    fn deinit(&mut self, i: i32, sys: &mut Sys) {
+        self.data[i as usize].as_mut().unwrap().deinit(i, sys);
+    }
+    fn init(&mut self, i: i32, sys: &mut Sys) {
+        self.data[i as usize].as_mut().unwrap().init(i, sys);
     }
 }
 
@@ -208,6 +213,7 @@ pub struct Sys {
     pub model_manager: Arc<Mutex<ModelManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub physics: Physics, // bombs: Vec<Option<Mutex<Bomb>>>,
+    pub particles: Arc<ParticleCompute>,
 }
 // #[derive(Default)]
 pub struct World {
@@ -226,6 +232,7 @@ impl World {
         modeling: Arc<Mutex<ModelManager>>,
         renderer_manager: Arc<RwLock<RendererManager>>,
         physics: Physics,
+        particles: Arc<ParticleCompute>,
     ) -> World {
         let trans = RwLock::new(Transforms::new());
         let root = trans.write().new_root();
@@ -238,6 +245,7 @@ impl World {
                 model_manager: modeling,
                 renderer_manager,
                 physics,
+                particles,
             }
         }
     }
@@ -271,8 +279,8 @@ impl World {
         }
         ret
     }
-    pub fn add_component<T: 'static + Component>(&mut self, g: GameObject, mut d: T) {
-        d.init(g.t, &mut self.sys);
+    pub fn add_component<T: 'static + Send + Sync + Component>(&mut self, g: GameObject, mut d: T) {
+        d.assign_transform(g.t);
         let key: TypeId = TypeId::of::<T>();
         if let Some(stor) = self
             .components
@@ -283,8 +291,10 @@ impl World {
             .downcast_mut::<Storage<T>>()
         {
             let c_id = stor.emplace(d);
+            stor.init(c_id, &mut self.sys);
             if let Some(ent_components) = &self.entities.read()[g.t.0 as usize] {
                 ent_components.write().insert(key, c_id);
+
             }
         } else {
             panic!("no type key?")
@@ -302,7 +312,7 @@ impl World {
         if let Some(g_components) = &ent[g.t.0 as usize] {
             for (t, id) in &*g_components.write() {
                 let stor = &mut self.components.get(&t).unwrap().write();
-                stor.deinit(*id, g.t, &mut self.sys);
+                stor.deinit(*id, &mut self.sys);
                 stor.erase(*id);
             }
         }

@@ -206,8 +206,10 @@ impl Renderer {
 }
 
 impl Component for Renderer {
-    fn init(&mut self, t: Transform, sys: &mut Sys) {
+    fn assign_transform(&mut self, t: Transform) {
         self.t = t;
+    }
+    fn init(&mut self, _id: i32, sys: &mut Sys) {
         let rm = &mut sys.renderer_manager.write();
         let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id) {
             ind.count += 1;
@@ -253,11 +255,11 @@ impl Component for Renderer {
             self.id,
             TransformId {
                 indirect_id: ind_id,
-                transform_id: t.0,
+                transform_id: self.t.0,
             },
         );
     }
-    fn deinit(&mut self, _t: Transform, sys: &mut Sys) {
+    fn deinit(&mut self, _id: i32, sys: &mut Sys) {
         sys.renderer_manager
             .write()
             .model_indirect

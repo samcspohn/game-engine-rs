@@ -1,6 +1,6 @@
 #version 450
-#include "util.glsl"
-#include "particle_shaders/particle.glsl"
+#include "../util.glsl"
+#include "particle.glsl"
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 struct transform {
@@ -11,9 +11,18 @@ struct transform {
 
 
 struct emitter {
-    vec3 pos;
+    // vec3 pos;
+    int alive;
+    int transform_id;
     float emission;
     int template_id;
+};
+
+struct emitter_init {
+    int transform_id;
+    int alive;
+    int template_id;
+    int e_id;
 };
 // struct particle_emitter_prototype {
 
@@ -48,6 +57,10 @@ layout(set = 0, binding = 7) buffer p_t {
     particle_template templates[];
 };
 
+layout(set = 0, binding = 10) buffer e_i {
+    emitter_init emitter_inits[];
+};
+
 const int MAX_PARTICLES = 8 * 1024 * 1024;
 
 
@@ -67,7 +80,7 @@ layout(set = 0, binding = 8) uniform Data {
 vec4 look_at = lookAt(rotate3(cam_rot) * vec3(0,0,1), rotate3(cam_rot) * vec3(0,1,0));
 
 float rand(float i) {
-    return sin(float(i) * 8.96 + time * 5.5);
+    return cos(sin(float(i) * 8.96 + time * 5.5) + cos(float(i) * 8.96 + time * 5.5));
 }
 
 void update_particle(uint id) {
@@ -86,14 +99,16 @@ void update_particle(uint id) {
 
 void update_emitter(uint id) {
 
+    if(emitters[id].alive == 0)
+        return;
     particle_template templ = templates[emitters[id].template_id];
-    if(emitters[id].emission > 1.0) {
+    if(emitters[id].emission >= 1.0) {
         int avail_id = min(atomicAdd(avail_count,1),MAX_PARTICLES - 1);
         uint i = avail[avail_id];
         atomicMin(avail_count,MAX_PARTICLES);
         particles[i].vel = normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4), rand(id + i * 2.4))) * templ.speed;
         template_ids[i] = emitters[id].template_id;
-        p_l[i].pos = emitters[id].pos;
+        p_l[i].pos = transforms[emitters[id].transform_id].position;
         p_l[i].life = 1.0;
         emitters[id].emission = 0.0;
     } else {
@@ -101,15 +116,30 @@ void update_emitter(uint id) {
     }
 }
 
+void init_emitters(uint id){
+    emitter_init init = emitter_inits[id];
+    emitter e;
+    e.alive = init.alive;
+    e.transform_id = init.transform_id;
+    e.template_id = init.template_id;
+    e.emission = 1.f;
+    emitters[init.e_id] = e;
+
+
+}
+
 void main() {
     uint id = gl_GlobalInvocationID.x;// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
     // transforms[0].position = vec3(0,0,0);
     if(id < num_jobs) {
         switch(stage) {
-            case 0:
-                update_emitter(id);
+             case 0:
+                init_emitters(id);
                 break;
             case 1:
+                update_emitter(id);
+                break;
+            case 2:
                 update_particle(id);
                 break;
         }
