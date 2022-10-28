@@ -413,7 +413,7 @@ fn main() {
             glm::Vec3,
             glm::Quat,
             RendererData,
-            Arc<Mutex<Vec<crate::particles::cs::ty::emitter_init>>>,
+            (usize,Vec<crate::particles::cs::ty::emitter_init>),
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
@@ -425,7 +425,7 @@ fn main() {
             glm::Vec3,
             glm::Quat,
             RendererData,
-            Arc<Mutex<Vec<crate::particles::cs::ty::emitter_init>>>,
+            (usize,Vec<crate::particles::cs::ty::emitter_init>),
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
@@ -882,15 +882,15 @@ fn main() {
                     //     })
                     //     .collect();
 
-                    let mut indirect_vec = Vec::new();
-                    for i in &rm.indirect.data {
-                        indirect_vec.push(i.as_ref().unwrap().clone());
-                    }
+                    // let mut indirect_vec = Vec::new();
+                    // for i in &rm.indirect.data {
+                    //     indirect_vec.push(i.clone());
+                    // }
                     rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
                         device.clone(),
                         BufferUsage::all(),
                         false,
-                        indirect_vec,
+                        rm.indirect.data.clone(),
                     )
                     .unwrap();
 
@@ -1024,7 +1024,8 @@ fn main() {
                     device.clone(),
                     &mut builder,
                     transform_compute.transform.clone(),
-                    emitter_inits.clone(),
+                    emitter_inits.1.clone(),
+                    emitter_inits.0,
                     input.time.dt,
                     input.time.time,
                     cam_pos.into(),
@@ -1034,6 +1035,7 @@ fn main() {
                     device.clone(),
                     &mut builder,
                     transform_compute.transform.clone(),
+                    emitter_inits.0,
                     input.time.dt,
                     input.time.time,
                     cam_pos.into(),

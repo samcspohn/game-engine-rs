@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    engine::{transform::Transform, Component, Storage},
+    engine::{transform::Transform, Component, Storage, _Storage},
     particle_sort::ParticleSort,
     transform_compute::cs::ty::transform,
 };
@@ -77,47 +77,45 @@ pub mod fs {
     }
 }
 
-pub const MAX_PARTICLES: i32 = 6 * 1024 * 1024;
-pub const NUM_EMITTERS: i32 = 100_000;
+pub const MAX_PARTICLES: i32 = 8 * 1024 * 1024 * 4;
+// pub const NUM_EMITTERS: i32 = 1_200_000;
 
-#[component]
+// #[component]
 pub struct ParticleEmitter {
     template: i32,
 }
 impl ParticleEmitter {
     pub fn new(template: i32) -> ParticleEmitter {
         ParticleEmitter {
-            t: Transform(0),
             template,
         }
     }
 }
 
 impl Component for ParticleEmitter {
-    fn assign_transform(&mut self, t: Transform) {
-        self.t = t;
-    }
-    fn init(&mut self, id: i32, sys: &mut crate::engine::Sys) {
+    // fn assign_transform(&mut self, t: Transform) {
+    //     self.t = t;
+    // }
+    fn init(&mut self, transform:Transform, id: i32, sys: &mut crate::engine::Sys) {
+        self.template = id % 2;
         sys.particles
             .emitter_inits
             .lock()
-            .lock()
             .push(cs::ty::emitter_init {
-                transform_id: self.t.0,
+                transform_id: transform.id,
                 alive: 1,
-                template_id: id % 2,
+                template_id: self.template,
                 e_id: id,
             });
     }
-    fn deinit(&mut self, id: i32, sys: &mut crate::engine::Sys) {
+    fn deinit(&mut self, transform:Transform, id: i32, sys: &mut crate::engine::Sys) {
         sys.particles
             .emitter_inits
             .lock()
-            .lock()
             .push(cs::ty::emitter_init {
-                transform_id: self.t.0,
+                transform_id: transform.id,
                 alive: 0,
-                template_id: id % 2,
+                template_id: self.template,
                 e_id: id,
             });
     }
@@ -129,9 +127,9 @@ pub struct ParticleCompute {
     pub particle_positions_lifes: Arc<DeviceLocalBuffer<[cs::ty::pos_lif]>>,
     pub particle_template_ids: Arc<DeviceLocalBuffer<[i32]>>,
     // pub particle_lifes: Arc<DeviceLocalBuffer<[f32]>>,
-    pub emitters: Arc<DeviceLocalBuffer<[cs::ty::emitter]>>,
-    pub emitter_inits: Arc<Mutex<Arc<Mutex<Vec<cs::ty::emitter_init>>>>>,
-    pub particle_templates: Storage<cs::ty::particle_template>,
+    pub emitters: Mutex<Arc<DeviceLocalBuffer<[cs::ty::emitter]>>>,
+    pub emitter_inits: Arc<Mutex<Vec<cs::ty::emitter_init>>>,
+    pub particle_templates: _Storage<cs::ty::particle_template>,
     pub particle_template: Arc<DeviceLocalBuffer<[cs::ty::particle_template]>>,
     pub avail: Arc<DeviceLocalBuffer<[u32]>>,
     pub avail_count: Arc<DeviceLocalBuffer<i32>>,
@@ -276,33 +274,33 @@ impl ParticleCompute {
             .unwrap();
 
         // emitters
-        let emitters: Vec<cs::ty::emitter> = (0..NUM_EMITTERS)
-            .into_iter()
-            .map(|i| cs::ty::emitter {
-                // pos: [
-                //     (rand::random::<f32>() - 0.5) * 2000.,
-                //     (rand::random::<f32>() - 0.5) * 2000.,
-                //     (rand::random::<f32>() - 0.5) * 2000.,
-                // ],
-                alive: 0i32,
-                transform_id: 0i32,
-                emission: 0f32,
-                template_id: i % 2,
-                // _dummy0: Default::default(),
-            })
-            .collect();
-        let copy_buffer =
-            CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, emitters)
-                .unwrap();
+        // let emitters: Vec<cs::ty::emitter> = (0..NUM_EMITTERS)
+        //     .into_iter()
+        //     .map(|i| cs::ty::emitter {
+        //         // pos: [
+        //         //     (rand::random::<f32>() - 0.5) * 2000.,
+        //         //     (rand::random::<f32>() - 0.5) * 2000.,
+        //         //     (rand::random::<f32>() - 0.5) * 2000.,
+        //         // ],
+        //         alive: 0i32,
+        //         transform_id: 0i32,
+        //         emission: 0f32,
+        //         template_id: i % 2,
+        //         // _dummy0: Default::default(),
+        //     })
+        //     .collect();
+        // let copy_buffer =
+        //     CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, emitters)
+        //         .unwrap();
         let emitters = DeviceLocalBuffer::<[cs::ty::emitter]>::array(
             device.clone(),
-            NUM_EMITTERS as vulkano::DeviceSize,
+            1 as vulkano::DeviceSize,
             BufferUsage::all(),
             device.active_queue_families(),
         )
         .unwrap();
 
-        builder.copy_buffer(copy_buffer, emitters.clone()).unwrap();
+        // builder.copy_buffer(copy_buffer, emitters.clone()).unwrap();
 
         // particle templates
         // let templates: Vec<cs::ty::particle_template> = vec![
@@ -319,17 +317,17 @@ impl ParticleCompute {
         //     _dummy0: Default::default(),
         // },
         // ];
-        let mut particle_templates = Storage::new(false);
+        let mut particle_templates = _Storage::new();
         particle_templates.emplace(cs::ty::particle_template {
             color: [0f32, 0f32, 1f32],
             speed: 5f32,
-            emission_rate: 40f32,
+            emission_rate: 20f32,
             _dummy0: Default::default(),
         });
         particle_templates.emplace(cs::ty::particle_template {
             color: [1f32, 0f32, 0f32],
             speed: 3f32,
-            emission_rate: 20f32,
+            emission_rate: 10f32,
             _dummy0: Default::default(),
         });
         let copy_buffer = CpuAccessibleBuffer::from_iter(
@@ -337,17 +335,12 @@ impl ParticleCompute {
             BufferUsage::all(),
             false,
             particle_templates
-                .data
-                .iter()
-                .map(|x| {
-                    x.unwrap_or(cs::ty::particle_template {
-                        color: [1f32, 1f32, 1f32],
-                        speed: 1f32,
-                        emission_rate: 1f32,
-                        _dummy0: Default::default(),
-                    })
-                })
-                .collect::<Vec<cs::ty::particle_template>>(),
+                .data.clone()
+                // .iter()
+                // .map(|x| {
+                //     x
+                // })
+                // .collect::<Vec<cs::ty::particle_template>>(),
         )
         .unwrap();
         let templates = DeviceLocalBuffer::<[cs::ty::particle_template]>::array(
@@ -473,8 +466,8 @@ impl ParticleCompute {
             particles,
             particle_positions_lifes,
             particle_template_ids,
-            emitters,
-            emitter_inits: Arc::new(Mutex::new(Arc::new(Mutex::new(Vec::new())))),
+            emitters: Mutex::new(emitters),
+            emitter_inits: Arc::new(Mutex::new(Vec::new())),
             particle_templates,
             particle_template: templates,
             avail,
@@ -493,23 +486,24 @@ impl ParticleCompute {
         device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         transform: Arc<DeviceLocalBuffer<[transform]>>,
-        emitter_inits: Arc<Mutex<Vec<cs::ty::emitter_init>>>,
+        emitter_inits: Vec<cs::ty::emitter_init>,
+        emitter_len: usize,
         dt: f32,
         time: f32,
         cam_pos: [f32; 3],
         cam_rot: [f32; 4],
     ) {
         
-        let mut emitter_inits = emitter_inits.lock();
+        // let mut emitter_inits = emitter_inits.lock();
         if emitter_inits.len() == 0 {
             return;
         };
         let len = emitter_inits.len();
-        let mut ei = Vec::<emitter_init>::new();
-        std::mem::swap(&mut ei, &mut emitter_inits);
+        // let mut ei = Vec::<emitter_init>::new();
+        // std::mem::swap(&mut ei, &mut emitter_inits);
 
         let copy_buffer =
-            CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, ei).unwrap();
+            CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, emitter_inits).unwrap();
         let emitter_inits = DeviceLocalBuffer::<[cs::ty::emitter_init]>::array(
             device.clone(),
             len as vulkano::DeviceSize,
@@ -522,6 +516,23 @@ impl ParticleCompute {
             .copy_buffer(copy_buffer, emitter_inits.clone())
             .unwrap();
 
+        let max_len = (emitter_len as f32 + 1.).log2().ceil();
+        let max_len = (2 as u32).pow(max_len as u32);
+        let mut self_emitters = self.emitters.lock();
+        if self_emitters.len() < max_len as u64 {
+
+            let emitters = DeviceLocalBuffer::<[cs::ty::emitter]>::array(
+                device.clone(),
+                max_len as vulkano::DeviceSize,
+                BufferUsage::all(),
+                device.active_queue_families(),
+            )
+            .unwrap();
+            
+            builder.copy_buffer(self_emitters.clone(), emitters.clone()).unwrap();
+            *self_emitters = emitters.clone();
+        }
+
         let uniform_sub_buffer = {
             let uniform_data = cs::ty::Data {
                 num_jobs: len as i32,
@@ -530,6 +541,7 @@ impl ParticleCompute {
                 stage: 0,
                 cam_pos,
                 cam_rot,
+                MAX_PARTICLES,
                 _dummy0: Default::default(),
             };
             self.compute_uniforms.next(uniform_data).unwrap()
@@ -547,7 +559,7 @@ impl ParticleCompute {
                 WriteDescriptorSet::buffer(2, self.particle_positions_lifes.clone()),
                 // WriteDescriptorSet::buffer(3, self.particle_lifes.clone()),
                 WriteDescriptorSet::buffer(4, self.avail.clone()),
-                WriteDescriptorSet::buffer(5, self.emitters.clone()),
+                WriteDescriptorSet::buffer(5, self_emitters.clone()),
                 WriteDescriptorSet::buffer(6, self.avail_count.clone()),
                 WriteDescriptorSet::buffer(7, self.particle_template.clone()),
                 WriteDescriptorSet::buffer(8, uniform_sub_buffer.clone()),
@@ -574,11 +586,13 @@ impl ParticleCompute {
         device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         transform: Arc<DeviceLocalBuffer<[transform]>>,
+        emitter_len: usize,
         dt: f32,
         time: f32,
         cam_pos: [f32; 3],
         cam_rot: [f32; 4],
     ) {
+        let emitter_len = emitter_len.max(1);
         let emitter_inits = DeviceLocalBuffer::<[cs::ty::emitter_init]>::array(
             device.clone(),
             1 as vulkano::DeviceSize,
@@ -588,12 +602,13 @@ impl ParticleCompute {
         .unwrap();
         let uniform_sub_buffer = {
             let uniform_data = cs::ty::Data {
-                num_jobs: NUM_EMITTERS,
+                num_jobs: emitter_len as i32,
                 dt: dt,
                 time,
                 stage: 1,
                 cam_pos,
                 cam_rot,
+                MAX_PARTICLES,
                 _dummy0: Default::default(),
             };
             self.compute_uniforms.next(uniform_data).unwrap()
@@ -611,7 +626,7 @@ impl ParticleCompute {
                 WriteDescriptorSet::buffer(2, self.particle_positions_lifes.clone()),
                 // WriteDescriptorSet::buffer(3, self.particle_lifes.clone()),
                 WriteDescriptorSet::buffer(4, self.avail.clone()),
-                WriteDescriptorSet::buffer(5, self.emitters.clone()),
+                WriteDescriptorSet::buffer(5, self.emitters.lock().clone()),
                 WriteDescriptorSet::buffer(6, self.avail_count.clone()),
                 WriteDescriptorSet::buffer(7, self.particle_template.clone()),
                 WriteDescriptorSet::buffer(8, uniform_sub_buffer.clone()),
@@ -629,7 +644,7 @@ impl ParticleCompute {
                 0, // Bind this descriptor set to index 0.
                 descriptor_set.clone(),
             )
-            .dispatch([NUM_EMITTERS as u32 / 128 + 1, 1, 1])
+            .dispatch([emitter_len as u32 / 128 + 1, 1, 1])
             .unwrap();
     }
 
@@ -658,6 +673,7 @@ impl ParticleCompute {
                 stage: 2,
                 cam_pos,
                 cam_rot,
+                MAX_PARTICLES,
                 _dummy0: Default::default(),
             };
             self.compute_uniforms.next(uniform_data).unwrap()
@@ -675,7 +691,7 @@ impl ParticleCompute {
                 WriteDescriptorSet::buffer(2, self.particle_positions_lifes.clone()),
                 // WriteDescriptorSet::buffer(3, self.particle_lifes.clone()),
                 WriteDescriptorSet::buffer(4, self.avail.clone()),
-                WriteDescriptorSet::buffer(5, self.emitters.clone()),
+                WriteDescriptorSet::buffer(5, self.emitters.lock().clone()),
                 WriteDescriptorSet::buffer(6, self.avail_count.clone()),
                 WriteDescriptorSet::buffer(7, self.particle_template.clone()),
                 WriteDescriptorSet::buffer(8, uniform_sub_buffer.clone()),

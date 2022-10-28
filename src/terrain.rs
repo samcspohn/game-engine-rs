@@ -12,19 +12,19 @@ use rapier3d::prelude::*;
 use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, engine::{Component, transform, World, Sys}, renderer_component2::{Renderer}};
 use crate::terrain::transform::Transform;
 
-#[component]
+// #[component]
 #[derive(Default)]
 pub struct Terrain {
     // pub device: Arc<Device>,
     // pub queue: Arc<Queue>,
     // pub texture_manager: Arc<TextureManager>,
-    pub chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Transform>>>>,
+    pub chunks: Arc<Mutex<HashMap<i32, HashMap<i32, i32>>>>,
     pub terrain_size: i32,
     pub chunk_range: i32,
 }
 
 impl Terrain {
-    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Transform>>>>, terrain_size: i32, chunk_range: i32, _t: Transform) {
+    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, i32>>>>, terrain_size: i32, chunk_range: i32, _t: i32) {
 
         // let collider_set = &world.physics.collider_set;
         // let mm = &mut world.modeling.lock();
@@ -52,7 +52,7 @@ impl Terrain {
                 let m_id = world.sys.model_manager.lock().procedural(m);
 
                 let g = world.instantiate_with_transform(transform::_Transform { position: glm::vec3((x * (terrain_size - 1)) as f32, 0.0, (z * (terrain_size - 1)) as f32), ..Default::default() });
-                world.add_component(g, Renderer::new(g.t, m_id));
+                world.add_component(g, Renderer::new(m_id));
                 chunks.get_mut(&x).unwrap().insert(z, g.t);
 
 
@@ -192,19 +192,19 @@ impl Terrain {
 }
 
 impl Component for Terrain {
-    fn assign_transform(&mut self, t: Transform) {
-        self.t = t;
-    }
+    // fn assign_transform(&mut self, t: Transform) {
+    //     self.t = t;
+    // }
     // fn init(&mut self, _t: Transform, _sys: &mut Sys) {
         
     // }
-    fn update(&mut self, sys: &crate::engine::System) {
+    fn update(&mut self, transform:Transform, sys: &crate::engine::System) {
 
         if self.chunks.lock().len() > 0 { return; }
 
         let chunks = self.chunks.clone();
         let ts = self.terrain_size;
-        let t = self.t;
+        let t = transform.id;
         let chunk_range = self.chunk_range;
         sys.defer.append(move |world| {
             

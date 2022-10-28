@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    engine::{transform::Transform, Component, Storage, Sys},
+    engine::{transform::Transform, Component, Storage, Sys, _Storage},
 };
 use bytemuck::{Pod, Zeroable};
 use component_derive::component;
@@ -20,7 +20,7 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-#[component]
+// #[component]
 #[derive(Default, Clone, Copy)]
 pub struct Renderer {
     model_id: i32,
@@ -77,7 +77,7 @@ pub struct SharedRendererData {
     pub transform_ids_gpu: Arc<CpuAccessibleBuffer<[TransformId]>>,
     pub renderers_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
     pub updates_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
-    pub indirect: Storage<DrawIndexedIndirectCommand>,
+    pub indirect: _Storage<DrawIndexedIndirectCommand>,
     pub indirect_buffer: Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>,
 
     pub device: Arc<Device>,
@@ -90,7 +90,7 @@ pub struct RendererManager {
     pub model_indirect: RwLock<BTreeMap<i32, Indirect>>,
     pub indirect_model: RwLock<BTreeMap<i32, i32>>,
 
-    pub transforms: Storage<TransformId>,
+    pub transforms: _Storage<TransformId>,
     pub updates: HashMap<i32, TransformId>,
     pub shr_data: RwLock<SharedRendererData>,
     // pub transform_ids_gpu: Arc<CpuAccessibleBuffer<[TransformId]>>,
@@ -124,7 +124,7 @@ impl RendererManager {
             model_indirect: RwLock::new(BTreeMap::new()),
             indirect_model: RwLock::new(BTreeMap::new()),
             updates: HashMap::new(),
-            transforms: Storage::new(false),
+            transforms: _Storage::new(),
             shr_data: RwLock::new(SharedRendererData {
                 transform_ids_gpu: CpuAccessibleBuffer::from_iter(
                     device.clone(),
@@ -150,7 +150,7 @@ impl RendererManager {
                     vec![0],
                 )
                 .unwrap(),
-                indirect: Storage::new(false),
+                indirect: _Storage::new(),
                 indirect_buffer: CpuAccessibleBuffer::from_iter(
                     device.clone(),
                     BufferUsage::all(),
@@ -196,20 +196,16 @@ impl Renderer {
     //         id: ri_id,
     //     }
     // }
-    pub fn new(t: Transform, model_id: i32) -> Renderer {
+    pub fn new( model_id: i32) -> Renderer {
         Renderer {
             model_id: model_id,
-            t,
             id: 0,
         }
     }
 }
 
 impl Component for Renderer {
-    fn assign_transform(&mut self, t: Transform) {
-        self.t = t;
-    }
-    fn init(&mut self, _id: i32, sys: &mut Sys) {
+    fn init(&mut self, transform:Transform, _id: i32, sys: &mut Sys) {
         let rm = &mut sys.renderer_manager.write();
         let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id) {
             ind.count += 1;
@@ -249,17 +245,17 @@ impl Component for Renderer {
         }
         self.id = rm.transforms.emplace(TransformId {
             indirect_id: ind_id,
-            transform_id: self.t.0,
+            transform_id: transform.id,
         });
         rm.updates.insert(
             self.id,
             TransformId {
                 indirect_id: ind_id,
-                transform_id: self.t.0,
+                transform_id: transform.id,
             },
         );
     }
-    fn deinit(&mut self, _id: i32, sys: &mut Sys) {
+    fn deinit(&mut self, _transform:Transform, _id: i32, sys: &mut Sys) {
         sys.renderer_manager
             .write()
             .model_indirect
@@ -276,5 +272,4 @@ impl Component for Renderer {
         );
         sys.renderer_manager.write().transforms.erase(self.id);
     }
-    fn update(&mut self, _sys: &crate::engine::System) {}
 }

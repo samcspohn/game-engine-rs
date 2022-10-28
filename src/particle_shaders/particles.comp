@@ -61,7 +61,7 @@ layout(set = 0, binding = 10) buffer e_i {
     emitter_init emitter_inits[];
 };
 
-const int MAX_PARTICLES = 8 * 1024 * 1024;
+// const int MAX_PARTICLES = 8 * 1024 * 1024;
 
 
 layout(set = 0, binding = 8) uniform Data {
@@ -71,6 +71,7 @@ layout(set = 0, binding = 8) uniform Data {
     int stage;
     vec3 cam_pos;
     vec4 cam_rot;
+    int MAX_PARTICLES;
     // mat4 view;
 };
 
@@ -80,7 +81,7 @@ layout(set = 0, binding = 8) uniform Data {
 vec4 look_at = lookAt(rotate3(cam_rot) * vec3(0,0,1), rotate3(cam_rot) * vec3(0,1,0));
 
 float rand(float i) {
-    return cos(sin(float(i) * 8.96 + time * 5.5) + cos(float(i) * 8.96 + time * 5.5));
+    return sin(float(i) * 8.96 + time * 5.5) + cos(float(i) * 8.96 + time * 5.5);
 }
 
 void update_particle(uint id) {
@@ -103,17 +104,20 @@ void update_emitter(uint id) {
         return;
     particle_template templ = templates[emitters[id].template_id];
     if(emitters[id].emission >= 1.0) {
-        int avail_id = min(atomicAdd(avail_count,1),MAX_PARTICLES - 1);
-        uint i = avail[avail_id];
-        atomicMin(avail_count,MAX_PARTICLES);
-        particles[i].vel = normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4), rand(id + i * 2.4))) * templ.speed;
-        template_ids[i] = emitters[id].template_id;
-        p_l[i].pos = transforms[emitters[id].transform_id].position;
-        p_l[i].life = 1.0;
-        emitters[id].emission = 0.0;
-    } else {
-        emitters[id].emission += templ.emission_rate * dt; // 10 particles/sec
-    }
+        int emission = int(emitters[id].emission);
+        int avail_id = min(atomicAdd(avail_count,emission),MAX_PARTICLES);
+        // if (avail_id == MAX_PARTICLES)
+        //     return;
+        for(int _i = avail_id; _i < min(avail_id + emission,MAX_PARTICLES); _i++){
+            uint i = avail[_i];
+            particles[i].vel = normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4), rand(id + i * 2.4))) * templ.speed;
+            template_ids[i] = emitters[id].template_id;
+            p_l[i].pos = transforms[emitters[id].transform_id].position;
+            p_l[i].life = 1.0;
+        }
+        emitters[id].emission -= float(emission);
+    } 
+    emitters[id].emission += templ.emission_rate * dt;
 }
 
 void init_emitters(uint id){
@@ -140,6 +144,9 @@ void main() {
                 update_emitter(id);
                 break;
             case 2:
+                if(id == 0){
+                    atomicMin(avail_count,MAX_PARTICLES);
+                }
                 update_particle(id);
                 break;
         }

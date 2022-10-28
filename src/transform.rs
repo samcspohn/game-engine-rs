@@ -19,9 +19,9 @@ use std::{
 };
 
 struct TransformMeta {
-    children: RwLock<SendSync<LinkedList<Transform>>>,
-    parent: Transform,
-    child_id: SendSync<Node<Transform>>,
+    children: RwLock<SendSync<LinkedList<i32>>>,
+    parent: i32,
+    child_id: SendSync<Node<i32>>,
 }
 
 impl TransformMeta {
@@ -29,7 +29,7 @@ impl TransformMeta {
         unsafe {
             TransformMeta {
                 children: RwLock::new(SendSync::new(LinkedList::new())),
-                parent: Transform(-1),
+                parent: -1,
                 child_id: SendSync::new(Node::default()),
             }
         }
@@ -61,8 +61,104 @@ impl Default for _Transform {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-pub struct Transform(pub i32);
+#[derive(Clone, Copy)]
+pub struct Transform <'a>{
+    pub id: i32,
+    pub transforms: &'a Transforms,
+}
+
+#[allow(dead_code)]
+impl <'a> Transform<'a> {
+    pub fn forward(&self) -> glm::Vec3 {
+        glm::quat_to_mat3(&*self.transforms.rotations[self.id as usize].lock()) * glm::Vec3::z()
+    }
+    pub fn right(&self) -> glm::Vec3 {
+        glm::quat_to_mat3(&*self.transforms.rotations[self.id as usize].lock()) * glm::Vec3::x()
+    }
+    pub fn up(&self) -> glm::Vec3 {
+        glm::quat_to_mat3(&*self.transforms.rotations[self.id as usize].lock()) * glm::Vec3::y()
+    }
+
+    pub fn _move(&self, v: Vec3) {
+        self.transforms._move(self.id, v);
+    }
+    // fn move_child(&self,  v: Vec3) {
+    //     self._move(t, v);
+    //     for child in self.meta[t as usize].lock().children.read().iter() {
+    //         self.move_child(*child, v);
+    //     }
+    // }
+    pub fn translate(&self, mut v: Vec3) {
+        self.transforms.translate(self.id, v);
+    }
+    pub fn get_position(&self) -> Vec3 {
+        self.transforms.get_position(self.id)
+    }
+    pub fn set_position(&self,  v: Vec3) {
+        self.transforms.set_position(self.id, v);
+    }
+    pub fn get_rotation(&self) -> Quat {
+        self.transforms.get_rotation(self.id)
+    }
+    pub fn set_rotation(&self,  r: Quat) {
+        self.transforms.set_rotation(self.id, r);
+    }
+    // fn set_rotation_child(&self, tc: i32, rot: &Mat3, pos: &Vec3) {
+    //     let mut rotat = self.rotations[tc as usize].lock();
+    //     let mut posi = self.positions[tc as usize].lock();
+
+    //     *posi = pos + rot * (*posi - pos);
+    //     self.u_pos(tc);
+    //     *rotat = glm::mat3_to_quat(&rot) * *rotat;
+    //     self.u_rot(tc);
+    //     for child in self.meta[tc as usize].lock().children.read().iter() {
+    //         self.set_rotation_child(*child, &rot, &pos)
+    //     }
+    // }
+    pub fn get_scale(&self) -> Vec3 {
+        self.transforms.get_scale(self.id)
+    }
+    pub fn set_scale(&self,  s: Vec3) {
+        self.transforms.set_scale(self.id, s);
+    }
+    pub fn scale(&self,  s: Vec3) {
+        self.transforms.scale(self.id, s);
+    }
+    // fn scale_child(&self,  p: &Vec3, s: &Vec3) {
+    //     let mut scl = self.scales[t as usize].lock();
+    //     let mut posi = self.positions[t as usize].lock();
+
+    //     *posi = mul_vec3(&(*posi - p), s) + p;
+    //     self.u_pos(t);
+    //     *scl = mul_vec3(s, &*scl);
+    //     self.u_scl(t);
+    //     for child in self.meta[t as usize].lock().children.read().iter() {
+    //         self.scale_child(*child, p, s);
+    //     }
+    // }
+
+    pub fn rotate(&self,  axis: &Vec3, radians: f32) {
+        self.transforms.rotate(self.id, axis, radians);
+    }
+
+    // fn rotate_child(&self,  axis: &Vec3, p: &Vec3, r: &Quat, radians: f32) {
+    //     let ax = glm::quat_to_mat3(&r) * axis;
+    //     let mut rot = self.rotations[t as usize].lock();
+    //     let mut pos = self.positions[t as usize].lock();
+
+    //     *pos = *pos + glm::rotate_vec3(&(*pos - p), radians, &ax);
+    //     *rot = glm::quat_rotate(
+    //         &*rot,
+    //         radians,
+    //         &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * ax),
+    //     );
+    //     for child in self.meta[t as usize].lock().children.read().iter() {
+    //         self.rotate_child(*child, axis, p, r, radians);
+    //     }
+    // }
+
+
+}
 
 pub const POS_U: usize = 0;
 pub const ROT_U: usize = 1;
@@ -87,7 +183,7 @@ impl Transforms {
             extent: 0,
         }
     }
-    pub fn new_root(&mut self) -> Transform {
+    pub fn new_root(&mut self) -> i32 {
         match self.avail.pop() {
             Some(Reverse(i)) => {
                 self.positions[i as usize] = Mutex::new(glm::vec3(0.0, 0.0, 0.0));
@@ -97,7 +193,7 @@ impl Transforms {
                 self.updates[i as usize][POS_U].store(true, Ordering::Relaxed);
                 self.updates[i as usize][ROT_U].store(true, Ordering::Relaxed);
                 self.updates[i as usize][SCL_U].store(true, Ordering::Relaxed);
-                Transform(i)
+                i
             }
             None => {
                 self.positions.push(Mutex::new(glm::vec3(0.0, 0.0, 0.0)));
@@ -111,15 +207,15 @@ impl Transforms {
                     AtomicBool::new(true),
                 ]);
                 self.extent += 1;
-                Transform(self.extent as i32 - 1)
+                self.extent as i32 - 1
             }
         }
     }
-    pub fn new_transform(&mut self, parent: Transform) -> Transform {
+    pub fn new_transform(&mut self, parent: i32) -> i32 {
         self.new_transform_with(parent, Default::default())
     }
-    pub fn new_transform_with(&mut self, parent: Transform, transform: _Transform) -> Transform {
-        if parent.0 == -1 {
+    pub fn new_transform_with(&mut self, parent: i32, transform: _Transform) -> i32 {
+        if parent == -1 {
             panic!("no")
         }
         let ret = match self.avail.pop() {
@@ -131,7 +227,7 @@ impl Transforms {
                 self.updates[i as usize][POS_U].store(true, Ordering::Relaxed);
                 self.updates[i as usize][ROT_U].store(true, Ordering::Relaxed);
                 self.updates[i as usize][SCL_U].store(true, Ordering::Relaxed);
-                Transform(i)
+                i
             }
             None => {
                 self.positions.push(Mutex::new(transform.position));
@@ -144,14 +240,14 @@ impl Transforms {
                     AtomicBool::new(true),
                 ]);
                 self.extent += 1;
-                Transform(self.extent as i32 - 1)
+                self.extent as i32 - 1
             }
         };
-        let mut meta = self.meta[ret.0 as usize].lock();
+        let mut meta = self.meta[ret as usize].lock();
         meta.parent = parent;
         unsafe {
             meta.child_id = SendSync::new(
-                self.meta[parent.0 as usize]
+                self.meta[parent as usize]
                     .lock()
                     .children
                     .write()
@@ -160,140 +256,140 @@ impl Transforms {
         }
         ret
     }
-    pub fn remove(&mut self, t: Transform) {
+    pub fn remove(&mut self, t: i32) {
         {
-            let meta = self.meta[t.0 as usize].lock();
-            if meta.parent.0 < 0 {
+            let meta = self.meta[t as usize].lock();
+            if meta.parent < 0 {
                 panic!("wat?")
             }
-            self.meta[meta.parent.0 as usize]
+            self.meta[meta.parent as usize]
                 .lock()
                 .children
                 .write()
                 .pop_node(&meta.child_id);
         }
 
-        self.meta[t.0 as usize] = Mutex::new(TransformMeta::new());
-        self.avail.push(Reverse(t.0));
+        self.meta[t as usize] = Mutex::new(TransformMeta::new());
+        self.avail.push(Reverse(t));
     }
 
-    fn u_pos(&self, t: Transform) {
-        self.updates[t.0 as usize][POS_U].store(true, Ordering::Relaxed);
+    fn u_pos(&self, t: i32) {
+        self.updates[t as usize][POS_U].store(true, Ordering::Relaxed);
     }
-    fn u_rot(&self, t: Transform) {
-        self.updates[t.0 as usize][ROT_U].store(true, Ordering::Relaxed);
+    fn u_rot(&self, t: i32) {
+        self.updates[t as usize][ROT_U].store(true, Ordering::Relaxed);
     }
-    fn u_scl(&self, t: Transform) {
-        self.updates[t.0 as usize][SCL_U].store(true, Ordering::Relaxed);
-    }
-
-    pub fn forward(&self, t: Transform) -> glm::Vec3 {
-        glm::quat_to_mat3(&*self.rotations[t.0 as usize].lock()) * glm::Vec3::z()
-    }
-    pub fn right(&self, t: Transform) -> glm::Vec3 {
-        glm::quat_to_mat3(&*self.rotations[t.0 as usize].lock()) * glm::Vec3::x()
-    }
-    pub fn up(&self, t: Transform) -> glm::Vec3 {
-        glm::quat_to_mat3(&*self.rotations[t.0 as usize].lock()) * glm::Vec3::y()
+    fn u_scl(&self, t: i32) {
+        self.updates[t as usize][SCL_U].store(true, Ordering::Relaxed);
     }
 
-    pub fn _move(&self, t: Transform, v: Vec3) {
-        *self.positions[t.0 as usize].lock() += v;
+    pub fn forward(&self, t: i32) -> glm::Vec3 {
+        glm::quat_to_mat3(&*self.rotations[t as usize].lock()) * glm::Vec3::z()
+    }
+    pub fn right(&self, t: i32) -> glm::Vec3 {
+        glm::quat_to_mat3(&*self.rotations[t as usize].lock()) * glm::Vec3::x()
+    }
+    pub fn up(&self, t: i32) -> glm::Vec3 {
+        glm::quat_to_mat3(&*self.rotations[t as usize].lock()) * glm::Vec3::y()
+    }
+
+    pub fn _move(&self, t: i32, v: Vec3) {
+        *self.positions[t as usize].lock() += v;
         self.u_pos(t);
     }
-    fn move_child(&self, t: Transform, v: Vec3) {
+    fn move_child(&self, t: i32, v: Vec3) {
         self._move(t, v);
-        for child in self.meta[t.0 as usize].lock().children.read().iter() {
+        for child in self.meta[t as usize].lock().children.read().iter() {
             self.move_child(*child, v);
         }
     }
-    pub fn translate(&self, t: Transform, mut v: Vec3) {
-        v = glm::quat_to_mat3(&self.rotations[t.0 as usize].lock()) * v;
-        *self.positions[t.0 as usize].lock() += v;
+    pub fn translate(&self, t: i32, mut v: Vec3) {
+        v = glm::quat_to_mat3(&self.rotations[t as usize].lock()) * v;
+        *self.positions[t as usize].lock() += v;
         self.u_pos(t);
-        for child in self.meta[t.0 as usize].lock().children.read().iter() {
+        for child in self.meta[t as usize].lock().children.read().iter() {
             self.move_child(*child, v);
         }
     }
-    pub fn get_position(&self, t: Transform) -> Vec3 {
-        *self.positions[t.0 as usize].lock()
+    pub fn get_position(&self, t: i32) -> Vec3 {
+        *self.positions[t as usize].lock()
     }
-    pub fn set_position(&self, t: Transform, v: Vec3) {
-        *self.positions[t.0 as usize].lock() = v;
+    pub fn set_position(&self, t: i32, v: Vec3) {
+        *self.positions[t as usize].lock() = v;
         self.u_pos(t);
     }
-    pub fn get_rotation(&self, t: Transform) -> Quat {
-        *self.rotations[t.0 as usize].lock()
+    pub fn get_rotation(&self, t: i32) -> Quat {
+        *self.rotations[t as usize].lock()
     }
-    pub fn set_rotation(&self, t: Transform, r: Quat) {
-        let mut r_l = self.rotations[t.0 as usize].lock();
+    pub fn set_rotation(&self, t: i32, r: Quat) {
+        let mut r_l = self.rotations[t as usize].lock();
         *r_l = r;
         self.u_rot(t);
         let inv_rot = glm::inverse(&glm::quat_to_mat3(&*r_l));
         drop(r_l);
-        let pos = *self.positions[t.0 as usize].lock();
-        for child in self.meta[t.0 as usize].lock().children.read().iter() {
+        let pos = *self.positions[t as usize].lock();
+        for child in self.meta[t as usize].lock().children.read().iter() {
             self.set_rotation_child(*child, &inv_rot, &pos)
         }
     }
-    fn set_rotation_child(&self, tc: Transform, rot: &Mat3, pos: &Vec3) {
-        let mut rotat = self.rotations[tc.0 as usize].lock();
-        let mut posi = self.positions[tc.0 as usize].lock();
+    fn set_rotation_child(&self, tc: i32, rot: &Mat3, pos: &Vec3) {
+        let mut rotat = self.rotations[tc as usize].lock();
+        let mut posi = self.positions[tc as usize].lock();
 
         *posi = pos + rot * (*posi - pos);
         self.u_pos(tc);
         *rotat = glm::mat3_to_quat(&rot) * *rotat;
         self.u_rot(tc);
-        for child in self.meta[tc.0 as usize].lock().children.read().iter() {
+        for child in self.meta[tc as usize].lock().children.read().iter() {
             self.set_rotation_child(*child, &rot, &pos)
         }
     }
-    pub fn get_scale(&self, t: Transform) -> Vec3 {
-        *self.scales[t.0 as usize].lock()
+    pub fn get_scale(&self, t: i32) -> Vec3 {
+        *self.scales[t as usize].lock()
     }
-    pub fn set_scale(&self, t: Transform, s: Vec3) {
-        // *self.positions[t.0 as usize].lock() = v;
+    pub fn set_scale(&self, t: i32, s: Vec3) {
+        // *self.positions[t as usize].lock() = v;
         // self.pos_u(t);
-        let scl = *self.scales[t.0 as usize].lock();
+        let scl = *self.scales[t as usize].lock();
         self.scale(t, glm::vec3(s.x / scl.x, s.y / scl.y, s.z / scl.z));
     }
-    pub fn scale(&self, t: Transform, s: Vec3) {
-        let mut scl = self.positions[t.0 as usize].lock();
+    pub fn scale(&self, t: i32, s: Vec3) {
+        let mut scl = self.positions[t as usize].lock();
         *scl = mul_vec3(&s, &*scl);
         self.u_scl(t);
         let pos = self.get_position(t);
-        for child in self.meta[t.0 as usize].lock().children.read().iter() {
+        for child in self.meta[t as usize].lock().children.read().iter() {
             self.scale_child(*child, &pos, &s);
         }
     }
-    fn scale_child(&self, t: Transform, p: &Vec3, s: &Vec3) {
-        let mut scl = self.scales[t.0 as usize].lock();
-        let mut posi = self.positions[t.0 as usize].lock();
+    fn scale_child(&self, t: i32, p: &Vec3, s: &Vec3) {
+        let mut scl = self.scales[t as usize].lock();
+        let mut posi = self.positions[t as usize].lock();
 
         *posi = mul_vec3(&(*posi - p), s) + p;
         self.u_pos(t);
         *scl = mul_vec3(s, &*scl);
         self.u_scl(t);
-        for child in self.meta[t.0 as usize].lock().children.read().iter() {
+        for child in self.meta[t as usize].lock().children.read().iter() {
             self.scale_child(*child, p, s);
         }
     }
 
-    pub fn rotate(&self, t: Transform, axis: &Vec3, radians: f32) {
-        let mut rot = self.rotations[t.0 as usize].lock();
+    pub fn rotate(&self, t: i32, axis: &Vec3, radians: f32) {
+        let mut rot = self.rotations[t as usize].lock();
         *rot = glm::quat_rotate(&*rot, radians, axis);
         self.u_rot(t);
         let pos = self.get_position(t);
         let rot = *rot;
-        for child in self.meta[t.0 as usize].lock().children.read().iter() {
+        for child in self.meta[t as usize].lock().children.read().iter() {
             self.rotate_child(*child, axis, &pos, &rot, radians);
         }
     }
 
-    fn rotate_child(&self, t: Transform, axis: &Vec3, p: &Vec3, r: &Quat, radians: f32) {
+    fn rotate_child(&self, t: i32, axis: &Vec3, p: &Vec3, r: &Quat, radians: f32) {
         let ax = glm::quat_to_mat3(&r) * axis;
-        let mut rot = self.rotations[t.0 as usize].lock();
-        let mut pos = self.positions[t.0 as usize].lock();
+        let mut rot = self.rotations[t as usize].lock();
+        let mut pos = self.positions[t as usize].lock();
 
         *pos = *pos + glm::rotate_vec3(&(*pos - p), radians, &ax);
         *rot = glm::quat_rotate(
@@ -301,7 +397,7 @@ impl Transforms {
             radians,
             &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * ax),
         );
-        for child in self.meta[t.0 as usize].lock().children.read().iter() {
+        for child in self.meta[t as usize].lock().children.read().iter() {
             self.rotate_child(*child, axis, p, r, radians);
         }
     }

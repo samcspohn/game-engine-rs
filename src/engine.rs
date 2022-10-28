@@ -7,7 +7,11 @@ pub mod transform;
 use std::{
     any::{Any, TypeId},
     cmp::Reverse,
-    collections::{HashMap}, sync::{Arc, atomic::AtomicBool},
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use transform::{Transform, Transforms};
@@ -17,36 +21,29 @@ use transform::{Transform, Transforms};
 use rayon::prelude::*;
 
 use crossbeam::queue::SegQueue;
-use parking_lot::{Mutex, RwLock};
-// use spin::{Mutex, RwLock};
 
-use crate::{input::Input, model::ModelManager, renderer_component2::RendererManager, particles::ParticleCompute};
+use parking_lot::RwLock;
+use spin::Mutex;
+
+use crate::{
+    input::Input, model::ModelManager, particles::ParticleCompute,
+    renderer_component2::RendererManager,
+};
 
 use self::physics::Physics;
 
 pub struct LazyMaker {
-    work: SegQueue<
-        Box<
-            dyn FnOnce(&mut World)
-                + Send
-                + Sync,
-        >,
-    >,
+    work: SegQueue<Box<dyn FnOnce(&mut World) + Send + Sync>>,
 }
 
 impl LazyMaker {
     pub fn append<T: 'static>(&self, f: T)
     where
-        T: FnOnce(&mut World)
-            + Send
-            + Sync,
+        T: FnOnce(&mut World) + Send + Sync,
     {
         self.work.push(Box::new(f));
     }
-    pub fn do_defered(
-        &self,
-        wrld: &mut World,
-    ) {
+    pub fn do_defered(&self, wrld: &mut World) {
         while let Some(w) = self.work.pop() {
             w(wrld);
         }
@@ -63,15 +60,15 @@ pub struct System<'a> {
     pub physics: &'a crate::engine::physics::Physics,
     pub defer: &'a crate::engine::LazyMaker,
     pub input: &'a crate::input::Input,
-    pub modeling: &'a Mutex<crate::ModelManager>,
+    pub modeling: &'a parking_lot::Mutex<crate::ModelManager>,
     pub rendering: &'a RwLock<crate::RendererManager>,
 }
 
 pub trait Component {
-    fn assign_transform(&mut self, t: Transform);
-    fn init(&mut self, id: i32, sys: &mut Sys) {}
-    fn deinit(&mut self,id: i32, _sys: &mut Sys) {}
-    fn update(&mut self, sys: &System) {}
+    // fn assign_transform(&mut self, t: Transform);
+    fn init(&mut self, transform: Transform, id: i32, sys: &mut Sys) {}
+    fn deinit(&mut self, transform: Transform, id: i32, _sys: &mut Sys) {}
+    fn update(&mut self, transform: Transform, sys: &System) {}
 }
 
 pub trait StorageBase {
@@ -83,48 +80,46 @@ pub trait StorageBase {
         phys: &physics::Physics,
         lazy_maker: &LazyMaker,
         input: &Input,
-        modeling: &Mutex<crate::ModelManager>,
+        modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
     );
     fn erase(&mut self, i: i32);
-    fn deinit(&mut self, i: i32, sys: &mut Sys);
-    fn init(&mut self, i: i32, sys: &mut Sys);
+    fn deinit(&mut self, transform: Transform, i: i32, sys: &mut Sys);
+    fn init(&mut self, transform: Transform, i: i32, sys: &mut Sys);
 }
-
 
 // use pqueue::Queue;
 pub struct Storage<T> {
-    pub data: Vec<Option<T>>,
+    pub data: Vec<Mutex<(i32, T)>>,
     pub valid: Vec<AtomicBool>,
     avail: pqueue::Queue<Reverse<i32>>,
     extent: i32,
     has_update: bool,
 }
 impl<T: 'static> Storage<T> {
-    pub fn emplace(&mut self, d: T) -> i32 {
+    pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
         match self.avail.pop() {
             Some(Reverse(i)) => {
-                self.data[i as usize] = Some(d);
+                *self.data[i as usize].lock() = (transform, d);
+                self.valid[i as usize].store(true, Ordering::Relaxed);
                 i
             }
             None => {
-                self.data.push(Some(d));
+                self.data.push(Mutex::new((transform, d)));
+                self.valid.push(AtomicBool::new(true));
                 self.extent += 1;
                 self.extent as i32 - 1
             }
         }
     }
     pub fn erase(&mut self, id: i32) {
-        self.data[id as usize] = None;
+        // self.data[id as usize] = None;
+        self.valid[id as usize].store(false, Ordering::Relaxed);
         self.avail.push(Reverse(id));
     }
-    pub fn get(&self, i: &i32) -> Option<&T> {
-        if let Some(d) = &self.data[*i as usize] {
-            return Some(d);
-        } else {
-            None
-        }
-    }
+    // pub fn get(&self, i: &i32) -> &Mutex<T> {
+    //     &self.data[*i as usize]
+    // }
     pub fn new(has_update: bool) -> Storage<T> {
         Storage::<T> {
             data: Vec::new(),
@@ -132,6 +127,43 @@ impl<T: 'static> Storage<T> {
             avail: pqueue::Queue::new(),
             extent: 0,
             has_update,
+        }
+    }
+}
+
+pub struct _Storage<T> {
+    pub data: Vec<T>,
+    pub valid: Vec<AtomicBool>,
+    avail: pqueue::Queue<Reverse<i32>>,
+    extent: i32,
+}
+impl<T: 'static> _Storage<T> {
+    pub fn emplace(&mut self, d: T) -> i32 {
+        match self.avail.pop() {
+            Some(Reverse(i)) => {
+                self.data[i as usize] = d;
+                i
+            }
+            None => {
+                self.data.push(d);
+                self.extent += 1;
+                self.extent as i32 - 1
+            }
+        }
+    }
+    pub fn erase(&mut self, id: i32) {
+        // self.data[id as usize] = None;
+        self.avail.push(Reverse(id));
+    }
+    pub fn get(&self, i: &i32) -> &T {
+        &self.data[*i as usize]
+    }
+    pub fn new() -> _Storage<T> {
+        _Storage::<T> {
+            data: Vec::new(),
+            valid: Vec::new(),
+            avail: pqueue::Queue::new(),
+            extent: 0,
         }
     }
 }
@@ -149,7 +181,7 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
         physics: &physics::Physics,
         lazy_maker: &LazyMaker,
         input: &Input,
-        modeling: &Mutex<crate::ModelManager>,
+        modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
     ) {
         if !self.has_update {
@@ -168,12 +200,18 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
         // (0..self.data.len())
         self.data
             .par_iter_mut()
+            .zip_eq(self.valid.par_iter())
             .enumerate()
             .chunks(chunk_size)
             .for_each(|slice| {
-                for (_i, o) in slice {
-                    if let Some(d) = o {
-                        d.update(&sys);
+                for (_i, (d, v)) in slice {
+                    if v.load(Ordering::Relaxed) {
+                        let mut d = d.lock();
+                        let trans = Transform {
+                            id: d.0,
+                            transforms: &transforms,
+                        };
+                        d.1.update(trans, &sys);
                     }
                 }
             });
@@ -196,21 +234,21 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
     fn erase(&mut self, i: i32) {
         self.erase(i);
     }
-    fn deinit(&mut self, i: i32, sys: &mut Sys) {
-        self.data[i as usize].as_mut().unwrap().deinit(i, sys);
+    fn deinit(&mut self, transform: Transform, i: i32, sys: &mut Sys) {
+        self.data[i as usize].lock().1.deinit(transform, i, sys);
     }
-    fn init(&mut self, i: i32, sys: &mut Sys) {
-        self.data[i as usize].as_mut().unwrap().init(i, sys);
+    fn init(&mut self, transform: Transform, i: i32, sys: &mut Sys) {
+        self.data[i as usize].lock().1.init(transform, i, sys);
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct GameObject {
-    pub t: Transform,
+    pub t: i32,
 }
 
 pub struct Sys {
-    pub model_manager: Arc<Mutex<ModelManager>>,
+    pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub physics: Physics, // bombs: Vec<Option<Mutex<Bomb>>>,
     pub particles: Arc<ParticleCompute>,
@@ -220,16 +258,14 @@ pub struct World {
     entities: RwLock<Vec<Option<RwLock<HashMap<TypeId, i32>>>>>,
     pub transforms: RwLock<Transforms>,
     components: HashMap<TypeId, RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
-    root: Transform,
-    pub sys: Sys
-    
-                      // makers: Vec<Option<Mutex<Maker>>>,
+    root: i32,
+    pub sys: Sys, // makers: Vec<Option<Mutex<Maker>>>,
 }
 
 #[allow(dead_code)]
 impl World {
     pub fn new(
-        modeling: Arc<Mutex<ModelManager>>,
+        modeling: Arc<parking_lot::Mutex<ModelManager>>,
         renderer_manager: Arc<RwLock<RendererManager>>,
         physics: Physics,
         particles: Arc<ParticleCompute>,
@@ -246,7 +282,7 @@ impl World {
                 renderer_manager,
                 physics,
                 particles,
-            }
+            },
         }
     }
     pub fn instantiate(&self) -> GameObject {
@@ -256,10 +292,10 @@ impl World {
         };
         {
             let entities = &mut self.entities.write();
-            if ret.t.0 as usize >= entities.len() {
+            if ret.t as usize >= entities.len() {
                 entities.push(Some(RwLock::new(HashMap::new())));
             } else {
-                entities[ret.t.0 as usize] = Some(RwLock::new(HashMap::new()));
+                entities[ret.t as usize] = Some(RwLock::new(HashMap::new()));
             }
         }
         ret
@@ -271,16 +307,16 @@ impl World {
         };
         {
             let entities = &mut self.entities.write();
-            if ret.t.0 as usize >= entities.len() {
+            if ret.t as usize >= entities.len() {
                 entities.push(Some(RwLock::new(HashMap::new())));
             } else {
-                entities[ret.t.0 as usize] = Some(RwLock::new(HashMap::new()));
+                entities[ret.t as usize] = Some(RwLock::new(HashMap::new()));
             }
         }
         ret
     }
     pub fn add_component<T: 'static + Send + Sync + Component>(&mut self, g: GameObject, mut d: T) {
-        d.assign_transform(g.t);
+        // d.assign_transform(g.t);
         let key: TypeId = TypeId::of::<T>();
         if let Some(stor) = self
             .components
@@ -290,11 +326,14 @@ impl World {
             .as_any_mut()
             .downcast_mut::<Storage<T>>()
         {
-            let c_id = stor.emplace(d);
-            stor.init(c_id, &mut self.sys);
-            if let Some(ent_components) = &self.entities.read()[g.t.0 as usize] {
+            let c_id = stor.emplace(g.t, d);
+            let trans = Transform {
+                id: g.t,
+                transforms: &self.transforms.read(),
+            };
+            stor.init(trans, c_id, &mut self.sys);
+            if let Some(ent_components) = &self.entities.read()[g.t as usize] {
                 ent_components.write().insert(key, c_id);
-
             }
         } else {
             panic!("no type key?")
@@ -309,34 +348,44 @@ impl World {
     pub fn delete(&mut self, g: GameObject) {
         // remove/deinit components
         let ent = &mut self.entities.write();
-        if let Some(g_components) = &ent[g.t.0 as usize] {
+        if let Some(g_components) = &ent[g.t as usize] {
             for (t, id) in &*g_components.write() {
                 let stor = &mut self.components.get(&t).unwrap().write();
-                stor.deinit(*id, &mut self.sys);
+                let trans = Transform {
+                    id: g.t,
+                    transforms: &self.transforms.read(),
+                };
+                stor.deinit(trans, *id, &mut self.sys);
                 stor.erase(*id);
             }
         }
         // remove entity
-        ent[g.t.0 as usize] = None; // todo make read()
+        ent[g.t as usize] = None; // todo make read()
 
         // remove transform
         self.transforms.write().remove(g.t);
     }
-    pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: GameObject, f: F)
-    where
-        F: FnOnce(Option<&T>),
-    {
-        let key: TypeId = TypeId::of::<T>();
+    // pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: GameObject, f: F)
+    // where
+    //     F: FnOnce(&Mutex<T>),
+    // {
+    //     let key: TypeId = TypeId::of::<T>();
 
-        if let Some(components) = &self.entities.read()[g.t.0 as usize] {
-            if let Some(id) = &components.read().get(&key) {
-                if let Some(stor_base) = &self.components.get(&key) {
-                    if let Some(stor) = stor_base.write().as_any().downcast_ref::<Storage<T>>() {
-                        f(stor.get(id));
-                    }
-                }
-            }
-        }
+    //     if let Some(components) = &self.entities.read()[g.t.0 as usize] {
+    //         if let Some(id) = &components.read().get(&key) {
+    //             if let Some(stor_base) = &self.components.get(&key) {
+    //                 if let Some(stor) = stor_base.write().as_any().downcast_ref::<Storage<T>>() {
+    //                     f(stor.get(id));
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+    pub fn get_components<T: 'static + Send + Sync + Component>(
+        &self,
+    ) -> Option<&RwLock<Box<dyn StorageBase + Send + Sync>>> {
+        let key: TypeId = TypeId::of::<T>();
+        self.components.get(&key)
     }
 
     pub fn update(
@@ -350,8 +399,14 @@ impl World {
         let transforms = self.transforms.read();
 
         for (_, stor) in &self.components {
-            stor.write()
-                .update(&transforms, &self.sys.physics, &lazy_maker, &input, &self.sys.model_manager, &self.sys.renderer_manager);
+            stor.write().update(
+                &transforms,
+                &self.sys.physics,
+                &lazy_maker,
+                &input,
+                &self.sys.model_manager,
+                &self.sys.renderer_manager,
+            );
         }
     }
 }

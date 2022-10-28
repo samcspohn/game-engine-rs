@@ -1,6 +1,5 @@
 use component_derive::component;
 
-
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
@@ -14,35 +13,36 @@ use std::{
         mpsc::{Receiver, Sender},
         Arc,
     },
-    time::{Instant},
+    time::Instant,
 };
-use vulkano::{device::Device};
+use vulkano::device::Device;
 use winit::event::VirtualKeyCode;
 // use rapier3d::{na::point, prelude::InteractionGroups};
 
 use crate::{
     engine::{
-        physics::{Physics},
-        transform::{Transform, _Transform},
-        Component, LazyMaker, Sys, System, World,
+        physics::Physics,
+        transform::{Transform, _Transform, self},
+        Component, GameObject, LazyMaker, Storage, Sys, System, World,
     },
     input::Input,
     model::ModelManager,
+    particles::{cs::ty::emitter_init, ParticleCompute, ParticleEmitter},
     perf::Perf,
     renderer_component2::{Renderer, RendererData, RendererManager},
-    terrain::Terrain, particles::{ParticleCompute, ParticleEmitter, cs::ty::emitter_init},
+    terrain::Terrain,
 };
 
-#[component]
+// #[component]
 pub struct Bomb {
     pub vel: glm::Vec3,
 }
 impl Component for Bomb {
-    fn assign_transform(&mut self, t: Transform) {
-        self.t = t;
-    }
-    fn update(&mut self, sys: &System) {
-        let pos = sys.trans.get_position(self.t);
+    // fn assign_transform(&mut self, t: Transform) {
+    //     self.t = t;
+    // }
+    fn update(&mut self, transform:Transform, sys: &System) {
+        let pos = transform.get_position();
         let vel = self.vel;
         let dt = sys.input.time.dt.min(1. / 20.);
         // let dt = 1. / 100.;
@@ -71,28 +71,27 @@ impl Component for Bomb {
         //     trans.set_position(self.t, pos);
         // }
         // sys.trans.rotate(self.t, &glm::Vec3::y(), 3.0 * dt);
-        sys.trans._move(self.t, self.vel * dt);
+        transform._move(self.vel * dt);
         self.vel += glm::vec3(0.0, -9.81, 0.0) * dt;
 
         // *pos += vel * (1.0 / 60.0);
     }
 }
-#[component]
+// #[component]
 pub struct Maker {}
 impl Component for Maker {
-    fn assign_transform(&mut self, t: Transform) {
-        self.t = t;
-    }
+    // fn assign_transform(&mut self, t: Transform) {
+    //     self.t = t;
+    // }
     // fn init(&mut self, t: Transform, _sys: &mut Sys) {
     //     self.t = t;
     // }
-    fn update(&mut self, sys: &System) {
+    fn update(&mut self,_transform: Transform, sys: &System) {
         sys.defer.append(|world| {
             let g = world.instantiate();
             world.add_component(
                 g,
                 Bomb {
-                    t: Transform(-1),
                     vel: glm::vec3(rand::random(), rand::random(), rand::random()),
                 },
             );
@@ -121,7 +120,7 @@ pub fn game_thread_fn(
             glm::Vec3,
             glm::Quat,
             RendererData,
-            Arc<Mutex<Vec<crate::particles::cs::ty::emitter_init>>>,
+            (usize,Vec<crate::particles::cs::ty::emitter_init>),
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
@@ -178,13 +177,22 @@ pub fn game_thread_fn(
 
     {
         // let mut renderer_manager = world.renderer_manager.lock();
-        for _ in 0..0  {
+        for _ in 0..1_000_000 {
             // bombs
-            let g = world.instantiate();
+            let g = world.instantiate_with_transform(_Transform {
+                position: glm::vec3(
+                    // (rand::random::<f32>() - 0.5) * 2000.,
+                    // (rand::random::<f32>() - 0.5) * 2000.,
+                    // (rand::random::<f32>() - 0.5) * 2000.,
+                    (rand::random::<f32>() - 0.5) * 1500.,
+                    100. + (rand::random::<f32>() - 0.5) * 100.,
+                    (rand::random::<f32>() - 0.5) * 150.,
+                ),
+                ..Default::default()
+            });
             world.add_component(
                 g,
                 Bomb {
-                    t: Transform(-1),
                     vel: glm::vec3(
                         rand::random::<f32>() - 0.5,
                         rand::random::<f32>() - 0.5,
@@ -192,15 +200,16 @@ pub fn game_thread_fn(
                     ) * 5.0,
                 },
             );
-            world.add_component(g, Renderer::new(g.t, 0));
-            world.transforms.read()._move(
-                g.t,
-                glm::vec3(
-                    rand::random::<f32>() * 100. - 50.,
-                    50.0 + rand::random::<f32>() * 100.,
-                    rand::random::<f32>() * 100. - 50.,
-                ),
-            );
+            world.add_component(g, Renderer::new(0));
+            // world.add_component(g, ParticleEmitter::new(0));
+            // world.transforms.read()._move(
+            //     g.t,
+            //     glm::vec3(
+            //         rand::random::<f32>() * 100. - 50.,
+            //         50.0 + rand::random::<f32>() * 100.,
+            //         rand::random::<f32>() * 100. - 50.,
+            //     ),
+            // );
         }
     }
     // {
@@ -210,7 +219,7 @@ pub fn game_thread_fn(
     // }
 
     ////////////////////////////////////////////////
-    let mut cam_pos = glm::vec3(0.0 as f32, 0.0, -1.0);
+    let mut cam_pos = glm::vec3(0.0, 10.0, -1.0);
     let mut cam_rot = glm::quat(1.0, 0.0, 0.0, 0.0);
 
     let mut perf = Perf {
@@ -271,13 +280,13 @@ pub fn game_thread_fn(
                     input.get_mouse_delta().1 as f32 * 0.01,
                     &Vec3::x(),
                 );
-                // const ALOT: f32 = 10_000_000. / 60.;
+                const ALOT: f32 = 10_000_000. / 60.;
                 if input.get_mouse_button(&0) {
                     let _cam_rot = cam_rot.clone();
                     let _cam_pos = cam_pos.clone();
                     // let rm = renderer_manager.clone();
                     lazy_maker.append(move |world| {
-                        let len = 1;//(ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
+                        let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
                         // let chunk_size =  (len / (64 * 64)).max(1);
                         (0..len)
                             .into_iter()
@@ -292,7 +301,6 @@ pub fn game_thread_fn(
                                 world.add_component(
                                     g,
                                     Bomb {
-                                        t: Transform(-1),
                                         vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
                                             + glm::vec3(
                                                 rand::random(),
@@ -301,7 +309,7 @@ pub fn game_thread_fn(
                                             ) * 18.,
                                     },
                                 );
-                                world.add_component(g, Renderer::new(g.t, 0));
+                                world.add_component(g, Renderer::new(0));
                                 world.add_component(g, ParticleEmitter::new(0));
                             });
                     });
@@ -377,9 +385,16 @@ pub fn game_thread_fn(
         };
         rm.updates.clear();
 
-        let emitter_inits = world.sys.particles.emitter_inits.lock().clone();
-        let mut lock = world.sys.particles.emitter_inits.lock(); 
-        *lock = Arc::new(Mutex::new(Vec::new()));
+        let emitter_len = world
+            .get_components::<ParticleEmitter>()
+            .unwrap()
+            .read()
+            .as_any()
+            .downcast_ref::<Storage<ParticleEmitter>>().unwrap().data.len();
+        let mut emitter_inits = world.sys.particles.emitter_inits.lock();
+        let mut v = Vec::<emitter_init>::new();
+        std::mem::swap(&mut v, &mut emitter_inits);
+        // *lock = Arc::new(Mutex::new(Vec::new()));
 
         perf.update("get renderer data".into(), Instant::now() - inst);
 
@@ -391,7 +406,7 @@ pub fn game_thread_fn(
             cam_pos.clone(),
             cam_rot.clone(),
             renderer_data,
-            emitter_inits,
+            (emitter_len,v),
             // render_data,
             // terr_chunks,
         ));

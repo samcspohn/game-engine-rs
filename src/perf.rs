@@ -12,14 +12,14 @@ impl Perf {
         let perf = &mut self.data;
         if let Some(q) = perf.get_mut(&k) {
             q.push(d);
-            if q.len() > 200 {
+            if q.len() > 50 {
                 q.pop();
             }
         } else {
             perf.insert(k.clone(), SegQueue::new());
             if let Some(q) = perf.get_mut(&k) {
                 q.push(d);
-                if q.len() > 200 {
+                if q.len() > 50 {
                     q.pop();
                 }
             }
