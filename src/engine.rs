@@ -2,7 +2,6 @@
 pub mod physics;
 #[path = "transform.rs"]
 pub mod transform;
-// use component_derive::component;
 
 use std::{
     any::{Any, TypeId},
@@ -304,6 +303,21 @@ impl World {
         let mut trans = self.transforms.write();
         let ret = GameObject {
             t: trans.new_transform_with(self.root, transform),
+        };
+        {
+            let entities = &mut self.entities.write();
+            if ret.t as usize >= entities.len() {
+                entities.push(Some(RwLock::new(HashMap::new())));
+            } else {
+                entities[ret.t as usize] = Some(RwLock::new(HashMap::new()));
+            }
+        }
+        ret
+    }
+    pub fn instantiate_with_transform_with_parent(&self, parent: i32, transform: transform::_Transform) -> GameObject {
+        let mut trans = self.transforms.write();
+        let ret = GameObject {
+            t: trans.new_transform_with(parent, transform),
         };
         {
             let entities = &mut self.entities.write();

@@ -5,7 +5,6 @@ use crate::{
     fast_buffer,
     renderer::Id,
 };
-use component_derive::component;
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,

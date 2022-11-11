@@ -72,8 +72,6 @@ impl LazyMaker {
     }
 }
 
-use component_derive::component;
-
 #[component]
 struct Bomb {
     vel: glam::Vec3,

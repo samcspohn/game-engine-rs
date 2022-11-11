@@ -91,6 +91,7 @@ mod renderer_component2;
 mod texture;
 mod time;
 mod transform_compute;
+mod inspectable;
 // mod rendering;
 // use transform::{Transform, Transforms};
 
@@ -99,11 +100,17 @@ use std::env;
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
-use crate::game::game_thread_fn;
+use crate::engine::physics::Physics;
+use crate::engine::transform::{Transform, Transforms};
+use crate::engine::World;
+use crate::game::{game_thread_fn, Bomb, Maker};
 use crate::model::ModelManager;
+use crate::particles::cs::ty::t;
+use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
 
-use crate::renderer_component2::{ur, RendererData, RendererManager};
+use crate::renderer_component2::{ur, Renderer, RendererData, RendererManager};
+use crate::terrain::Terrain;
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
 use crate::transform_compute::cs::ty::transform;
@@ -413,7 +420,7 @@ fn main() {
             glm::Vec3,
             glm::Quat,
             RendererData,
-            (usize,Vec<crate::particles::cs::ty::emitter_init>),
+            (usize, Vec<crate::particles::cs::ty::emitter_init>),
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
@@ -425,7 +432,7 @@ fn main() {
             glm::Vec3,
             glm::Quat,
             RendererData,
-            (usize,Vec<crate::particles::cs::ty::emitter_init>),
+            (usize, Vec<crate::particles::cs::ty::emitter_init>),
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
@@ -435,32 +442,41 @@ fn main() {
 
     let coms = (rrx, tx);
 
-    let _device = device.clone();
-    let _queue = queue.clone();
-    let _model_manager = model_manager.clone();
-    let _renderer_manager = renderer_manager.clone();
-    let _particles = particles.clone();
+    // let _device = device.clone();
+    // let _queue = queue.clone();
+    // let _model_manager = model_manager.clone();
+    // let _renderer_manager = renderer_manager.clone();
+    // let _particles = particles.clone();
+
+    let physics = Physics::new();
+
+    let world = Arc::new(Mutex::new(World::new(
+        model_manager.clone(),
+        renderer_manager.clone(),
+        physics,
+        particles.clone(),
+    )));
+    {
+        let mut world = world.lock();
+        world.register::<Renderer>(false);
+        world.register::<ParticleEmitter>(false);
+        world.register::<Maker>(true);
+        world.register::<Terrain>(true);
+        world.register::<Bomb>(true);
+    }
+
     let game_thread = {
         // let _perf = perf.clone();
         let _running = running.clone();
-        thread::spawn(move || {
-            game_thread_fn(
-                _device,
-                _queue,
-                _model_manager,
-                _renderer_manager,
-                _particles,
-                // texture_manager.clone(),
-                (rtx, rx),
-                _running,
-            )
-        })
+        let world = world.clone();
+        thread::spawn(move || game_thread_fn(world.clone(), (rtx, rx), _running))
     };
     let mut game_thread = vec![game_thread];
 
     // let ter = trx.recv().unwrap();
     // println!("sending input");
     let _res = coms.1.send(input.clone());
+    let mut selected_transforms: HashMap<i32, bool> = HashMap::<i32, bool>::new();
 
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
@@ -624,12 +640,101 @@ fn main() {
                 let (transform_data, cam_pos, cam_rot, rd, emitter_inits) = {
                     puffin::profile_scope!("wait for game");
                     let inst = Instant::now();
-                    let (positions, cam_pos, cam_rot, renderer_data, emitter_inits) = coms.0.recv().unwrap();
+                    let (positions, cam_pos, cam_rot, renderer_data, emitter_inits) =
+                        coms.0.recv().unwrap();
 
                     perf.update("wait for game".into(), Instant::now() - inst);
                     (positions, cam_pos, cam_rot, renderer_data, emitter_inits)
                 };
 
+
+                egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
+
+                {
+                    let profiler_ui = |ui: &mut egui::Ui| {
+                        if fps_queue.len() > 0 {
+                            let fps: f32 = fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
+                            ui.label(format!("fps: {}", 1.0 / fps));
+                        }
+                        let world = world.lock();
+                        let transforms = world.transforms.read();
+
+                        fn transform_hierarchy_ui(
+                            transforms: &Transforms,
+                            selected_transforms: &mut HashMap<i32, bool>,
+                            t: Transform,
+                            ui: &mut egui::Ui,
+                            count: &mut i32,
+                        ) {
+                            let id = ui.make_persistent_id(format!("{}", t.id));
+                            if !selected_transforms.contains_key(&t.id) {
+                                selected_transforms.insert(t.id, false);
+                            }
+                            egui::collapsing_header::CollapsingState::load_with_default_open(
+                                ui.ctx(),
+                                id,
+                                true,
+                            )
+                            .show_header(ui, |ui| {
+                                ui.toggle_value(
+                                    &mut selected_transforms.get_mut(&t.id).unwrap(),
+                                    format!("game object {}", t.id),
+                                );
+                                // ui.radio_value(&mut self.radio_value, false, "");
+                                // ui.radio_value(&mut self.radio_value, true, "");
+                            })
+                            .body(|ui| {
+                                for child_id in t.get_meta().lock().children.read().iter() {
+                                    let child = Transform {
+                                        id: *child_id,
+                                        transforms: &&transforms,
+                                    };
+                                    transform_hierarchy_ui(
+                                        transforms,
+                                        selected_transforms,
+                                        child,
+                                        ui,
+                                        count,
+                                    );
+                                    *count += 1;
+                                    if *count > 10_000 {
+                                        return;
+                                    }
+                                }
+                                // ui.label("The body is always custom");
+                            });
+                        }
+
+                        let root = Transform {
+                            id: 0,
+                            transforms: &&transforms,
+                        };
+                        let mut count = 0;
+                        transform_hierarchy_ui(
+                            &transforms,
+                            &mut selected_transforms,
+                            root,
+                            ui,
+                            &mut count,
+                        );
+
+                        // puffin_egui::profiler_ui(ui);
+                        // if let Some(fps) = self.data.back() {
+                        //     let fps = 1.0 / fps;
+                        //     ui.label(format!("fps: {}", fps));
+                        // }
+                        // ui.label(format!("entities: {}", self.entities));
+                    };
+
+                    puffin::profile_function!();
+                    let mut open = true;
+                    egui::Window::new("Profiler")
+                        .default_size([600.0, 600.0])
+                        .open(&mut open)
+                        .vscroll(true)
+                        .hscroll(true)
+                        .show(&egui_ctx, profiler_ui);
+                }
                 /////////////////////////////////////////////////////////////////
                 let rm = renderer_manager.read();
                 let mut rm = rm.shr_data.write();
@@ -646,9 +751,8 @@ fn main() {
                 input.mouse_y = 0.;
 
                 /////////////////////////////////////////////////////////////////
-
                 let inst = Instant::now();
-
+                
                 let (position_update_data, rotation_update_data, scale_update_data) = {
                     puffin::profile_scope!("buffer transform data");
                     let position_update_data = transform_compute
@@ -738,40 +842,6 @@ fn main() {
                 )
                 .unwrap();
 
-                // let mut builder = SyncCommandBufferBuilder::new(pool_alloc, begin_info)
-
-                // let mut builder = unsafe {UnsafeCommandBufferBuilder::new(UnsafeCommandPoolAlloc {
-                //     handle: todo!(),
-                //     device.clone(),
-                //     level: CommandBufferLevel::Primary,,
-                // }, CommandBufferBeginInfo {
-                //     CommandBufferUsage::OneTimeSubmit,
-                //     ..Default::default()
-                // },)};
-
-                egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
-
-                {
-                    let profiler_ui = |ui: &mut egui::Ui| {
-                        if fps_queue.len() > 0 {
-                            let fps: f32 = fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
-                            ui.label(format!("fps: {}", 1.0 / fps));
-                        }
-                        puffin_egui::profiler_ui(ui);
-                        // if let Some(fps) = self.data.back() {
-                        //     let fps = 1.0 / fps;
-                        //     ui.label(format!("fps: {}", fps));
-                        // }
-                        // ui.label(format!("entities: {}", self.entities));
-                    };
-
-                    puffin::profile_function!();
-                    let mut open = true;
-                    egui::Window::new("Profiler")
-                        .default_size([600.0, 600.0])
-                        .open(&mut open)
-                        .show(&egui_ctx, profiler_ui);
-                }
                 // Get the shapes from egui
                 let egui_output = egui_ctx.end_frame();
                 let platform_output = egui_output.platform_output;

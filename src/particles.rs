@@ -5,7 +5,6 @@ use crate::{
     particle_sort::ParticleSort,
     transform_compute::cs::ty::transform,
 };
-use component_derive::component;
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 use vulkano::{

@@ -7,7 +7,6 @@ use crate::{
     engine::{transform::Transform, Component, Storage, Sys, _Storage},
 };
 use bytemuck::{Pod, Zeroable};
-use component_derive::component;
 use parking_lot::{RwLock};
 use rayon::prelude::{
     IndexedParallelIterator, ParallelIterator,

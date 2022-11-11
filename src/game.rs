@@ -1,5 +1,3 @@
-use component_derive::component;
-
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
@@ -22,7 +20,7 @@ use winit::event::VirtualKeyCode;
 use crate::{
     engine::{
         physics::Physics,
-        transform::{Transform, _Transform, self},
+        transform::{self, Transform, _Transform},
         Component, GameObject, LazyMaker, Storage, Sys, System, World,
     },
     input::Input,
@@ -41,7 +39,7 @@ impl Component for Bomb {
     // fn assign_transform(&mut self, t: Transform) {
     //     self.t = t;
     // }
-    fn update(&mut self, transform:Transform, sys: &System) {
+    fn update(&mut self, transform: Transform, sys: &System) {
         let pos = transform.get_position();
         let vel = self.vel;
         let dt = sys.input.time.dt.min(1. / 20.);
@@ -86,7 +84,7 @@ impl Component for Maker {
     // fn init(&mut self, t: Transform, _sys: &mut Sys) {
     //     self.t = t;
     // }
-    fn update(&mut self,_transform: Transform, sys: &System) {
+    fn update(&mut self, _transform: Transform, sys: &System) {
         sys.defer.append(|world| {
             let g = world.instantiate();
             world.add_component(
@@ -105,11 +103,12 @@ impl Component for Maker {
 }
 
 pub fn game_thread_fn(
-    _device: Arc<Device>,
-    _queue: Arc<vulkano::device::Queue>,
-    model_manager: Arc<Mutex<ModelManager>>,
-    renderer_manager: Arc<RwLock<RendererManager>>,
-    particles: Arc<ParticleCompute>,
+    world: Arc<Mutex<World>>,
+    // _device: Arc<Device>,
+    // _queue: Arc<vulkano::device::Queue>,
+    // model_manager: Arc<Mutex<ModelManager>>,
+    // renderer_manager: Arc<RwLock<RendererManager>>,
+    // particles: Arc<ParticleCompute>,
     // texture_manager: Arc<TextureManager>,
     coms: (
         Sender<(
@@ -120,7 +119,7 @@ pub fn game_thread_fn(
             glm::Vec3,
             glm::Quat,
             RendererData,
-            (usize,Vec<crate::particles::cs::ty::emitter_init>),
+            (usize, Vec<crate::particles::cs::ty::emitter_init>),
             // Arc<(Vec<Offset>, Vec<Id>)>,
             // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
@@ -129,7 +128,14 @@ pub fn game_thread_fn(
     ),
     running: Arc<AtomicBool>,
 ) {
-    let physics = Physics::new();
+
+    // let mut world = World::new(model_manager, renderer_manager.clone(), physics, particles);
+    // world.register::<Renderer>(false);
+    // world.register::<ParticleEmitter>(false);
+    // world.register::<Maker>(true);
+    // world.register::<Terrain>(true);
+    // world.register::<Bomb>(true);
+
     // rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build_global().unwrap();
     /* Create the ground. */
     // let collider = ColliderBuilder::cuboid(100.0, 0.1, 100.0).build();
@@ -150,68 +156,64 @@ pub fn game_thread_fn(
     /* Create other structures necessary for the simulation. */
     let gravity = vector![0.0, -9.81, 0.0];
 
-    let lazy_maker = LazyMaker::new();
-    let mut world = World::new(model_manager, renderer_manager.clone(), physics, particles);
-    world.register::<Renderer>(false);
-    world.register::<ParticleEmitter>(false);
-    world.register::<Maker>(true);
-    world.register::<Terrain>(true);
-    world.register::<Bomb>(true);
-
     // let _root = world.instantiate();
 
     // let sys = System {trans: &world.transforms.read(), physics: &&physics, defer: &lazy_maker, input: &&input};
     // use rand::Rng;
-
-    let ter = world.instantiate();
-
-    world.add_component(
-        ter,
-        Terrain {
-            chunks: Arc::new(Mutex::new(HashMap::new())),
-            terrain_size: 33,
-            chunk_range: 9,
-            ..Default::default()
-        },
-    );
-
+    let lazy_maker = LazyMaker::new();
     {
-        // let mut renderer_manager = world.renderer_manager.lock();
-        for _ in 0..1_000_000 {
-            // bombs
-            let g = world.instantiate_with_transform(_Transform {
-                position: glm::vec3(
-                    // (rand::random::<f32>() - 0.5) * 2000.,
-                    // (rand::random::<f32>() - 0.5) * 2000.,
-                    // (rand::random::<f32>() - 0.5) * 2000.,
-                    (rand::random::<f32>() - 0.5) * 1500.,
-                    100. + (rand::random::<f32>() - 0.5) * 100.,
-                    (rand::random::<f32>() - 0.5) * 150.,
-                ),
+        let mut world = world.lock();
+        let ter = world.instantiate();
+
+        world.add_component(
+            ter,
+            Terrain {
+                chunks: Arc::new(Mutex::new(HashMap::new())),
+                terrain_size: 33,
+                chunk_range: 9,
                 ..Default::default()
-            });
-            world.add_component(
-                g,
-                Bomb {
-                    vel: glm::vec3(
-                        rand::random::<f32>() - 0.5,
-                        rand::random::<f32>() - 0.5,
-                        rand::random::<f32>() - 0.5,
-                    ) * 5.0,
-                },
-            );
-            world.add_component(g, Renderer::new(0));
-            // world.add_component(g, ParticleEmitter::new(0));
-            // world.transforms.read()._move(
-            //     g.t,
-            //     glm::vec3(
-            //         rand::random::<f32>() * 100. - 50.,
-            //         50.0 + rand::random::<f32>() * 100.,
-            //         rand::random::<f32>() * 100. - 50.,
-            //     ),
-            // );
+            },
+        );
+
+        {
+            // let mut renderer_manager = world.renderer_manager.lock();
+            for _ in 0..1_00 {
+                // bombs
+                let g = world.instantiate_with_transform(_Transform {
+                    position: glm::vec3(
+                        // (rand::random::<f32>() - 0.5) * 2000.,
+                        // (rand::random::<f32>() - 0.5) * 2000.,
+                        // (rand::random::<f32>() - 0.5) * 2000.,
+                        (rand::random::<f32>() - 0.5) * 1500.,
+                        100. + (rand::random::<f32>() - 0.5) * 100.,
+                        (rand::random::<f32>() - 0.5) * 150.,
+                    ),
+                    ..Default::default()
+                });
+                world.add_component(
+                    g,
+                    Bomb {
+                        vel: glm::vec3(
+                            rand::random::<f32>() - 0.5,
+                            rand::random::<f32>() - 0.5,
+                            rand::random::<f32>() - 0.5,
+                        ) * 5.0,
+                    },
+                );
+                world.add_component(g, Renderer::new(0));
+                // world.add_component(g, ParticleEmitter::new(0));
+                // world.transforms.read()._move(
+                //     g.t,
+                //     glm::vec3(
+                //         rand::random::<f32>() * 100. - 50.,
+                //         50.0 + rand::random::<f32>() * 100.,
+                //         rand::random::<f32>() * 100. - 50.,
+                //     ),
+                // );
+            }
         }
     }
+
     // {
     //     // maker
     //     let g = world.instantiate();
@@ -231,6 +233,7 @@ pub fn game_thread_fn(
         let input = coms.1.recv().unwrap();
         // println!("input recvd");
 
+        let mut world = world.lock();
         {
             puffin::profile_scope!("game loop");
             let inst = Instant::now();
@@ -357,7 +360,7 @@ pub fn game_thread_fn(
         };
         perf.update("get transform data".into(), Instant::now() - inst);
 
-        let mut rm = renderer_manager.write();
+        let mut rm = world.sys.renderer_manager.write();
         // let a = rm.model_indirect.read();
         // let b = a.deref();
         let inst = Instant::now();
@@ -390,7 +393,10 @@ pub fn game_thread_fn(
             .unwrap()
             .read()
             .as_any()
-            .downcast_ref::<Storage<ParticleEmitter>>().unwrap().data.len();
+            .downcast_ref::<Storage<ParticleEmitter>>()
+            .unwrap()
+            .data
+            .len();
         let mut emitter_inits = world.sys.particles.emitter_inits.lock();
         let mut v = Vec::<emitter_init>::new();
         std::mem::swap(&mut v, &mut emitter_inits);
@@ -406,7 +412,7 @@ pub fn game_thread_fn(
             cam_pos.clone(),
             cam_rot.clone(),
             renderer_data,
-            (emitter_len,v),
+            (emitter_len, v),
             // render_data,
             // terr_chunks,
         ));

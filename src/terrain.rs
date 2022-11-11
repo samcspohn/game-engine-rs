@@ -1,15 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
-use component_derive::component;
+use egui::DragValue;
 use noise::{NoiseFn, Perlin};
 
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 
 use rapier3d::prelude::*;
+use rayon::prelude::*;
+use vulkano::device::Device;
 
 
-use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, engine::{Component, transform, World, Sys}, renderer_component2::{Renderer}};
+use crate::{model::{Mesh, Normal, Vertex, UV, ModelManager}, engine::{Component, transform, World, Sys}, renderer_component2::{Renderer}, inspectable::Inspectable};
 use crate::terrain::transform::Transform;
 
 // #[component]
@@ -23,18 +25,33 @@ pub struct Terrain {
     pub chunk_range: i32,
 }
 
+impl Inspectable for Terrain {
+    fn inspect(&mut self ,ui: &mut egui::Ui) {
+        ui.add(DragValue::new(&mut self.chunk_range));
+    }
+}
+
 impl Terrain {
-    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, i32>>>>, terrain_size: i32, chunk_range: i32, _t: i32) {
+    pub fn generate(world: &mut World, chunks: Arc<Mutex<HashMap<i32, HashMap<i32, i32>>>>, terrain_size: i32, chunk_range: i32, t: i32) {
 
         // let collider_set = &world.physics.collider_set;
         // let mm = &mut world.modeling.lock();
         let perlin = Perlin::new();
-        let mut chunks = chunks.lock();
-        for x in -chunk_range..chunk_range {
-            chunks.insert(x, HashMap::new());
-            for z in -chunk_range..chunk_range {
-                let m =
-                    Terrain::generate_chunk(&perlin, x, z, terrain_size, &mut world.sys.model_manager.lock());
+
+        {
+            let mut chunks = chunks.lock();
+            for x in -chunk_range..chunk_range {
+                chunks.insert(x, HashMap::new());
+                
+            }
+        }
+        let world = Mutex::new(world);
+        (-chunk_range..chunk_range).into_par_iter().for_each(|x| {
+            (-chunk_range..chunk_range).into_par_iter().for_each(|z| {
+                let mut m =
+                    Terrain::generate_chunk(&perlin, x, z, terrain_size, world.lock().sys.model_manager.lock().device.clone());
+                    m.texture = Some(world.lock().sys.model_manager.lock().texture_manager.texture("grass.png"));
+
                 let ter_verts: Vec<Point<f32>> = m
                     .vertices
                     .iter()
@@ -47,21 +64,59 @@ impl Terrain {
                     .collect();
 
                 let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces);
-                world.sys.physics.collider_set.insert(collider);
+
+                let g = {
+                    let mut world = world.lock();
+                    world.sys.physics.collider_set.insert(collider);
+                    
+                    let m_id = world.sys.model_manager.lock().procedural(m);
+                    
+                    let g = world.instantiate_with_transform_with_parent(t, transform::_Transform { position: glm::vec3((x * (terrain_size - 1)) as f32, 0.0, (z * (terrain_size - 1)) as f32), ..Default::default() });
+                    world.add_component(g, Renderer::new(m_id));
+                    g
+                };
+                {
+                    let mut chunks = chunks.lock();
+                    chunks.get_mut(&x).unwrap().insert(z, g.t);
+                }
+            });
+
+        });
+
+
+        // let mut chunks = chunks.lock();
+        // for x in -chunk_range..chunk_range {
+        //     chunks.insert(x, HashMap::new());
+        //     for z in -chunk_range..chunk_range {
+        //         let m =
+        //             Terrain::generate_chunk(&perlin, x, z, terrain_size, &mut world.sys.model_manager.lock());
+        //         let ter_verts: Vec<Point<f32>> = m
+        //             .vertices
+        //             .iter()
+        //             .map(|v| point![v.position[0] + (x * (terrain_size - 1)) as f32, v.position[1], v.position[2] + (z * (terrain_size - 1)) as f32])
+        //             .collect();
+        //         let ter_indeces: Vec<[u32; 3]> = m
+        //             .indeces
+        //             .chunks(3)
+        //             .map(|slice| [slice[0] as u32, slice[1] as u32, slice[2] as u32])
+        //             .collect();
+
+        //         let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces);
+        //         world.sys.physics.collider_set.insert(collider);
                 
-                let m_id = world.sys.model_manager.lock().procedural(m);
+        //         let m_id = world.sys.model_manager.lock().procedural(m);
 
-                let g = world.instantiate_with_transform(transform::_Transform { position: glm::vec3((x * (terrain_size - 1)) as f32, 0.0, (z * (terrain_size - 1)) as f32), ..Default::default() });
-                world.add_component(g, Renderer::new(m_id));
-                chunks.get_mut(&x).unwrap().insert(z, g.t);
-
-
-                // world.add_component(GameObject {t}, Renderer::new(t,m_id));
+        //         let g = world.instantiate_with_transform_with_parent(t, transform::_Transform { position: glm::vec3((x * (terrain_size - 1)) as f32, 0.0, (z * (terrain_size - 1)) as f32), ..Default::default() });
+        //         world.add_component(g, Renderer::new(m_id));
+        //         chunks.get_mut(&x).unwrap().insert(z, g.t);
 
 
-                // rm.renderers.insert(m_id, RendererInstances {model_id: m_id, transforms: vec![]});
-            }
-        }
+        //         // world.add_component(GameObject {t}, Renderer::new(t,m_id));
+
+
+        //         // rm.renderers.insert(m_id, RendererInstances {model_id: m_id, transforms: vec![]});
+        //     }
+        // }
     }
 
     fn generate_chunk(
@@ -69,7 +124,7 @@ impl Terrain {
         _x: i32,
         _z: i32,
         terrain_size: i32,
-        mm: &mut ModelManager
+        device: Arc<Device>
     ) -> Mesh {
         let mut vertices = Vec::new();
         let mut uvs = Vec::new();
@@ -185,8 +240,8 @@ impl Terrain {
             }
         }
 
-        let mut mesh = Mesh::new_procedural(vertices, normals, indeces, uvs, mm.device.clone());
-        mesh.texture = Some(mm.texture_manager.texture("grass.png"));
+        let mut mesh = Mesh::new_procedural(vertices, normals, indeces, uvs, device.clone());
+        // mesh.texture = Some(mm.texture_manager.texture("grass.png"));
         mesh
     }
 }

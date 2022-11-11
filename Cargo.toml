@@ -15,7 +15,7 @@ debug = true
 
 [dependencies]
 num_cpus = "*"
-component_derive = {path = "derive-macro"}
+# component_derive = {path = "derive-macro"}
 
 libloading = "*"
 libc = "*"

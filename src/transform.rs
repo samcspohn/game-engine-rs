@@ -18,8 +18,8 @@ use std::{
     },
 };
 
-struct TransformMeta {
-    children: RwLock<SendSync<LinkedList<i32>>>,
+pub struct TransformMeta {
+    pub children: RwLock<SendSync<LinkedList<i32>>>,
     parent: i32,
     child_id: SendSync<Node<i32>>,
 }
@@ -141,6 +141,9 @@ impl <'a> Transform<'a> {
         self.transforms.rotate(self.id, axis, radians);
     }
 
+    pub fn get_meta(&self) -> &Mutex<TransformMeta> {
+        &self.transforms.meta[self.id as usize]
+    }
     // fn rotate_child(&self,  axis: &Vec3, p: &Vec3, r: &Quat, radians: f32) {
     //     let ax = glm::quat_to_mat3(&r) * axis;
     //     let mut rot = self.rotations[t as usize].lock();
