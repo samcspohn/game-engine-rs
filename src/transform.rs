@@ -37,8 +37,8 @@ impl TransformMeta {
 }
 pub struct Transforms {
     pub positions: Vec<Mutex<glm::Vec3>>,
-    rotations: Vec<Mutex<glm::Quat>>,
-    scales: Vec<Mutex<glm::Vec3>>,
+    pub rotations: Vec<Mutex<glm::Quat>>,
+    pub scales: Vec<Mutex<glm::Vec3>>,
     meta: Vec<Mutex<TransformMeta>>,
     avail: BinaryHeap<Reverse<i32>>,
     updates: Vec<[AtomicBool; 3]>,
@@ -300,7 +300,7 @@ impl Transforms {
         *self.positions[t as usize].lock() += v;
         self.u_pos(t);
     }
-    fn move_child(&self, t: i32, v: Vec3) {
+    pub fn move_child(&self, t: i32, v: Vec3) {
         self._move(t, v);
         for child in self.meta[t as usize].lock().children.read().iter() {
             self.move_child(*child, v);

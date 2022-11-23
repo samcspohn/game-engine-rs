@@ -26,7 +26,7 @@ use spin::Mutex;
 
 use crate::{
     input::Input, model::ModelManager, particles::ParticleCompute,
-    renderer_component2::RendererManager,
+    renderer_component2::RendererManager, inspectable::Inspectable,
 };
 
 use self::physics::Physics;
@@ -85,6 +85,8 @@ pub trait StorageBase {
     fn erase(&mut self, i: i32);
     fn deinit(&mut self, transform: Transform, i: i32, sys: &mut Sys);
     fn init(&mut self, transform: Transform, i: i32, sys: &mut Sys);
+    fn inspect(&self, i: i32, ui: &mut egui::Ui);
+    fn get_name(&self) -> &'static str;
 }
 
 // use pqueue::Queue;
@@ -167,7 +169,7 @@ impl<T: 'static> _Storage<T> {
     }
 }
 
-impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
+impl<T: 'static + Component + Inspectable + Send + Sync> StorageBase for Storage<T> {
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
     }
@@ -239,6 +241,13 @@ impl<T: 'static + Component + Send + Sync> StorageBase for Storage<T> {
     fn init(&mut self, transform: Transform, i: i32, sys: &mut Sys) {
         self.data[i as usize].lock().1.init(transform, i, sys);
     }
+    fn inspect(&self, i: i32, ui: &mut egui::Ui) {
+        self.data[i as usize].lock().1.inspect(ui);
+    }
+
+    fn get_name(&self) -> &'static str {
+        std::any::type_name::<T>().split("::").last().unwrap()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -254,9 +263,9 @@ pub struct Sys {
 }
 // #[derive(Default)]
 pub struct World {
-    entities: RwLock<Vec<Option<RwLock<HashMap<TypeId, i32>>>>>,
+    pub entities: RwLock<Vec<Option<RwLock<HashMap<TypeId, i32>>>>>,
     pub transforms: RwLock<Transforms>,
-    components: HashMap<TypeId, RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+    pub components: HashMap<TypeId, RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
     root: i32,
     pub sys: Sys, // makers: Vec<Option<Mutex<Maker>>>,
 }
@@ -329,7 +338,7 @@ impl World {
         }
         ret
     }
-    pub fn add_component<T: 'static + Send + Sync + Component>(&mut self, g: GameObject, mut d: T) {
+    pub fn add_component<T: 'static + Send + Sync + Component + Inspectable>(&mut self, g: GameObject, mut d: T) {
         // d.assign_transform(g.t);
         let key: TypeId = TypeId::of::<T>();
         if let Some(stor) = self
@@ -353,7 +362,7 @@ impl World {
             panic!("no type key?")
         }
     }
-    pub fn register<T: 'static + Send + Sync + Component>(&mut self, has_update: bool) {
+    pub fn register<T: 'static + Send + Sync + Component + Inspectable>(&mut self, has_update: bool) {
         let key: TypeId = TypeId::of::<T>();
         let data = Storage::<T>::new(has_update);
         self.components

@@ -5,12 +5,11 @@ use std::{
 
 use crate::{
     engine::{transform::Transform, Component, Storage, Sys, _Storage},
+    inspectable::{Inpsect, Ins, Inspectable},
 };
 use bytemuck::{Pod, Zeroable};
-use parking_lot::{RwLock};
-use rayon::prelude::{
-    IndexedParallelIterator, ParallelIterator,
-};
+use parking_lot::RwLock;
+use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool},
     command_buffer::DrawIndexedIndirectCommand,
@@ -26,6 +25,16 @@ pub struct Renderer {
     id: i32,
 }
 
+impl Inspectable for Renderer {
+    fn inspect(&mut self, ui: &mut egui::Ui) {
+        // ui.add(egui::Label::new("Renderer"));
+        // egui::CollapsingHeader::new(std::any::type_name::<Self>())
+        //     .default_open(true)
+        //     .show(ui, |ui| {
+                Ins(&mut self.model_id).inspect("model_id", ui);
+            // });
+    }
+}
 // #[derive(Default)]
 // pub struct RendererInstances {
 //     pub model_id: i32,
@@ -195,7 +204,7 @@ impl Renderer {
     //         id: ri_id,
     //     }
     // }
-    pub fn new( model_id: i32) -> Renderer {
+    pub fn new(model_id: i32) -> Renderer {
         Renderer {
             model_id: model_id,
             id: 0,
@@ -204,7 +213,7 @@ impl Renderer {
 }
 
 impl Component for Renderer {
-    fn init(&mut self, transform:Transform, _id: i32, sys: &mut Sys) {
+    fn init(&mut self, transform: Transform, _id: i32, sys: &mut Sys) {
         let rm = &mut sys.renderer_manager.write();
         let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id) {
             ind.count += 1;
@@ -254,7 +263,7 @@ impl Component for Renderer {
             },
         );
     }
-    fn deinit(&mut self, _transform:Transform, _id: i32, sys: &mut Sys) {
+    fn deinit(&mut self, _transform: Transform, _id: i32, sys: &mut Sys) {
         sys.renderer_manager
             .write()
             .model_indirect

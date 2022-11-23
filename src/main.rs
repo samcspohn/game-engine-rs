@@ -13,7 +13,8 @@
 
 use crossbeam::queue::SegQueue;
 use egui::plot::{HLine, Line, Plot, Value, Values};
-use egui::{Color32, Ui};
+use egui::{Color32, Ui, WidgetText};
+// use egui_dock::Tree;
 use puffin_egui::*;
 // use egui_vulkano::UpdateTexturesResult;
 // use anyhow::{anyhow, Result};
@@ -85,13 +86,13 @@ mod model;
 mod perf;
 mod renderer;
 // mod renderer_component;
+mod inspectable;
 mod particle_sort;
 mod particles;
 mod renderer_component2;
 mod texture;
 mod time;
 mod transform_compute;
-mod inspectable;
 // mod rendering;
 // use transform::{Transform, Transforms};
 
@@ -103,7 +104,8 @@ use std::env;
 use crate::engine::physics::Physics;
 use crate::engine::transform::{Transform, Transforms};
 use crate::engine::World;
-use crate::game::{game_thread_fn, Bomb, Maker};
+use crate::game::{game_thread_fn, Bomb};
+use crate::inspectable::{Inpsect, Ins};
 use crate::model::ModelManager;
 use crate::particles::cs::ty::t;
 use crate::particles::ParticleEmitter;
@@ -156,6 +158,101 @@ where
     }
 }
 
+// use egui::{
+//     color_picker::{color_picker_color32, Alpha},
+//     Id, LayerId, Slider,
+// };
+
+// use egui_dock::{DockArea, NodeIndex, Style, TabViewer};
+
+// struct MyTab {
+//     title: String,
+//     world: Arc<Mutex<World>>,
+//     f: fn(&mut World, &mut Ui)
+// }
+
+// struct MyTabs {
+//     tree: Tree<MyTab>
+// }
+
+// struct MyContext {
+//     pub title: String,
+//     pub age: u32,
+//     pub style: Option<Style>,
+// }
+
+// impl TabViewer for MyContext {
+//     type Tab = String;
+
+//     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
+//         // match tab.as_str() {
+//         //     "Simple Demo" => self.simple_demo(ui),
+//         //     "Style Editor" => self.style_editor(ui),
+//         //     _ => {
+//         //         ui.label(tab.as_str());
+//         //     }
+//         // }
+//     }
+
+//     // fn context_menu(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
+//     //     match tab.as_str() {
+//     //         "Simple Demo" => self.simple_demo_menu(ui),
+//     //         _ => {
+//     //             ui.label(tab.to_string());
+//     //             ui.label("This is a context menu");
+//     //         }
+//     //     }
+//     // }
+
+//     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
+//         tab.as_str().into()
+//     }
+// }
+
+//  use egui_dock::{NodeIndex};
+
+//  struct MyTabs {
+//      tree: Tree<String>
+//  }
+
+//  impl MyTabs {
+//     //  pub fn new() -> Self {
+//     //      let tab1 = "tab1".to_string();
+//     //      let tab2 = "tab2".to_string();
+
+//     //      let mut tree = Tree::new(vec![tab1]);
+//     //      tree.split_left(NodeIndex::root(), 0.20, vec![tab2]);
+
+//     //      Self { tree }
+//     //  }
+
+//      fn ui(&mut self, ui: &mut egui::Ui) {
+//          let style = egui_dock::Style::from_egui(ui.style().as_ref());
+//          egui_dock::DockArea::new(&mut self.tree)
+//              .style(style)
+//              .show_inside(ui, &mut TabViewer {});
+//      }
+//  }
+
+//  struct TabViewer {}
+
+//  impl egui_dock::TabViewer for TabViewer {
+//      type Tab = String;
+
+//      fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+//          ui.label(format("Content of {tab}"));
+//      }
+
+//      fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+//          (&*tab).into()
+//      }
+//  }
+//
+//  # let mut my_tabs = MyTabs::new();
+//  # egui::__run_test_ctx(|ctx| {
+//  #     egui::CentralPanel::default().show(ctx, |ui| my_tabs.ui(ui));
+//  # });
+
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
 
@@ -195,6 +292,7 @@ fn main() {
             PhysicalDeviceType::VirtualGpu => 2,
             PhysicalDeviceType::Cpu => 3,
             PhysicalDeviceType::Other => 4,
+            _ => panic!("no device"),
         })
         .unwrap();
 
@@ -460,7 +558,7 @@ fn main() {
         let mut world = world.lock();
         world.register::<Renderer>(false);
         world.register::<ParticleEmitter>(false);
-        world.register::<Maker>(true);
+        // world.register::<Maker>(true);
         world.register::<Terrain>(true);
         world.register::<Bomb>(true);
     }
@@ -476,7 +574,10 @@ fn main() {
     // let ter = trx.recv().unwrap();
     // println!("sending input");
     let _res = coms.1.send(input.clone());
+
     let mut selected_transforms: HashMap<i32, bool> = HashMap::<i32, bool>::new();
+
+    let mut selected = None;
 
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
@@ -524,7 +625,7 @@ fn main() {
                         ..
                     } => match state {
                         ElementState::Pressed => {
-                            println!("mouse button {:#?} pressed", button);
+                            // println!("mouse button {:#?} pressed", button);
                             input.mouse_buttons.insert(
                                 match button {
                                     MouseButton::Left => 0,
@@ -536,7 +637,7 @@ fn main() {
                             );
                         }
                         ElementState::Released => {
-                            println!("mouse button {:#?} released", button);
+                            // println!("mouse button {:#?} released", button);
                             input.mouse_buttons.insert(
                                 match button {
                                     MouseButton::Left => 0,
@@ -647,17 +748,17 @@ fn main() {
                     (positions, cam_pos, cam_rot, renderer_data, emitter_inits)
                 };
 
-
                 egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
 
                 {
-                    let profiler_ui = |ui: &mut egui::Ui| {
+                    let world = world.lock();
+                    let transforms = world.transforms.read();
+
+                    let hierarchy_ui = |ui: &mut egui::Ui| {
                         if fps_queue.len() > 0 {
                             let fps: f32 = fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
                             ui.label(format!("fps: {}", 1.0 / fps));
                         }
-                        let world = world.lock();
-                        let transforms = world.transforms.read();
 
                         fn transform_hierarchy_ui(
                             transforms: &Transforms,
@@ -665,21 +766,34 @@ fn main() {
                             t: Transform,
                             ui: &mut egui::Ui,
                             count: &mut i32,
+                            selected: &mut Option<i32>,
                         ) {
                             let id = ui.make_persistent_id(format!("{}", t.id));
-                            if !selected_transforms.contains_key(&t.id) {
-                                selected_transforms.insert(t.id, false);
-                            }
+                            // if !selected_transforms.contains_key(&t.id) {
+                            //     selected_transforms.insert(t.id, false);
+                            // }
                             egui::collapsing_header::CollapsingState::load_with_default_open(
                                 ui.ctx(),
                                 id,
                                 true,
                             )
                             .show_header(ui, |ui| {
-                                ui.toggle_value(
-                                    &mut selected_transforms.get_mut(&t.id).unwrap(),
+                                let mut this_selection = false;
+                                let resp = ui.toggle_value(
+                                    &mut selected_transforms
+                                        .get_mut(&t.id)
+                                        .unwrap_or(&mut this_selection),
                                     format!("game object {}", t.id),
                                 );
+                                if this_selection {
+                                    selected_transforms.clear();
+                                    selected_transforms.insert(t.id, true);
+                                    *selected = Some(t.id);
+                                }
+                                // if *selected_transforms.get(&t.id).unwrap() {
+                                //     *selected = Some(t.id);
+                                // }
+
                                 // ui.radio_value(&mut self.radio_value, false, "");
                                 // ui.radio_value(&mut self.radio_value, true, "");
                             })
@@ -695,6 +809,7 @@ fn main() {
                                         child,
                                         ui,
                                         count,
+                                        selected,
                                     );
                                     *count += 1;
                                     if *count > 10_000 {
@@ -710,13 +825,27 @@ fn main() {
                             transforms: &&transforms,
                         };
                         let mut count = 0;
-                        transform_hierarchy_ui(
-                            &transforms,
-                            &mut selected_transforms,
-                            root,
-                            ui,
-                            &mut count,
-                        );
+
+                        // egui::Area::new("Hierarchy_area")
+                        //     .show(ui.ctx(), |ui| {
+                        let output = egui::ScrollArea::both().show(ui, |ui| {
+
+                            transform_hierarchy_ui(
+                                &transforms,
+                                &mut selected_transforms,
+                                root,
+                                ui,
+                                &mut count,
+                                &mut selected,
+                            );
+                        });
+                        // })
+                        // .response
+                        // .context_menu(|ui| {
+                        //     ui.menu_button("Add Game Object", |ui| {
+                        //         println!("add game object");
+                        //     });
+                        // });
 
                         // puffin_egui::profiler_ui(ui);
                         // if let Some(fps) = self.data.back() {
@@ -728,12 +857,77 @@ fn main() {
 
                     puffin::profile_function!();
                     let mut open = true;
-                    egui::Window::new("Profiler")
+                    if let Some(resp) = egui::Window::new("Hierarchy")
                         .default_size([600.0, 600.0])
                         .open(&mut open)
+                        // .vscroll(true)
+                        // .hscroll(true)
+                        .show(&egui_ctx, hierarchy_ui)
+                    {
+                        resp.response.context_menu(|ui: &mut Ui| {
+                            let resp = ui.menu_button("Add Game Object", |ui| {});
+                            if resp.response.clicked() {
+                                println!("add game object");
+                            }
+                        });
+                    }
+
+                    //                     egui::Area::new("Hierarchy_area")
+                    //                             .show(ui.ctx(),
+                    //                                hierarchy_ui
+                    // )
+                    //                             .response
+                    //                             .context_menu(|ui| {
+                    //                                 ui.menu_button("Add Game Object", |ui| {
+                    //                                     println!("add game object");
+                    //                                 });
+                    //                             });
+
+                    egui::Window::new("Inspector")
+                        .default_size([200.0, 600.0])
                         .vscroll(true)
-                        .hscroll(true)
-                        .show(&egui_ctx, profiler_ui);
+                        .show(&egui_ctx, |ui: &mut egui::Ui| {
+                            if let Some(t_id) = selected {
+                                let entities = world.entities.write();
+                                if let Some(ent) = &entities[t_id as usize] {
+                                    // let t = Transform { id: t_id, transforms: &*world.transforms.read() };
+                                    let t = &*world.transforms.read();
+                                    egui::CollapsingHeader::new("Transform")
+                                        .default_open(true)
+                                        .show(ui, |ui| {
+                                            let mut pos = *t.positions[t_id as usize].lock();
+                                            let prev_pos = pos.clone();
+                                            // Ins(&mut pos).inspect("Postition", ui);
+                                            ui.horizontal(|ui| {
+                                                ui.add(egui::Label::new("Position"));
+                                                ui.add(egui::DragValue::new(&mut pos.x).speed(0.1));
+                                                ui.add(egui::DragValue::new(&mut pos.y).speed(0.1));
+                                                ui.add(egui::DragValue::new(&mut pos.z).speed(0.1));
+                                            });
+                                            if pos != prev_pos {
+                                                t.move_child(t_id, pos - prev_pos);
+                                            }
+                                            Ins(&mut *t.rotations[t_id as usize].lock())
+                                                .inspect("Rotation", ui);
+                                            Ins(&mut *t.scales[t_id as usize].lock())
+                                                .inspect("Scale", ui);
+                                        });
+                                    let mut components = ent.write();
+                                    for (c_type, id) in components.iter_mut() {
+                                        if let Some(c) = world.components.get(&c_type) {
+                                            let c = c.read();
+                                            // let name: String = c.get_name().into();
+                                            ui.separator();
+                                            egui::CollapsingHeader::new(c.get_name())
+                                                .default_open(true)
+                                                .show(ui, |ui| {
+                                                    c.inspect(*id, ui);
+                                                });
+                                        }
+                                    }
+                                }
+                            }
+                        });
                 }
                 /////////////////////////////////////////////////////////////////
                 let rm = renderer_manager.read();
@@ -752,7 +946,7 @@ fn main() {
 
                 /////////////////////////////////////////////////////////////////
                 let inst = Instant::now();
-                
+
                 let (position_update_data, rotation_update_data, scale_update_data) = {
                     puffin::profile_scope!("buffer transform data");
                     let position_update_data = transform_compute

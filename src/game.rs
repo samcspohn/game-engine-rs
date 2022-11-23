@@ -24,6 +24,7 @@ use crate::{
         Component, GameObject, LazyMaker, Storage, Sys, System, World,
     },
     input::Input,
+    inspectable::{self, Inpsect, Ins, Inspectable},
     model::ModelManager,
     particles::{cs::ty::emitter_init, ParticleCompute, ParticleEmitter},
     perf::Perf,
@@ -75,32 +76,43 @@ impl Component for Bomb {
         // *pos += vel * (1.0 / 60.0);
     }
 }
-// #[component]
-pub struct Maker {}
-impl Component for Maker {
-    // fn assign_transform(&mut self, t: Transform) {
-    //     self.t = t;
-    // }
-    // fn init(&mut self, t: Transform, _sys: &mut Sys) {
-    //     self.t = t;
-    // }
-    fn update(&mut self, _transform: Transform, sys: &System) {
-        sys.defer.append(|world| {
-            let g = world.instantiate();
-            world.add_component(
-                g,
-                Bomb {
-                    vel: glm::vec3(rand::random(), rand::random(), rand::random()),
-                },
-            );
-            // world.get_component::<Bomb, _>(g, |b| {
-            //     if let Some(b) = b {
-            //         *b.vel = glm::vec3(rand::random(), rand::random(), rand::random());
-            //     }
+
+impl Inspectable for Bomb {
+    fn inspect(&mut self, ui: &mut egui::Ui) {
+        // ui.add(egui::Label::new("Bomb"));
+        // egui::CollapsingHeader::new("Bomb")
+        //     .default_open(true)
+        //     .show(ui, |ui| {
+                Ins(&mut self.vel).inspect("vel", ui);
             // });
-        });
     }
 }
+// #[component]
+// pub struct Maker {}
+// impl Component for Maker {
+//     // fn assign_transform(&mut self, t: Transform) {
+//     //     self.t = t;
+//     // }
+//     // fn init(&mut self, t: Transform, _sys: &mut Sys) {
+//     //     self.t = t;
+//     // }
+//     fn update(&mut self, _transform: Transform, sys: &System) {
+//         sys.defer.append(|world| {
+//             let g = world.instantiate();
+//             world.add_component(
+//                 g,
+//                 Bomb {
+//                     vel: glm::vec3(rand::random(), rand::random(), rand::random()),
+//                 },
+//             );
+//             // world.get_component::<Bomb, _>(g, |b| {
+//             //     if let Some(b) = b {
+//             //         *b.vel = glm::vec3(rand::random(), rand::random(), rand::random());
+//             //     }
+//             // });
+//         });
+//     }
+// }
 
 pub fn game_thread_fn(
     world: Arc<Mutex<World>>,
@@ -128,7 +140,6 @@ pub fn game_thread_fn(
     ),
     running: Arc<AtomicBool>,
 ) {
-
     // let mut world = World::new(model_manager, renderer_manager.clone(), physics, particles);
     // world.register::<Renderer>(false);
     // world.register::<ParticleEmitter>(false);
@@ -284,39 +295,39 @@ pub fn game_thread_fn(
                     &Vec3::x(),
                 );
                 const ALOT: f32 = 10_000_000. / 60.;
-                if input.get_mouse_button(&0) {
-                    let _cam_rot = cam_rot.clone();
-                    let _cam_pos = cam_pos.clone();
-                    // let rm = renderer_manager.clone();
-                    lazy_maker.append(move |world| {
-                        let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
-                        // let chunk_size =  (len / (64 * 64)).max(1);
-                        (0..len)
-                            .into_iter()
-                            // .chunks(chunk_size)
-                            .for_each(|_| {
-                                let g = world.instantiate_with_transform(_Transform {
-                                    position: _cam_pos
-                                        + glm::quat_to_mat3(&_cam_rot)
-                                            * (glm::Vec3::y() * 4. - glm::Vec3::z() * 6.),
-                                    ..Default::default()
-                                });
-                                world.add_component(
-                                    g,
-                                    Bomb {
-                                        vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
-                                            + glm::vec3(
-                                                rand::random(),
-                                                rand::random(),
-                                                rand::random(),
-                                            ) * 18.,
-                                    },
-                                );
-                                world.add_component(g, Renderer::new(0));
-                                world.add_component(g, ParticleEmitter::new(0));
-                            });
-                    });
-                }
+                // if input.get_mouse_button(&0) {
+                //     let _cam_rot = cam_rot.clone();
+                //     let _cam_pos = cam_pos.clone();
+                //     // let rm = renderer_manager.clone();
+                //     lazy_maker.append(move |world| {
+                //         let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
+                //         // let chunk_size =  (len / (64 * 64)).max(1);
+                //         (0..len)
+                //             .into_iter()
+                //             // .chunks(chunk_size)
+                //             .for_each(|_| {
+                //                 let g = world.instantiate_with_transform(_Transform {
+                //                     position: _cam_pos
+                //                         + glm::quat_to_mat3(&_cam_rot)
+                //                             * (glm::Vec3::y() * 4. - glm::Vec3::z() * 6.),
+                //                     ..Default::default()
+                //                 });
+                //                 world.add_component(
+                //                     g,
+                //                     Bomb {
+                //                         vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                //                             + glm::vec3(
+                //                                 rand::random(),
+                //                                 rand::random(),
+                //                                 rand::random(),
+                //                             ) * 18.,
+                //                     },
+                //                 );
+                //                 world.add_component(g, Renderer::new(0));
+                //                 world.add_component(g, ParticleEmitter::new(0));
+                //             });
+                //     });
+                // }
             }
 
             {

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     engine::{transform::Transform, Component, Storage, _Storage},
+    inspectable::{Inpsect, Ins, Inspectable},
     particle_sort::ParticleSort,
     transform_compute::cs::ty::transform,
 };
@@ -83,11 +84,20 @@ pub const MAX_PARTICLES: i32 = 8 * 1024 * 1024 * 4;
 pub struct ParticleEmitter {
     template: i32,
 }
+impl Inspectable for ParticleEmitter {
+    fn inspect(&mut self, ui: &mut egui::Ui) {
+        // ui.add(egui::DragValue::new(&mut self.template));
+        // ui.add(egui::Label::new("Particle Emitter"));
+        // egui::CollapsingHeader::new("Particle Emitter")
+        //     .default_open(true)
+        //     .show(ui, |ui| {
+                Ins(&mut self.template).inspect("template", ui);
+            // });
+    }
+}
 impl ParticleEmitter {
     pub fn new(template: i32) -> ParticleEmitter {
-        ParticleEmitter {
-            template,
-        }
+        ParticleEmitter { template }
     }
 }
 
@@ -95,7 +105,7 @@ impl Component for ParticleEmitter {
     // fn assign_transform(&mut self, t: Transform) {
     //     self.t = t;
     // }
-    fn init(&mut self, transform:Transform, id: i32, sys: &mut crate::engine::Sys) {
+    fn init(&mut self, transform: Transform, id: i32, sys: &mut crate::engine::Sys) {
         self.template = id % 2;
         sys.particles
             .emitter_inits
@@ -107,7 +117,7 @@ impl Component for ParticleEmitter {
                 e_id: id,
             });
     }
-    fn deinit(&mut self, transform:Transform, id: i32, sys: &mut crate::engine::Sys) {
+    fn deinit(&mut self, transform: Transform, id: i32, sys: &mut crate::engine::Sys) {
         sys.particles
             .emitter_inits
             .lock()
@@ -333,13 +343,11 @@ impl ParticleCompute {
             device.clone(),
             BufferUsage::all(),
             false,
-            particle_templates
-                .data.clone()
-                // .iter()
-                // .map(|x| {
-                //     x
-                // })
-                // .collect::<Vec<cs::ty::particle_template>>(),
+            particle_templates.data.clone(), // .iter()
+                                             // .map(|x| {
+                                             //     x
+                                             // })
+                                             // .collect::<Vec<cs::ty::particle_template>>(),
         )
         .unwrap();
         let templates = DeviceLocalBuffer::<[cs::ty::particle_template]>::array(
@@ -492,7 +500,6 @@ impl ParticleCompute {
         cam_pos: [f32; 3],
         cam_rot: [f32; 4],
     ) {
-        
         // let mut emitter_inits = emitter_inits.lock();
         if emitter_inits.len() == 0 {
             return;
@@ -501,8 +508,13 @@ impl ParticleCompute {
         // let mut ei = Vec::<emitter_init>::new();
         // std::mem::swap(&mut ei, &mut emitter_inits);
 
-        let copy_buffer =
-            CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, emitter_inits).unwrap();
+        let copy_buffer = CpuAccessibleBuffer::from_iter(
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            emitter_inits,
+        )
+        .unwrap();
         let emitter_inits = DeviceLocalBuffer::<[cs::ty::emitter_init]>::array(
             device.clone(),
             len as vulkano::DeviceSize,
@@ -519,7 +531,6 @@ impl ParticleCompute {
         let max_len = (2 as u32).pow(max_len as u32);
         let mut self_emitters = self.emitters.lock();
         if self_emitters.len() < max_len as u64 {
-
             let emitters = DeviceLocalBuffer::<[cs::ty::emitter]>::array(
                 device.clone(),
                 max_len as vulkano::DeviceSize,
@@ -527,8 +538,10 @@ impl ParticleCompute {
                 device.active_queue_families(),
             )
             .unwrap();
-            
-            builder.copy_buffer(self_emitters.clone(), emitters.clone()).unwrap();
+
+            builder
+                .copy_buffer(self_emitters.clone(), emitters.clone())
+                .unwrap();
             *self_emitters = emitters.clone();
         }
 
