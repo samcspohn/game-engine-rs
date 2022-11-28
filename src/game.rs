@@ -33,6 +33,7 @@ use crate::{
 };
 
 // #[component]
+#[derive(Default)]
 pub struct Bomb {
     pub vel: glm::Vec3,
 }
@@ -83,8 +84,8 @@ impl Inspectable for Bomb {
         // egui::CollapsingHeader::new("Bomb")
         //     .default_open(true)
         //     .show(ui, |ui| {
-                Ins(&mut self.vel).inspect("vel", ui);
-            // });
+        Ins(&mut self.vel).inspect("vel", ui);
+        // });
     }
 }
 // #[component]
@@ -174,55 +175,68 @@ pub fn game_thread_fn(
     let lazy_maker = LazyMaker::new();
     {
         let mut world = world.lock();
-        let ter = world.instantiate();
+        // let ter = world.instantiate();
 
-        world.add_component(
-            ter,
-            Terrain {
-                chunks: Arc::new(Mutex::new(HashMap::new())),
-                terrain_size: 33,
-                chunk_range: 9,
-                ..Default::default()
-            },
-        );
+        let g = world.instantiate();
+        // world.add_component(
+        //     g,
+        //     Bomb {
+        //         vel: glm::vec3(
+        //             rand::random::<f32>() - 0.5,
+        //             rand::random::<f32>() - 0.5,
+        //             rand::random::<f32>() - 0.5,
+        //         ) * 5.0,
+        //     },
+        // );
+        world.add_component(g, Renderer::new(0));
 
-        {
-            // let mut renderer_manager = world.renderer_manager.lock();
-            for _ in 0..1_00 {
-                // bombs
-                let g = world.instantiate_with_transform(_Transform {
-                    position: glm::vec3(
-                        // (rand::random::<f32>() - 0.5) * 2000.,
-                        // (rand::random::<f32>() - 0.5) * 2000.,
-                        // (rand::random::<f32>() - 0.5) * 2000.,
-                        (rand::random::<f32>() - 0.5) * 1500.,
-                        100. + (rand::random::<f32>() - 0.5) * 100.,
-                        (rand::random::<f32>() - 0.5) * 150.,
-                    ),
-                    ..Default::default()
-                });
-                world.add_component(
-                    g,
-                    Bomb {
-                        vel: glm::vec3(
-                            rand::random::<f32>() - 0.5,
-                            rand::random::<f32>() - 0.5,
-                            rand::random::<f32>() - 0.5,
-                        ) * 5.0,
-                    },
-                );
-                world.add_component(g, Renderer::new(0));
-                // world.add_component(g, ParticleEmitter::new(0));
-                // world.transforms.read()._move(
-                //     g.t,
-                //     glm::vec3(
-                //         rand::random::<f32>() * 100. - 50.,
-                //         50.0 + rand::random::<f32>() * 100.,
-                //         rand::random::<f32>() * 100. - 50.,
-                //     ),
-                // );
-            }
-        }
+        // world.add_component(
+        //     ter,
+        //     Terrain {
+        //         chunks: Arc::new(Mutex::new(HashMap::new())),
+        //         terrain_size: 33,
+        //         chunk_range: 9,
+        //         ..Default::default()
+        //     },
+        // );
+
+        // {
+        //     // let mut renderer_manager = world.renderer_manager.lock();
+        //     for _ in 0..1_00 {
+        //         // bombs
+        //         let g = world.instantiate_with_transform(_Transform {
+        //             position: glm::vec3(
+        //                 // (rand::random::<f32>() - 0.5) * 2000.,
+        //                 // (rand::random::<f32>() - 0.5) * 2000.,
+        //                 // (rand::random::<f32>() - 0.5) * 2000.,
+        //                 (rand::random::<f32>() - 0.5) * 1500.,
+        //                 100. + (rand::random::<f32>() - 0.5) * 100.,
+        //                 (rand::random::<f32>() - 0.5) * 150.,
+        //             ),
+        //             ..Default::default()
+        //         });
+        //         world.add_component(
+        //             g,
+        //             Bomb {
+        //                 vel: glm::vec3(
+        //                     rand::random::<f32>() - 0.5,
+        //                     rand::random::<f32>() - 0.5,
+        //                     rand::random::<f32>() - 0.5,
+        //                 ) * 5.0,
+        //             },
+        //         );
+        //         world.add_component(g, Renderer::new(0));
+        //         // world.add_component(g, ParticleEmitter::new(0));
+        //         // world.transforms.read()._move(
+        //         //     g.t,
+        //         //     glm::vec3(
+        //         //         rand::random::<f32>() * 100. - 50.,
+        //         //         50.0 + rand::random::<f32>() * 100.,
+        //         //         rand::random::<f32>() * 100. - 50.,
+        //         //     ),
+        //         // );
+        //     }
+        // }
     }
 
     // {

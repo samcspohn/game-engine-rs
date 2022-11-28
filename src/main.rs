@@ -34,6 +34,7 @@ use winit::dpi::LogicalSize;
 // };
 use winit::event::MouseButton;
 
+use std::any::TypeId;
 use std::collections::VecDeque;
 
 use std::{
@@ -103,7 +104,7 @@ use std::env;
 
 use crate::engine::physics::Physics;
 use crate::engine::transform::{Transform, Transforms};
-use crate::engine::World;
+use crate::engine::{World, GameObject};
 use crate::game::{game_thread_fn, Bomb};
 use crate::inspectable::{Inpsect, Ins};
 use crate::model::ModelManager;
@@ -751,123 +752,131 @@ fn main() {
                 egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
 
                 {
-                    let world = world.lock();
-                    let transforms = world.transforms.read();
+                    let mut world = world.lock();
+                    let resp = {
+                        let transforms = world.transforms.read();
 
-                    let hierarchy_ui = |ui: &mut egui::Ui| {
-                        if fps_queue.len() > 0 {
-                            let fps: f32 = fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
-                            ui.label(format!("fps: {}", 1.0 / fps));
-                        }
+                        let hierarchy_ui = |ui: &mut egui::Ui| {
+                            if fps_queue.len() > 0 {
+                                let fps: f32 =
+                                    fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
+                                ui.label(format!("fps: {}", 1.0 / fps));
+                            }
 
-                        fn transform_hierarchy_ui(
-                            transforms: &Transforms,
-                            selected_transforms: &mut HashMap<i32, bool>,
-                            t: Transform,
-                            ui: &mut egui::Ui,
-                            count: &mut i32,
-                            selected: &mut Option<i32>,
-                        ) {
-                            let id = ui.make_persistent_id(format!("{}", t.id));
-                            // if !selected_transforms.contains_key(&t.id) {
-                            //     selected_transforms.insert(t.id, false);
-                            // }
-                            egui::collapsing_header::CollapsingState::load_with_default_open(
-                                ui.ctx(),
-                                id,
-                                true,
-                            )
-                            .show_header(ui, |ui| {
-                                let mut this_selection = false;
-                                let resp = ui.toggle_value(
-                                    &mut selected_transforms
-                                        .get_mut(&t.id)
-                                        .unwrap_or(&mut this_selection),
-                                    format!("game object {}", t.id),
-                                );
-                                if this_selection {
-                                    selected_transforms.clear();
-                                    selected_transforms.insert(t.id, true);
-                                    *selected = Some(t.id);
-                                }
-                                // if *selected_transforms.get(&t.id).unwrap() {
-                                //     *selected = Some(t.id);
+                            fn transform_hierarchy_ui(
+                                transforms: &Transforms,
+                                selected_transforms: &mut HashMap<i32, bool>,
+                                t: Transform,
+                                ui: &mut egui::Ui,
+                                count: &mut i32,
+                                selected: &mut Option<i32>,
+                            ) {
+                                let id = ui.make_persistent_id(format!("{}", t.id));
+                                // if !selected_transforms.contains_key(&t.id) {
+                                //     selected_transforms.insert(t.id, false);
                                 // }
-
-                                // ui.radio_value(&mut self.radio_value, false, "");
-                                // ui.radio_value(&mut self.radio_value, true, "");
-                            })
-                            .body(|ui| {
-                                for child_id in t.get_meta().lock().children.read().iter() {
-                                    let child = Transform {
-                                        id: *child_id,
-                                        transforms: &&transforms,
-                                    };
-                                    transform_hierarchy_ui(
-                                        transforms,
-                                        selected_transforms,
-                                        child,
-                                        ui,
-                                        count,
-                                        selected,
+                                egui::collapsing_header::CollapsingState::load_with_default_open(
+                                    ui.ctx(),
+                                    id,
+                                    true,
+                                )
+                                .show_header(ui, |ui| {
+                                    let mut this_selection = false;
+                                    let resp = ui.toggle_value(
+                                        &mut selected_transforms
+                                            .get_mut(&t.id)
+                                            .unwrap_or(&mut this_selection),
+                                        format!("game object {}", t.id),
                                     );
-                                    *count += 1;
-                                    if *count > 10_000 {
-                                        return;
+                                    if this_selection {
+                                        selected_transforms.clear();
+                                        selected_transforms.insert(t.id, true);
+                                        *selected = Some(t.id);
                                     }
-                                }
-                                // ui.label("The body is always custom");
+                                    // if *selected_transforms.get(&t.id).unwrap() {
+                                    //     *selected = Some(t.id);
+                                    // }
+
+                                    // ui.radio_value(&mut self.radio_value, false, "");
+                                    // ui.radio_value(&mut self.radio_value, true, "");
+                                })
+                                .body(|ui| {
+                                    for child_id in t.get_meta().lock().children.read().iter() {
+                                        let child = Transform {
+                                            id: *child_id,
+                                            transforms: &&transforms,
+                                        };
+                                        transform_hierarchy_ui(
+                                            transforms,
+                                            selected_transforms,
+                                            child,
+                                            ui,
+                                            count,
+                                            selected,
+                                        );
+                                        *count += 1;
+                                        if *count > 10_000 {
+                                            return;
+                                        }
+                                    }
+                                    // ui.label("The body is always custom");
+                                });
+                            }
+
+                            let root = Transform {
+                                id: 0,
+                                transforms: &&transforms,
+                            };
+                            let mut count = 0;
+
+                            // egui::Area::new("Hierarchy_area")
+                            //     .show(ui.ctx(), |ui| {
+                            let output = egui::ScrollArea::both().show(ui, |ui| {
+                                transform_hierarchy_ui(
+                                    &transforms,
+                                    &mut selected_transforms,
+                                    root,
+                                    ui,
+                                    &mut count,
+                                    &mut selected,
+                                );
                             });
-                        }
+                            // })
+                            // .response
+                            // .context_menu(|ui| {
+                            //     ui.menu_button("Add Game Object", |ui| {
+                            //         println!("add game object");
+                            //     });
+                            // });
 
-                        let root = Transform {
-                            id: 0,
-                            transforms: &&transforms,
+                            // puffin_egui::profiler_ui(ui);
+                            // if let Some(fps) = self.data.back() {
+                            //     let fps = 1.0 / fps;
+                            //     ui.label(format!("fps: {}", fps));
+                            // }
+                            // ui.label(format!("entities: {}", self.entities));
                         };
-                        let mut count = 0;
 
-                        // egui::Area::new("Hierarchy_area")
-                        //     .show(ui.ctx(), |ui| {
-                        let output = egui::ScrollArea::both().show(ui, |ui| {
-
-                            transform_hierarchy_ui(
-                                &transforms,
-                                &mut selected_transforms,
-                                root,
-                                ui,
-                                &mut count,
-                                &mut selected,
-                            );
-                        });
-                        // })
-                        // .response
-                        // .context_menu(|ui| {
-                        //     ui.menu_button("Add Game Object", |ui| {
-                        //         println!("add game object");
-                        //     });
-                        // });
-
-                        // puffin_egui::profiler_ui(ui);
-                        // if let Some(fps) = self.data.back() {
-                        //     let fps = 1.0 / fps;
-                        //     ui.label(format!("fps: {}", fps));
-                        // }
-                        // ui.label(format!("entities: {}", self.entities));
+                        puffin::profile_function!();
+                        let mut open = true;
+                        let resp = egui::Window::new("Hierarchy")
+                            .default_size([600.0, 600.0])
+                            .open(&mut open)
+                            // .vscroll(true)
+                            // .hscroll(true)
+                            .show(&egui_ctx, hierarchy_ui);
+                        resp
                     };
-
-                    puffin::profile_function!();
-                    let mut open = true;
-                    if let Some(resp) = egui::Window::new("Hierarchy")
-                        .default_size([600.0, 600.0])
-                        .open(&mut open)
-                        // .vscroll(true)
-                        // .hscroll(true)
-                        .show(&egui_ctx, hierarchy_ui)
-                    {
+                    if let Some(resp) = resp {
                         resp.response.context_menu(|ui: &mut Ui| {
                             let resp = ui.menu_button("Add Game Object", |ui| {});
                             if resp.response.clicked() {
+                                let g = world.instantiate();
+                                selected = Some(g.t);
+                                selected_transforms.clear();
+                                selected_transforms.insert(g.t, true);
                                 println!("add game object");
+                                ui.close_menu();
                             }
                         });
                     }
@@ -883,7 +892,7 @@ fn main() {
                     //                                 });
                     //                             });
 
-                    egui::Window::new("Inspector")
+                    let resp = egui::Window::new("Inspector")
                         .default_size([200.0, 600.0])
                         .vscroll(true)
                         .show(&egui_ctx, |ui: &mut egui::Ui| {
@@ -907,10 +916,18 @@ fn main() {
                                             if pos != prev_pos {
                                                 t.move_child(t_id, pos - prev_pos);
                                             }
-                                            Ins(&mut *t.rotations[t_id as usize].lock())
-                                                .inspect("Rotation", ui);
-                                            Ins(&mut *t.scales[t_id as usize].lock())
-                                                .inspect("Scale", ui);
+                                            let mut rot = *t.rotations[t_id as usize].lock();
+                                            let prev_rot = rot.clone();
+                                            Ins(&mut rot).inspect("Rotation", ui);
+                                            if prev_rot != rot {
+                                                t.set_rotation(t_id, rot);
+                                            }
+                                            let mut scl = *t.scales[t_id as usize].lock();
+                                            let prev_scl = scl.clone();
+                                            Ins(&mut scl).inspect("Scale", ui);
+                                            if prev_scl != scl {
+                                                t.set_scale(t_id, scl);
+                                            }
                                         });
                                     let mut components = ent.write();
                                     for (c_type, id) in components.iter_mut() {
@@ -928,6 +945,53 @@ fn main() {
                                 }
                             }
                         });
+                    if let Some(resp) = resp {
+                        let mut compoenent_init: Option<(TypeId, i32)> = None;
+                        resp.response.context_menu(|ui: &mut Ui| {
+                            let resp = ui.menu_button("Add Component", |ui| {
+                                // ui.add(egui::Button::new("text"));
+                                for (k, c) in &world.components {
+                                    let mut c = c.write();
+                                    let resp = ui.add(egui::Button::new(c.get_name()));
+                                    if resp.clicked() {
+                                        if let Some(t_id) = selected {
+                                            let  c_id = c.new_default(t_id);
+                                            // let g = GameObject {t: t_id};
+                                            let key = c.get_hash();
+                                            compoenent_init = Some((key,c_id));
+                                            // world.add_component_id(g, c.get_hash(), c_id)
+                                            // world.add_component(g, c.read().)
+                                        }
+                                        // ui.
+                                        // let g = world.instantiate();
+                                        // selected = Some(g.t);
+                                        // selected_transforms.clear();
+                                        // selected_transforms.insert(g.t, true);
+                                        // println!("add game object");
+                                        ui.close_menu();
+                                    }
+                                }
+                                if let (Some(t_id), Some((key,c_id))) = (selected, compoenent_init) {
+                                    // if let Some(c) = world.components.get_mut(&key) {
+                                    //     let mut c = c.write();
+                                    //     let  c_id = c.new_default(t_id);
+                                        let g = GameObject {t: t_id};
+                                        world.add_component_id(g, key, c_id)
+                                    // }
+                                    // world.add_component(g, c.read().)
+                                }
+                            });
+                            // if resp.response.clicked() {
+                            //     // ui.
+                            //     // let g = world.instantiate();
+                            //     // selected = Some(g.t);
+                            //     // selected_transforms.clear();
+                            //     // selected_transforms.insert(g.t, true);
+                            //     // println!("add game object");
+                            //     // ui.close_menu();
+                            // }
+                        });
+                    }
                 }
                 /////////////////////////////////////////////////////////////////
                 let rm = renderer_manager.read();

@@ -70,6 +70,44 @@ pub trait Component {
     fn update(&mut self, transform: Transform, sys: &System) {}
 }
 
+
+pub struct _Storage<T> {
+    pub data: Vec<T>,
+    pub valid: Vec<AtomicBool>,
+    avail: pqueue::Queue<Reverse<i32>>,
+    extent: i32,
+}
+impl<T: 'static> _Storage<T> {
+    pub fn emplace(&mut self, d: T) -> i32 {
+        match self.avail.pop() {
+            Some(Reverse(i)) => {
+                self.data[i as usize] = d;
+                i
+            }
+            None => {
+                self.data.push(d);
+                self.extent += 1;
+                self.extent as i32 - 1
+            }
+        }
+    }
+    pub fn erase(&mut self, id: i32) {
+        // self.data[id as usize] = None;
+        self.avail.push(Reverse(id));
+    }
+    pub fn get(&self, i: &i32) -> &T {
+        &self.data[*i as usize]
+    }
+    pub fn new() -> _Storage<T> {
+        _Storage::<T> {
+            data: Vec::new(),
+            valid: Vec::new(),
+            avail: pqueue::Queue::new(),
+            extent: 0,
+        }
+    }
+}
+
 pub trait StorageBase {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -83,10 +121,12 @@ pub trait StorageBase {
         rendering: &RwLock<crate::RendererManager>,
     );
     fn erase(&mut self, i: i32);
-    fn deinit(&mut self, transform: Transform, i: i32, sys: &mut Sys);
-    fn init(&mut self, transform: Transform, i: i32, sys: &mut Sys);
+    fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
+    fn init(&self, transform: Transform, i: i32, sys: &mut Sys);
     fn inspect(&self, i: i32, ui: &mut egui::Ui);
     fn get_name(&self) -> &'static str;
+    fn get_hash(&self) -> TypeId;
+    fn new_default(&mut self, t: i32) -> i32;
 }
 
 // use pqueue::Queue;
@@ -132,44 +172,8 @@ impl<T: 'static> Storage<T> {
     }
 }
 
-pub struct _Storage<T> {
-    pub data: Vec<T>,
-    pub valid: Vec<AtomicBool>,
-    avail: pqueue::Queue<Reverse<i32>>,
-    extent: i32,
-}
-impl<T: 'static> _Storage<T> {
-    pub fn emplace(&mut self, d: T) -> i32 {
-        match self.avail.pop() {
-            Some(Reverse(i)) => {
-                self.data[i as usize] = d;
-                i
-            }
-            None => {
-                self.data.push(d);
-                self.extent += 1;
-                self.extent as i32 - 1
-            }
-        }
-    }
-    pub fn erase(&mut self, id: i32) {
-        // self.data[id as usize] = None;
-        self.avail.push(Reverse(id));
-    }
-    pub fn get(&self, i: &i32) -> &T {
-        &self.data[*i as usize]
-    }
-    pub fn new() -> _Storage<T> {
-        _Storage::<T> {
-            data: Vec::new(),
-            valid: Vec::new(),
-            avail: pqueue::Queue::new(),
-            extent: 0,
-        }
-    }
-}
 
-impl<T: 'static + Component + Inspectable + Send + Sync> StorageBase for Storage<T> {
+impl<T: 'static + Component + Inspectable + Send + Sync + Default> StorageBase for Storage<T> {
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
     }
@@ -235,10 +239,10 @@ impl<T: 'static + Component + Inspectable + Send + Sync> StorageBase for Storage
     fn erase(&mut self, i: i32) {
         self.erase(i);
     }
-    fn deinit(&mut self, transform: Transform, i: i32, sys: &mut Sys) {
+    fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys) {
         self.data[i as usize].lock().1.deinit(transform, i, sys);
     }
-    fn init(&mut self, transform: Transform, i: i32, sys: &mut Sys) {
+    fn init(&self, transform: Transform, i: i32, sys: &mut Sys) {
         self.data[i as usize].lock().1.init(transform, i, sys);
     }
     fn inspect(&self, i: i32, ui: &mut egui::Ui) {
@@ -247,6 +251,15 @@ impl<T: 'static + Component + Inspectable + Send + Sync> StorageBase for Storage
 
     fn get_name(&self) -> &'static str {
         std::any::type_name::<T>().split("::").last().unwrap()
+    }
+
+    fn new_default(&mut self, t: i32) -> i32 {
+        let def:T = Default::default();
+        self.emplace(t, def)
+    }
+
+    fn get_hash(&self) -> TypeId {
+        TypeId::of::<T>()
     }
 }
 
@@ -338,7 +351,7 @@ impl World {
         }
         ret
     }
-    pub fn add_component<T: 'static + Send + Sync + Component + Inspectable>(&mut self, g: GameObject, mut d: T) {
+    pub fn add_component<T: 'static + Send + Sync + Component + Inspectable + Default>(&mut self, g: GameObject, mut d: T) {
         // d.assign_transform(g.t);
         let key: TypeId = TypeId::of::<T>();
         if let Some(stor) = self
@@ -362,7 +375,43 @@ impl World {
             panic!("no type key?")
         }
     }
-    pub fn register<T: 'static + Send + Sync + Component + Inspectable>(&mut self, has_update: bool) {
+    pub fn add_component_id(&mut self, g: GameObject, key: TypeId, c_id: i32) {
+        // d.assign_transform(g.t);
+
+        if let Some(ent_components) = &self.entities.read()[g.t as usize] {
+            ent_components.write().insert(key, c_id);
+            if let Some(stor) = self.components.get(&key) {
+                let trans = Transform {
+                    id: g.t,
+                    transforms: &self.transforms.read(),
+                };
+                stor.write().init(trans, c_id, &mut self.sys);
+            }
+        }
+
+        // let key: TypeId = TypeId::of::<T>();
+        // if let Some(stor) = self
+        //     .components
+        //     .get(&key)
+        //     .unwrap()
+        //     .write()
+        //     .as_any_mut()
+        //     .downcast_mut::<Storage<T>>()
+        // {
+        //     let c_id = stor.emplace(g.t, d);
+        //     let trans = Transform {
+        //         id: g.t,
+        //         transforms: &self.transforms.read(),
+        //     };
+        //     stor.init(trans, c_id, &mut self.sys);
+        //     if let Some(ent_components) = &self.entities.read()[g.t as usize] {
+        //         ent_components.write().insert(key, c_id);
+        //     }
+        // } else {
+        //     panic!("no type key?")
+        // }
+    }
+    pub fn register<T: 'static + Send + Sync + Component + Inspectable + Default>(&mut self, has_update: bool) {
         let key: TypeId = TypeId::of::<T>();
         let data = Storage::<T>::new(has_update);
         self.components
