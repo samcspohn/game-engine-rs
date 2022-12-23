@@ -4,7 +4,8 @@ use std::{
 };
 
 use crate::{
-    engine::{transform::Transform, Component, Storage, Sys, _Storage},
+    drag_drop::{self, drop_target},
+    engine::{transform::Transform, Component, Storage, Sys, World, _Storage},
     inspectable::{Inpsect, Ins, Inspectable},
 };
 use bytemuck::{Pod, Zeroable};
@@ -18,21 +19,174 @@ use vulkano::{
     shader::ShaderModule,
 };
 
+#[derive(Default, Clone, Copy)]
+struct ModelId {
+    id: i32,
+}
+impl<'a> Inpsect for Ins<'a, ModelId> {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys) {
+        let drop_data = drag_drop::DRAG_DROP_DATA.lock();
+
+        let model: String = match sys.model_manager.lock().models_ids.get(&self.0.id) {
+            Some(model) => model.file.clone(),
+            None => "".into(),
+        };
+        let can_accept_drop_data = match drop_data.rfind(".obj") {
+            Some(_) => true,
+            None => false,
+        };
+        // println!("can accept drop data:{}",can_accept_drop_data);
+        ui.horizontal(|ui| {
+            ui.add(egui::Label::new(name));
+            drop_target(ui, can_accept_drop_data, |ui| {
+                // let model_name = sys.model_manager.lock().models.get(k)
+                let response = ui.add(egui::Label::new(model.as_str()));
+                if response.hovered() && ui.input().pointer.any_released() {
+                    let model_file: String = drop_data.clone();
+
+                    if let Some(id) = sys.model_manager.lock().models.get(&model_file) {
+                        self.0.id = *id;
+                    }
+                }
+            });
+        });
+
+        //     if let Some(model) = sys.model_manager.lock().models_ids.get(&self.0.id) {
+        //         if ui.memory().is_anything_being_dragged() {
+        //             if let Some(_) = drop_data.rfind(".obj") {
+        //                 drop_target(ui, true, |ui| {
+        //                     // let model_name = sys.model_manager.lock().models.get(k)
+        //                     let response = ui.horizontal(|ui| {
+        //                         ui.add(egui::Label::new(name));
+        //                         ui.add(egui::Label::new(model.file.as_str()));
+        //                     });
+        //                     if response.response.drag_released() {
+        //                         let model_file: String = drop_data.clone();
+
+        //                         if let Some(id) = sys.model_manager.lock().models.get(&model_file) {
+        //                             self.0.id = *id;
+        //                         }
+        //                     }
+        //                 });
+        //             }
+        //         } else {
+        //             // let model_name = sys.model_manager.lock().models.get(k)
+        //             ui.horizontal(|ui| {
+        //                 ui.add(egui::Label::new(name));
+        //                 ui.add(egui::Label::new(model.file.as_str()));
+        //             });
+        //         }
+        //     } else {
+        //         if ui.memory().is_anything_being_dragged() {
+        //             if let Some(_) = drop_data.rfind(".obj") {
+        //                 drop_target(ui, true, |ui| {
+        //                     // let model_name = sys.model_manager.lock().models.get(k)
+        //                     let response = ui.horizontal(|ui| {
+        //                         ui.add(egui::Label::new(name));
+        //                         ui.add(egui::Label::new(""));
+        //                     });
+        //                     if response.response.drag_released() {
+        //                         let model_file: String = drop_data.clone();
+
+        //                         if let Some(id) = sys.model_manager.lock().models.get(&model_file) {
+        //                             self.0.id = *id;
+        //                         }
+        //                     }
+        //                 });
+        //             }
+        //         } else {
+        //             // let model_name = sys.model_manager.lock().models.get(k)
+        //             ui.horizontal(|ui| {
+        //                 ui.add(egui::Label::new(name));
+        //                 ui.add(egui::Label::new(""));
+        //             });
+        //         }
+        //     }
+    }
+}
+
 // #[component]
 #[derive(Default, Clone, Copy)]
 pub struct Renderer {
-    model_id: i32,
+    model_id: ModelId,
     id: i32,
 }
 
 impl Inspectable for Renderer {
-    fn inspect(&mut self, ui: &mut egui::Ui) {
+    fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         // ui.add(egui::Label::new("Renderer"));
         // egui::CollapsingHeader::new(std::any::type_name::<Self>())
         //     .default_open(true)
         //     .show(ui, |ui| {
-                Ins(&mut self.model_id).inspect("model_id", ui);
-            // });
+        let m_id = self.model_id;
+        Ins(&mut self.model_id).inspect("model_id", ui, sys);
+
+        if self.model_id.id != m_id.id {
+            // self.deinit(transform, id, sys);
+            let rm = &mut sys.renderer_manager.write();
+            rm.model_indirect
+                .write()
+                .get_mut(&m_id.id)
+                .unwrap()
+                .count -= 1;
+            // sys.renderer_manager.write().updates.insert(
+            //     self.id,
+            //     TransformId {
+            //         indirect_id: -1,
+            //         transform_id: -1,
+            //     },
+            // );
+            // sys.renderer_manager.write().transforms.erase(self.id);
+
+            let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
+                ind.count += 1;
+                ind.id
+            } else {
+                -1
+            };
+    
+            if ind_id == -1 {
+                ind_id = rm
+                    .shr_data
+                    .write()
+                    .indirect
+                    .emplace(DrawIndexedIndirectCommand {
+                        index_count: sys
+                            .model_manager
+                            .lock()
+                            .models_ids
+                            .get(&self.model_id.id)
+                            .unwrap()
+                            .mesh
+                            .indeces
+                            .len() as u32,
+                        instance_count: 0,
+                        first_index: 0,
+                        vertex_offset: 0,
+                        first_instance: 0,
+                    });
+                rm.model_indirect.write().insert(
+                    self.model_id.id,
+                    Indirect {
+                        id: ind_id,
+                        count: 1,
+                    },
+                );
+                rm.indirect_model.write().insert(ind_id, self.model_id.id);
+            }
+            rm.transforms.data[self.id as usize] = TransformId {
+                indirect_id: ind_id,
+                transform_id: transform.id,
+            };
+            rm.updates.insert(
+                self.id,
+                TransformId {
+                    indirect_id: ind_id,
+                    transform_id: transform.id,
+                },
+            );
+        }
+        // });
     }
 }
 // #[derive(Default)]
@@ -206,7 +360,7 @@ impl Renderer {
     // }
     pub fn new(model_id: i32) -> Renderer {
         Renderer {
-            model_id: model_id,
+            model_id: ModelId { id: model_id },
             id: 0,
         }
     }
@@ -215,7 +369,7 @@ impl Renderer {
 impl Component for Renderer {
     fn init(&mut self, transform: Transform, _id: i32, sys: &mut Sys) {
         let rm = &mut sys.renderer_manager.write();
-        let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id) {
+        let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
             ind.count += 1;
             ind.id.clone()
         } else {
@@ -232,7 +386,7 @@ impl Component for Renderer {
                         .model_manager
                         .lock()
                         .models_ids
-                        .get(&self.model_id)
+                        .get(&self.model_id.id)
                         .unwrap()
                         .mesh
                         .indeces
@@ -243,13 +397,13 @@ impl Component for Renderer {
                     first_instance: 0,
                 });
             rm.model_indirect.write().insert(
-                self.model_id,
+                self.model_id.id,
                 Indirect {
                     id: ind_id,
                     count: 1,
                 },
             );
-            rm.indirect_model.write().insert(ind_id, self.model_id);
+            rm.indirect_model.write().insert(ind_id, self.model_id.id);
         }
         self.id = rm.transforms.emplace(TransformId {
             indirect_id: ind_id,
@@ -268,7 +422,7 @@ impl Component for Renderer {
             .write()
             .model_indirect
             .write()
-            .get_mut(&self.model_id)
+            .get_mut(&self.model_id.id)
             .unwrap()
             .count -= 1;
         sys.renderer_manager.write().updates.insert(

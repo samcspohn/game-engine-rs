@@ -4,9 +4,7 @@ use force_send_sync::SendSync;
 use glm::{Mat3, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
-use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelIterator, ParallelIterator,
-};
+use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 // use spin::{Mutex,RwLock};
 use puffin_egui::puffin;
 use std::{
@@ -62,13 +60,13 @@ impl Default for _Transform {
 }
 
 #[derive(Clone, Copy)]
-pub struct Transform <'a>{
+pub struct Transform<'a> {
     pub id: i32,
     pub transforms: &'a Transforms,
 }
 
 #[allow(dead_code)]
-impl <'a> Transform<'a> {
+impl<'a> Transform<'a> {
     pub fn forward(&self) -> glm::Vec3 {
         glm::quat_to_mat3(&*self.transforms.rotations[self.id as usize].lock()) * glm::Vec3::z()
     }
@@ -94,13 +92,13 @@ impl <'a> Transform<'a> {
     pub fn get_position(&self) -> Vec3 {
         self.transforms.get_position(self.id)
     }
-    pub fn set_position(&self,  v: Vec3) {
+    pub fn set_position(&self, v: Vec3) {
         self.transforms.set_position(self.id, v);
     }
     pub fn get_rotation(&self) -> Quat {
         self.transforms.get_rotation(self.id)
     }
-    pub fn set_rotation(&self,  r: Quat) {
+    pub fn set_rotation(&self, r: Quat) {
         self.transforms.set_rotation(self.id, r);
     }
     // fn set_rotation_child(&self, tc: i32, rot: &Mat3, pos: &Vec3) {
@@ -118,10 +116,10 @@ impl <'a> Transform<'a> {
     pub fn get_scale(&self) -> Vec3 {
         self.transforms.get_scale(self.id)
     }
-    pub fn set_scale(&self,  s: Vec3) {
+    pub fn set_scale(&self, s: Vec3) {
         self.transforms.set_scale(self.id, s);
     }
-    pub fn scale(&self,  s: Vec3) {
+    pub fn scale(&self, s: Vec3) {
         self.transforms.scale(self.id, s);
     }
     // fn scale_child(&self,  p: &Vec3, s: &Vec3) {
@@ -137,7 +135,7 @@ impl <'a> Transform<'a> {
     //     }
     // }
 
-    pub fn rotate(&self,  axis: &Vec3, radians: f32) {
+    pub fn rotate(&self, axis: &Vec3, radians: f32) {
         self.transforms.rotate(self.id, axis, radians);
     }
 
@@ -159,8 +157,6 @@ impl <'a> Transform<'a> {
     //         self.rotate_child(*child, axis, p, r, radians);
     //     }
     // }
-
-
 }
 
 pub const POS_U: usize = 0;

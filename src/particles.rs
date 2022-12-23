@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    engine::{transform::Transform, Component, Storage, _Storage},
+    engine::{transform::Transform, Component, Storage, _Storage, World, Sys},
     inspectable::{Inpsect, Ins, Inspectable},
     particle_sort::ParticleSort,
     transform_compute::cs::ty::transform,
@@ -86,14 +86,14 @@ pub struct ParticleEmitter {
     template: i32,
 }
 impl Inspectable for ParticleEmitter {
-    fn inspect(&mut self, ui: &mut egui::Ui) {
+    fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         // ui.add(egui::DragValue::new(&mut self.template));
         // ui.add(egui::Label::new("Particle Emitter"));
         // egui::CollapsingHeader::new("Particle Emitter")
         //     .default_open(true)
         //     .show(ui, |ui| {
-                Ins(&mut self.template).inspect("template", ui);
-            // });
+        Ins(&mut self.template).inspect("template", ui, sys);
+        // });
     }
 }
 impl ParticleEmitter {

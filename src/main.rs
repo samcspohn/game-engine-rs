@@ -1,24 +1,9 @@
-// use std::collections::{HashMap, HashSet};
-// use std::ffi::CStr;
-// use std::fs::File;
-// use std::hash::{Hash, Hasher};
-// use std::io::BufReader;
-// use std::mem::size_of;
-// use std::os::raw::c_void;
-// use std::ptr::copy_nonoverlapping as memcpy;
-// use std::{
-//     sync::Arc,
-//     time::{Duration, Instant},
-// };
-
 use crossbeam::queue::SegQueue;
 use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::{Color32, Ui, WidgetText};
 // use egui_dock::Tree;
 use puffin_egui::*;
-// use egui_vulkano::UpdateTexturesResult;
-// use anyhow::{anyhow, Result};
-// use log::*;
+
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
 use vulkano::buffer::{BufferContents, BufferSlice, TypedBufferAccess};
@@ -27,16 +12,13 @@ use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::Features;
 use vulkano::pipeline::{Pipeline, PipelineBindPoint};
 use winit::dpi::LogicalSize;
-// use parking_lot::Mutex;
-// use rayon::iter::{
-//     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-//     IntoParallelRefMutIterator, ParallelIterator,
-// };
+
 use winit::event::MouseButton;
 
 use std::any::TypeId;
 use std::collections::VecDeque;
 
+use std::path::PathBuf;
 use std::{
     collections::HashMap,
     ptr,
@@ -80,6 +62,7 @@ use glm::{Mat4, Vec3};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 // use rust_test::{INDICES, NORMALS, VERTICES};
+use walkdir::WalkDir;
 
 mod engine;
 mod input;
@@ -94,17 +77,16 @@ mod renderer_component2;
 mod texture;
 mod time;
 mod transform_compute;
-// mod rendering;
-// use transform::{Transform, Transforms};
+mod drag_drop;
 
-use std::env;
+use std::{env, fs};
 
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
 use crate::engine::physics::Physics;
 use crate::engine::transform::{Transform, Transforms};
-use crate::engine::{World, GameObject};
+use crate::engine::{GameObject, World, Sys};
 use crate::game::{game_thread_fn, Bomb};
 use crate::inspectable::{Inpsect, Ins};
 use crate::model::ModelManager;
@@ -118,7 +100,7 @@ use crate::texture::TextureManager;
 use crate::transform_compute::cs;
 use crate::transform_compute::cs::ty::transform;
 use crate::{input::Input, renderer::RenderPipeline};
-
+use crate::{drag_drop::drag_source, drag_drop::drop_target};
 mod game;
 mod terrain;
 
@@ -253,6 +235,8 @@ where
 //  # egui::__run_test_ctx(|ctx| {
 //  #     egui::CentralPanel::default().show(ctx, |ui| my_tabs.ui(ui));
 //  # });
+
+
 
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
@@ -772,9 +756,6 @@ fn main() {
                                 selected: &mut Option<i32>,
                             ) {
                                 let id = ui.make_persistent_id(format!("{}", t.id));
-                                // if !selected_transforms.contains_key(&t.id) {
-                                //     selected_transforms.insert(t.id, false);
-                                // }
                                 egui::collapsing_header::CollapsingState::load_with_default_open(
                                     ui.ctx(),
                                     id,
@@ -782,7 +763,7 @@ fn main() {
                                 )
                                 .show_header(ui, |ui| {
                                     let mut this_selection = false;
-                                    let resp = ui.toggle_value(
+                                    ui.toggle_value(
                                         &mut selected_transforms
                                             .get_mut(&t.id)
                                             .unwrap_or(&mut this_selection),
@@ -793,12 +774,6 @@ fn main() {
                                         selected_transforms.insert(t.id, true);
                                         *selected = Some(t.id);
                                     }
-                                    // if *selected_transforms.get(&t.id).unwrap() {
-                                    //     *selected = Some(t.id);
-                                    // }
-
-                                    // ui.radio_value(&mut self.radio_value, false, "");
-                                    // ui.radio_value(&mut self.radio_value, true, "");
                                 })
                                 .body(|ui| {
                                     for child_id in t.get_meta().lock().children.read().iter() {
@@ -829,9 +804,7 @@ fn main() {
                             };
                             let mut count = 0;
 
-                            // egui::Area::new("Hierarchy_area")
-                            //     .show(ui.ctx(), |ui| {
-                            let output = egui::ScrollArea::both().show(ui, |ui| {
+                             egui::ScrollArea::both().show(ui, |ui| {
                                 transform_hierarchy_ui(
                                     &transforms,
                                     &mut selected_transforms,
@@ -841,21 +814,10 @@ fn main() {
                                     &mut selected,
                                 );
                             });
-                            // })
-                            // .response
-                            // .context_menu(|ui| {
-                            //     ui.menu_button("Add Game Object", |ui| {
-                            //         println!("add game object");
-                            //     });
-                            // });
 
-                            // puffin_egui::profiler_ui(ui);
-                            // if let Some(fps) = self.data.back() {
-                            //     let fps = 1.0 / fps;
-                            //     ui.label(format!("fps: {}", fps));
-                            // }
-                            // ui.label(format!("entities: {}", self.entities));
                         };
+                        
+                        // windows
 
                         puffin::profile_function!();
                         let mut open = true;
@@ -881,17 +843,7 @@ fn main() {
                         });
                     }
 
-                    //                     egui::Area::new("Hierarchy_area")
-                    //                             .show(ui.ctx(),
-                    //                                hierarchy_ui
-                    // )
-                    //                             .response
-                    //                             .context_menu(|ui| {
-                    //                                 ui.menu_button("Add Game Object", |ui| {
-                    //                                     println!("add game object");
-                    //                                 });
-                    //                             });
-
+                    let mut rmv: Option<(GameObject, std::any::TypeId, i32)> = None;
                     let resp = egui::Window::new("Inspector")
                         .default_size([200.0, 600.0])
                         .vscroll(true)
@@ -918,13 +870,26 @@ fn main() {
                                             }
                                             let mut rot = *t.rotations[t_id as usize].lock();
                                             let prev_rot = rot.clone();
-                                            Ins(&mut rot).inspect("Rotation", ui);
+                                            ui.horizontal(|ui| {
+                                                ui.add(egui::Label::new("Rotation"));
+                                                ui.add(egui::DragValue::new(&mut rot.coords.w).speed(0.1));
+                                                ui.add(egui::DragValue::new(&mut rot.coords.x).speed(0.1));
+                                                ui.add(egui::DragValue::new(&mut rot.coords.y).speed(0.1));
+                                                ui.add(egui::DragValue::new(&mut rot.coords.z).speed(0.1));
+                                            });
+                                            // Ins(&mut rot).inspect("Rotation", ui);
                                             if prev_rot != rot {
                                                 t.set_rotation(t_id, rot);
                                             }
                                             let mut scl = *t.scales[t_id as usize].lock();
                                             let prev_scl = scl.clone();
-                                            Ins(&mut scl).inspect("Scale", ui);
+                                            // Ins(&mut scl).inspect("Scale", ui);
+                                            ui.horizontal(|ui| {
+                                                ui.add(egui::Label::new("Scale"));
+                                                ui.add(egui::DragValue::new(&mut scl.x).speed(0.1));
+                                                ui.add(egui::DragValue::new(&mut scl.y).speed(0.1));
+                                                ui.add(egui::DragValue::new(&mut scl.z).speed(0.1));
+                                            });
                                             if prev_scl != scl {
                                                 t.set_scale(t_id, scl);
                                             }
@@ -935,15 +900,107 @@ fn main() {
                                             let c = c.read();
                                             // let name: String = c.get_name().into();
                                             ui.separator();
-                                            egui::CollapsingHeader::new(c.get_name())
-                                                .default_open(true)
-                                                .show(ui, |ui| {
-                                                    c.inspect(*id, ui);
+                                            let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
+                                            egui::collapsing_header::CollapsingState::load_with_default_open(
+                                                ui.ctx(), _id ,true,
+                                            )
+                                            .show_header(ui, |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.heading(c.get_name());
+                                                    if ui.button("delete").clicked() {
+                                                        println!("delete component");
+                                                        let g = GameObject { t: t_id };
+                                                        // world.remove_component(g, *c_type, *id)
+                                                        rmv = Some((g,*c_type, *id));
+                                                    }
                                                 });
+                                            })
+                                            .body(|ui| {
+                                                let transform = Transform { id: t_id , transforms: &world.transforms.read() };
+                                                c.inspect(transform, *id, ui, &mut world.sys.lock());
+                                            });
+
                                         }
                                     }
                                 }
                             }
+                        });
+                        if let Some((g,c_type, id)) = rmv {
+                            world.remove_component(g, c_type, id)
+                        }
+
+                        use substring::Substring;
+                        let cur_dir: PathBuf = "./test_project_rs".into();
+                        fn render_dir(ui: &mut egui::Ui, cur_dir: PathBuf, sys: &Sys) {
+                            // let label = format!("{:?}", cur_dir);
+                            let label: String = cur_dir.clone().into_os_string().into_string().unwrap();
+                            let id = ui.make_persistent_id(label.clone());
+                            if let Ok(it) = fs::read_dir(cur_dir) {
+                                egui::collapsing_header::CollapsingState::load_with_default_open(
+                                    ui.ctx(),
+                                    id,
+                                    false,
+                                )
+                                .show_header(ui, |ui| {
+                                    if let Some(last_slash) = label.rfind("/") {
+                                        let label = label.substring(last_slash + 1,label.len());
+                                        ui.label(label);
+                                    }
+                                })
+                                .body(|ui| {
+                                    let paths: Vec<_> = it
+                                              .map(|r| r.unwrap())
+                                              .collect();
+                                    let mut dirs: Vec<_> = paths.iter().filter(|x| fs::read_dir(x.path()).is_ok()).collect();
+                                    let mut files: Vec<_> = paths.iter().filter(|x| !fs::read_dir(x.path()).is_ok()).collect();
+                                        dirs.sort_by_key(|dir| dir.path());
+                                        files.sort_by_key(|dir| dir.path());
+                                        for entry in dirs {
+                                            render_dir(ui, entry.path(), sys)
+                                        }
+                                        for entry in files {
+                                            render_dir(ui, entry.path(), sys)
+                                        }
+                                    
+                                    // ui.label("The body is always custom");
+                                });
+                            } else {
+                                if let Some(last_slash) = label.rfind("/") {
+                                    let _label: String = label.substring(last_slash + 1,label.len()).into();
+                                    // drag_source(ui, id, body)
+                                    // let a = ui.label(label);
+                                    // a.
+                                    // let label = egui::Label::new(label);
+                                    
+                                    // let a = ui.add(label);
+                                    // a.id
+                                    if let Some(last_dot) = label.rfind(".") {
+                                        let file_ext = label.substring(last_dot, label.len());
+                                        if file_ext == ".obj" {
+                                            let mut mm = sys.model_manager.lock();
+                                            if !mm.models.contains_key(&label) {
+                                                mm.from_file(&label);
+                                            }
+                                        }
+                                    }
+
+                                    let item_id = egui::Id::new(label.clone());
+
+                                    drag_source(ui, item_id, label,|ui| {
+                                        ui.add(egui::Label::new(_label.clone()).sense(egui::Sense::click()));
+                                    });
+                                }
+                            }
+                        }
+
+                        egui::Window::new("Project")
+                        .default_size([200.0, 600.0])
+                        .vscroll(true)
+                        .show(&egui_ctx, |ui: &mut egui::Ui| {
+                            render_dir(ui, cur_dir, &world.sys.lock());
+                            // for entry in WalkDir::new(".") {
+                            //     ui.label(format!("{}", entry.unwrap().path().display()));
+                            // }
                         });
                     if let Some(resp) = resp {
                         let mut compoenent_init: Option<(TypeId, i32)> = None;
@@ -956,40 +1013,17 @@ fn main() {
                                     if resp.clicked() {
                                         if let Some(t_id) = selected {
                                             let  c_id = c.new_default(t_id);
-                                            // let g = GameObject {t: t_id};
                                             let key = c.get_hash();
                                             compoenent_init = Some((key,c_id));
-                                            // world.add_component_id(g, c.get_hash(), c_id)
-                                            // world.add_component(g, c.read().)
                                         }
-                                        // ui.
-                                        // let g = world.instantiate();
-                                        // selected = Some(g.t);
-                                        // selected_transforms.clear();
-                                        // selected_transforms.insert(g.t, true);
-                                        // println!("add game object");
                                         ui.close_menu();
                                     }
                                 }
                                 if let (Some(t_id), Some((key,c_id))) = (selected, compoenent_init) {
-                                    // if let Some(c) = world.components.get_mut(&key) {
-                                    //     let mut c = c.write();
-                                    //     let  c_id = c.new_default(t_id);
-                                        let g = GameObject {t: t_id};
-                                        world.add_component_id(g, key, c_id)
-                                    // }
-                                    // world.add_component(g, c.read().)
+                                    let g = GameObject {t: t_id};
+                                    world.add_component_id(g, key, c_id)
                                 }
                             });
-                            // if resp.response.clicked() {
-                            //     // ui.
-                            //     // let g = world.instantiate();
-                            //     // selected = Some(g.t);
-                            //     // selected_transforms.clear();
-                            //     // selected_transforms.insert(g.t, true);
-                            //     // println!("add game object");
-                            //     // ui.close_menu();
-                            // }
                         });
                     }
                 }
@@ -1027,6 +1061,9 @@ fn main() {
                         scale_update_data,
                     )
                 };
+                if position_update_data.is_some() {
+                    println!("update pos");
+                }
                 perf.update("write to buffer".into(), Instant::now() - inst);
 
                 // render_thread = thread::spawn( || {
@@ -1241,7 +1278,7 @@ fn main() {
 
                     {
                         puffin::profile_scope!("update renderers: stage 0");
-                        let update_num = rd.updates.len();
+                        let update_num = rd.updates.len() / 3;
                         if update_num > 0 {
                             rm.updates_gpu = CpuAccessibleBuffer::from_iter(
                                 device.clone(),
@@ -1409,6 +1446,9 @@ fn main() {
                     for (_ind_id, m_id) in rd.indirect_model.iter() {
                         if let Some(ind) = rd.model_indirect.get(&m_id) {
                             if let Some(mr) = mm.models_ids.get(&m_id) {
+                                if ind.count == 0 {
+                                    continue;
+                                }
                                 if let Some(indirect_buffer) =
                                     BufferSlice::from_typed_buffer_access(
                                         rm.indirect_buffer.clone(),

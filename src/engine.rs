@@ -25,8 +25,8 @@ use parking_lot::RwLock;
 use spin::Mutex;
 
 use crate::{
-    input::Input, model::ModelManager, particles::ParticleCompute,
-    renderer_component2::RendererManager, inspectable::Inspectable,
+    input::Input, inspectable::Inspectable, model::ModelManager, particles::ParticleCompute,
+    renderer_component2::RendererManager,
 };
 
 use self::physics::Physics;
@@ -69,7 +69,6 @@ pub trait Component {
     fn deinit(&mut self, transform: Transform, id: i32, _sys: &mut Sys) {}
     fn update(&mut self, transform: Transform, sys: &System) {}
 }
-
 
 pub struct _Storage<T> {
     pub data: Vec<T>,
@@ -123,7 +122,7 @@ pub trait StorageBase {
     fn erase(&mut self, i: i32);
     fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
     fn init(&self, transform: Transform, i: i32, sys: &mut Sys);
-    fn inspect(&self, i: i32, ui: &mut egui::Ui);
+    fn inspect(&self, transform:Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys);
     fn get_name(&self) -> &'static str;
     fn get_hash(&self) -> TypeId;
     fn new_default(&mut self, t: i32) -> i32;
@@ -171,7 +170,6 @@ impl<T: 'static> Storage<T> {
         }
     }
 }
-
 
 impl<T: 'static + Component + Inspectable + Send + Sync + Default> StorageBase for Storage<T> {
     fn as_any(&self) -> &dyn Any {
@@ -245,8 +243,11 @@ impl<T: 'static + Component + Inspectable + Send + Sync + Default> StorageBase f
     fn init(&self, transform: Transform, i: i32, sys: &mut Sys) {
         self.data[i as usize].lock().1.init(transform, i, sys);
     }
-    fn inspect(&self, i: i32, ui: &mut egui::Ui) {
-        self.data[i as usize].lock().1.inspect(ui);
+    fn inspect(&self, transform: Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+        self.data[i as usize]
+            .lock()
+            .1
+            .inspect(transform, i, ui, sys);
     }
 
     fn get_name(&self) -> &'static str {
@@ -254,7 +255,7 @@ impl<T: 'static + Component + Inspectable + Send + Sync + Default> StorageBase f
     }
 
     fn new_default(&mut self, t: i32) -> i32 {
-        let def:T = Default::default();
+        let def: T = Default::default();
         self.emplace(t, def)
     }
 
@@ -280,7 +281,7 @@ pub struct World {
     pub transforms: RwLock<Transforms>,
     pub components: HashMap<TypeId, RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
     root: i32,
-    pub sys: Sys, // makers: Vec<Option<Mutex<Maker>>>,
+    pub sys: Mutex<Sys>, // makers: Vec<Option<Mutex<Maker>>>,
 }
 
 #[allow(dead_code)]
@@ -298,12 +299,12 @@ impl World {
             transforms: trans,
             components: HashMap::new(),
             root,
-            sys: Sys {
+            sys: Mutex::new(Sys {
                 model_manager: modeling,
                 renderer_manager,
                 physics,
                 particles,
-            },
+            }),
         }
     }
     pub fn instantiate(&self) -> GameObject {
@@ -336,7 +337,11 @@ impl World {
         }
         ret
     }
-    pub fn instantiate_with_transform_with_parent(&self, parent: i32, transform: transform::_Transform) -> GameObject {
+    pub fn instantiate_with_transform_with_parent(
+        &self,
+        parent: i32,
+        transform: transform::_Transform,
+    ) -> GameObject {
         let mut trans = self.transforms.write();
         let ret = GameObject {
             t: trans.new_transform_with(parent, transform),
@@ -351,7 +356,11 @@ impl World {
         }
         ret
     }
-    pub fn add_component<T: 'static + Send + Sync + Component + Inspectable + Default>(&mut self, g: GameObject, mut d: T) {
+    pub fn add_component<T: 'static + Send + Sync + Component + Inspectable + Default>(
+        &mut self,
+        g: GameObject,
+        mut d: T,
+    ) {
         // d.assign_transform(g.t);
         let key: TypeId = TypeId::of::<T>();
         if let Some(stor) = self
@@ -367,7 +376,7 @@ impl World {
                 id: g.t,
                 transforms: &self.transforms.read(),
             };
-            stor.init(trans, c_id, &mut self.sys);
+            stor.init(trans, c_id, &mut self.sys.lock());
             if let Some(ent_components) = &self.entities.read()[g.t as usize] {
                 ent_components.write().insert(key, c_id);
             }
@@ -385,33 +394,27 @@ impl World {
                     id: g.t,
                     transforms: &self.transforms.read(),
                 };
-                stor.write().init(trans, c_id, &mut self.sys);
+                stor.write().init(trans, c_id, &mut self.sys.lock());
             }
         }
-
-        // let key: TypeId = TypeId::of::<T>();
-        // if let Some(stor) = self
-        //     .components
-        //     .get(&key)
-        //     .unwrap()
-        //     .write()
-        //     .as_any_mut()
-        //     .downcast_mut::<Storage<T>>()
-        // {
-        //     let c_id = stor.emplace(g.t, d);
-        //     let trans = Transform {
-        //         id: g.t,
-        //         transforms: &self.transforms.read(),
-        //     };
-        //     stor.init(trans, c_id, &mut self.sys);
-        //     if let Some(ent_components) = &self.entities.read()[g.t as usize] {
-        //         ent_components.write().insert(key, c_id);
-        //     }
-        // } else {
-        //     panic!("no type key?")
-        // }
     }
-    pub fn register<T: 'static + Send + Sync + Component + Inspectable + Default>(&mut self, has_update: bool) {
+    pub fn remove_component(&mut self, g: GameObject, key: TypeId, c_id: i32) {
+        if let Some(ent_components) = &self.entities.read()[g.t as usize] {
+            if let Some(stor) = self.components.get(&key) {
+                let trans = Transform {
+                    id: g.t,
+                    transforms: &self.transforms.read(),
+                };
+                stor.write().deinit(trans, c_id, &mut self.sys.lock());
+                stor.write().erase(c_id);
+            }
+            ent_components.write().remove(&key);
+        }
+    }
+    pub fn register<T: 'static + Send + Sync + Component + Inspectable + Default>(
+        &mut self,
+        has_update: bool,
+    ) {
         let key: TypeId = TypeId::of::<T>();
         let data = Storage::<T>::new(has_update);
         self.components
@@ -427,7 +430,7 @@ impl World {
                     id: g.t,
                     transforms: &self.transforms.read(),
                 };
-                stor.deinit(trans, *id, &mut self.sys);
+                stor.deinit(trans, *id, &mut self.sys.lock());
                 stor.erase(*id);
             }
         }
@@ -469,15 +472,15 @@ impl World {
         // rendering: &Mutex<crate::RendererManager>,
     ) {
         let transforms = self.transforms.read();
-
+        let sys = self.sys.lock();
         for (_, stor) in &self.components {
             stor.write().update(
                 &transforms,
-                &self.sys.physics,
+                &sys.physics,
                 &lazy_maker,
                 &input,
-                &self.sys.model_manager,
-                &self.sys.renderer_manager,
+                &sys.model_manager,
+                &sys.renderer_manager,
             );
         }
     }

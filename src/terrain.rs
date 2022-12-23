@@ -30,12 +30,12 @@ pub struct Terrain {
 }
 
 impl Inspectable for Terrain {
-    fn inspect(&mut self, ui: &mut egui::Ui) {
+    fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         // egui::CollapsingHeader::new("Terrain")
         //     .default_open(true)
         //     .show(ui, |ui| {
-                Ins(&mut self.chunk_range).inspect("chunk_range", ui);
-            // });
+        Ins(&mut self.chunk_range).inspect("chunk_range", ui, sys);
+        // });
     }
 }
 
@@ -65,12 +65,13 @@ impl Terrain {
                     x,
                     z,
                     terrain_size,
-                    world.lock().sys.model_manager.lock().device.clone(),
+                    world.lock().sys.lock().model_manager.lock().device.clone(),
                 );
                 m.texture = Some(
                     world
                         .lock()
                         .sys
+                        .lock()
                         .model_manager
                         .lock()
                         .texture_manager
@@ -98,9 +99,9 @@ impl Terrain {
 
                 let g = {
                     let mut world = world.lock();
-                    world.sys.physics.collider_set.insert(collider);
+                    world.sys.lock().physics.collider_set.insert(collider);
 
-                    let m_id = world.sys.model_manager.lock().procedural(m);
+                    let m_id = world.sys.lock().model_manager.lock().procedural(m);
 
                     let g = world.instantiate_with_transform_with_parent(
                         t,

@@ -23,9 +23,9 @@ impl TextureManager {
     pub fn texture(&self, path: &str) -> Arc<Texture> {
         {
             if let Some(tex) = self.textures.read().get(path.into()) {
-                return tex.clone()
+                return tex.clone();
             }
-        } 
+        }
         {
             let tex = Arc::new(Texture::from_file(
                 path,

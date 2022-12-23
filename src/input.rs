@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use winit::event::VirtualKeyCode;
 use crate::time::Time;
-
+use winit::event::VirtualKeyCode;
 
 #[derive(Default, Clone)]
 pub struct Input {
@@ -17,7 +16,6 @@ pub struct Input {
 
 #[allow(dead_code)]
 impl Input {
-
     pub fn get_key(&self, key: &VirtualKeyCode) -> bool {
         *self.key_downs.get(key).unwrap_or(&false)
     }
@@ -27,10 +25,10 @@ impl Input {
     pub fn get_key_up(&self, key: &VirtualKeyCode) -> bool {
         *self.key_ups.get(key).unwrap_or(&false)
     }
-    pub fn get_mouse_delta(&self,) -> (f64,f64) {
-        (self.mouse_x,self.mouse_y)
+    pub fn get_mouse_delta(&self) -> (f64, f64) {
+        (self.mouse_x, self.mouse_y)
     }
-    pub fn get_mouse_button(&self, id: &u32) -> bool{
+    pub fn get_mouse_button(&self, id: &u32) -> bool {
         *self.mouse_buttons.get(id).unwrap_or(&false)
     }
 }

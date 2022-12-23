@@ -79,12 +79,12 @@ impl Component for Bomb {
 }
 
 impl Inspectable for Bomb {
-    fn inspect(&mut self, ui: &mut egui::Ui) {
+    fn inspect(&mut self, _transform: Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         // ui.add(egui::Label::new("Bomb"));
         // egui::CollapsingHeader::new("Bomb")
         //     .default_open(true)
         //     .show(ui, |ui| {
-        Ins(&mut self.vel).inspect("vel", ui);
+        Ins(&mut self.vel).inspect("vel", ui, sys);
         // });
     }
 }
@@ -246,7 +246,7 @@ pub fn game_thread_fn(
     // }
 
     ////////////////////////////////////////////////
-    let mut cam_pos = glm::vec3(0.0, 10.0, -1.0);
+    let mut cam_pos = glm::vec3(0.0, 0.0, -3.0);
     let mut cam_rot = glm::quat(1.0, 0.0, 0.0, 0.0);
 
     let mut perf = Perf {
@@ -264,7 +264,7 @@ pub fn game_thread_fn(
             let inst = Instant::now();
             {
                 puffin::profile_scope!("world update");
-                world.sys.physics.step(&gravity);
+                world.sys.lock().physics.step(&gravity);
                 world.update(&lazy_maker, &input);
             }
 
@@ -298,16 +298,18 @@ pub fn game_thread_fn(
                         (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
                 }
 
-                cam_rot = glm::quat_rotate(
-                    &cam_rot,
-                    input.get_mouse_delta().0 as f32 * 0.01,
-                    &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
-                );
-                cam_rot = glm::quat_rotate(
-                    &cam_rot,
-                    input.get_mouse_delta().1 as f32 * 0.01,
-                    &Vec3::x(),
-                );
+                if input.get_mouse_button(&2) {
+                    cam_rot = glm::quat_rotate(
+                        &cam_rot,
+                        input.get_mouse_delta().0 as f32 * 0.01,
+                        &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
+                    );
+                    cam_rot = glm::quat_rotate(
+                        &cam_rot,
+                        input.get_mouse_delta().1 as f32 * 0.01,
+                        &Vec3::x(),
+                    );
+                }
                 const ALOT: f32 = 10_000_000. / 60.;
                 // if input.get_mouse_button(&0) {
                 //     let _cam_rot = cam_rot.clone();
@@ -385,33 +387,37 @@ pub fn game_thread_fn(
         };
         perf.update("get transform data".into(), Instant::now() - inst);
 
-        let mut rm = world.sys.renderer_manager.write();
-        // let a = rm.model_indirect.read();
-        // let b = a.deref();
         let inst = Instant::now();
-        let renderer_data = RendererData {
-            model_indirect: rm
-                .model_indirect
-                .read()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-            indirect_model: rm
-                .indirect_model
-                .read()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-            updates: rm
-                .updates
-                .iter()
-                .flat_map(|(id, t)| {
-                    vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()].into_iter()
-                })
-                .collect(),
-            transforms_len: rm.transforms.data.len() as i32,
+        let renderer_data = {
+            let sys = world.sys.lock();
+            let mut rm = sys.renderer_manager.write();
+            // let a = rm.model_indirect.read();
+            // let b = a.deref();
+            let renderer_data = RendererData {
+                model_indirect: rm
+                    .model_indirect
+                    .read()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+                indirect_model: rm
+                    .indirect_model
+                    .read()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+                updates: rm
+                    .updates
+                    .iter()
+                    .flat_map(|(id, t)| {
+                        vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()].into_iter()
+                    })
+                    .collect(),
+                transforms_len: rm.transforms.data.len() as i32,
+            };
+            rm.updates.clear();
+            renderer_data
         };
-        rm.updates.clear();
 
         let emitter_len = world
             .get_components::<ParticleEmitter>()
@@ -422,9 +428,13 @@ pub fn game_thread_fn(
             .unwrap()
             .data
             .len();
-        let mut emitter_inits = world.sys.particles.emitter_inits.lock();
-        let mut v = Vec::<emitter_init>::new();
-        std::mem::swap(&mut v, &mut emitter_inits);
+        let v = {
+            let sys = world.sys.lock();
+            let mut emitter_inits = sys.particles.emitter_inits.lock();
+            let mut v = Vec::<emitter_init>::new();
+            std::mem::swap(&mut v, &mut emitter_inits);
+            v
+        };
         // *lock = Arc::new(Mutex::new(Vec::new()));
 
         perf.update("get renderer data".into(), Instant::now() - inst);

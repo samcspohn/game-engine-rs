@@ -70,3 +70,7 @@ tobj = "*"
 # vulkanalia = { version = "*", features = ["libloading", "window"] }
 
 # concat-arrays = "*"
+
+walkdir = "*"
+substring = "*"
+lazy_static = "*"

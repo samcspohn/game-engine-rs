@@ -1,21 +1,16 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
-use crate::{particles::MAX_PARTICLES};
+use crate::particles::MAX_PARTICLES;
 
 use vulkano::{
-    buffer::{
-        BufferUsage, CpuAccessibleBuffer, CpuBufferPool,
-        DeviceLocalBuffer,
-    },
+    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, DispatchIndirectCommand, DrawIndirectCommand,
         PrimaryAutoCommandBuffer,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
-    pipeline::{
-        ComputePipeline, Pipeline, PipelineBindPoint,
-    },
+    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     sync::{self, FlushError, GpuFuture},
     DeviceSize,
 };

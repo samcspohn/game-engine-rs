@@ -5,14 +5,11 @@ use nalgebra_glm as glm;
 use puffin_egui::puffin;
 use vulkano::{
     buffer::{
-        BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer,
-        TypedBufferAccess,
+        BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer, TypedBufferAccess,
     },
-    command_buffer::{
-        AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
-    },
+    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    device::{Device},
+    device::Device,
     impl_vertex,
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     DeviceSize,

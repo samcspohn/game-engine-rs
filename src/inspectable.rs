@@ -1,15 +1,17 @@
 use egui::{emath::Numeric, Ui};
 use nalgebra_glm as glm;
+
+use crate::engine::{Sys, transform::Transform};
 pub trait Inspectable {
-    fn inspect(&mut self, ui: &mut egui::Ui);
+    fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys);
 }
 pub struct Ins<'a, T>(pub &'a mut T);
 pub trait Inpsect {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui);
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys);
 }
 
 impl<'a> Inpsect for Ins<'a, bool> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui) {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys) {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             ui.add(egui::Checkbox::new(self.0, ""));
@@ -18,7 +20,7 @@ impl<'a> Inpsect for Ins<'a, bool> {
 }
 
 impl<'a> Inpsect for Ins<'a, i32> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui) {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys) {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             ui.add(egui::DragValue::new(self.0));
@@ -27,7 +29,7 @@ impl<'a> Inpsect for Ins<'a, i32> {
 }
 
 impl<'a> Inpsect for Ins<'a, f32> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui) {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys) {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             ui.add(egui::DragValue::new(self.0).speed(0.1));
@@ -35,7 +37,7 @@ impl<'a> Inpsect for Ins<'a, f32> {
     }
 }
 impl<'a> Inpsect for Ins<'a, glm::Vec3> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui) {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys) {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             ui.add(egui::DragValue::new(&mut self.0.x).speed(0.1));
@@ -45,7 +47,7 @@ impl<'a> Inpsect for Ins<'a, glm::Vec3> {
     }
 }
 impl<'a> Inpsect for Ins<'a, glm::Quat> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui) {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys) {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             ui.add(egui::DragValue::new(&mut self.0.coords.w).speed(0.1));

@@ -34,7 +34,7 @@ impl Physics {
             event_handler: (),
         }
     }
-    pub fn step(&mut self, gravity: &Vector<Real>){
+    pub fn step(&mut self, gravity: &Vector<Real>) {
         self.physics_pipeline.step(
             &gravity,
             &self.integration_parameters,
@@ -49,6 +49,10 @@ impl Physics {
             &self.physics_hooks,
             &self.event_handler,
         );
-        self.query_pipeline.update(&self.island_manager, &self.rigid_body_set, &self.collider_set);
+        self.query_pipeline.update(
+            &self.island_manager,
+            &self.rigid_body_set,
+            &self.collider_set,
+        );
     }
 }

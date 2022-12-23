@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use vulkano::{
-    buffer::{
-        BufferSlice, CpuAccessibleBuffer,
-        DeviceLocalBuffer,
-    },
+    buffer::{BufferSlice, CpuAccessibleBuffer, DeviceLocalBuffer},
     command_buffer::{
         AutoCommandBufferBuilder, DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
     },
@@ -204,9 +201,8 @@ impl RenderPipeline {
             ));
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
-        let set = PersistentDescriptorSet::new(layout.clone(), descriptors).unwrap();
-
-        builder
+        if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {   
+            builder
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
                 self.pipeline.layout().clone(),
@@ -226,6 +222,7 @@ impl RenderPipeline {
             .bind_index_buffer(mesh.index_buffer.clone())
             .draw_indexed_indirect(indirect_buffer)
             .unwrap();
+        }
         self
     }
 

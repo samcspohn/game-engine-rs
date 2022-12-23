@@ -1,6 +1,6 @@
 // extern crate assimp;
 
-use std::{ops::Sub, sync::Arc, collections::HashMap};
+use std::{collections::HashMap, ops::Sub, sync::Arc};
 
 // use ai::import::Importer;
 // use assimp as ai;
@@ -72,9 +72,8 @@ pub struct Mesh {
     pub uvs_buffer: Arc<CpuAccessibleBuffer<[UV]>>,
     pub index_buffer: Arc<CpuAccessibleBuffer<[u16]>>,
     pub normals_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
-    pub texture: Option<Arc<Texture>>
-    // pub texture: Option<Arc<ImageView<ImmutableImage>>>,
-    // pub sampler: Option<Arc<Sampler>>,
+    pub texture: Option<Arc<Texture>>, // pub texture: Option<Arc<ImageView<ImmutableImage>>>,
+                                       // pub sampler: Option<Arc<Sampler>>,
 }
 
 impl Mesh {
@@ -124,7 +123,11 @@ impl Mesh {
         }
     }
 
-    pub fn load_model(path: &str, device: Arc<Device>, texture_manager: Arc<TextureManager>) -> Mesh {
+    pub fn load_model(
+        path: &str,
+        device: Arc<Device>,
+        texture_manager: Arc<TextureManager>,
+    ) -> Mesh {
         // let sub_path = path.split("/");
         let _path = std::path::Path::new(path.into());
         let model = tobj::load_obj(path, &(tobj::GPU_LOAD_OPTIONS));
@@ -208,7 +211,12 @@ impl Mesh {
         for mat in materials.iter() {
             for m in mat {
                 // m.diffuse_texture;
-                let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string() + "/" + &m.diffuse_texture);
+                if m.diffuse_texture == "" {
+                    continue;
+                }
+                let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string()
+                    + "/"
+                    + &m.diffuse_texture);
                 println!("tex {}", diff_path);
                 texture = Some(texture_manager.texture(diff_path));
                 // texture = Some(Arc::new(Texture::from_file(diff_path, device.clone(), queue.clone())));
@@ -232,8 +240,9 @@ impl Mesh {
 }
 
 pub struct ModelRenderer {
+    pub file: String,
     pub mesh: Mesh,
-    pub count: u32
+    pub count: u32,
 }
 
 pub struct ModelManager {
@@ -241,7 +250,7 @@ pub struct ModelManager {
     pub texture_manager: Arc<TextureManager>,
     pub models: HashMap<String, i32>,
     pub models_ids: HashMap<i32, ModelRenderer>,
-    pub model_id_gen: i32
+    pub model_id_gen: i32,
 }
 
 impl ModelManager {
@@ -250,7 +259,7 @@ impl ModelManager {
         self.model_id_gen += 1;
 
         let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
-        let m = ModelRenderer {mesh, count: 1};
+        let m = ModelRenderer { file: path.into() ,mesh, count: 1 };
 
         self.models_ids.insert(id, m);
         self.models.insert(path.into(), id);
@@ -260,7 +269,7 @@ impl ModelManager {
     pub fn procedural(&mut self, mesh: Mesh) -> i32 {
         let id = self.model_id_gen;
         self.model_id_gen += 1;
-        let m = ModelRenderer {mesh, count: 1};
+        let m = ModelRenderer { file: "".into(), mesh, count: 1 };
 
         // let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
 
