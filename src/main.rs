@@ -106,40 +106,14 @@ mod terrain;
 
 use rayon::prelude::*;
 
-fn fast_buffer<T: Send + Sync + Copy>(
-    device: Arc<Device>,
-    data: &Vec<T>,
-) -> Arc<CpuAccessibleBuffer<[T]>>
-where
-    [T]: BufferContents,
-{
-    puffin::profile_scope!("buffer");
-    unsafe {
-        // let inst = Instant::now();
-        let uninitialized = CpuAccessibleBuffer::<[T]>::uninitialized_array(
-            device.clone(),
-            data.len() as DeviceSize,
-            BufferUsage::all(),
-            false,
-        )
-        .unwrap();
-        {
-            let mut mapping = uninitialized.write().unwrap();
-            let mo_iter = data.par_iter();
-            let m_iter = mapping.par_iter_mut();
+lazy_static::lazy_static!{
 
-            // let inst = Instant::now();
-            let chunk_size = (data.len() / (64 * 64)).max(1);
-            mo_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
-                for (i, o) in slice {
-                    ptr::write(o, *i);
-                }
-            });
-            // update_perf("write to buffer".into(), Instant::now() - inst);
-        }
-        uninitialized
-    }
+    static ref dragged_transform: Mutex<i32> = Mutex::new(0);
+    static ref transform_drag: Mutex<Option<(i32,i32)>> = Mutex::new(None);
+
 }
+
+
 
 // use egui::{
 //     color_picker::{color_picker_color32, Alpha},
@@ -564,6 +538,8 @@ fn main() {
 
     let mut selected = None;
 
+
+
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
         *control_flow = ControlFlow::Poll;
@@ -738,7 +714,7 @@ fn main() {
                 {
                     let mut world = world.lock();
                     let resp = {
-                        let transforms = world.transforms.read();
+                        let mut transforms = world.transforms.write();
 
                         let hierarchy_ui = |ui: &mut egui::Ui| {
                             if fps_queue.len() > 0 {
@@ -763,12 +739,42 @@ fn main() {
                                 )
                                 .show_header(ui, |ui| {
                                     let mut this_selection = false;
-                                    ui.toggle_value(
+                                    let resp = ui.toggle_value(
                                         &mut selected_transforms
                                             .get_mut(&t.id)
                                             .unwrap_or(&mut this_selection),
                                         format!("game object {}", t.id),
                                     );
+                                    let id = resp.id;
+                                    let is_being_dragged = ui.memory().is_being_dragged(id);
+
+                                    // drop target
+                                    if resp.hovered() && ui.input().pointer.any_released() {
+                                        let d_t_id: i32 = *dragged_transform.lock();
+                    
+                                        if d_t_id != t.id && d_t_id != 0{
+                                            *transform_drag.lock() = Some((d_t_id,t.id));
+                                            // place as child
+                                            println!("transform {} dropped on transform {}",d_t_id, t.id);
+                                            
+                                        }
+                                    }
+
+                                    // drag source
+                                    let resp = ui.interact(resp.rect, id, egui::Sense::drag());
+                                    if resp.drag_started() {
+                                        *dragged_transform.lock() = t.id;
+                                    }
+                                    if is_being_dragged {
+                                        ui.output().cursor_icon = egui::CursorIcon::Grabbing;
+                                        // Paint the body to a new layer:
+                                        let layer_id = egui::LayerId::new(egui::Order::Tooltip, id);
+                                        let response = ui.with_layer_id(layer_id, |ui| {ui.label(format!("game object {}", t.id))}).response;
+                                        if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
+                                            let delta = pointer_pos - response.rect.center();
+                                            ui.ctx().translate_layer(layer_id, delta);
+                                        }
+                                    }
                                     if this_selection {
                                         selected_transforms.clear();
                                         selected_transforms.insert(t.id, true);
@@ -819,6 +825,7 @@ fn main() {
                         
                         // windows
 
+                        *transform_drag.lock() = None;
                         puffin::profile_function!();
                         let mut open = true;
                         let resp = egui::Window::new("Hierarchy")
@@ -827,6 +834,11 @@ fn main() {
                             // .vscroll(true)
                             // .hscroll(true)
                             .show(&egui_ctx, hierarchy_ui);
+                            let d = *transform_drag.lock();
+                            if let Some((d_t_id, t_id)) = d {
+                                
+                                transforms.adopt(t_id, d_t_id);
+                            }
                         resp
                     };
                     if let Some(resp) = resp {

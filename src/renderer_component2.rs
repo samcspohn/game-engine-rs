@@ -50,58 +50,6 @@ impl<'a> Inpsect for Ins<'a, ModelId> {
                 }
             });
         });
-
-        //     if let Some(model) = sys.model_manager.lock().models_ids.get(&self.0.id) {
-        //         if ui.memory().is_anything_being_dragged() {
-        //             if let Some(_) = drop_data.rfind(".obj") {
-        //                 drop_target(ui, true, |ui| {
-        //                     // let model_name = sys.model_manager.lock().models.get(k)
-        //                     let response = ui.horizontal(|ui| {
-        //                         ui.add(egui::Label::new(name));
-        //                         ui.add(egui::Label::new(model.file.as_str()));
-        //                     });
-        //                     if response.response.drag_released() {
-        //                         let model_file: String = drop_data.clone();
-
-        //                         if let Some(id) = sys.model_manager.lock().models.get(&model_file) {
-        //                             self.0.id = *id;
-        //                         }
-        //                     }
-        //                 });
-        //             }
-        //         } else {
-        //             // let model_name = sys.model_manager.lock().models.get(k)
-        //             ui.horizontal(|ui| {
-        //                 ui.add(egui::Label::new(name));
-        //                 ui.add(egui::Label::new(model.file.as_str()));
-        //             });
-        //         }
-        //     } else {
-        //         if ui.memory().is_anything_being_dragged() {
-        //             if let Some(_) = drop_data.rfind(".obj") {
-        //                 drop_target(ui, true, |ui| {
-        //                     // let model_name = sys.model_manager.lock().models.get(k)
-        //                     let response = ui.horizontal(|ui| {
-        //                         ui.add(egui::Label::new(name));
-        //                         ui.add(egui::Label::new(""));
-        //                     });
-        //                     if response.response.drag_released() {
-        //                         let model_file: String = drop_data.clone();
-
-        //                         if let Some(id) = sys.model_manager.lock().models.get(&model_file) {
-        //                             self.0.id = *id;
-        //                         }
-        //                     }
-        //                 });
-        //             }
-        //         } else {
-        //             // let model_name = sys.model_manager.lock().models.get(k)
-        //             ui.horizontal(|ui| {
-        //                 ui.add(egui::Label::new(name));
-        //                 ui.add(egui::Label::new(""));
-        //             });
-        //         }
-        //     }
     }
 }
 

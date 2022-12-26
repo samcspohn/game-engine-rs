@@ -271,6 +271,35 @@ impl Transforms {
         self.meta[t as usize] = Mutex::new(TransformMeta::new());
         self.avail.push(Reverse(t));
     }
+    pub fn adopt(&mut self, p: i32, t: i32) {
+        let p_meta = self.meta[p as usize].lock();
+        let mut t_meta = self.meta[t as usize].lock();
+
+        if t == p {
+            return;
+        }
+        if t_meta.parent == p {
+            return;
+        }
+
+        self.meta[t_meta.parent as usize]
+        .lock()
+        .children
+        .write()
+        .pop_node(&t_meta.child_id);
+
+        t_meta.parent = p;
+        unsafe {
+            t_meta.child_id = SendSync::new(
+                p_meta
+                    .children
+                    .write()
+                    .push_tail(t),
+            );
+        }
+
+
+    }
 
     fn u_pos(&self, t: i32) {
         self.updates[t as usize][POS_U].store(true, Ordering::Relaxed);
