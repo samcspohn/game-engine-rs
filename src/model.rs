@@ -254,22 +254,55 @@ pub struct ModelManager {
 }
 
 impl ModelManager {
-    pub fn from_file(&mut self, path: &str) -> i32 {
-        let id = self.model_id_gen;
-        self.model_id_gen += 1;
-
+    pub fn regen(&mut self, models: HashMap<String, i32>) {
+        for (f, id) in models {
+            self.from_file_id(&f, id);
+        }
+    }
+    fn from_file_id(&mut self, path: &str, id: i32) {
         let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
-        let m = ModelRenderer { file: path.into() ,mesh, count: 1 };
-
+        let m = ModelRenderer {
+            file: path.into(),
+            mesh,
+            count: 1,
+        };
         self.models_ids.insert(id, m);
         self.models.insert(path.into(), id);
-        id
+    }
+    pub fn from_file(&mut self, path: &str) -> i32 {
+        if let Some(id) = self.models.get(path) {
+            *id
+        } else {
+            let id = self.model_id_gen;
+            self.model_id_gen += 1;
+            self.from_file_id(path, id);
+            id
+        }
+    }
+    pub fn reload(&mut self, path: &str) {
+        if let Some(id) = self.models.get(path) {
+            if let Some(m) = self.models_ids.get_mut(id) {
+                let mesh =
+                    Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
+                m.mesh = mesh;
+            }
+        }
+    }
+    pub(crate) fn remove(&mut self, path: &str) {
+        if let Some(id) = self.models.get(path) {
+            self.models_ids.remove(id);
+            self.models.remove(path);
+        }
     }
 
     pub fn procedural(&mut self, mesh: Mesh) -> i32 {
         let id = self.model_id_gen;
         self.model_id_gen += 1;
-        let m = ModelRenderer { file: "".into(), mesh, count: 1 };
+        let m = ModelRenderer {
+            file: "".into(),
+            mesh,
+            count: 1,
+        };
 
         // let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
 

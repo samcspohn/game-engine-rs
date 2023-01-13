@@ -6,24 +6,21 @@ lazy_static! {
     pub static ref DRAG_DROP_DATA: Mutex<String> = Mutex::new(String::from(""));
 }
 
-
-
 // stolen from egui demo
 pub fn drag_source(ui: &mut Ui, id: egui::Id, drag_data: String, body: impl Fn(&mut Ui)) {
     let is_being_dragged = ui.memory().is_being_dragged(id);
 
     let response = ui.scope(&body).response;
-    
+
     // Check for drags:
     let response = ui.interact(response.rect, id, egui::Sense::drag());
     if response.hovered() {
         // ui.output().cursor_icon = egui::CursorIcon::Grab;
     }
     if response.drag_started() {
-
         *DRAG_DROP_DATA.lock() = drag_data;
     }
-    
+
     if is_being_dragged {
         ui.output().cursor_icon = egui::CursorIcon::Grabbing;
 
@@ -59,7 +56,8 @@ pub fn drop_target<R>(
     let where_to_put_background = ui.painter().add(egui::Shape::Noop);
     let mut content_ui = ui.child_ui(inner_rect, *ui.layout());
     let ret = body(&mut content_ui);
-    let outer_rect = egui::Rect::from_min_max(outer_rect_bounds.min, content_ui.min_rect().max + margin);
+    let outer_rect =
+        egui::Rect::from_min_max(outer_rect_bounds.min, content_ui.min_rect().max + margin);
     let (rect, response) = ui.allocate_at_least(outer_rect.size(), egui::Sense::hover());
 
     let style = if is_being_dragged && can_accept_what_is_being_dragged && response.hovered() {

@@ -13,6 +13,10 @@ debug = true
 # [profile.debug]
 # opt-level = 2
 
+
+# [features]
+# serde-serialize = [ "nalgebra-glm/serde-serialize" ]
+
 [dependencies]
 num_cpus = "*"
 # component_derive = {path = "derive-macro"}
@@ -29,7 +33,7 @@ scoped_threadpool = "*"
 
 # glam = "*"
 # nalgebra = { version = "*" }
-nalgebra-glm = "*"
+nalgebra-glm = { version = "*", features = ["serde-serialize"]}
 
 vulkano = "*"
 vulkano-shaders = "*"
@@ -41,9 +45,10 @@ vulkano-win = "*"
 bytemuck = { version = "*", features = ["derive", "extern_crate_std", "min_const_generics"] }
 # cgmath = "*"
 png = "*"
+image = "*"
 serde = { version = "*", features = ["derive"] }
 ron = "*"
-
+serde_yaml = "*"
 glium = { git = "https://github.com/glium/glium.git", rev = "60889a2" }
 
 rapier3d = { version = "*", features = [ "simd-stable","parallel" ] }
@@ -74,3 +79,5 @@ tobj = "*"
 walkdir = "*"
 substring = "*"
 lazy_static = "*"
+notify = { version = "*", features = ["serde"] }
+relative-path = "*"

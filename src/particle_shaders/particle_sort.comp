@@ -1,7 +1,7 @@
 #version 450
 #include "../util.glsl"
 #include "particle.glsl"
-layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
 
 
@@ -72,12 +72,12 @@ layout(set = 0, binding = 7) buffer b {
 layout(set = 0, binding = 8) buffer d {
     VkDrawIndirectCommand draw[];
 };
-const int MAX_PARTICLES = 8 * 1024 * 1024;
 
 // shared uint[512] local_buckets;
+const uint skip_size = (1<<16) / 128;
 shared uint[128] local_sums;
 void main() {
-    int id = int(gl_GlobalInvocationID.x);// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
+    int id = int(gl_GlobalInvocationID.x);// * 128 + gl_GlobalInvocationID.y);// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
     // transforms[0].position = vec3(0,0,0);
     
     int jobs = num_jobs >= 0 ? num_jobs : avail_count[0];
@@ -138,8 +138,8 @@ void main() {
                 }
                 break;
             case 4:
-                uint start = id * 512;
-                uint end = start + 512;
+                uint start = id * skip_size;
+                uint end = start + skip_size;
                 uint temp = buckets[start];
                 buckets[start] = 0;
                 for(uint i = start + 1; i < end; i++){

@@ -1,7 +1,7 @@
 use egui::{emath::Numeric, Ui};
 use nalgebra_glm as glm;
 
-use crate::engine::{Sys, transform::Transform};
+use crate::engine::{transform::Transform, Sys};
 pub trait Inspectable {
     fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys);
 }

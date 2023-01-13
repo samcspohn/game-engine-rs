@@ -4,6 +4,7 @@ use parking_lot::{Mutex, RwLock};
 use puffin_egui::puffin;
 use rapier3d::prelude::*;
 use rayon::prelude::*;
+use serde::{Serialize, Deserialize};
 use std::{
     collections::HashMap,
     sync::{
@@ -33,7 +34,7 @@ use crate::{
 };
 
 // #[component]
-#[derive(Default)]
+#[derive(Default,Clone, Serialize, Deserialize)]
 pub struct Bomb {
     pub vel: glm::Vec3,
 }
@@ -141,109 +142,9 @@ pub fn game_thread_fn(
     ),
     running: Arc<AtomicBool>,
 ) {
-    // let mut world = World::new(model_manager, renderer_manager.clone(), physics, particles);
-    // world.register::<Renderer>(false);
-    // world.register::<ParticleEmitter>(false);
-    // world.register::<Maker>(true);
-    // world.register::<Terrain>(true);
-    // world.register::<Bomb>(true);
-
-    // rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build_global().unwrap();
-    /* Create the ground. */
-    // let collider = ColliderBuilder::cuboid(100.0, 0.1, 100.0).build();
-    // physics.collider_set.insert(collider);
-
-    /* Create the bounding ball. */
-    // let rigid_body = RigidBodyBuilder::dynamic()
-    //     .translation(vector![0.0, 10.0, 0.0])
-    //     .build();
-    // let collider = ColliderBuilder::ball(0.5).restitution(0.7).build();
-    // let ball_body_handle = physics.rigid_body_set.insert(rigid_body);
-    // physics.collider_set.insert_with_parent(
-    //     collider,
-    //     ball_body_handle,
-    //     &mut physics.rigid_body_set,
-    // );
-
-    /* Create other structures necessary for the simulation. */
+  
     let gravity = vector![0.0, -9.81, 0.0];
-
-    // let _root = world.instantiate();
-
-    // let sys = System {trans: &world.transforms.read(), physics: &&physics, defer: &lazy_maker, input: &&input};
-    // use rand::Rng;
     let lazy_maker = LazyMaker::new();
-    {
-        let mut world = world.lock();
-        // let ter = world.instantiate();
-
-        let g = world.instantiate();
-        // world.add_component(
-        //     g,
-        //     Bomb {
-        //         vel: glm::vec3(
-        //             rand::random::<f32>() - 0.5,
-        //             rand::random::<f32>() - 0.5,
-        //             rand::random::<f32>() - 0.5,
-        //         ) * 5.0,
-        //     },
-        // );
-        world.add_component(g, Renderer::new(0));
-
-        // world.add_component(
-        //     ter,
-        //     Terrain {
-        //         chunks: Arc::new(Mutex::new(HashMap::new())),
-        //         terrain_size: 33,
-        //         chunk_range: 9,
-        //         ..Default::default()
-        //     },
-        // );
-
-        // {
-        //     // let mut renderer_manager = world.renderer_manager.lock();
-        //     for _ in 0..1_00 {
-        //         // bombs
-        //         let g = world.instantiate_with_transform(_Transform {
-        //             position: glm::vec3(
-        //                 // (rand::random::<f32>() - 0.5) * 2000.,
-        //                 // (rand::random::<f32>() - 0.5) * 2000.,
-        //                 // (rand::random::<f32>() - 0.5) * 2000.,
-        //                 (rand::random::<f32>() - 0.5) * 1500.,
-        //                 100. + (rand::random::<f32>() - 0.5) * 100.,
-        //                 (rand::random::<f32>() - 0.5) * 150.,
-        //             ),
-        //             ..Default::default()
-        //         });
-        //         world.add_component(
-        //             g,
-        //             Bomb {
-        //                 vel: glm::vec3(
-        //                     rand::random::<f32>() - 0.5,
-        //                     rand::random::<f32>() - 0.5,
-        //                     rand::random::<f32>() - 0.5,
-        //                 ) * 5.0,
-        //             },
-        //         );
-        //         world.add_component(g, Renderer::new(0));
-        //         // world.add_component(g, ParticleEmitter::new(0));
-        //         // world.transforms.read()._move(
-        //         //     g.t,
-        //         //     glm::vec3(
-        //         //         rand::random::<f32>() * 100. - 50.,
-        //         //         50.0 + rand::random::<f32>() * 100.,
-        //         //         rand::random::<f32>() * 100. - 50.,
-        //         //     ),
-        //         // );
-        //     }
-        // }
-    }
-
-    // {
-    //     // maker
-    //     let g = world.instantiate();
-    //     world.add_component(g, Maker { t: Transform(-1) });
-    // }
 
     ////////////////////////////////////////////////
     let mut cam_pos = glm::vec3(0.0, 0.0, -3.0);

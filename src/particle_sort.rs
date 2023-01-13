@@ -300,7 +300,7 @@ impl ParticleSort {
                         0, // Bind this descriptor set to index 0.
                         descriptor_set.clone(),
                     )
-                    .dispatch([num_jobs as u32 / 128 + 1, 1, 1])
+                    .dispatch([num_jobs as u32 / 1024 + 1, 1, 1])
                     .unwrap();
             }
         };

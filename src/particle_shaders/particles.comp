@@ -1,7 +1,7 @@
 #version 450
 #include "../util.glsl"
 #include "particle.glsl"
-layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
 struct transform {
     vec3 position;
@@ -133,7 +133,7 @@ void init_emitters(uint id){
 }
 
 void main() {
-    uint id = gl_GlobalInvocationID.x;// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
+    uint id = gl_GlobalInvocationID.x;// * 128 + gl_GlobalInvocationID.y;// * (8 * 8) + gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
     // transforms[0].position = vec3(0,0,0);
     if(id < num_jobs) {
         switch(stage) {

@@ -13,6 +13,8 @@ use std::{
     },
 };
 
+use rapier3d::na::coordinates::X;
+use serde::{Deserialize, Serialize};
 use transform::{Transform, Transforms};
 
 // use rand::prelude::*;
@@ -23,13 +25,33 @@ use crossbeam::queue::SegQueue;
 
 use parking_lot::RwLock;
 use spin::Mutex;
+use vulkano::{
+    buffer::DeviceLocalBuffer,
+    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
+    device::Device,
+};
 
 use crate::{
     input::Input, inspectable::Inspectable, model::ModelManager, particles::ParticleCompute,
-    renderer_component2::RendererManager,
+    renderer::RenderPipeline, renderer_component2::RendererManager,
 };
 
-use self::physics::Physics;
+use self::{physics::Physics, transform::_Transform};
+
+// macro_rules! component {
+//     () => {
+//         #[derive(Default,Clone,Deserialize, Serialize)]
+//     };
+// }
+
+pub struct RenderJobData<'a> {
+    pub builder: &'a mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    pub transform: Arc<DeviceLocalBuffer<[crate::transform_compute::cs::ty::transform]>>,
+    pub view: &'a nalgebra_glm::Mat4,
+    pub proj: &'a nalgebra_glm::Mat4,
+    pub pipeline: &'a RenderPipeline,
+    pub device: Arc<Device>,
+}
 
 pub struct LazyMaker {
     work: SegQueue<Box<dyn FnOnce(&mut World) + Send + Sync>>,
@@ -59,8 +81,9 @@ pub struct System<'a> {
     pub physics: &'a crate::engine::physics::Physics,
     pub defer: &'a crate::engine::LazyMaker,
     pub input: &'a crate::input::Input,
-    pub modeling: &'a parking_lot::Mutex<crate::ModelManager>,
+    pub model_manager: &'a parking_lot::Mutex<crate::ModelManager>,
     pub rendering: &'a RwLock<crate::RendererManager>,
+    pub device: Arc<Device>,
 }
 
 pub trait Component {
@@ -68,6 +91,11 @@ pub trait Component {
     fn init(&mut self, transform: Transform, id: i32, sys: &mut Sys) {}
     fn deinit(&mut self, transform: Transform, id: i32, _sys: &mut Sys) {}
     fn update(&mut self, transform: Transform, sys: &System) {}
+    fn on_render(
+        &mut self,
+    ) -> Box<dyn FnOnce(&mut RenderJobData) -> ()> {
+        Box::new(|rd: &mut RenderJobData| {})
+    }
 }
 
 pub struct _Storage<T> {
@@ -118,14 +146,23 @@ pub trait StorageBase {
         input: &Input,
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
+        device: Arc<Device>,
     );
+    fn on_render(
+        &mut self,
+        render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>
+    );
+    fn copy(&mut self, t: i32, i: i32) -> i32;
     fn erase(&mut self, i: i32);
     fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
     fn init(&self, transform: Transform, i: i32, sys: &mut Sys);
-    fn inspect(&self, transform:Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys);
+    fn inspect(&self, transform: Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys);
     fn get_name(&self) -> &'static str;
-    fn get_hash(&self) -> TypeId;
+    fn get_type(&self) -> TypeId;
     fn new_default(&mut self, t: i32) -> i32;
+    fn serialize(&self, i: i32) -> Result<String, ron::Error>;
+    fn deserialize(&mut self, transform: i32, d: String) -> i32;
+    fn clear(&mut self);
 }
 
 // use pqueue::Queue;
@@ -135,6 +172,7 @@ pub struct Storage<T> {
     avail: pqueue::Queue<Reverse<i32>>,
     extent: i32,
     has_update: bool,
+    has_render: bool,
 }
 impl<T: 'static> Storage<T> {
     pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
@@ -154,24 +192,37 @@ impl<T: 'static> Storage<T> {
     }
     pub fn erase(&mut self, id: i32) {
         // self.data[id as usize] = None;
+        drop(self.data[id as usize].lock());
         self.valid[id as usize].store(false, Ordering::Relaxed);
         self.avail.push(Reverse(id));
     }
     // pub fn get(&self, i: &i32) -> &Mutex<T> {
     //     &self.data[*i as usize]
     // }
-    pub fn new(has_update: bool) -> Storage<T> {
+    pub fn new(has_update: bool, has_render: bool) -> Storage<T> {
         Storage::<T> {
             data: Vec::new(),
             valid: Vec::new(),
             avail: pqueue::Queue::new(),
             extent: 0,
             has_update,
+            has_render,
         }
     }
 }
 
-impl<T: 'static + Component + Inspectable + Send + Sync + Default> StorageBase for Storage<T> {
+impl<
+        T: 'static
+            + Component
+            + Inspectable
+            + Send
+            + Sync
+            + Default
+            + Clone
+            + Serialize
+            + for<'a> Deserialize<'a>,
+    > StorageBase for Storage<T>
+{
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
     }
@@ -186,6 +237,7 @@ impl<T: 'static + Component + Inspectable + Send + Sync + Default> StorageBase f
         input: &Input,
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
+        device: Arc<Device>,
     ) {
         if !self.has_update {
             return;
@@ -197,8 +249,9 @@ impl<T: 'static + Component + Inspectable + Send + Sync + Default> StorageBase f
             physics,
             defer: &lazy_maker,
             input,
-            modeling,
+            model_manager: modeling,
             rendering,
+            device,
         };
         // (0..self.data.len())
         self.data
@@ -259,8 +312,48 @@ impl<T: 'static + Component + Inspectable + Send + Sync + Default> StorageBase f
         self.emplace(t, def)
     }
 
-    fn get_hash(&self) -> TypeId {
+    fn get_type(&self) -> TypeId {
         TypeId::of::<T>()
+    }
+
+    fn copy(&mut self, t: i32, i: i32) -> i32 {
+        let p = self.data[i as usize].lock().1.clone();
+
+        self.emplace(t, p)
+    }
+
+    fn serialize(&self, i: i32) -> Result<String, ron::Error> {
+        ron::to_string(&self.data[i as usize].lock().1)
+    }
+    fn clear(&mut self) {
+        self.data.clear();
+        self.avail = pqueue::Queue::new();
+        self.extent = 0;
+        self.valid.clear();
+    }
+
+    fn deserialize(&mut self, transform: i32, d: String) -> i32 {
+        let d: T = ron::from_str(&d).unwrap();
+        self.emplace(transform, d)
+    }
+
+    fn on_render(
+        &mut self,
+        render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>
+    ) {
+        if !self.has_render {
+            return;
+        }
+        self.data
+            .iter_mut()
+            .zip(self.valid.iter())
+            .enumerate()
+            .for_each(|(_i, (d, v))| {
+                if v.load(Ordering::Relaxed) {
+                    let mut d = d.lock();
+                    render_jobs.push(d.1.on_render());
+                }
+            });
     }
 }
 
@@ -270,6 +363,7 @@ pub struct GameObject {
 }
 
 pub struct Sys {
+    pub device: Arc<Device>,
     pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub physics: Physics, // bombs: Vec<Option<Mutex<Bomb>>>,
@@ -277,11 +371,15 @@ pub struct Sys {
 }
 // #[derive(Default)]
 pub struct World {
-    pub entities: RwLock<Vec<Option<RwLock<HashMap<TypeId, i32>>>>>,
-    pub transforms: RwLock<Transforms>,
-    pub components: HashMap<TypeId, RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
-    root: i32,
-    pub sys: Mutex<Sys>, // makers: Vec<Option<Mutex<Maker>>>,
+    // pub(crate) device: Arc<Device>,
+    pub(crate) entities: RwLock<Vec<Option<RwLock<HashMap<TypeId, i32>>>>>,
+    pub(crate) transforms: RwLock<Transforms>,
+    pub(crate) components:
+        HashMap<TypeId, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
+    pub(crate) components_names:
+        HashMap<String, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
+    pub(crate) root: i32,
+    pub(crate) sys: Mutex<Sys>, // makers: Vec<Option<Mutex<Maker>>>,
 }
 
 #[allow(dead_code)]
@@ -291,6 +389,7 @@ impl World {
         renderer_manager: Arc<RwLock<RendererManager>>,
         physics: Physics,
         particles: Arc<ParticleCompute>,
+        device: Arc<Device>,
     ) -> World {
         let trans = RwLock::new(Transforms::new());
         let root = trans.write().new_root();
@@ -298,8 +397,10 @@ impl World {
             entities: RwLock::new(vec![None]),
             transforms: trans,
             components: HashMap::new(),
+            components_names: HashMap::new(),
             root,
             sys: Mutex::new(Sys {
+                device,
                 model_manager: modeling,
                 renderer_manager,
                 physics,
@@ -337,6 +438,84 @@ impl World {
         }
         ret
     }
+    pub fn get_transform(&self, t: i32) -> _Transform {
+        let transforms = self.transforms.read();
+        _Transform {
+            position: transforms.get_position(t),
+            rotation: transforms.get_rotation(t),
+            scale: transforms.get_scale(t),
+        }
+    }
+    fn copy_game_object_child(&self, t: i32, new_parent: i32) {
+        let g = self.instantiate_with_transform_with_parent(new_parent, self.get_transform(t));
+        let entities = self.entities.read();
+        if let (Some(src_obj), Some(dest_obj)) = (&entities[t as usize], &entities[g.t as usize]) {
+            let children: Vec<i32> = {
+                let mut dest_obj = dest_obj.write();
+                let transforms = self.transforms.read();
+                for c in src_obj.read().iter() {
+                    dest_obj.insert(
+                        *c.0,
+                        self.copy_component_id(transforms.getTransform(g.t), *c.0, *c.1),
+                    );
+                }
+                let x = transforms.meta[t as usize]
+                    .lock()
+                    .children
+                    .iter()
+                    .map(|e| *e)
+                    .collect();
+                x
+            };
+            drop(entities);
+            for c in children {
+                self.copy_game_object_child(c, g.t);
+            }
+        } else {
+            panic!("copy object not valid");
+        }
+    }
+    pub fn copy_game_object(&self, t: i32) -> GameObject {
+        let parent = { self.transforms.read().get_parent(t) };
+        let g = self.instantiate_with_transform_with_parent(parent, self.get_transform(t));
+        let entities = self.entities.read();
+        if let (Some(src_obj), Some(dest_obj)) = (&entities[t as usize], &entities[g.t as usize]) {
+            let children: Vec<i32> = {
+                let mut dest_obj = dest_obj.write();
+                let transforms = self.transforms.read();
+                for c in src_obj.read().iter() {
+                    dest_obj.insert(
+                        *c.0,
+                        self.copy_component_id(transforms.getTransform(g.t), *c.0, *c.1),
+                    );
+                }
+                let x = transforms.meta[t as usize]
+                    .lock()
+                    .children
+                    .iter()
+                    .map(|e| *e)
+                    .collect();
+                x
+            };
+            drop(entities);
+            for c in children {
+                self.copy_game_object_child(c, g.t);
+            }
+        } else {
+            panic!("copy object not valid");
+        }
+        g
+    }
+    fn copy_component_id(&self, t: Transform, key: TypeId, c_id: i32) -> i32 {
+        if let Some(stor) = self.components.get(&key) {
+            let mut stor = stor.write();
+            let c = stor.copy(t.id, c_id);
+            stor.init(t, c, &mut self.sys.lock());
+            return c;
+        } else {
+            panic!("no component storage for key");
+        }
+    }
     pub fn instantiate_with_transform_with_parent(
         &self,
         parent: i32,
@@ -356,10 +535,20 @@ impl World {
         }
         ret
     }
-    pub fn add_component<T: 'static + Send + Sync + Component + Inspectable + Default>(
+    pub fn add_component<
+        T: 'static
+            + Send
+            + Sync
+            + Component
+            + Inspectable
+            + Default
+            + Clone
+            + Serialize
+            + for<'a> Deserialize<'a>,
+    >(
         &mut self,
         g: GameObject,
-        mut d: T,
+        d: T,
     ) {
         // d.assign_transform(g.t);
         let key: TypeId = TypeId::of::<T>();
@@ -398,6 +587,24 @@ impl World {
             }
         }
     }
+    pub fn deserialize(&mut self, g: GameObject, key: String, s: String) {
+        // d.assign_transform(g.t);
+
+        if let Some(stor) = self.components_names.get(&key) {
+            let mut stor = stor.write();
+            let c_id = stor.deserialize(g.t, s);
+            let trans = Transform {
+                id: g.t,
+                transforms: &self.transforms.read(),
+            };
+            stor.init(trans, c_id, &mut self.sys.lock());
+            if let Some(ent_components) = &self.entities.read()[g.t as usize] {
+                ent_components.write().insert(stor.get_type(), c_id);
+            }
+        } else {
+            panic!("no type key?")
+        }
+    }
     pub fn remove_component(&mut self, g: GameObject, key: TypeId, c_id: i32) {
         if let Some(ent_components) = &self.entities.read()[g.t as usize] {
             if let Some(stor) = self.components.get(&key) {
@@ -411,14 +618,37 @@ impl World {
             ent_components.write().remove(&key);
         }
     }
-    pub fn register<T: 'static + Send + Sync + Component + Inspectable + Default>(
+    pub fn register<
+        T: 'static
+            + Send
+            + Sync
+            + Component
+            + Inspectable
+            + Default
+            + Clone
+            + Serialize
+            + for<'a> Deserialize<'a>,
+    >(
         &mut self,
         has_update: bool,
+        has_render: bool,
     ) {
         let key: TypeId = TypeId::of::<T>();
-        let data = Storage::<T>::new(has_update);
+        // let c = T::default();
+        // let has_render = T::on_render != &Component::on_render;
+        let data = Storage::<T>::new(has_update, has_render);
+        let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
+            Arc::new(RwLock::new(Box::new(data)));
         self.components
-            .insert(key.clone(), RwLock::new(Box::new(data)));
+            .insert(key.clone(), component_storage.clone());
+        self.components_names.insert(
+            component_storage.read().get_name().to_string(),
+            component_storage.clone(),
+        );
+
+        // let component_storage = Arc::new(RwLock::new(Box::new(data)));
+        // self.components
+        //     .insert(key.clone(), component_storage.clone());
     }
     pub fn delete(&mut self, g: GameObject) {
         // remove/deinit components
@@ -458,7 +688,7 @@ impl World {
     // }
     pub fn get_components<T: 'static + Send + Sync + Component>(
         &self,
-    ) -> Option<&RwLock<Box<dyn StorageBase + Send + Sync>>> {
+    ) -> Option<&Arc<RwLock<Box<dyn StorageBase + Send + Sync>>>> {
         let key: TypeId = TypeId::of::<T>();
         self.components.get(&key)
     }
@@ -481,7 +711,28 @@ impl World {
                 &input,
                 &sys.model_manager,
                 &sys.renderer_manager,
+                sys.device.clone(),
             );
         }
+    }
+    pub fn render(
+        &self) -> Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>> {
+        // let transforms = self.transforms.read();
+        // let sys = self.sys.lock();
+        let mut render_jobs = vec![];
+        for (_, stor) in &self.components {
+            stor.write().on_render(&mut render_jobs);
+        }
+        render_jobs
+    }
+
+    pub fn clear(&mut self) {
+        self.entities.write().clear();
+        for a in &self.components {
+            a.1.write().clear();
+        }
+        self.transforms.write().clear();
+        self.root = self.transforms.write().new_root();
+        self.entities.write().push(None);
     }
 }

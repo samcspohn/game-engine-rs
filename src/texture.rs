@@ -1,9 +1,8 @@
 use std::{
-    collections::HashMap,
-    fs::File,
-    io::{Cursor, Read},
+    collections::{HashMap, HashSet},
     sync::Arc,
 };
+use image::{ GenericImage};
 
 use parking_lot::RwLock;
 use vulkano::{
@@ -20,6 +19,11 @@ pub struct TextureManager {
 }
 
 impl TextureManager {
+    pub fn regen(&self, textures: HashSet<String>){
+        for t in textures {
+            self.texture(&t);
+        }
+    }
     pub fn texture(&self, path: &str) -> Arc<Texture> {
         {
             if let Some(tex) = self.textures.read().get(path.into()) {
@@ -46,29 +50,31 @@ pub struct Texture {
 impl Texture {
     pub fn from_file(path: &str, device: Arc<Device>, queue: Arc<Queue>) -> Texture {
         let image = {
-            match File::open(path) {
-                Ok(mut f) => {
-                    let mut png_bytes = Vec::new();
-                    let _ = f.read_to_end(&mut png_bytes);
-                    // let png_bytes = include_bytes!("rust_mascot.png").to_vec();
-                    let cursor = Cursor::new(png_bytes);
-                    let decoder = png::Decoder::new(cursor);
-                    let mut reader = decoder.read_info().unwrap().1;
-                    let info = reader.info();
+            match image::open(path) {
+                Ok(img) => {
                     let dimensions = ImageDimensions::Dim2d {
-                        width: info.width,
-                        height: info.height,
+                        width: img.width(),
+                        height: img.height(),
                         array_layers: 1,
                     };
-                    let mut image_data = Vec::new();
-                    image_data.resize((info.width * info.height * 4) as usize, 0);
-                    reader.next_frame(&mut image_data).unwrap();
+                    let img_format = match img.color() {
+                        image::ColorType::Gray(_) => Format::R8_SNORM,
+                        image::ColorType::RGB(_) => Format::R8G8B8_SRGB,
+                        image::ColorType::Palette(_) => Format::R8_SINT,
+                        image::ColorType::GrayA(_) => Format::R8G8_SNORM,
+                        image::ColorType::RGBA(_) => Format::R8G8B8A8_SRGB,
+                    };
 
+                    let pixels = if img_format == Format::R8G8B8_SRGB {
+                        img.raw_pixels().chunks(3).flat_map(|p| [p[0],p[1],p[2],1u8]).collect()
+                    } else {
+                        img.raw_pixels()
+                    };
                     let image = ImmutableImage::from_iter(
-                        image_data,
+                        pixels,
                         dimensions,
                         MipmapsCount::Log2,
-                        Format::R8G8B8A8_SRGB,
+                        Format::R8G8B8A8_SRGB,  
                         queue.clone(),
                     )
                     .unwrap()

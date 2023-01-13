@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use crate::{
-    engine::{transform::Transform, Component, Storage, _Storage, World, Sys},
+    engine::{transform::Transform, Component, Storage, Sys, World, _Storage},
     inspectable::{Inpsect, Ins, Inspectable},
     particle_sort::ParticleSort,
     transform_compute::cs::ty::transform,
 };
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{
         BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer, TypedBufferAccess,
@@ -81,7 +82,7 @@ pub const MAX_PARTICLES: i32 = 8 * 1024 * 1024 * 4;
 // pub const NUM_EMITTERS: i32 = 1_200_000;
 
 // #[component]
-#[derive(Default)]
+#[derive(Default,Clone, Deserialize, Serialize)]
 pub struct ParticleEmitter {
     template: i32,
 }
@@ -590,7 +591,7 @@ impl ParticleCompute {
                 0, // Bind this descriptor set to index 0.
                 descriptor_set.clone(),
             )
-            .dispatch([len as u32 / 128 + 1, 1, 1])
+            .dispatch([len as u32 / 1024 + 1, 1, 1])
             .unwrap();
     }
 
@@ -657,7 +658,7 @@ impl ParticleCompute {
                 0, // Bind this descriptor set to index 0.
                 descriptor_set.clone(),
             )
-            .dispatch([emitter_len as u32 / 128 + 1, 1, 1])
+            .dispatch([emitter_len as u32 / 1024 + 1, 1, 1])
             .unwrap();
     }
 
@@ -722,7 +723,7 @@ impl ParticleCompute {
                 0, // Bind this descriptor set to index 0.
                 descriptor_set.clone(),
             )
-            .dispatch([MAX_PARTICLES as u32 / 128 + 1, 1, 1])
+            .dispatch([MAX_PARTICLES as u32 / 1024 + 1, 1, 1])
             .unwrap();
     }
     pub fn render_particles(

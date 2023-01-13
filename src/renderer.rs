@@ -51,7 +51,7 @@ impl_vertex!(Id, id);
 pub struct RenderPipeline {
     _vs: Arc<ShaderModule>,
     _fs: Arc<ShaderModule>,
-    pipeline: Arc<GraphicsPipeline>,
+    pub pipeline: Arc<GraphicsPipeline>,
     pub def_texture: Arc<ImageView<ImmutableImage>>,
     pub def_sampler: Arc<Sampler>,
 }
@@ -201,27 +201,27 @@ impl RenderPipeline {
             ));
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
-        if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {   
+        if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {
             builder
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                self.pipeline.layout().clone(),
-                0,
-                set.clone(),
-            )
-            .bind_vertex_buffers(
-                0,
-                (
-                    mesh.vertex_buffer.clone(),
-                    mesh.normals_buffer.clone(),
-                    mesh.uvs_buffer.clone(),
-                    // instance_buffer.clone(),
-                ),
-            )
-            // .bind_vertex_buffers(1, transforms_buffer.data.clone())
-            .bind_index_buffer(mesh.index_buffer.clone())
-            .draw_indexed_indirect(indirect_buffer)
-            .unwrap();
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Graphics,
+                    self.pipeline.layout().clone(),
+                    0,
+                    set.clone(),
+                )
+                .bind_vertex_buffers(
+                    0,
+                    (
+                        mesh.vertex_buffer.clone(),
+                        mesh.normals_buffer.clone(),
+                        mesh.uvs_buffer.clone(),
+                        // instance_buffer.clone(),
+                    ),
+                )
+                // .bind_vertex_buffers(1, transforms_buffer.data.clone())
+                .bind_index_buffer(mesh.index_buffer.clone())
+                .draw_indexed_indirect(indirect_buffer)
+                .unwrap();
         }
         self
     }

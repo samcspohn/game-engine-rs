@@ -1,6 +1,7 @@
 use crossbeam::queue::SegQueue;
 use egui::plot::{HLine, Line, Plot, Value, Values};
-use egui::{Color32, Ui, WidgetText};
+use egui::{Color32, Rounding, Ui, WidgetText};
+use std::{env, fs};
 // use egui_dock::Tree;
 use puffin_egui::*;
 
@@ -18,7 +19,7 @@ use winit::event::MouseButton;
 use std::any::TypeId;
 use std::collections::VecDeque;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{
     collections::HashMap,
     ptr,
@@ -62,6 +63,7 @@ use glm::{Mat4, Vec3};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 // use rust_test::{INDICES, NORMALS, VERTICES};
+use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
 use walkdir::WalkDir;
 
 mod engine;
@@ -70,23 +72,26 @@ mod model;
 mod perf;
 mod renderer;
 // mod renderer_component;
+mod drag_drop;
+mod editor_ui;
+mod file_watcher;
+mod game;
 mod inspectable;
 mod particle_sort;
 mod particles;
+mod project;
 mod renderer_component2;
+mod serialize;
+mod terrain;
 mod texture;
 mod time;
 mod transform_compute;
-mod drag_drop;
-
-use std::{env, fs};
-
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
 use crate::engine::physics::Physics;
 use crate::engine::transform::{Transform, Transforms};
-use crate::engine::{GameObject, World, Sys};
+use crate::engine::{GameObject, RenderJobData, Sys, World};
 use crate::game::{game_thread_fn, Bomb};
 use crate::inspectable::{Inpsect, Ins};
 use crate::model::ModelManager;
@@ -94,26 +99,28 @@ use crate::particles::cs::ty::t;
 use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
 
+use crate::project::{load_project, save_project};
 use crate::renderer_component2::{ur, Renderer, RendererData, RendererManager};
 use crate::terrain::Terrain;
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
 use crate::transform_compute::cs::ty::transform;
-use crate::{input::Input, renderer::RenderPipeline};
 use crate::{drag_drop::drag_source, drag_drop::drop_target};
-mod game;
-mod terrain;
+use crate::{input::Input, renderer::RenderPipeline};
 
 use rayon::prelude::*;
 
-lazy_static::lazy_static!{
+// enum TransformDrag {
+//     DragToTransform(i32,i32),
+//     DragBetweenTransform(i32,i32,bool)
 
-    static ref dragged_transform: Mutex<i32> = Mutex::new(0);
-    static ref transform_drag: Mutex<Option<(i32,i32)>> = Mutex::new(None);
+// }
+// lazy_static::lazy_static! {
 
-}
+//     static ref dragged_transform: Mutex<i32> = Mutex::new(0);
+//     static ref transform_drag: Mutex<Option<TransformDrag>> = Mutex::new(None);
 
-
+// }
 
 // use egui::{
 //     color_picker::{color_picker_color32, Alpha},
@@ -210,10 +217,17 @@ lazy_static::lazy_static!{
 //  #     egui::CentralPanel::default().show(ctx, |ui| my_tabs.ui(ui));
 //  # });
 
-
-
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
+
+    if let Ok(mut watcher) = notify::recommended_watcher(|res| match res {
+        Ok(event) => println!("event: {:?}", event),
+        Err(e) => println!("watch error: {:?}", e),
+    }) {
+        // Add a path to be watched. All files and directories at that path and
+        // below will be monitored for changes.
+        if let Ok(_) = watcher.watch(Path::new("./test_project"), RecursiveMode::Recursive) {}
+    }
 
     // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
 
@@ -512,14 +526,15 @@ fn main() {
         renderer_manager.clone(),
         physics,
         particles.clone(),
+        device.clone(),
     )));
     {
         let mut world = world.lock();
-        world.register::<Renderer>(false);
-        world.register::<ParticleEmitter>(false);
+        world.register::<Renderer>(false, false);
+        world.register::<ParticleEmitter>(false, false);
         // world.register::<Maker>(true);
-        world.register::<Terrain>(true);
-        world.register::<Bomb>(true);
+        world.register::<Terrain>(true, true);
+        world.register::<Bomb>(true, false);
     }
 
     let game_thread = {
@@ -533,27 +548,26 @@ fn main() {
     // let ter = trx.recv().unwrap();
     // println!("sending input");
     let _res = coms.1.send(input.clone());
+    let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
+    {
+        let mut world = world.lock();
+        file_watcher.init(&mut world);
+        load_project(&mut file_watcher, &mut world)
+    }
+    // let mut selected_transforms: HashMap<i32, bool> = HashMap::<i32, bool>::new();
 
-    let mut selected_transforms: HashMap<i32, bool> = HashMap::<i32, bool>::new();
-
-    let mut selected = None;
-
-
+    // let mut selected = None;
 
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
         *control_flow = ControlFlow::Poll;
         match event {
-            // Event::MainEventsCleared if !destroying && !minimized => {
-            //     // unsafe { app.render(&window) }.unwrap()
-            // }
             Event::DeviceEvent { event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => {
                     if focused {
                         input.mouse_x = delta.0;
                         input.mouse_y = delta.1;
                     }
-                    // println!("mouse moved: {:?}", delta);
                 }
                 _ => (),
             },
@@ -570,14 +584,9 @@ fn main() {
 
                         game_thread.join().unwrap();
 
+                        save_project(&file_watcher, &world.lock());
+
                         perf.print();
-                        // game_thread.join();
-                        // *running.lock() = false;
-                        // let p = perf.iter();
-                        // for (k, x) in p {
-                        //     let len = x.len();
-                        //     println!("{}: {:?}", k, (x.into_iter().map(|a| a).sum::<Duration>() / len as u32));
-                        // }
                     }
                     WindowEvent::MouseInput {
                         device_id: _,
@@ -586,7 +595,6 @@ fn main() {
                         ..
                     } => match state {
                         ElementState::Pressed => {
-                            // println!("mouse button {:#?} pressed", button);
                             input.mouse_buttons.insert(
                                 match button {
                                     MouseButton::Left => 0,
@@ -598,7 +606,6 @@ fn main() {
                             );
                         }
                         ElementState::Released => {
-                            // println!("mouse button {:#?} released", button);
                             input.mouse_buttons.insert(
                                 match button {
                                     MouseButton::Left => 0,
@@ -711,338 +718,16 @@ fn main() {
 
                 egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
 
-                {
-                    let mut world = world.lock();
-                    let resp = {
-                        let mut transforms = world.transforms.write();
+                file_watcher.get_updates(&mut world.lock());
 
-                        let hierarchy_ui = |ui: &mut egui::Ui| {
-                            if fps_queue.len() > 0 {
-                                let fps: f32 =
-                                    fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
-                                ui.label(format!("fps: {}", 1.0 / fps));
-                            }
+                editor_ui::editor_ui(&world, &mut fps_queue, &egui_ctx);
 
-                            fn transform_hierarchy_ui(
-                                transforms: &Transforms,
-                                selected_transforms: &mut HashMap<i32, bool>,
-                                t: Transform,
-                                ui: &mut egui::Ui,
-                                count: &mut i32,
-                                selected: &mut Option<i32>,
-                            ) {
-                                let id = ui.make_persistent_id(format!("{}", t.id));
-                                egui::collapsing_header::CollapsingState::load_with_default_open(
-                                    ui.ctx(),
-                                    id,
-                                    true,
-                                )
-                                .show_header(ui, |ui| {
-                                    let mut this_selection = false;
-                                    let resp = ui.toggle_value(
-                                        &mut selected_transforms
-                                            .get_mut(&t.id)
-                                            .unwrap_or(&mut this_selection),
-                                        format!("game object {}", t.id),
-                                    );
-                                    let id = resp.id;
-                                    let is_being_dragged = ui.memory().is_being_dragged(id);
+                let render_jobs = world.lock().render();
 
-                                    // drop target
-                                    if resp.hovered() && ui.input().pointer.any_released() {
-                                        let d_t_id: i32 = *dragged_transform.lock();
-                    
-                                        if d_t_id != t.id && d_t_id != 0{
-                                            *transform_drag.lock() = Some((d_t_id,t.id));
-                                            // place as child
-                                            println!("transform {} dropped on transform {}",d_t_id, t.id);
-                                            
-                                        }
-                                    }
-
-                                    // drag source
-                                    let resp = ui.interact(resp.rect, id, egui::Sense::drag());
-                                    if resp.drag_started() {
-                                        *dragged_transform.lock() = t.id;
-                                    }
-                                    if is_being_dragged {
-                                        ui.output().cursor_icon = egui::CursorIcon::Grabbing;
-                                        // Paint the body to a new layer:
-                                        let layer_id = egui::LayerId::new(egui::Order::Tooltip, id);
-                                        let response = ui.with_layer_id(layer_id, |ui| {ui.label(format!("game object {}", t.id))}).response;
-                                        if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
-                                            let delta = pointer_pos - response.rect.center();
-                                            ui.ctx().translate_layer(layer_id, delta);
-                                        }
-                                    }
-                                    if this_selection {
-                                        selected_transforms.clear();
-                                        selected_transforms.insert(t.id, true);
-                                        *selected = Some(t.id);
-                                    }
-                                })
-                                .body(|ui| {
-                                    for child_id in t.get_meta().lock().children.read().iter() {
-                                        let child = Transform {
-                                            id: *child_id,
-                                            transforms: &&transforms,
-                                        };
-                                        transform_hierarchy_ui(
-                                            transforms,
-                                            selected_transforms,
-                                            child,
-                                            ui,
-                                            count,
-                                            selected,
-                                        );
-                                        *count += 1;
-                                        if *count > 10_000 {
-                                            return;
-                                        }
-                                    }
-                                    // ui.label("The body is always custom");
-                                });
-                            }
-
-                            let root = Transform {
-                                id: 0,
-                                transforms: &&transforms,
-                            };
-                            let mut count = 0;
-
-                             egui::ScrollArea::both().show(ui, |ui| {
-                                transform_hierarchy_ui(
-                                    &transforms,
-                                    &mut selected_transforms,
-                                    root,
-                                    ui,
-                                    &mut count,
-                                    &mut selected,
-                                );
-                            });
-
-                        };
-                        
-                        // windows
-
-                        *transform_drag.lock() = None;
-                        puffin::profile_function!();
-                        let mut open = true;
-                        let resp = egui::Window::new("Hierarchy")
-                            .default_size([600.0, 600.0])
-                            .open(&mut open)
-                            // .vscroll(true)
-                            // .hscroll(true)
-                            .show(&egui_ctx, hierarchy_ui);
-                            let d = *transform_drag.lock();
-                            if let Some((d_t_id, t_id)) = d {
-                                
-                                transforms.adopt(t_id, d_t_id);
-                            }
-                        resp
-                    };
-                    if let Some(resp) = resp {
-                        resp.response.context_menu(|ui: &mut Ui| {
-                            let resp = ui.menu_button("Add Game Object", |ui| {});
-                            if resp.response.clicked() {
-                                let g = world.instantiate();
-                                selected = Some(g.t);
-                                selected_transforms.clear();
-                                selected_transforms.insert(g.t, true);
-                                println!("add game object");
-                                ui.close_menu();
-                            }
-                        });
-                    }
-
-                    let mut rmv: Option<(GameObject, std::any::TypeId, i32)> = None;
-                    let resp = egui::Window::new("Inspector")
-                        .default_size([200.0, 600.0])
-                        .vscroll(true)
-                        .show(&egui_ctx, |ui: &mut egui::Ui| {
-                            if let Some(t_id) = selected {
-                                let entities = world.entities.write();
-                                if let Some(ent) = &entities[t_id as usize] {
-                                    // let t = Transform { id: t_id, transforms: &*world.transforms.read() };
-                                    let t = &*world.transforms.read();
-                                    egui::CollapsingHeader::new("Transform")
-                                        .default_open(true)
-                                        .show(ui, |ui| {
-                                            let mut pos = *t.positions[t_id as usize].lock();
-                                            let prev_pos = pos.clone();
-                                            // Ins(&mut pos).inspect("Postition", ui);
-                                            ui.horizontal(|ui| {
-                                                ui.add(egui::Label::new("Position"));
-                                                ui.add(egui::DragValue::new(&mut pos.x).speed(0.1));
-                                                ui.add(egui::DragValue::new(&mut pos.y).speed(0.1));
-                                                ui.add(egui::DragValue::new(&mut pos.z).speed(0.1));
-                                            });
-                                            if pos != prev_pos {
-                                                t.move_child(t_id, pos - prev_pos);
-                                            }
-                                            let mut rot = *t.rotations[t_id as usize].lock();
-                                            let prev_rot = rot.clone();
-                                            ui.horizontal(|ui| {
-                                                ui.add(egui::Label::new("Rotation"));
-                                                ui.add(egui::DragValue::new(&mut rot.coords.w).speed(0.1));
-                                                ui.add(egui::DragValue::new(&mut rot.coords.x).speed(0.1));
-                                                ui.add(egui::DragValue::new(&mut rot.coords.y).speed(0.1));
-                                                ui.add(egui::DragValue::new(&mut rot.coords.z).speed(0.1));
-                                            });
-                                            // Ins(&mut rot).inspect("Rotation", ui);
-                                            if prev_rot != rot {
-                                                t.set_rotation(t_id, rot);
-                                            }
-                                            let mut scl = *t.scales[t_id as usize].lock();
-                                            let prev_scl = scl.clone();
-                                            // Ins(&mut scl).inspect("Scale", ui);
-                                            ui.horizontal(|ui| {
-                                                ui.add(egui::Label::new("Scale"));
-                                                ui.add(egui::DragValue::new(&mut scl.x).speed(0.1));
-                                                ui.add(egui::DragValue::new(&mut scl.y).speed(0.1));
-                                                ui.add(egui::DragValue::new(&mut scl.z).speed(0.1));
-                                            });
-                                            if prev_scl != scl {
-                                                t.set_scale(t_id, scl);
-                                            }
-                                        });
-                                    let mut components = ent.write();
-                                    for (c_type, id) in components.iter_mut() {
-                                        if let Some(c) = world.components.get(&c_type) {
-                                            let c = c.read();
-                                            // let name: String = c.get_name().into();
-                                            ui.separator();
-                                            let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
-                                            egui::collapsing_header::CollapsingState::load_with_default_open(
-                                                ui.ctx(), _id ,true,
-                                            )
-                                            .show_header(ui, |ui| {
-                                                ui.horizontal(|ui| {
-                                                    ui.heading(c.get_name());
-                                                    if ui.button("delete").clicked() {
-                                                        println!("delete component");
-                                                        let g = GameObject { t: t_id };
-                                                        // world.remove_component(g, *c_type, *id)
-                                                        rmv = Some((g,*c_type, *id));
-                                                    }
-                                                });
-                                            })
-                                            .body(|ui| {
-                                                let transform = Transform { id: t_id , transforms: &world.transforms.read() };
-                                                c.inspect(transform, *id, ui, &mut world.sys.lock());
-                                            });
-
-                                        }
-                                    }
-                                }
-                            }
-                        });
-                        if let Some((g,c_type, id)) = rmv {
-                            world.remove_component(g, c_type, id)
-                        }
-
-                        use substring::Substring;
-                        let cur_dir: PathBuf = "./test_project_rs".into();
-                        fn render_dir(ui: &mut egui::Ui, cur_dir: PathBuf, sys: &Sys) {
-                            // let label = format!("{:?}", cur_dir);
-                            let label: String = cur_dir.clone().into_os_string().into_string().unwrap();
-                            let id = ui.make_persistent_id(label.clone());
-                            if let Ok(it) = fs::read_dir(cur_dir) {
-                                egui::collapsing_header::CollapsingState::load_with_default_open(
-                                    ui.ctx(),
-                                    id,
-                                    false,
-                                )
-                                .show_header(ui, |ui| {
-                                    if let Some(last_slash) = label.rfind("/") {
-                                        let label = label.substring(last_slash + 1,label.len());
-                                        ui.label(label);
-                                    }
-                                })
-                                .body(|ui| {
-                                    let paths: Vec<_> = it
-                                              .map(|r| r.unwrap())
-                                              .collect();
-                                    let mut dirs: Vec<_> = paths.iter().filter(|x| fs::read_dir(x.path()).is_ok()).collect();
-                                    let mut files: Vec<_> = paths.iter().filter(|x| !fs::read_dir(x.path()).is_ok()).collect();
-                                        dirs.sort_by_key(|dir| dir.path());
-                                        files.sort_by_key(|dir| dir.path());
-                                        for entry in dirs {
-                                            render_dir(ui, entry.path(), sys)
-                                        }
-                                        for entry in files {
-                                            render_dir(ui, entry.path(), sys)
-                                        }
-                                    
-                                    // ui.label("The body is always custom");
-                                });
-                            } else {
-                                if let Some(last_slash) = label.rfind("/") {
-                                    let _label: String = label.substring(last_slash + 1,label.len()).into();
-                                    // drag_source(ui, id, body)
-                                    // let a = ui.label(label);
-                                    // a.
-                                    // let label = egui::Label::new(label);
-                                    
-                                    // let a = ui.add(label);
-                                    // a.id
-                                    if let Some(last_dot) = label.rfind(".") {
-                                        let file_ext = label.substring(last_dot, label.len());
-                                        if file_ext == ".obj" {
-                                            let mut mm = sys.model_manager.lock();
-                                            if !mm.models.contains_key(&label) {
-                                                mm.from_file(&label);
-                                            }
-                                        }
-                                    }
-
-                                    let item_id = egui::Id::new(label.clone());
-
-                                    drag_source(ui, item_id, label,|ui| {
-                                        ui.add(egui::Label::new(_label.clone()).sense(egui::Sense::click()));
-                                    });
-                                }
-                            }
-                        }
-
-                        egui::Window::new("Project")
-                        .default_size([200.0, 600.0])
-                        .vscroll(true)
-                        .show(&egui_ctx, |ui: &mut egui::Ui| {
-                            render_dir(ui, cur_dir, &world.sys.lock());
-                            // for entry in WalkDir::new(".") {
-                            //     ui.label(format!("{}", entry.unwrap().path().display()));
-                            // }
-                        });
-                    if let Some(resp) = resp {
-                        let mut compoenent_init: Option<(TypeId, i32)> = None;
-                        resp.response.context_menu(|ui: &mut Ui| {
-                            let resp = ui.menu_button("Add Component", |ui| {
-                                // ui.add(egui::Button::new("text"));
-                                for (k, c) in &world.components {
-                                    let mut c = c.write();
-                                    let resp = ui.add(egui::Button::new(c.get_name()));
-                                    if resp.clicked() {
-                                        if let Some(t_id) = selected {
-                                            let  c_id = c.new_default(t_id);
-                                            let key = c.get_hash();
-                                            compoenent_init = Some((key,c_id));
-                                        }
-                                        ui.close_menu();
-                                    }
-                                }
-                                if let (Some(t_id), Some((key,c_id))) = (selected, compoenent_init) {
-                                    let g = GameObject {t: t_id};
-                                    world.add_component_id(g, key, c_id)
-                                }
-                            });
-                        });
-                    }
-                }
-                /////////////////////////////////////////////////////////////////
                 let rm = renderer_manager.read();
                 let mut rm = rm.shr_data.write();
 
+                //
                 let res = coms.1.send(input.clone());
                 if res.is_err() {
                     return;
@@ -1073,9 +758,6 @@ fn main() {
                         scale_update_data,
                     )
                 };
-                if position_update_data.is_some() {
-                    println!("update pos");
-                }
                 perf.update("write to buffer".into(), Instant::now() - inst);
 
                 // render_thread = thread::spawn( || {
@@ -1279,86 +961,40 @@ fn main() {
                             offset += ind.count;
                         }
                     }
-
-                    let offsets_buffer = CpuAccessibleBuffer::from_iter(
-                        device.clone(),
-                        BufferUsage::all(),
-                        false,
-                        offset_vec,
-                    )
-                    .unwrap();
-
-                    {
-                        puffin::profile_scope!("update renderers: stage 0");
-                        let update_num = rd.updates.len() / 3;
-                        if update_num > 0 {
-                            rm.updates_gpu = CpuAccessibleBuffer::from_iter(
-                                device.clone(),
-                                BufferUsage::all(),
-                                false,
-                                rd.updates,
-                            )
-                            .unwrap();
-                        }
-
-                        // stage 0
-                        let uniforms = rm
-                            .uniform
-                            .next(ur::ty::Data {
-                                num_jobs: update_num as i32,
-                                stage: 0,
-                                view: cull_view.into(),
-                                _dummy0: Default::default(),
-                            })
-                            .unwrap();
-
-                        let update_renderers_set = PersistentDescriptorSet::new(
-                            renderer_pipeline
-                                .layout()
-                                .set_layouts()
-                                .get(0) // 0 is the index of the descriptor set.
-                                .unwrap()
-                                .clone(),
-                            [
-                                // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
-                                WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
-                                WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
-                                WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
-                                WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                                WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
-                                WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
-                                WriteDescriptorSet::buffer(6, uniforms.clone()),
-                            ],
+                    if offset_vec.len() > 0 {
+                        let offsets_buffer = CpuAccessibleBuffer::from_iter(
+                            device.clone(),
+                            BufferUsage::all(),
+                            false,
+                            offset_vec,
                         )
                         .unwrap();
 
-                        builder
-                            .bind_descriptor_sets(
-                                PipelineBindPoint::Compute,
-                                renderer_pipeline.layout().clone(),
-                                0, // Bind this descriptor set to index 0.
-                                update_renderers_set.clone(),
-                            )
-                            .dispatch([update_num as u32 / 128 + 1, 1, 1])
-                            .unwrap();
-                    }
-                    {
-                        puffin::profile_scope!("update renderers: stage 1");
-                        // stage 1
-                        let uniforms = {
-                            puffin::profile_scope!("update renderers: stage 1: uniform data");
-                            rm.uniform
+                        {
+                            puffin::profile_scope!("update renderers: stage 0");
+                            let update_num = rd.updates.len() / 3;
+                            if update_num > 0 {
+                                rm.updates_gpu = CpuAccessibleBuffer::from_iter(
+                                    device.clone(),
+                                    BufferUsage::all(),
+                                    false,
+                                    rd.updates,
+                                )
+                                .unwrap();
+                            }
+
+                            // stage 0
+                            let uniforms = rm
+                                .uniform
                                 .next(ur::ty::Data {
-                                    num_jobs: rd.transforms_len as i32,
-                                    stage: 1,
+                                    num_jobs: update_num as i32,
+                                    stage: 0,
                                     view: cull_view.into(),
                                     _dummy0: Default::default(),
                                 })
-                                .unwrap()
-                        };
-                        let update_renderers_set = {
-                            puffin::profile_scope!("update renderers: stage 1: descriptor set");
-                            PersistentDescriptorSet::new(
+                                .unwrap();
+
+                            let update_renderers_set = PersistentDescriptorSet::new(
                                 renderer_pipeline
                                     .layout()
                                     .set_layouts()
@@ -1366,6 +1002,7 @@ fn main() {
                                     .unwrap()
                                     .clone(),
                                 [
+                                    // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
                                     WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
                                     WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
                                     WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
@@ -1378,12 +1015,8 @@ fn main() {
                                     WriteDescriptorSet::buffer(6, uniforms.clone()),
                                 ],
                             )
-                            .unwrap()
-                        };
-                        {
-                            puffin::profile_scope!(
-                                "update renderers: stage 1: bind pipeline/dispatch"
-                            );
+                            .unwrap();
+
                             builder
                                 .bind_descriptor_sets(
                                     PipelineBindPoint::Compute,
@@ -1391,8 +1024,61 @@ fn main() {
                                     0, // Bind this descriptor set to index 0.
                                     update_renderers_set.clone(),
                                 )
-                                .dispatch([rd.transforms_len as u32 / 128 + 1, 1, 1])
+                                .dispatch([update_num as u32 / 128 + 1, 1, 1])
                                 .unwrap();
+                        }
+                        {
+                            puffin::profile_scope!("update renderers: stage 1");
+                            // stage 1
+                            let uniforms = {
+                                puffin::profile_scope!("update renderers: stage 1: uniform data");
+                                rm.uniform
+                                    .next(ur::ty::Data {
+                                        num_jobs: rd.transforms_len as i32,
+                                        stage: 1,
+                                        view: cull_view.into(),
+                                        _dummy0: Default::default(),
+                                    })
+                                    .unwrap()
+                            };
+                            let update_renderers_set = {
+                                puffin::profile_scope!("update renderers: stage 1: descriptor set");
+                                PersistentDescriptorSet::new(
+                                    renderer_pipeline
+                                        .layout()
+                                        .set_layouts()
+                                        .get(0) // 0 is the index of the descriptor set.
+                                        .unwrap()
+                                        .clone(),
+                                    [
+                                        WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
+                                        WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
+                                        WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
+                                        WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
+                                        WriteDescriptorSet::buffer(
+                                            4,
+                                            transform_compute.transform.clone(),
+                                        ),
+                                        WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
+                                        WriteDescriptorSet::buffer(6, uniforms.clone()),
+                                    ],
+                                )
+                                .unwrap()
+                            };
+                            {
+                                puffin::profile_scope!(
+                                    "update renderers: stage 1: bind pipeline/dispatch"
+                                );
+                                builder
+                                    .bind_descriptor_sets(
+                                        PipelineBindPoint::Compute,
+                                        renderer_pipeline.layout().clone(),
+                                        0, // Bind this descriptor set to index 0.
+                                        update_renderers_set.clone(),
+                                    )
+                                    .dispatch([rd.transforms_len as u32 / 128 + 1, 1, 1])
+                                    .unwrap();
+                            }
                         }
                     }
                 }
@@ -1435,7 +1121,6 @@ fn main() {
                     queue.clone(),
                     &mut builder,
                 );
-                // }
 
                 {
                     puffin::profile_scope!("render meshes");
@@ -1451,43 +1136,62 @@ fn main() {
 
                     rend.bind_pipeline(&mut builder);
 
-                    let mm = model_manager.lock();
+                    {
+                        let mm = model_manager.lock();
 
-                    let mut offset = 0;
+                        let mut offset = 0;
 
-                    for (_ind_id, m_id) in rd.indirect_model.iter() {
-                        if let Some(ind) = rd.model_indirect.get(&m_id) {
-                            if let Some(mr) = mm.models_ids.get(&m_id) {
-                                if ind.count == 0 {
-                                    continue;
-                                }
-                                if let Some(indirect_buffer) =
-                                    BufferSlice::from_typed_buffer_access(
-                                        rm.indirect_buffer.clone(),
-                                    )
-                                    .slice(ind.id as u64..(ind.id + 1) as u64)
-                                {
-                                    // println!("{}",indirect_buffer.len());
-                                    if let Some(renderer_buffer) =
+                        for (_ind_id, m_id) in rd.indirect_model.iter() {
+                            if let Some(ind) = rd.model_indirect.get(&m_id) {
+                                if let Some(mr) = mm.models_ids.get(&m_id) {
+                                    if ind.count == 0 {
+                                        continue;
+                                    }
+                                    if let Some(indirect_buffer) =
                                         BufferSlice::from_typed_buffer_access(
-                                            rm.renderers_gpu.clone(),
+                                            rm.indirect_buffer.clone(),
                                         )
-                                        .slice(offset..(offset + ind.count as u64) as u64)
+                                        .slice(ind.id as u64..(ind.id + 1) as u64)
                                     {
-                                        // println!("{}",renderer_buffer.len());
-                                        rend.bind_mesh(
-                                            &mut builder,
-                                            renderer_buffer.clone(),
-                                            transform_compute.mvp.clone(),
-                                            &mr.mesh,
-                                            indirect_buffer.clone(),
-                                        );
+                                        // println!("{}",indirect_buffer.len());
+                                        if let Some(renderer_buffer) =
+                                            BufferSlice::from_typed_buffer_access(
+                                                rm.renderers_gpu.clone(),
+                                            )
+                                            .slice(offset..(offset + ind.count as u64) as u64)
+                                        {
+                                            // println!("{}",renderer_buffer.len());
+                                            rend.bind_mesh(
+                                                &mut builder,
+                                                renderer_buffer.clone(),
+                                                transform_compute.mvp.clone(),
+                                                &mr.mesh,
+                                                indirect_buffer.clone(),
+                                            );
+                                        }
                                     }
                                 }
+                                offset += ind.count as u64;
                             }
-                            offset += ind.count as u64;
                         }
                     }
+                    let mut rjd = RenderJobData {
+                        builder: &mut builder,
+                        transform: transform_compute.transform.clone(),
+                        view: &view,
+                        proj: &proj,
+                        pipeline: &rend,
+                        device: device.clone(),
+                    };
+                    for job in render_jobs {
+                        job(&mut rjd);
+                    }
+                    // &mut builder,
+                    // transform_compute.transform.clone(),
+                    // &view,
+                    // &proj,
+                    // &rend,
+                    // device.clone(),
                 }
                 // let particles = particles.read();
                 particles.render_particles(

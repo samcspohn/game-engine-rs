@@ -11,6 +11,7 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use parking_lot::RwLock;
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
+use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool},
     command_buffer::DrawIndexedIndirectCommand,
@@ -19,7 +20,7 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Serialize, Deserialize)]
 struct ModelId {
     id: i32,
 }
@@ -54,7 +55,7 @@ impl<'a> Inpsect for Ins<'a, ModelId> {
 }
 
 // #[component]
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Renderer {
     model_id: ModelId,
     id: i32,
@@ -72,11 +73,7 @@ impl Inspectable for Renderer {
         if self.model_id.id != m_id.id {
             // self.deinit(transform, id, sys);
             let rm = &mut sys.renderer_manager.write();
-            rm.model_indirect
-                .write()
-                .get_mut(&m_id.id)
-                .unwrap()
-                .count -= 1;
+            rm.model_indirect.write().get_mut(&m_id.id).unwrap().count -= 1;
             // sys.renderer_manager.write().updates.insert(
             //     self.id,
             //     TransformId {
@@ -86,13 +83,14 @@ impl Inspectable for Renderer {
             // );
             // sys.renderer_manager.write().transforms.erase(self.id);
 
-            let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
+            let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id.id)
+            {
                 ind.count += 1;
                 ind.id
             } else {
                 -1
             };
-    
+
             if ind_id == -1 {
                 ind_id = rm
                     .shr_data
