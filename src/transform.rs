@@ -7,7 +7,7 @@ use parking_lot::{Mutex, RwLock};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 // use spin::{Mutex,RwLock};
 use puffin_egui::puffin;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
     collections::BinaryHeap,
@@ -173,7 +173,10 @@ fn mul_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
 #[allow(dead_code)]
 impl Transforms {
     pub fn getTransform<'a>(&self, t: i32) -> Transform {
-        Transform { id: t, transforms: &self }
+        Transform {
+            id: t,
+            transforms: &self,
+        }
     }
     pub fn clear(&mut self) {
         self.positions.clear();
@@ -223,7 +226,7 @@ impl Transforms {
             }
         }
     }
-    
+
     pub fn new_transform(&mut self, parent: i32) -> i32 {
         self.new_transform_with(parent, Default::default())
     }
@@ -403,7 +406,7 @@ impl Transforms {
     pub fn set_rotation(&self, t: i32, r: Quat) {
         self.u_rot(t);
         let mut r_l = self.rotations[t as usize].lock();
-        let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l));//glm::inverse(&glm::quat_to_mat3(&*r_l));
+        let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l)); //glm::inverse(&glm::quat_to_mat3(&*r_l));
         *r_l = r;
         drop(r_l);
         let pos = *self.positions[t as usize].lock();
@@ -457,9 +460,9 @@ impl Transforms {
     pub fn rotate(&self, t: i32, axis: &Vec3, radians: f32) {
         let mut rot = self.rotations[t as usize].lock();
         *rot = glm::quat_rotate(&*rot, radians, axis);
+        let rot = *rot;
         self.u_rot(t);
         let pos = self.get_position(t);
-        let rot = *rot;
         for child in self.meta[t as usize].lock().children.iter() {
             self.rotate_child(*child, axis, &pos, &rot, radians);
         }
@@ -467,16 +470,17 @@ impl Transforms {
 
     fn rotate_child(&self, t: i32, axis: &Vec3, pos: &Vec3, r: &Quat, radians: f32) {
         let ax = glm::quat_to_mat3(&r) * axis;
+        let _ax = glm::inverse(&glm::quat_to_mat3(&r)) * axis;
         self.u_rot(t);
         self.u_pos(t);
         let mut rot = self.rotations[t as usize].lock();
         let mut p = self.positions[t as usize].lock();
 
-        *p = pos + glm::rotate_vec3(&(*p - pos), radians, &(ax * -1.));
+        *p = pos + glm::rotate_vec3(&(*p - pos), radians, &ax);
         *rot = glm::quat_rotate(
             &*rot,
             radians,
-            &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * ax),
+            &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * _ax),
         );
         for child in self.meta[t as usize].lock().children.iter() {
             self.rotate_child(*child, axis, pos, r, radians);

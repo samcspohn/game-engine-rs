@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer},
     command_buffer::{
-        AutoCommandBufferBuilder, DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
+        AutoCommandBufferBuilder, CommandBufferUsage, DrawIndexedIndirectCommand,
+        PrimaryAutoCommandBuffer,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
@@ -179,7 +180,7 @@ impl Terrain {
         let mut uvs = Vec::new();
 
         let make_vert = |x: i32, z: i32| {
-            let __x = x as f32 + (_x * (terrain_size - 1)) as f32 ;
+            let __x = x as f32 + (_x * (terrain_size - 1)) as f32;
             let __z = z as f32 + (_z * (terrain_size - 1)) as f32;
             Vertex {
                 position: [
@@ -314,6 +315,7 @@ impl Component for Terrain {
                 proj,
                 pipeline,
                 device,
+                viewport
             } = rd;
             let instance_buffer = vec![0];
             let mvp_buffer = vec![MVP {
@@ -334,10 +336,25 @@ impl Component for Terrain {
             )
             .unwrap();
 
+            let sub_commands = Box::new(Mutex::new(vec![]));
+
             // let mut inst = 0;
             let chunks = chunks.lock();
-            for (_, x) in chunks.iter() {
-                for (_, z) in x {
+            let meshes: Vec<&Mesh> = chunks.iter().flat_map(|(_,x)| {x.iter().map(|(_,z)| {z}).collect::<Vec<&Mesh>>()}).collect();
+            chunks.iter().for_each(|(_, x)| {
+                x.par_iter().for_each(|(_, z)| {
+                // meshes.par_iter().for_each(|z| {
+
+
+                    let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
+                        device.clone(),
+                        device.active_queue_families().next().unwrap(),
+                        CommandBufferUsage::OneTimeSubmit,
+                        pipeline.pipeline.subpass().clone(),
+                    )
+                    .unwrap();
+                    // sub_command.
+
                     let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
 
                     let mut descriptors = Vec::new();
@@ -355,7 +372,9 @@ impl Component for Terrain {
                     }
                     descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
                     if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {
-                        builder
+                        sub_command
+                            .set_viewport(0, [viewport.clone()])
+                            .bind_pipeline_graphics(pipeline.pipeline.clone())
                             .bind_descriptor_sets(
                                 PipelineBindPoint::Graphics,
                                 pipeline.pipeline.layout().clone(),
@@ -376,10 +395,15 @@ impl Component for Terrain {
                             .draw_indexed(z.indeces.len() as u32, 1, 0, 0, 0)
                             .unwrap();
                     }
-                }
-            }
-        })
 
+                    let sub_command = sub_command.build().unwrap();
+                    sub_commands.lock().push(sub_command);
+                    // sub_command.
+                });
+            });
+            let sub_commands = sub_commands.into_inner();
+            builder.execute_commands_from_vec(sub_commands).unwrap();
+        })
         // let render_data = CustRendData {instance_buffer}
     }
     fn update(&mut self, transform: Transform, sys: &crate::engine::System) {

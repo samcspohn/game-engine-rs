@@ -1,8 +1,8 @@
+use image::GenericImage;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use image::{ GenericImage};
 
 use parking_lot::RwLock;
 use vulkano::{
@@ -19,7 +19,7 @@ pub struct TextureManager {
 }
 
 impl TextureManager {
-    pub fn regen(&self, textures: HashSet<String>){
+    pub fn regen(&self, textures: HashSet<String>) {
         for t in textures {
             self.texture(&t);
         }
@@ -66,7 +66,10 @@ impl Texture {
                     };
 
                     let pixels = if img_format == Format::R8G8B8_SRGB {
-                        img.raw_pixels().chunks(3).flat_map(|p| [p[0],p[1],p[2],1u8]).collect()
+                        img.raw_pixels()
+                            .chunks(3)
+                            .flat_map(|p| [p[0], p[1], p[2], 1u8])
+                            .collect()
                     } else {
                         img.raw_pixels()
                     };
@@ -74,7 +77,7 @@ impl Texture {
                         pixels,
                         dimensions,
                         MipmapsCount::Log2,
-                        Format::R8G8B8A8_SRGB,  
+                        Format::R8G8B8A8_SRGB,
                         queue.clone(),
                     )
                     .unwrap()

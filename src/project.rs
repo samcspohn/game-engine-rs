@@ -1,7 +1,5 @@
-use serde::{Serialize, Deserialize};
-use std::{
-    collections::{HashMap, HashSet},
-};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 use crate::{engine::World, file_watcher::FileWatcher, serialize};
 
@@ -19,7 +17,15 @@ pub fn save_project(file_watcher: &FileWatcher, world: &World) {
     let files = file_watcher.files.clone();
     let models = sys.model_manager.lock().models.clone();
     let models_id_gen = sys.model_manager.lock().model_id_gen;
-    let textures = sys.model_manager.lock().texture_manager.textures.read().iter().map(|(f,_)| f.clone()).collect();
+    let textures = sys
+        .model_manager
+        .lock()
+        .texture_manager
+        .textures
+        .read()
+        .iter()
+        .map(|(f, _)| f.clone())
+        .collect();
     let working_file = "test.ron".into();
 
     let project = Project {
@@ -27,10 +33,10 @@ pub fn save_project(file_watcher: &FileWatcher, world: &World) {
         models,
         model_id_gen: models_id_gen,
         textures,
-        working_file
+        working_file,
     };
     std::fs::write("project.ron", ron::to_string(&project).unwrap()).unwrap();
-    serialize::serialize(world);
+    // serialize::serialize(world);
 }
 
 pub fn load_project(file_watcher: &mut FileWatcher, world: &mut World) {

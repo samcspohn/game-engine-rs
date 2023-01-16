@@ -82,7 +82,7 @@ pub const MAX_PARTICLES: i32 = 8 * 1024 * 1024 * 4;
 // pub const NUM_EMITTERS: i32 = 1_200_000;
 
 // #[component]
-#[derive(Default,Clone, Deserialize, Serialize)]
+#[derive(Default, Clone, Deserialize, Serialize)]
 pub struct ParticleEmitter {
     template: i32,
 }

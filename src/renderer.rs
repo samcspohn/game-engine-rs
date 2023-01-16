@@ -62,6 +62,7 @@ impl RenderPipeline {
         render_pass: Arc<RenderPass>,
         _dimensions: [u32; 2],
         queue: Arc<Queue>,
+        sub_pass_index: u32,
     ) -> RenderPipeline {
         let vs = vs::load(device.clone()).unwrap();
         let fs = fs::load(device.clone()).unwrap();
@@ -85,7 +86,7 @@ impl RenderPipeline {
             .fragment_shader(fs.entry_point("main").unwrap(), ())
             .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
             .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .render_pass(Subpass::from(render_pass.clone(), sub_pass_index).unwrap())
             .build(device.clone())
             .unwrap();
 

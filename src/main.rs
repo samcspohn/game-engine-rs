@@ -370,6 +370,7 @@ fn main() {
         },
         passes: [
             { color: [color], depth_stencil: {depth}, input: [] },
+            { color: [color], depth_stencil: {depth}, input: [] }, // for secondary cmmand buffers
             { color: [color], depth_stencil: {}, input: [] } // Create a second renderpass to draw egui
         ]
     )
@@ -392,6 +393,14 @@ fn main() {
         render_pass.clone(),
         images[0].dimensions().width_height(),
         queue.clone(),
+        0,
+    );
+    let rend2 = RenderPipeline::new(
+        device.clone(),
+        render_pass.clone(),
+        images[0].dimensions().width_height(),
+        queue.clone(),
+        1,
     );
     let mut recreate_swapchain = false;
 
@@ -426,7 +435,7 @@ fn main() {
     let mut egui_painter = egui_vulkano::Painter::new(
         device.clone(),
         queue.clone(),
-        Subpass::from(render_pass.clone(), 1).unwrap(),
+        Subpass::from(render_pass.clone(), 2).unwrap(),
     )
     .unwrap();
 
@@ -1175,13 +1184,39 @@ fn main() {
                             }
                         }
                     }
+                    // builder.end_render_pass().unwrap();
+                    // builder
+                    // .begin_render_pass(
+                    //     framebuffers[image_num].clone(),
+                    //     SubpassContents::SecondaryCommandBuffers,
+                    //     vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
+                    // )
+                    // .unwrap()
+                    // .set_viewport(0, [viewport.clone()]);
+
+                                    // let particles = particles.read();
+                particles.render_particles(
+                    &mut builder,
+                    view.clone(),
+                    proj.clone(),
+                    cam_rot.coords.into(),
+                    cam_pos.into(),
+                );
+
+
+                    builder
+                        .next_subpass(SubpassContents::SecondaryCommandBuffers)
+                        .unwrap();
+                        
+                    // rend.bind_pipeline(&mut builder);
                     let mut rjd = RenderJobData {
                         builder: &mut builder,
                         transform: transform_compute.transform.clone(),
                         view: &view,
                         proj: &proj,
-                        pipeline: &rend,
+                        pipeline: &rend2,
                         device: device.clone(),
+                        viewport: &viewport,
                     };
                     for job in render_jobs {
                         job(&mut rjd);
@@ -1193,18 +1228,13 @@ fn main() {
                     // &rend,
                     // device.clone(),
                 }
-                // let particles = particles.read();
-                particles.render_particles(
-                    &mut builder,
-                    view.clone(),
-                    proj.clone(),
-                    cam_rot.coords.into(),
-                    cam_pos.into(),
-                );
+
 
                 // Automatically start the next render subpass and draw the gui
                 let size = surface.window().inner_size();
                 let sf: f32 = surface.window().scale_factor() as f32;
+                builder
+                .set_viewport(0, [viewport.clone()]);
                 egui_painter
                     .draw(
                         &mut builder,

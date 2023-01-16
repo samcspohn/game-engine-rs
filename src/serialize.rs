@@ -27,7 +27,8 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
             if let Some(stor) = &world.components.get(c.0) {
                 let t_id: String = stor.read().get_name().to_string();
                 // let t_id: String = format!("{:?}",c.0);
-                g_o.c.push((t_id,stor.read().serialize(*c.1).ok().unwrap()));
+                g_o.c
+                    .push((t_id, stor.read().serialize(*c.1).ok().unwrap()));
             }
         }
     }
@@ -60,7 +61,6 @@ pub fn serialize(world: &World) {
 }
 
 fn deserialize_c(parent: i32, sgo: SerGameObject, world: &mut World) {
-
     let g = world.instantiate_with_transform_with_parent(parent, sgo.t);
     for (typ, val) in sgo.c {
         // let id: TypeId = unsafe {std::mem::transmute(typ)};

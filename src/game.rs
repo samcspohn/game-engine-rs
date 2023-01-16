@@ -4,7 +4,7 @@ use parking_lot::{Mutex, RwLock};
 use puffin_egui::puffin;
 use rapier3d::prelude::*;
 use rayon::prelude::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{
@@ -34,7 +34,7 @@ use crate::{
 };
 
 // #[component]
-#[derive(Default,Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Bomb {
     pub vel: glm::Vec3,
 }
@@ -142,7 +142,6 @@ pub fn game_thread_fn(
     ),
     running: Arc<AtomicBool>,
 ) {
-  
     let gravity = vector![0.0, -9.81, 0.0];
     let lazy_maker = LazyMaker::new();
 
