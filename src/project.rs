@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{engine::World, file_watcher::FileWatcher, serialize};
 
 #[derive(Serialize, Deserialize)]
 struct Project {
-    files: HashMap<String, u64>,
-    models: HashMap<String, i32>,
+    files: BTreeMap<String, u64>,
+    models: BTreeMap<String, i32>,
     model_id_gen: i32,
-    textures: HashSet<String>,
+    textures: BTreeSet<String>,
     working_file: String,
 }
 
@@ -30,7 +30,7 @@ pub fn save_project(file_watcher: &FileWatcher, world: &World) {
 
     let project = Project {
         files,
-        models,
+        models: models.iter().map(|x| {(x.0.clone(),*x.1)}).collect(),
         model_id_gen: models_id_gen,
         textures,
         working_file,

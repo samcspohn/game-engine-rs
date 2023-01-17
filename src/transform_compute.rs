@@ -17,14 +17,14 @@ use vulkano::{
 
 use crate::engine::transform::{POS_U, ROT_U, SCL_U};
 
-use self::cs::ty::{transform, Data};
+use self::cs::ty::{transform,MVP, Data};
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-pub struct MVP {
-    pub mvp: [[f32; 4]; 4],
-}
-impl_vertex!(MVP, mvp);
+// #[repr(C)]
+// #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+// pub struct MVP {
+//     pub mvp: [[f32; 4]; 4],
+// }
+// impl_vertex!(MVP, mvp);
 
 pub struct TransformCompute {
     pub transform: Arc<DeviceLocalBuffer<[transform]>>,

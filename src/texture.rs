@@ -1,6 +1,6 @@
 use image::GenericImage;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, BTreeSet},
     sync::Arc,
 };
 
@@ -19,7 +19,7 @@ pub struct TextureManager {
 }
 
 impl TextureManager {
-    pub fn regen(&self, textures: HashSet<String>) {
+    pub fn regen(&self, textures: BTreeSet<String>) {
         for t in textures {
             self.texture(&t);
         }

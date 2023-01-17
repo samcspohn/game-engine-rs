@@ -3,7 +3,7 @@ use notify::{
     *,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, BTreeMap},
     fs,
     path::Path,
     sync::mpsc::{Receiver, Sender},
@@ -16,7 +16,7 @@ use walkdir::WalkDir;
 use crate::engine::World;
 
 pub struct FileWatcher {
-    pub(crate) files: HashMap<String, u64>,
+    pub(crate) files: BTreeMap<String, u64>,
     path: String,
     rx: Receiver<Result<Event>>,
     watcher: Box<dyn Watcher>,
@@ -48,7 +48,7 @@ impl FileWatcher {
         watcher
             .watch(Path::new(path), RecursiveMode::Recursive)
             .unwrap();
-        let mut files = HashMap::new();
+        let mut files = BTreeMap::new();
         FileWatcher {
             files,
             path: path.into(),

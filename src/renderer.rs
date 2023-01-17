@@ -28,7 +28,7 @@ use vulkano::{
 
 use crate::{
     model::{Mesh, Normal, Vertex, UV},
-    transform_compute::MVP,
+    transform_compute::cs::ty::MVP,
 };
 
 #[repr(C)]

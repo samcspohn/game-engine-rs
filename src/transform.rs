@@ -505,10 +505,10 @@ impl Transforms {
 
         let transform_data = Mutex::new(Vec::<
             Arc<(
-                std::vec::Vec<std::vec::Vec<i32>>,
-                std::vec::Vec<[f32; 3]>,
-                std::vec::Vec<[f32; 4]>,
-                std::vec::Vec<[f32; 3]>,
+                Vec<Vec<i32>>,
+                Vec<[f32; 3]>,
+                Vec<[f32; 4]>,
+                Vec<[f32; 3]>,
             )>,
         >::new());
         (0..num_cpus::get()).into_par_iter().for_each(|id| {
@@ -562,6 +562,6 @@ impl Transforms {
                 transform_data.lock().push(ret);
             }
         });
-        Arc::new((len, transform_data.into_inner()))
+        Arc::new((self.extent as usize, transform_data.into_inner()))
     }
 }

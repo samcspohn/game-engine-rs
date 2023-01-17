@@ -28,7 +28,8 @@ use spin::Mutex;
 use vulkano::{
     buffer::DeviceLocalBuffer,
     command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
-    device::Device, pipeline::graphics::viewport::Viewport,
+    device::Device,
+    pipeline::graphics::viewport::Viewport,
 };
 
 use crate::{
@@ -46,7 +47,8 @@ use self::{physics::Physics, transform::_Transform};
 
 pub struct RenderJobData<'a> {
     pub builder: &'a mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-    pub transform: Arc<DeviceLocalBuffer<[crate::transform_compute::cs::ty::transform]>>,
+    pub transforms: Arc<DeviceLocalBuffer<[crate::transform_compute::cs::ty::transform]>>,
+    pub mvp: Arc<DeviceLocalBuffer<[crate::transform_compute::cs::ty::MVP]>>,
     pub view: &'a nalgebra_glm::Mat4,
     pub proj: &'a nalgebra_glm::Mat4,
     pub pipeline: &'a RenderPipeline,
@@ -92,7 +94,10 @@ pub trait Component {
     fn init(&mut self, transform: Transform, id: i32, sys: &mut Sys) {}
     fn deinit(&mut self, transform: Transform, id: i32, _sys: &mut Sys) {}
     fn update(&mut self, transform: Transform, sys: &System) {}
-    fn on_render(&mut self) -> Box<dyn FnOnce(&mut RenderJobData) -> ()> {
+    fn on_render(
+        &mut self,
+        t_id: i32,
+    ) -> Box<dyn FnOnce(&mut RenderJobData) -> ()> {
         Box::new(|rd: &mut RenderJobData| {})
     }
 }
@@ -147,7 +152,10 @@ pub trait StorageBase {
         rendering: &RwLock<crate::RendererManager>,
         device: Arc<Device>,
     );
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>);
+    fn on_render(
+        &mut self,
+        render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>,
+    );
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn erase(&mut self, i: i32);
     fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
@@ -333,7 +341,10 @@ impl<
         self.emplace(transform, d)
     }
 
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>) {
+    fn on_render(
+        &mut self,
+        render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>,
+    ) {
         if !self.has_render {
             return;
         }
@@ -344,7 +355,8 @@ impl<
             .for_each(|(_i, (d, v))| {
                 if v.load(Ordering::Relaxed) {
                     let mut d = d.lock();
-                    render_jobs.push(d.1.on_render());
+                    let t_id = d.0;
+                    render_jobs.push(d.1.on_render(t_id));
                 }
             });
     }

@@ -718,11 +718,11 @@ fn main() {
                 let (transform_data, cam_pos, cam_rot, rd, emitter_inits) = {
                     puffin::profile_scope!("wait for game");
                     let inst = Instant::now();
-                    let (positions, cam_pos, cam_rot, renderer_data, emitter_inits) =
+                    let (transform_data, cam_pos, cam_rot, renderer_data, emitter_inits) =
                         coms.0.recv().unwrap();
 
                     perf.update("wait for game".into(), Instant::now() - inst);
-                    (positions, cam_pos, cam_rot, renderer_data, emitter_inits)
+                    (transform_data, cam_pos, cam_rot, renderer_data, emitter_inits)
                 };
 
                 egui_ctx.begin_frame(egui_winit.take_egui_input(surface.window()));
@@ -1194,24 +1194,24 @@ fn main() {
                     // .unwrap()
                     // .set_viewport(0, [viewport.clone()]);
 
-                                    // let particles = particles.read();
-                particles.render_particles(
-                    &mut builder,
-                    view.clone(),
-                    proj.clone(),
-                    cam_rot.coords.into(),
-                    cam_pos.into(),
-                );
-
+                    // let particles = particles.read();
+                    particles.render_particles(
+                        &mut builder,
+                        view.clone(),
+                        proj.clone(),
+                        cam_rot.coords.into(),
+                        cam_pos.into(),
+                    );
 
                     builder
                         .next_subpass(SubpassContents::SecondaryCommandBuffers)
                         .unwrap();
-                        
+
                     // rend.bind_pipeline(&mut builder);
                     let mut rjd = RenderJobData {
                         builder: &mut builder,
-                        transform: transform_compute.transform.clone(),
+                        transforms: transform_compute.transform.clone(),
+                        mvp: transform_compute.mvp.clone(),
                         view: &view,
                         proj: &proj,
                         pipeline: &rend2,
@@ -1229,12 +1229,10 @@ fn main() {
                     // device.clone(),
                 }
 
-
                 // Automatically start the next render subpass and draw the gui
                 let size = surface.window().inner_size();
                 let sf: f32 = surface.window().scale_factor() as f32;
-                builder
-                .set_viewport(0, [viewport.clone()]);
+                builder.set_viewport(0, [viewport.clone()]);
                 egui_painter
                     .draw(
                         &mut builder,

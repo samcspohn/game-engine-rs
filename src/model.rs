@@ -1,6 +1,6 @@
 // extern crate assimp;
 
-use std::{collections::HashMap, ops::Sub, sync::Arc};
+use std::{collections::{HashMap, BTreeMap}, ops::Sub, sync::Arc};
 
 // use ai::import::Importer;
 // use assimp as ai;
@@ -254,7 +254,7 @@ pub struct ModelManager {
 }
 
 impl ModelManager {
-    pub fn regen(&mut self, models: HashMap<String, i32>) {
+    pub fn regen(&mut self, models: BTreeMap<String, i32>) {
         for (f, id) in models {
             self.from_file_id(&f, id);
         }

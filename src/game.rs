@@ -281,7 +281,7 @@ pub fn game_thread_fn(
         //     Arc::new(positions_to_buffer)
         // };
         let inst = Instant::now();
-        let positions_to_buffer = {
+        let transform_data = {
             puffin::profile_scope!("get transform data");
             world.transforms.write().get_transform_data_updates()
         };
@@ -343,7 +343,7 @@ pub fn game_thread_fn(
         let inst = Instant::now();
 
         let res = coms.0.send((
-            positions_to_buffer.clone(),
+            transform_data.clone(),
             cam_pos.clone(),
             cam_rot.clone(),
             renderer_data,
