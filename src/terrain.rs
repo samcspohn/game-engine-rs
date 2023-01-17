@@ -474,8 +474,8 @@ impl Component for Terrain {
                 }
             }
             if let Some(commands) = unsafe { &COMMAND_BUFFER } {
-                builder.execute_commands(commands.clone()).unwrap();
-                return;
+                builder.execute_commands(commands).unwrap();
+                // return;
             }
             // builder.execute_commands(sub_command).unwrap();
 
