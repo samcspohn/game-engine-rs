@@ -28,7 +28,7 @@ use spin::Mutex;
 use vulkano::{
     buffer::DeviceLocalBuffer,
     command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
-    device::Device,
+    device::{Device, Queue},
     pipeline::graphics::viewport::Viewport,
 };
 
@@ -87,6 +87,7 @@ pub struct System<'a> {
     pub model_manager: &'a parking_lot::Mutex<crate::ModelManager>,
     pub rendering: &'a RwLock<crate::RendererManager>,
     pub device: Arc<Device>,
+    pub queue: Arc<Queue>,
 }
 
 pub trait Component {
@@ -94,10 +95,7 @@ pub trait Component {
     fn init(&mut self, transform: Transform, id: i32, sys: &mut Sys) {}
     fn deinit(&mut self, transform: Transform, id: i32, _sys: &mut Sys) {}
     fn update(&mut self, transform: Transform, sys: &System) {}
-    fn on_render(
-        &mut self,
-        t_id: i32,
-    ) -> Box<dyn FnOnce(&mut RenderJobData) -> ()> {
+    fn on_render(&mut self, t_id: i32) -> Box<dyn FnOnce(&mut RenderJobData) -> ()> {
         Box::new(|rd: &mut RenderJobData| {})
     }
 }
@@ -151,11 +149,9 @@ pub trait StorageBase {
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
         device: Arc<Device>,
+        queue: Arc<Queue>,
     );
-    fn on_render(
-        &mut self,
-        render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>,
-    );
+    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn erase(&mut self, i: i32);
     fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
@@ -242,6 +238,7 @@ impl<
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
         device: Arc<Device>,
+        queue: Arc<Queue>,
     ) {
         if !self.has_update {
             return;
@@ -256,10 +253,39 @@ impl<
             model_manager: modeling,
             rendering,
             device,
+            queue,
         };
         // (0..self.data.len())
+
+        // {
+        //     let range = 0..self.valid.len();
+        //     let v_iter = self.valid.iter();
+        //     rayon::scope(|s| {
+        //         for slice in range
+        //             .into_iter()
+        //             .zip(v_iter)
+        //             .collect::<Vec<(usize, &AtomicBool)>>()
+        //             .chunks(chunk_size)
+        //         {
+        //             s.spawn(move |_| {
+        //                 for (_i, v) in slice.clone() {
+        //                     if v.load(Ordering::Relaxed) {
+        //                         let d = &self.data[*_i];
+        //                         let mut d = d.lock();
+        //                         let trans = Transform {
+        //                             id: d.0,
+        //                             transforms: &transforms,
+        //                         };
+        //                         d.1.update(trans, &sys);
+        //                     }
+        //                 }
+        //             });
+        //         }
+        //     });
+        // }
+
         self.data
-            .par_iter_mut()
+            .par_iter()
             .zip_eq(self.valid.par_iter())
             .enumerate()
             .chunks(chunk_size)
@@ -341,10 +367,7 @@ impl<
         self.emplace(transform, d)
     }
 
-    fn on_render(
-        &mut self,
-        render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>,
-    ) {
+    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>) {
         if !self.has_render {
             return;
         }
@@ -369,6 +392,7 @@ pub struct GameObject {
 
 pub struct Sys {
     pub device: Arc<Device>,
+    pub queue: Arc<Queue>,
     pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub physics: Physics, // bombs: Vec<Option<Mutex<Bomb>>>,
@@ -395,6 +419,7 @@ impl World {
         physics: Physics,
         particles: Arc<ParticleCompute>,
         device: Arc<Device>,
+        queue: Arc<Queue>,
     ) -> World {
         let trans = RwLock::new(Transforms::new());
         let root = trans.write().new_root();
@@ -410,6 +435,7 @@ impl World {
                 renderer_manager,
                 physics,
                 particles,
+                queue,
             }),
         }
     }
@@ -461,7 +487,7 @@ impl World {
                 for c in src_obj.read().iter() {
                     dest_obj.insert(
                         *c.0,
-                        self.copy_component_id(transforms.getTransform(g.t), *c.0, *c.1),
+                        self.copy_component_id(transforms.get_transform(g.t), *c.0, *c.1),
                     );
                 }
                 let x = transforms.meta[t as usize]
@@ -491,7 +517,7 @@ impl World {
                 for c in src_obj.read().iter() {
                     dest_obj.insert(
                         *c.0,
-                        self.copy_component_id(transforms.getTransform(g.t), *c.0, *c.1),
+                        self.copy_component_id(transforms.get_transform(g.t), *c.0, *c.1),
                     );
                 }
                 let x = transforms.meta[t as usize]
@@ -717,6 +743,7 @@ impl World {
                 &sys.model_manager,
                 &sys.renderer_manager,
                 sys.device.clone(),
+                sys.queue.clone(),
             );
         }
     }

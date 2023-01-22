@@ -169,10 +169,17 @@ fn div_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
 fn mul_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
     glm::vec3(a.x * b.x, a.y * b.y, a.z * b.z)
 }
+// fn quat_x_vec(q: &Quat,v: &Vec3) -> Vec3 {
+//     let quat_vec = glm::vec3(q.coords.w, q.coords.x, q.coords.y);
+//     let uv = glm::cross(&quat_vec, v);
+//     let uuv = glm::cross(&quat_vec, &uv);
+
+//     v + ((uv * q.w) + uuv) * 2.
+// }
 
 #[allow(dead_code)]
 impl Transforms {
-    pub fn getTransform<'a>(&self, t: i32) -> Transform {
+    pub fn get_transform<'a>(&self, t: i32) -> Transform {
         Transform {
             id: t,
             transforms: &self,
@@ -463,24 +470,32 @@ impl Transforms {
         let rot = *rot;
         self.u_rot(t);
         let pos = self.get_position(t);
+        let mut ax = glm::quat_to_mat3(&rot) * axis;
+        ax.x = -ax.x;
+        ax.y = -ax.y;
         for child in self.meta[t as usize].lock().children.iter() {
-            self.rotate_child(*child, axis, &pos, &rot, radians);
+            self.rotate_child(*child, &ax, &pos, &rot, radians);
         }
     }
 
+
     fn rotate_child(&self, t: i32, axis: &Vec3, pos: &Vec3, r: &Quat, radians: f32) {
-        let ax = glm::quat_to_mat3(&r) * axis;
-        let _ax = glm::inverse(&glm::quat_to_mat3(&r)) * axis;
+        // let ax = glm::quat_to_mat3(&r) * axis;
+        // let ax = quat_x_vec(&r, axis);
+        // let _ax = glm::inverse(&glm::quat_to_mat3(&r)) * axis;
+        let mut ax = *axis;
+        ax.x = -ax.x;
+        ax.y = -ax.y;
         self.u_rot(t);
         self.u_pos(t);
         let mut rot = self.rotations[t as usize].lock();
         let mut p = self.positions[t as usize].lock();
 
-        *p = pos + glm::rotate_vec3(&(*p - pos), radians, &ax);
+        *p = pos + glm::rotate_vec3(&(*p - pos), radians, &axis);
         *rot = glm::quat_rotate(
             &*rot,
             radians,
-            &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * _ax),
+            &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * ax),
         );
         for child in self.meta[t as usize].lock().children.iter() {
             self.rotate_child(*child, axis, pos, r, radians);

@@ -1,4 +1,10 @@
-use std::{collections::HashMap, sync::{Arc, atomic::{Ordering, AtomicI32}}};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicI32, Ordering},
+        Arc,
+    },
+};
 
 use crossbeam::epoch::Atomic;
 use egui::DragValue;
@@ -14,7 +20,7 @@ use serde::{Deserialize, Serialize};
 // use vulkano::descriptor_set::WriteDescriptorSet;
 // use vulkano::device::Device;
 use vulkano::{
-    buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer},
+    buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, DrawIndexedIndirectCommand,
         PrimaryAutoCommandBuffer, SecondaryAutoCommandBuffer, SecondaryCommandBuffer,
@@ -37,14 +43,15 @@ use vulkano::{
     render_pass::{RenderPass, Subpass},
     sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
     shader::ShaderModule,
+    sync::{self, FlushError, GpuFuture},
 };
 
-use crate::renderer::RenderPipeline;
 use crate::terrain::transform::Transform;
 use crate::{
     engine::{RenderJobData, System},
     transform_compute,
 };
+use crate::{model, renderer::RenderPipeline, texture::Texture};
 // use crate::transform_compute::MVP;
 use crate::transform_compute::cs::ty::MVP;
 use crate::{
@@ -54,11 +61,20 @@ use crate::{
     renderer_component2::Renderer,
 };
 
-struct CustRendData {
-    instance_buffer: Arc<CpuAccessibleBuffer<[i32]>>,
-    mvp_buffer: Arc<CpuAccessibleBuffer<[MVP]>>,
-}
+// struct Chunk {
+//     verts: Vec<model::Vertex>,
+//     normals: Vec<model::Normal>,
+//     uvs: Vec<UV>,
+//     indeces: Vec<u32>,
+// }
 
+struct TerrainChunkRenderData {
+    pub vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    pub normals_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
+    pub uvs_buffer: Arc<CpuAccessibleBuffer<[UV]>>,
+    pub index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
+    pub texture: Option<Arc<Texture>>,
+}
 // #[component]
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Terrain {
@@ -66,11 +82,13 @@ pub struct Terrain {
     // pub queue: Arc<Queue>,
     // pub texture_manager: Arc<TextureManager>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub chunks: Arc<Mutex<HashMap<i32, HashMap<i32, Mesh>>>>,
+    pub chunks: Arc<Mutex<HashMap<i32, HashMap<i32, bool>>>>,
     #[serde(skip_serializing, skip_deserializing)]
     cur_chunks: Arc<AtomicI32>,
     #[serde(skip_serializing, skip_deserializing)]
     prev_chunks: i32,
+    #[serde(skip_serializing, skip_deserializing)]
+    tcrd: Option<Arc<TerrainChunkRenderData>>,
     pub terrain_size: i32,
     pub chunk_range: i32,
 }
@@ -87,7 +105,7 @@ impl Inspectable for Terrain {
 }
 
 impl Terrain {
-    pub fn generate(&mut self, transform: &Transform, sys: &System) {
+    pub fn generate(&mut self, _transform: &Transform, sys: &System) {
         // let collider_set = &world.physics.collider_set;
         // let mm = &mut world.modeling.lock();
         let perlin = Perlin::new();
@@ -100,74 +118,214 @@ impl Terrain {
                 chunks.entry(x).or_default();
             }
         }
-        (-chunk_range..chunk_range).into_par_iter().for_each(|x| {
-            (-chunk_range..chunk_range).into_par_iter().for_each(|z| {
-                if let Some(x) = self.chunks.lock().get(&x) {
-                    if x.contains_key(&z) {
-                        return;
-                    }
-                }
-
-                let mut m =
-                    Terrain::generate_chunk(&perlin, x, z, terrain_size, sys.device.clone());
-                m.texture = Some(
+        if self.tcrd.is_none() {
+            let num_chunks = (chunk_range * 2) * (chunk_range * 2);
+            let num_verts_chunk = terrain_size * terrain_size;
+            self.tcrd = Some(Arc::new(TerrainChunkRenderData {
+                texture: Some(
                     sys.model_manager
                         .lock()
                         .texture_manager
                         .texture("grass.png"),
-                );
-
-                let ter_verts: Vec<Point<f32>> = m
-                    .vertices
-                    .iter()
-                    .map(|v| point![v.position[0], v.position[1], v.position[2]])
-                    .collect();
-                let ter_indeces: Vec<[u32; 3]> = m
-                    .indeces
-                    .chunks(3)
-                    .map(|slice| [slice[0] as u32, slice[1] as u32, slice[2] as u32])
-                    .collect();
-
-                let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces);
-                self.chunks.lock().get_mut(&x).unwrap().insert(z, m);
-                sys.defer.append(move |world| {
-                    world.sys.lock().physics.collider_set.insert(collider);
-                });
-                self.cur_chunks.fetch_add(1, Ordering::Relaxed);
-            });
-        });
-
-        // let mut chunks = chunks.lock();
-        // for x in -chunk_range..chunk_range {
-        //     chunks.insert(x, HashMap::new());
-        //     for z in -chunk_range..chunk_range {
-        //         let m =
-        //             Terrain::generate_chunk(&perlin, x, z, terrain_size, &mut world.sys.model_manager.lock());
-        //         let ter_verts: Vec<Point<f32>> = m
-        //             .vertices
-        //             .iter()
-        //             .map(|v| point![v.position[0] + (x * (terrain_size - 1)) as f32, v.position[1], v.position[2] + (z * (terrain_size - 1)) as f32])
-        //             .collect();
-        //         let ter_indeces: Vec<[u32; 3]> = m
-        //             .indeces
-        //             .chunks(3)
-        //             .map(|slice| [slice[0] as u32, slice[1] as u32, slice[2] as u32])
-        //             .collect();
-
-        //         let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces);
-        //         world.sys.physics.collider_set.insert(collider);
-
-        //         let m_id = world.sys.model_manager.lock().procedural(m);
-
-        //         let g = world.instantiate_with_transform_with_parent(t, transform::_Transform { position: glm::vec3((x * (terrain_size - 1)) as f32, 0.0, (z * (terrain_size - 1)) as f32), ..Default::default() });
-        //         world.add_component(g, Renderer::new(m_id));
-        //         chunks.get_mut(&x).unwrap().insert(z, g.t);
-
-        //         // world.add_component(GameObject {t}, Renderer::new(t,m_id));
-
-        //         // rm.renderers.insert(m_id, RendererInstances {model_id: m_id, transforms: vec![]});
-        //     }
+                ),
+                vertex_buffer: unsafe {
+                    CpuAccessibleBuffer::uninitialized_array(
+                        sys.device.clone(),
+                        (num_chunks * num_verts_chunk) as u64,
+                        BufferUsage::all(),
+                        false,
+                    )
+                    .unwrap()
+                },
+                normals_buffer: unsafe {
+                    CpuAccessibleBuffer::uninitialized_array(
+                        sys.device.clone(),
+                        (num_chunks * num_verts_chunk) as u64,
+                        BufferUsage::all(),
+                        false,
+                    )
+                    .unwrap()
+                },
+                uvs_buffer: unsafe {
+                    CpuAccessibleBuffer::uninitialized_array(
+                        sys.device.clone(),
+                        (num_chunks * num_verts_chunk) as u64,
+                        BufferUsage::all(),
+                        false,
+                    )
+                    .unwrap()
+                },
+                index_buffer: unsafe {
+                    CpuAccessibleBuffer::uninitialized_array(
+                        sys.device.clone(),
+                        (num_chunks * ((terrain_size - 1) * (terrain_size - 1)) * 6) as u64,
+                        BufferUsage::all(),
+                        false,
+                    )
+                    .unwrap()
+                },
+            }));
+        }
+        // let mut skip = 0;
+        // let mut index_skip = 0;
+        let command_buffers = Arc::new(Mutex::new(Vec::new()));
+        // if self.cur_chunks.load(Ordering::Relaxed) == self.prev_chunks {
+        //     return;
         // }
+
+        rayon::scope(|s| {
+            for x in -chunk_range..chunk_range {
+                for z in -chunk_range..chunk_range {
+                    if let Some(x) = self.chunks.lock().get(&x) {
+                        if x.contains_key(&z) {
+                            continue;
+                        }
+                    }
+                    let x = x;
+                    let z = z;
+                    if let Some(tcrd) = &self.tcrd {
+                        let tcrd = tcrd.clone();
+                        let command_buffers = command_buffers.clone();
+                        let chunks = self.chunks.clone();
+                        let cur_chunks = self.cur_chunks.clone();
+
+                        s.spawn(move |_| {
+                            let m = Terrain::generate_chunk(
+                                &perlin,
+                                x,
+                                z,
+                                terrain_size,
+                                sys.device.clone(),
+                            );
+
+                            let ter_verts: Vec<Point<f32>> =
+                                m.0.iter()
+                                    .map(|v| point![v.position[0], v.position[1], v.position[2]])
+                                    .collect();
+                            let ter_indeces: Vec<[u32; 3]> = m
+                                .3
+                                .chunks(3)
+                                .map(|slice| [slice[0] as u32, slice[1] as u32, slice[2] as u32])
+                                .collect();
+
+                            let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces);
+                            chunks.lock().get_mut(&x).unwrap().insert(z, true);
+
+                            let mut builder = AutoCommandBufferBuilder::primary(
+                                sys.device.clone(),
+                                sys.device.active_queue_families().next().unwrap(),
+                                CommandBufferUsage::OneTimeSubmit,
+                            )
+                            .unwrap();
+
+                            let z_skip = terrain_size * terrain_size;
+                            let x_skip = (chunk_range * 2) * z_skip;
+
+                            let x = x + chunk_range;
+                            let z = z + chunk_range;
+
+                            let vertex_slice =
+                                BufferSlice::from_typed_buffer_access(tcrd.vertex_buffer.clone())
+                                    .slice(
+                                        (x * x_skip + z * z_skip) as u64
+                                            ..(x * x_skip + (z + 1) * z_skip) as u64,
+                                    )
+                                    .unwrap();
+                            let vertecies = CpuAccessibleBuffer::from_iter(
+                                sys.device.clone(),
+                                BufferUsage::transfer_source(),
+                                false,
+                                m.0.clone(),
+                            )
+                            .unwrap();
+                            builder.copy_buffer(vertecies, vertex_slice).unwrap();
+                            let vertex_slice =
+                                BufferSlice::from_typed_buffer_access(tcrd.normals_buffer.clone())
+                                    .slice(
+                                        (x * x_skip + z * z_skip) as u64
+                                            ..(x * x_skip + (z + 1) * z_skip) as u64,
+                                    )
+                                    .unwrap();
+                            let normals = CpuAccessibleBuffer::from_iter(
+                                sys.device.clone(),
+                                BufferUsage::transfer_source(),
+                                false,
+                                m.1.clone(),
+                            )
+                            .unwrap();
+                            builder.copy_buffer(normals, vertex_slice).unwrap();
+
+                            let vertex_slice =
+                                BufferSlice::from_typed_buffer_access(tcrd.uvs_buffer.clone())
+                                    .slice(
+                                        (x * x_skip + z * z_skip) as u64
+                                            ..(x * x_skip + (z + 1) * z_skip) as u64,
+                                    )
+                                    .unwrap();
+                            let uvs = CpuAccessibleBuffer::from_iter(
+                                sys.device.clone(),
+                                BufferUsage::transfer_source(),
+                                false,
+                                m.2.clone(),
+                            )
+                            .unwrap();
+                            builder.copy_buffer(uvs, vertex_slice).unwrap();
+
+                            let start_index = (x * x_skip + z * z_skip) as u32;
+                            let z_skip = (terrain_size - 1) * (terrain_size - 1) * 6;
+                            let x_skip = (chunk_range * 2) * z_skip;
+                            let index_slice =
+                                BufferSlice::from_typed_buffer_access(tcrd.index_buffer.clone())
+                                    .slice(
+                                        (x * x_skip + z * z_skip) as u64
+                                            ..(x * x_skip + (z + 1) * z_skip) as u64,
+                                    )
+                                    .unwrap();
+                            let indexs = CpuAccessibleBuffer::from_iter(
+                                sys.device.clone(),
+                                BufferUsage::transfer_source(),
+                                false,
+                                m.3.iter()
+                                    .map(|i| i + start_index)
+                                    .collect::<Vec<u32>>()
+                                    .clone(),
+                            )
+                            .unwrap();
+                            builder.copy_buffer(indexs, index_slice).unwrap();
+                            let command_buffer = builder.build().unwrap();
+                            command_buffers.lock().push(Arc::new(command_buffer));
+
+                            sys.defer.append(move |world| {
+                                world.sys.lock().physics.collider_set.insert(collider);
+                            });
+                            cur_chunks.fetch_add(1, Ordering::Relaxed);
+                        });
+                    }
+                }
+            }
+        });
+        {
+            // let command_buffers_g = command_buffers.lock();
+            for command_buffer in (*command_buffers.lock()).clone() {
+                let execute = sync::now(sys.device.clone())
+                    .boxed()
+                    .then_execute(sys.queue.clone(), command_buffer);
+
+                match execute {
+                    Ok(execute) => {
+                        let future = execute.then_signal_fence_and_flush();
+                        match future {
+                            Ok(_) => {}
+                            Err(FlushError::OutOfDate) => {}
+                            Err(_e) => {}
+                        }
+                    }
+                    Err(e) => {
+                        println!("Failed to flush future: {:?}", e);
+                    }
+                };
+            }
+        }
     }
 
     fn generate_chunk(
@@ -176,7 +334,7 @@ impl Terrain {
         _z: i32,
         terrain_size: i32,
         device: Arc<Device>,
-    ) -> Mesh {
+    ) -> (Vec<model::Vertex>, Vec<model::Normal>, Vec<UV>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut uvs = Vec::new();
 
@@ -290,18 +448,19 @@ impl Terrain {
         let mut indeces = Vec::new();
         for i in 0..(terrain_size - 1) {
             for j in 0..(terrain_size - 1) {
-                indeces.push(xz(i, j) as u16);
-                indeces.push(xz(i + 1, j + 1) as u16);
-                indeces.push(xz(i, j + 1) as u16);
-                indeces.push(xz(i, j) as u16);
-                indeces.push(xz(i + 1, j) as u16);
-                indeces.push(xz(i + 1, j + 1) as u16);
+                indeces.push(xz(i, j) as u32);
+                indeces.push(xz(i + 1, j + 1) as u32);
+                indeces.push(xz(i, j + 1) as u32);
+                indeces.push(xz(i, j) as u32);
+                indeces.push(xz(i + 1, j) as u32);
+                indeces.push(xz(i + 1, j + 1) as u32);
             }
         }
 
-        let mesh = Mesh::new_procedural(vertices, normals, indeces, uvs, device.clone());
+        // let mesh = Mesh::new_procedural(vertices, normals, indeces, uvs, device.clone());
         // mesh.texture = Some(mm.texture_manager.texture("grass.png"));
-        mesh
+        // mesh
+        (vertices, normals, uvs, indeces)
     }
 }
 
@@ -310,178 +469,199 @@ impl Component for Terrain {
         let chunks = self.chunks.clone();
         static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
         let cur_chunks = self.cur_chunks.load(Ordering::Relaxed);
-         let prev_chunks = self.prev_chunks;
-        Box::new(move |rd: &mut RenderJobData| {
-            let RenderJobData {
-                builder,
-                transforms: _,
-                mvp,
-                view,
-                proj,
-                pipeline,
-                device,
-                viewport,
-            } = rd;
-            let instance_data = vec![t_id];
-            // let mvp_data = vec![MVP {
-            //     mvp: (**proj * **view * glm::Mat4::identity()).into(),
-            // }];
+        let prev_chunks = self.prev_chunks;
 
-            static mut instance_buffer: Option<Arc<CpuAccessibleBuffer<[i32]>>> = None;
-            if unsafe { instance_buffer.is_none() } {
-                unsafe {
-                    instance_buffer = Some(
-                        CpuAccessibleBuffer::<[i32]>::from_iter(
-                            device.clone(),
-                            BufferUsage::storage_buffer(),
-                            false,
-                            instance_data,
-                        )
-                        .unwrap(),
-                    );
+        if let Some(tcrd) = &self.tcrd {
+            let vertex_buffer = tcrd.vertex_buffer.clone();
+            let normals_buffer = tcrd.normals_buffer.clone();
+            let uvs_buffer = tcrd.uvs_buffer.clone();
+            let index_buffer = tcrd.index_buffer.clone();
+            let texture = tcrd.texture.clone();
+            // if let (Some(vertex_buffer), Some(normals_buffer), Some(uvs_buffer), Some(index_buffer)) = (
+            //     &self.vertex_buffer,
+            //     &self.normals_buffer,
+            //     &self.uvs_buffer,
+            //     &self.index_buffer,
+            // ) {
+            // let vertex_buffer = vertex_buffer.clone();
+            // let normals_buffer = normals_buffer.clone();
+            // let uvs_buffer = uvs_buffer.clone();
+            // let index_buffer = index_buffer.clone();
+            Box::new(move |rd: &mut RenderJobData| {
+                let RenderJobData {
+                    builder,
+                    transforms: _,
+                    mvp,
+                    view: _,
+                    proj: _,
+                    pipeline,
+                    device,
+                    viewport,
+                } = rd;
+                let instance_data = vec![t_id];
+                // let mvp_data = vec![MVP {
+                //     mvp: (**proj * **view * glm::Mat4::identity()).into(),
+                // }];
+
+                static mut INSTANCE_BUFFER: Option<Arc<CpuAccessibleBuffer<[i32]>>> = None;
+                if unsafe { INSTANCE_BUFFER.is_none() } {
+                    unsafe {
+                        INSTANCE_BUFFER = Some(
+                            CpuAccessibleBuffer::<[i32]>::from_iter(
+                                device.clone(),
+                                BufferUsage::storage_buffer(),
+                                false,
+                                instance_data,
+                            )
+                            .unwrap(),
+                        );
+                    }
+                } else {
+                    // if let Some(i_b) = unsafe { &instance_buffer } {
+                    //     let cp_data = CpuAccessibleBuffer::<[i32]>::from_iter(
+                    //         device.clone(),
+                    //         BufferUsage::transfer_source(),
+                    //         false,
+                    //         instance_data,
+                    //     )
+                    //     .unwrap();
+                    //     builder.copy_buffer(cp_data, i_b.clone()).unwrap();
+                    //     // i_b.write().unwrap()[0] = instance_data[0];
+                    // }
                 }
-            } else {
-                // if let Some(i_b) = unsafe { &instance_buffer } {
-                //     let cp_data = CpuAccessibleBuffer::<[i32]>::from_iter(
-                //         device.clone(),
-                //         BufferUsage::transfer_source(),
-                //         false,
-                //         instance_data,
-                //     )
-                //     .unwrap();
-                //     builder.copy_buffer(cp_data, i_b.clone()).unwrap();
-                //     // i_b.write().unwrap()[0] = instance_data[0];
+                // static mut mvp_buffer: Option<
+                //     Arc<CpuAccessibleBuffer<[transform_compute::cs::ty::MVP]>>,
+                // > = None;
+                // if unsafe { mvp_buffer.is_none() } {
+                //     unsafe {
+                //         mvp_buffer = Some(
+                //             CpuAccessibleBuffer::<[MVP]>::from_iter(
+                //                 device.clone(),
+                //                 BufferUsage::storage_buffer(),
+                //                 false,
+                //                 mvp_data,
+                //             )
+                //             .unwrap(),
+                //         );
+                //     }
+                // } else {
+                //     if let Some(m_b) = unsafe { &mvp_buffer } {
+                //         let cp_data = CpuAccessibleBuffer::<[MVP]>::from_iter(
+                //             device.clone(),
+                //             BufferUsage::storage_buffer(),
+                //             false,
+                //             mvp_data,
+                //         )
+                //         .unwrap();
+                //         builder.copy_buffer(cp_data, m_b.clone()).unwrap();
+
+                //         // m_b.write().unwrap()[0] = mvp_data[0];
+                //     }
                 // }
-            }
-            // static mut mvp_buffer: Option<
-            //     Arc<CpuAccessibleBuffer<[transform_compute::cs::ty::MVP]>>,
-            // > = None;
-            // if unsafe { mvp_buffer.is_none() } {
-            //     unsafe {
-            //         mvp_buffer = Some(
-            //             CpuAccessibleBuffer::<[MVP]>::from_iter(
-            //                 device.clone(),
-            //                 BufferUsage::storage_buffer(),
-            //                 false,
-            //                 mvp_data,
-            //             )
-            //             .unwrap(),
-            //         );
-            //     }
-            // } else {
-            //     if let Some(m_b) = unsafe { &mvp_buffer } {
-            //         let cp_data = CpuAccessibleBuffer::<[MVP]>::from_iter(
-            //             device.clone(),
-            //             BufferUsage::storage_buffer(),
-            //             false,
-            //             mvp_data,
-            //         )
-            //         .unwrap();
-            //         builder.copy_buffer(cp_data, m_b.clone()).unwrap();
 
-            //         // m_b.write().unwrap()[0] = mvp_data[0];
-            //     }
-            // }
+                // let sub_commands = Box::new(Mutex::new(vec![]));
+                if unsafe { COMMAND_BUFFER.is_none() } || cur_chunks != prev_chunks {
+                    let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
+                        device.clone(),
+                        device.active_queue_families().next().unwrap(),
+                        CommandBufferUsage::SimultaneousUse,
+                        pipeline.pipeline.subpass().clone(),
+                    )
+                    .unwrap();
+                    sub_command
+                        .set_viewport(0, [viewport.clone()])
+                        .bind_pipeline_graphics(pipeline.pipeline.clone());
+                    // let sub_command = sub_command.build().unwrap();
+                    // sub_commands.lock().push(sub_command);
 
-            // let sub_commands = Box::new(Mutex::new(vec![]));
-            if unsafe { COMMAND_BUFFER.is_none() } || cur_chunks != prev_chunks {
-                let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
-                    device.clone(),
-                    device.active_queue_families().next().unwrap(),
-                    CommandBufferUsage::SimultaneousUse,
-                    pipeline.pipeline.subpass().clone(),
-                )
-                .unwrap();
-                sub_command
-                    .set_viewport(0, [viewport.clone()])
-                    .bind_pipeline_graphics(pipeline.pipeline.clone());
-                // let sub_command = sub_command.build().unwrap();
-                // sub_commands.lock().push(sub_command);
+                    // let mut inst = 0;
+                    // let _chunks = chunks.lock();
+                    // let meshes: Vec<&Mesh> = chunks
+                    //     .iter()
+                    //     .flat_map(|(_, x)| x.iter().map(|(_, z)| z).collect::<Vec<&Mesh>>())
+                    //     .collect();
+                    // chunks.iter().for_each(|(_, x)| {
+                    //     x.iter().for_each(|(_, z)| {
+                    // meshes.par_iter().for_each(|z| {
 
-                // let mut inst = 0;
-                let chunks = chunks.lock();
-                // let meshes: Vec<&Mesh> = chunks
-                //     .iter()
-                //     .flat_map(|(_, x)| x.iter().map(|(_, z)| z).collect::<Vec<&Mesh>>())
-                //     .collect();
-                chunks.iter().for_each(|(_, x)| {
-                    x.iter().for_each(|(_, z)| {
-                        // meshes.par_iter().for_each(|z| {
+                    // let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
+                    //     device.clone(),
+                    //     device.active_queue_families().next().unwrap(),
+                    //     CommandBufferUsage::OneTimeSubmit,
+                    //     pipeline.pipeline.subpass().clone(),
+                    // )
+                    // .unwrap();
+                    // sub_command.
 
-                        // let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
-                        //     device.clone(),
-                        //     device.active_queue_families().next().unwrap(),
-                        //     CommandBufferUsage::OneTimeSubmit,
-                        //     pipeline.pipeline.subpass().clone(),
-                        // )
-                        // .unwrap();
-                        // sub_command.
+                    let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
 
-                        let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
+                    let mut descriptors = Vec::new();
 
-                        let mut descriptors = Vec::new();
+                    // if let Some(mvp) = unsafe { &mvp_buffer } {
+                    descriptors.push(WriteDescriptorSet::buffer(0, mvp.clone()));
+                    // }
 
-                        // if let Some(mvp) = unsafe { &mvp_buffer } {
-                        descriptors.push(WriteDescriptorSet::buffer(0, mvp.clone()));
-                        // }
+                    if let Some(texture) = texture.as_ref() {
+                        descriptors.push(WriteDescriptorSet::image_view_sampler(
+                            1,
+                            texture.image.clone(),
+                            texture.sampler.clone(),
+                        ));
+                    } else {
+                        panic!("no terrain texture");
+                    }
+                    if let Some(i) = unsafe { &INSTANCE_BUFFER } {
+                        descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
+                    }
+                    if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {
+                        sub_command
+                            // .set_viewport(0, [viewport.clone()])
+                            // .bind_pipeline_graphics(pipeline.pipeline.clone())
+                            .bind_descriptor_sets(
+                                PipelineBindPoint::Graphics,
+                                pipeline.pipeline.layout().clone(),
+                                0,
+                                set.clone(),
+                            )
+                            .bind_vertex_buffers(
+                                0,
+                                (
+                                    vertex_buffer.clone(),
+                                    normals_buffer.clone(),
+                                    uvs_buffer.clone(),
+                                    // instance_buffer.clone(),
+                                ),
+                            )
+                            // .bind_vertex_buffers(1, transforms_buffer.data.clone())
+                            .bind_index_buffer(index_buffer.clone())
+                            .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
+                            .unwrap();
+                    }
 
-                        if let Some(texture) = z.texture.as_ref() {
-                            descriptors.push(WriteDescriptorSet::image_view_sampler(
-                                1,
-                                texture.image.clone(),
-                                texture.sampler.clone(),
-                            ));
-                        } else {
-                            panic!("no terrain texture");
-                        }
-                        if let Some(i) = unsafe { &instance_buffer } {
-                            descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
-                        }
-                        if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {
-                            sub_command
-                                // .set_viewport(0, [viewport.clone()])
-                                // .bind_pipeline_graphics(pipeline.pipeline.clone())
-                                .bind_descriptor_sets(
-                                    PipelineBindPoint::Graphics,
-                                    pipeline.pipeline.layout().clone(),
-                                    0,
-                                    set.clone(),
-                                )
-                                .bind_vertex_buffers(
-                                    0,
-                                    (
-                                        z.vertex_buffer.clone(),
-                                        z.normals_buffer.clone(),
-                                        z.uvs_buffer.clone(),
-                                        // instance_buffer.clone(),
-                                    ),
-                                )
-                                // .bind_vertex_buffers(1, transforms_buffer.data.clone())
-                                .bind_index_buffer(z.index_buffer.clone())
-                                .draw_indexed(z.indeces.len() as u32, 1, 0, 0, 0)
-                                .unwrap();
-                        }
+                    // let sub_command = sub_command.build().unwrap();
+                    // sub_commands.lock().push(sub_command);
+                    // sub_command.
+                    //     });
+                    // });
 
-                        // let sub_command = sub_command.build().unwrap();
-                        // sub_commands.lock().push(sub_command);
-                        // sub_command.
-                    });
-                });
-
-                let sub_command = sub_command.build().unwrap();
-                unsafe {
-                    COMMAND_BUFFER = Some(sub_command);
+                    let sub_command = sub_command.build().unwrap();
+                    unsafe {
+                        COMMAND_BUFFER = Some(sub_command);
+                    }
                 }
-            }
-            if let Some(commands) = unsafe { &COMMAND_BUFFER } {
-                builder.execute_commands(commands).unwrap();
-                // return;
-            }
-            // builder.execute_commands(sub_command).unwrap();
+                if let Some(commands) = unsafe { &COMMAND_BUFFER } {
+                    builder.execute_commands(commands).unwrap();
+                    // return;
+                }
+                // builder.execute_commands(sub_command).unwrap();
 
-            // let sub_commands = sub_commands.into_inner();
-            // builder.execute_commands_from_vec(sub_commands).unwrap();
-        })
+                // let sub_commands = sub_commands.into_inner();
+                // builder.execute_commands_from_vec(sub_commands).unwrap();
+            })
+        } else {
+            Box::new(move |_rd: &mut RenderJobData| {})
+        }
+
         // let render_data = CustRendData {instance_buffer}
     }
     fn update(&mut self, transform: Transform, sys: &crate::engine::System) {

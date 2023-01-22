@@ -34,7 +34,7 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
     }
 
     // set children
-    let t = transforms.getTransform(t);
+    let t = transforms.get_transform(t);
     for c in t.get_meta().lock().children.iter() {
         g_o.t_c.push(serialize_c(*c, &world, &transforms));
     }

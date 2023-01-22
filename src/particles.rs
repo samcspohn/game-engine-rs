@@ -365,10 +365,9 @@ impl ParticleCompute {
         // build buffer
         let command_buffer = builder.build().unwrap();
 
-        let execute = Some(sync::now(device.clone()).boxed())
-            .take()
-            .unwrap()
-            .then_execute(queue.clone(), command_buffer);
+        let execute = sync::now(device.clone())
+        .boxed()
+        .then_execute(queue.clone(), command_buffer);
 
         match execute {
             Ok(execute) => {

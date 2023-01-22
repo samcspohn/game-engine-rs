@@ -536,6 +536,7 @@ fn main() {
         physics,
         particles.clone(),
         device.clone(),
+        queue.clone(),
     )));
     {
         let mut world = world.lock();
