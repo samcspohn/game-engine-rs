@@ -467,7 +467,7 @@ impl Terrain {
 impl Component for Terrain {
     fn on_render(&mut self, t_id: i32) -> Box<dyn FnOnce(&mut RenderJobData) -> ()> {
         let chunks = self.chunks.clone();
-        static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
+        // static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
         let cur_chunks = self.cur_chunks.load(Ordering::Relaxed);
         let prev_chunks = self.prev_chunks;
 
@@ -516,82 +516,23 @@ impl Component for Terrain {
                             .unwrap(),
                         );
                     }
-                } else {
-                    // if let Some(i_b) = unsafe { &instance_buffer } {
-                    //     let cp_data = CpuAccessibleBuffer::<[i32]>::from_iter(
-                    //         device.clone(),
-                    //         BufferUsage::transfer_source(),
-                    //         false,
-                    //         instance_data,
-                    //     )
-                    //     .unwrap();
-                    //     builder.copy_buffer(cp_data, i_b.clone()).unwrap();
-                    //     // i_b.write().unwrap()[0] = instance_data[0];
-                    // }
                 }
-                // static mut mvp_buffer: Option<
-                //     Arc<CpuAccessibleBuffer<[transform_compute::cs::ty::MVP]>>,
-                // > = None;
-                // if unsafe { mvp_buffer.is_none() } {
-                //     unsafe {
-                //         mvp_buffer = Some(
-                //             CpuAccessibleBuffer::<[MVP]>::from_iter(
-                //                 device.clone(),
-                //                 BufferUsage::storage_buffer(),
-                //                 false,
-                //                 mvp_data,
-                //             )
-                //             .unwrap(),
-                //         );
-                //     }
-                // } else {
-                //     if let Some(m_b) = unsafe { &mvp_buffer } {
-                //         let cp_data = CpuAccessibleBuffer::<[MVP]>::from_iter(
-                //             device.clone(),
-                //             BufferUsage::storage_buffer(),
-                //             false,
-                //             mvp_data,
-                //         )
-                //         .unwrap();
-                //         builder.copy_buffer(cp_data, m_b.clone()).unwrap();
-
-                //         // m_b.write().unwrap()[0] = mvp_data[0];
-                //     }
-                // }
 
                 // let sub_commands = Box::new(Mutex::new(vec![]));
-                if unsafe { COMMAND_BUFFER.is_none() } || cur_chunks != prev_chunks {
-                    let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
-                        device.clone(),
-                        device.active_queue_families().next().unwrap(),
-                        CommandBufferUsage::SimultaneousUse,
-                        pipeline.pipeline.subpass().clone(),
-                    )
-                    .unwrap();
-                    sub_command
-                        .set_viewport(0, [viewport.clone()])
-                        .bind_pipeline_graphics(pipeline.pipeline.clone());
-                    // let sub_command = sub_command.build().unwrap();
-                    // sub_commands.lock().push(sub_command);
+                // if unsafe { COMMAND_BUFFER.is_none() } || cur_chunks != prev_chunks {
 
-                    // let mut inst = 0;
-                    // let _chunks = chunks.lock();
-                    // let meshes: Vec<&Mesh> = chunks
-                    //     .iter()
-                    //     .flat_map(|(_, x)| x.iter().map(|(_, z)| z).collect::<Vec<&Mesh>>())
-                    //     .collect();
-                    // chunks.iter().for_each(|(_, x)| {
-                    //     x.iter().for_each(|(_, z)| {
-                    // meshes.par_iter().for_each(|z| {
 
                     // let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
                     //     device.clone(),
                     //     device.active_queue_families().next().unwrap(),
-                    //     CommandBufferUsage::OneTimeSubmit,
+                    //     CommandBufferUsage::SimultaneousUse,
                     //     pipeline.pipeline.subpass().clone(),
                     // )
                     // .unwrap();
-                    // sub_command.
+                    // sub_command
+                    //     .set_viewport(0, [viewport.clone()])
+                    //     .bind_pipeline_graphics(pipeline.pipeline.clone());
+            
 
                     let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
 
@@ -614,7 +555,7 @@ impl Component for Terrain {
                         descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
                     }
                     if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {
-                        sub_command
+                        builder
                             // .set_viewport(0, [viewport.clone()])
                             // .bind_pipeline_graphics(pipeline.pipeline.clone())
                             .bind_descriptor_sets(
@@ -644,15 +585,15 @@ impl Component for Terrain {
                     //     });
                     // });
 
-                    let sub_command = sub_command.build().unwrap();
-                    unsafe {
-                        COMMAND_BUFFER = Some(sub_command);
-                    }
-                }
-                if let Some(commands) = unsafe { &COMMAND_BUFFER } {
-                    builder.execute_commands(commands).unwrap();
-                    // return;
-                }
+                    // let sub_command = sub_command.build().unwrap();
+                    // unsafe {
+                    //     COMMAND_BUFFER = Some(sub_command);
+                    // }
+                // }
+                // if let Some(commands) = unsafe { &COMMAND_BUFFER } {
+                //     builder.execute_commands(commands).unwrap();
+                //     // return;
+                // }
                 // builder.execute_commands(sub_command).unwrap();
 
                 // let sub_commands = sub_commands.into_inner();

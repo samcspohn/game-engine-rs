@@ -12,6 +12,7 @@ struct transform {
 
 struct MVP {
     mat4 mvp;
+    mat4 m;
 };
 
 layout(set = 0, binding = 0) buffer p {
@@ -60,7 +61,8 @@ void main() {
                 }
                 break;
             case 3:
-                mvp[id].mvp = proj * view * translate(transforms[id].position) * rotate(transforms[id].rotation) * scale(transforms[id].scale);
+                mvp[id].m = translate(transforms[id].position) * rotate(transforms[id].rotation) * scale(transforms[id].scale);
+                mvp[id].mvp = proj * view * mvp[id].m;
                 break;
         }
     }

@@ -13,6 +13,7 @@ layout(location = 1) out vec2 coords;
 
 struct MVP {
     mat4 mvp;
+    mat4 m;
 };
 
 layout(set = 0, binding = 0) buffer tr {
@@ -32,7 +33,7 @@ void main() {
     // mat4 worldview = uniforms.view;
         // v_normal = transpose(inverse(mat3(worldview))) * normal;
     coords = uv;
-    v_normal = normal;
+    v_normal = mat3(mvp[ids[id]].m) * normal;
     // mat4 mvp = mvp[id];
     gl_Position = mvp[ids[id]].mvp * vec4(position, 1.0);
 }
