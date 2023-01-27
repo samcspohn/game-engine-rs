@@ -1,8 +1,9 @@
-use egui::{Color32, Context, Rounding, Ui};
+use egui::{Color32, Context, LayerId, Rounding, Ui};
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use puffin_egui::puffin;
+use spin::lazy;
 use std::{
     any::TypeId,
     collections::{HashMap, VecDeque},
@@ -10,6 +11,7 @@ use std::{
     path::PathBuf,
     sync::atomic::Ordering,
 };
+use winit::platform::unix::x11::ffi::LastExtensionError;
 
 use crate::{
     drag_drop::drag_source,
@@ -18,6 +20,7 @@ use crate::{
         GameObject, Sys, World,
     },
 };
+use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
 enum TransformDrag {
     DragToTransform(i32, i32),
@@ -33,6 +36,21 @@ enum GameObjectContextMenu {
     CopyGameObject(i32),
     DeleteGameObject(i32),
 }
+
+struct TabViewer {}
+
+impl egui_dock::TabViewer for TabViewer {
+    type Tab = String;
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        ui.label(format!("Content of {tab}"));
+    }
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        (&*tab).into()
+    }
+}
+
 pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: &Context) {
     {
         static mut _selected_transforms: Lazy<HashMap<i32, bool>> =
@@ -40,7 +58,22 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
 
         static mut _selected: Option<i32> = None;
         static mut context_menu: Option<GameObjectContextMenu> = None;
+
+        static mut dock: Lazy<Tree<String>> = Lazy::new(|| {
+            let mut tree = Tree::new(vec!["tab1".to_owned()]);
+
+            // You can modify the tree before constructing the dock
+            let [a, b] = tree.split_left(NodeIndex::root(), 0.3, vec!["tab3".to_owned()]);
+            let [_, _] = tree.split_below(a, 0.7, vec!["tab4".to_owned()]);
+            let [_, _] = tree.split_below(b, 0.5, vec!["tab5".to_owned()]);
+            tree
+        });
         // static mut CUR_EULER_ANGLES: Option<glm::Vec3> = None;
+        unsafe {
+            DockArea::new(&mut dock)
+                .style(Style::from_egui(egui_ctx.style().as_ref()))
+                .show(egui_ctx, &mut TabViewer {});
+        }
 
         unsafe { context_menu = None };
         let mut world = world.lock();

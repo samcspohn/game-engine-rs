@@ -11,7 +11,7 @@ edition = "2021"
 debug = true
 
 # [profile.debug]
-# opt-level = 2
+# opt-level = 1
 
 
 # [features]
@@ -35,12 +35,6 @@ scoped_threadpool = "*"
 # nalgebra = { version = "*" }
 nalgebra-glm = { version = "*", features = ["serde-serialize"]}
 
-vulkano = "*"
-vulkano-shaders = "*"
-winit = "*"
-# The `vulkano_win` crate is the link between `vulkano` and `winit`. Vulkano doesn't know about winit,
-# and winit doesn't know about vulkano, so import a crate that will provide a link between the two.
-vulkano-win = "*"
 
 bytemuck = { version = "*", features = ["derive", "extern_crate_std", "min_const_generics"] }
 # cgmath = "*"
@@ -60,11 +54,22 @@ force-send-sync = "*"
 # assimp = "*"
 noise = "*"
 
-egui = "*"
-egui_vulkano = "*"
-egui-winit = "*"
-egui_demo_lib = "*"
-puffin_egui = "*"
+
+vulkano = "0.32.3"
+vulkano-shaders = "0.32.0"
+winit = "0.27.5"
+# The `vulkano_win` crate is the link between `vulkano` and `winit`. Vulkano doesn't know about winit,
+# and winit doesn't know about vulkano, so import a crate that will provide a link between the two.
+vulkano-win = "0.32.0"
+
+
+egui = "0.20.1"
+# egui_vulkano = "*"
+egui_winit_vulkano = "0.22.0"
+egui-winit = "0.20.1"
+egui_demo_lib = "0.20.0"
+puffin_egui = "0.19.1"
+egui_dock = "0.3.1"
 # anyhow = "1"
 # lazy_static = "1"
 # log = "0.4"
@@ -81,3 +86,37 @@ substring = "*"
 lazy_static = "*"
 notify = { version = "*", features = ["serde"] }
 relative-path = "*"
+
+# [package]
+# name = "examples"
+# version = "0.1.0"
+# edition = "2021"
+# authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
+# publish = false
+
+# [dependencies]
+# # The `vulkano` crate is the main crate that you must use to use Vulkan.
+# # vulkano = { path = "../vulkano" }
+# vulkano = "0.32.3"
+# vulkano-win = "0.32.0"
+
+# # vulkano_macros = "*"
+# vulkano-shaders = "0.32.0"
+# # vulkano-util = "*"
+# # Provides the `shader!` macro that is used to generate code for using shaders.
+# # vulkano-shaders = { path = "../vulkano-shaders" }
+# # The Vulkan library doesn't provide any functionality to create and handle windows, as
+# # this would be out of scope. In order to open a window, we are going to use the `winit` crate.
+# winit = "0.27"
+# # The `vulkano_win` crate is the link between `vulkano` and `winit`. Vulkano doesn't know about winit,
+# # and winit doesn't know about vulkano, so import a crate that will provide a link between the two.
+# # vulkano-win = { path = "../vulkano-win" }
+# # vulkano-util = { path = "../vulkano-util" }
+
+# bytemuck = { version = "1.7", features = ["derive", "extern_crate_std", "min_const_generics"] }
+# cgmath = "0.18"
+# png = "0.17"
+# serde = { version = "1.0", features = ["derive"] }
+# ron = "0.8"
+# rand = "0.8.4"
+# glium = "0.32.1"

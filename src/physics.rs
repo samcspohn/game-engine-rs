@@ -46,11 +46,12 @@ impl Physics {
             &mut self.impulse_joint_set,
             &mut self.multibody_joint_set,
             &mut self.ccd_solver,
+            Some(&mut self.query_pipeline),
             &self.physics_hooks,
             &self.event_handler,
         );
         self.query_pipeline.update(
-            &self.island_manager,
+            // &self.island_manager,
             &self.rigid_body_set,
             &self.collider_set,
         );

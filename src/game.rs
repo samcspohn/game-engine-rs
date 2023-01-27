@@ -53,12 +53,12 @@ impl Component for Bomb {
             dir: vel,
         };
         if let Some((_handle, _hit)) = sys.physics.query_pipeline.cast_ray_and_get_normal(
+            &sys.physics.rigid_body_set,
             &&sys.physics.collider_set,
             &ray,
             dt,
             true,
-            InteractionGroups::all(),
-            None,
+            QueryFilter::new()
         ) {
             // let g = GameObject { t: self.t };
             // sys.defer.append(move |world| {

@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use crate::particles::MAX_PARTICLES;
+use crate::{particles::MAX_PARTICLES, renderer_component2::buffer_usage_all};
 
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, DispatchIndirectCommand, DrawIndirectCommand,
-        PrimaryAutoCommandBuffer,
+        PrimaryAutoCommandBuffer, allocator::StandardCommandBufferAllocator, CopyBufferInfo,
     },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet, allocator::StandardDescriptorSetAllocator},
     device::{Device, Queue},
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     sync::{self, FlushError, GpuFuture},
-    DeviceSize,
+    DeviceSize, memory::allocator::{StandardMemoryAllocator, MemoryUsage},
 };
 
 pub mod cs {
@@ -46,48 +46,52 @@ impl ParticleSort {
         // // dimensions: [u32; 2],
         // swapchain: Arc<Swapchain<Window>>,
         queue: Arc<Queue>,
+        mem: Arc<StandardMemoryAllocator>,
+        command_allocator: &StandardCommandBufferAllocator,
+        desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> ParticleSort {
         let mut builder = AutoCommandBufferBuilder::primary(
-            device.clone(),
-            queue.family(),
+            command_allocator,
+            queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
 
         let a1 = DeviceLocalBuffer::<[cs::ty::_a]>::array(
-            device.clone(),
+            // device.clone(),
+            &mem,
             MAX_PARTICLES as vulkano::DeviceSize,
-            BufferUsage::all(),
-            device.active_queue_families(),
+            buffer_usage_all(),
+            device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
         let a2 = DeviceLocalBuffer::<[i32]>::array(
-            device.clone(),
+            &mem,
             MAX_PARTICLES as vulkano::DeviceSize,
-            BufferUsage::all(),
-            device.active_queue_families(),
+            buffer_usage_all(),
+            device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
         let buckets = DeviceLocalBuffer::<[u32]>::array(
-            device.clone(),
+            &mem,
             65536 as vulkano::DeviceSize,
-            BufferUsage::all(),
-            device.active_queue_families(),
+            buffer_usage_all(),
+            device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
         // avail_count
         let copy_buffer =
-            CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, [0i32, 0i32])
+            CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, [0i32, 0i32])
                 .unwrap();
         let avail_count = DeviceLocalBuffer::<[i32]>::array(
-            device.clone(),
+            &mem,
             2 as DeviceSize,
-            BufferUsage::all(),
-            device.active_queue_families(),
+            buffer_usage_all(),
+            device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
         builder
-            .copy_buffer(copy_buffer, avail_count.clone())
+            .copy_buffer(CopyBufferInfo::buffers(copy_buffer, avail_count.clone()))
             .unwrap();
 
         // // sort_jobs
@@ -107,28 +111,28 @@ impl ParticleSort {
             .into_iter()
             .map(|_| {
                 let copy_buffer = CpuAccessibleBuffer::from_iter(
-                    device.clone(),
-                    BufferUsage::all(),
+                    &mem,
+                    buffer_usage_all(),
                     false,
                     [DispatchIndirectCommand { x: 0, y: 1, z: 1 }],
                 )
                 .unwrap();
                 let indirect = DeviceLocalBuffer::<[DispatchIndirectCommand]>::array(
-                    device.clone(),
+                    &mem,
                     1 as DeviceSize,
-                    BufferUsage::all(),
-                    device.active_queue_families(),
+                    buffer_usage_all(),
+                    device.active_queue_family_indices().iter().copied(),
                 )
                 .unwrap();
-                builder.copy_buffer(copy_buffer, indirect.clone()).unwrap();
+                builder.copy_buffer( CopyBufferInfo::buffers(copy_buffer, indirect.clone())).unwrap();
                 indirect
             })
             .collect();
 
         // draw
         let copy_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
+            &mem,
+            buffer_usage_all(),
             false,
             [DrawIndirectCommand {
                 vertex_count: 0,
@@ -139,15 +143,15 @@ impl ParticleSort {
         )
         .unwrap();
         let draw = DeviceLocalBuffer::<[DrawIndirectCommand]>::array(
-            device.clone(),
+            &mem,
             1 as DeviceSize,
-            BufferUsage::all(),
-            device.active_queue_families(),
+            buffer_usage_all(),
+            device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
-        builder.copy_buffer(copy_buffer, draw.clone()).unwrap();
+        builder.copy_buffer(CopyBufferInfo::buffers(copy_buffer, draw.clone())).unwrap();
 
-        let uniforms = CpuBufferPool::<cs::ty::Data>::new(device.clone(), BufferUsage::all());
+        let uniforms = CpuBufferPool::<cs::ty::Data>::new(mem.clone(), buffer_usage_all(), MemoryUsage::Upload);
 
         // build buffer
         let command_buffer = builder.build().unwrap();
@@ -203,7 +207,8 @@ impl ParticleSort {
         particle_positions_lifes: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::pos_lif]>>,
         _device: Arc<Device>,
         _queue: Arc<Queue>,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        desc_allocator: &StandardDescriptorSetAllocator,
     ) {
         // let dimensions = ImageDimensions::Dim2d {
         //             width: 1,
@@ -242,7 +247,7 @@ impl ParticleSort {
             .unwrap()
             .clone();
 
-        let mut build_stage = |builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        let mut build_stage = |builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
                                stage: i32,
                                num_jobs: i32| {
             let indirect = match stage {
@@ -262,9 +267,10 @@ impl ParticleSort {
 
             uniform_data.num_jobs = num_jobs;
             uniform_data.stage = stage;
-            let uniform_sub_buffer = { self.uniforms.next(uniform_data.clone()).unwrap() };
+            let uniform_sub_buffer = { self.uniforms.from_data(uniform_data.clone()).unwrap() };
             // write_descriptors[6] = (6, uniform_sub_buffer.clone());
             let descriptor_set = PersistentDescriptorSet::new(
+                desc_allocator,
                 layout.clone(),
                 [
                     WriteDescriptorSet::buffer(0, self.a1.clone()),

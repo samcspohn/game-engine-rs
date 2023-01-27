@@ -27,9 +27,9 @@ use parking_lot::RwLock;
 use spin::Mutex;
 use vulkano::{
     buffer::DeviceLocalBuffer,
-    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
+    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer, allocator::StandardCommandBufferAllocator},
     device::{Device, Queue},
-    pipeline::graphics::viewport::Viewport,
+    pipeline::graphics::viewport::Viewport, descriptor_set::allocator::StandardDescriptorSetAllocator, memory::allocator::StandardMemoryAllocator,
 };
 
 use crate::{
@@ -46,7 +46,7 @@ use self::{physics::Physics, transform::_Transform};
 // }
 
 pub struct RenderJobData<'a> {
-    pub builder: &'a mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    pub builder: &'a mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
     pub transforms: Arc<DeviceLocalBuffer<[crate::transform_compute::cs::ty::transform]>>,
     pub mvp: Arc<DeviceLocalBuffer<[crate::transform_compute::cs::ty::MVP]>>,
     pub view: &'a nalgebra_glm::Mat4,
@@ -54,6 +54,9 @@ pub struct RenderJobData<'a> {
     pub pipeline: &'a RenderPipeline,
     pub device: Arc<Device>,
     pub viewport: &'a Viewport,
+    pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    pub command_buffer_allocator: &'a StandardCommandBufferAllocator,
 }
 
 pub struct LazyMaker {
@@ -88,6 +91,9 @@ pub struct System<'a> {
     pub rendering: &'a RwLock<crate::RendererManager>,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
+    pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    pub command_buffer_allocator: &'a StandardCommandBufferAllocator,
 }
 
 pub trait Component {
@@ -150,6 +156,9 @@ pub trait StorageBase {
         rendering: &RwLock<crate::RendererManager>,
         device: Arc<Device>,
         queue: Arc<Queue>,
+        memory_allocator: Arc<StandardMemoryAllocator>,
+        descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+        command_buffer_allocator: &StandardCommandBufferAllocator,
     );
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
@@ -239,6 +248,9 @@ impl<
         rendering: &RwLock<crate::RendererManager>,
         device: Arc<Device>,
         queue: Arc<Queue>,
+        memory_allocator: Arc<StandardMemoryAllocator>,
+        descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+        command_buffer_allocator: &StandardCommandBufferAllocator,
     ) {
         if !self.has_update {
             return;
@@ -254,6 +266,9 @@ impl<
             rendering,
             device,
             queue,
+            memory_allocator,
+            descriptor_set_allocator,
+            command_buffer_allocator,
         };
         // (0..self.data.len())
 
@@ -397,6 +412,9 @@ pub struct Sys {
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub physics: Physics, // bombs: Vec<Option<Mutex<Bomb>>>,
     pub particles: Arc<ParticleCompute>,
+    pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 }
 // #[derive(Default)]
 pub struct World {
@@ -420,6 +438,9 @@ impl World {
         particles: Arc<ParticleCompute>,
         device: Arc<Device>,
         queue: Arc<Queue>,
+        memory_allocator: Arc<StandardMemoryAllocator>,
+        descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+        command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     ) -> World {
         let trans = RwLock::new(Transforms::new());
         let root = trans.write().new_root();
@@ -436,6 +457,9 @@ impl World {
                 physics,
                 particles,
                 queue,
+                memory_allocator,
+                descriptor_set_allocator,
+                command_buffer_allocator,
             }),
         }
     }
@@ -744,6 +768,9 @@ impl World {
                 &sys.renderer_manager,
                 sys.device.clone(),
                 sys.queue.clone(),
+                sys.memory_allocator.clone(),
+                sys.descriptor_set_allocator.clone(),
+                &sys.command_buffer_allocator,
             );
         }
     }

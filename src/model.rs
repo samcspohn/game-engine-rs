@@ -1,6 +1,10 @@
 // extern crate assimp;
 
-use std::{collections::{HashMap, BTreeMap}, ops::Sub, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Sub,
+    sync::Arc,
+};
 
 // use ai::import::Importer;
 // use assimp as ai;
@@ -9,13 +13,13 @@ use tobj;
 // use std::mem::size_of;
 use nalgebra_glm as glm;
 // use rapier3d::na::Norm;
+use crate::{texture::{Texture, TextureManager}, renderer_component2::buffer_usage_all};
+use vulkano::memory::allocator::{MemoryAllocator, StandardMemoryAllocator};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
     device::Device,
     impl_vertex,
 };
-
-use crate::texture::{Texture, TextureManager};
 
 // impl_vertex!(glm::Vec3, position);
 
@@ -83,27 +87,36 @@ impl Mesh {
         indeces: Vec<u16>,
         uvs: Vec<UV>,
         device: Arc<Device>,
+        allocator: &(impl MemoryAllocator + ?Sized),
     ) -> Mesh {
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
+            // device.clone(),
+            allocator,
+            buffer_usage_all(),
             false,
             vertices.clone(),
         )
         .unwrap();
-        let uvs_buffer =
-            CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, uvs.clone())
-                .unwrap();
+        let uvs_buffer = CpuAccessibleBuffer::from_iter(
+            // device.clone(),
+            allocator,
+            buffer_usage_all(),
+            false,
+            uvs.clone(),
+        )
+        .unwrap();
         let normals_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
+            // device.clone(),
+            allocator,
+            buffer_usage_all(),
             false,
             normals.clone(),
         )
         .unwrap();
         let index_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
+            // device.clone(),
+            allocator,
+            buffer_usage_all(),
             false,
             indeces.clone(),
         )
@@ -127,6 +140,7 @@ impl Mesh {
         path: &str,
         device: Arc<Device>,
         texture_manager: Arc<TextureManager>,
+        allocator: &(impl MemoryAllocator + ?Sized),
     ) -> Mesh {
         // let sub_path = path.split("/");
         let _path = std::path::Path::new(path.into());
@@ -182,25 +196,33 @@ impl Mesh {
         println!("num normals {}", normals.len());
 
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
+            // device.clone(),
+            allocator,
+            buffer_usage_all(),
             false,
             vertices.clone(),
         )
         .unwrap();
-        let uvs_buffer =
-            CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, uvs.clone())
-                .unwrap();
+        let uvs_buffer = CpuAccessibleBuffer::from_iter(
+            // device.clone(),
+            allocator,
+            buffer_usage_all(),
+            false,
+            uvs.clone(),
+        )
+        .unwrap();
         let normals_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
+            // device.clone(),
+            allocator,
+            buffer_usage_all(),
             false,
             normals.clone(),
         )
         .unwrap();
         let index_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
+            // device.clone(),
+            allocator,
+            buffer_usage_all(),
             false,
             indices.clone(),
         )
@@ -247,6 +269,8 @@ pub struct ModelRenderer {
 
 pub struct ModelManager {
     pub device: Arc<Device>,
+    pub allocator: Arc<StandardMemoryAllocator>,
+    
     pub texture_manager: Arc<TextureManager>,
     pub models: HashMap<String, i32>,
     pub models_ids: HashMap<i32, ModelRenderer>,
@@ -260,7 +284,7 @@ impl ModelManager {
         }
     }
     fn from_file_id(&mut self, path: &str, id: i32) {
-        let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
+        let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone(), &self.allocator);
         let m = ModelRenderer {
             file: path.into(),
             mesh,
@@ -283,7 +307,7 @@ impl ModelManager {
         if let Some(id) = self.models.get(path) {
             if let Some(m) = self.models_ids.get_mut(id) {
                 let mesh =
-                    Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
+                    Mesh::load_model(path, self.device.clone(), self.texture_manager.clone(), &self.allocator);
                 m.mesh = mesh;
             }
         }

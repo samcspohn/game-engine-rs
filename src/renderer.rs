@@ -4,9 +4,9 @@ use bytemuck::{Pod, Zeroable};
 use vulkano::{
     buffer::{BufferSlice, CpuAccessibleBuffer, DeviceLocalBuffer},
     command_buffer::{
-        AutoCommandBufferBuilder, DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
+        AutoCommandBufferBuilder, DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer, CommandBufferUsage, allocator::StandardCommandBufferAllocator, PrimaryCommandBufferAbstract,
     },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet, allocator::StandardDescriptorSetAllocator},
     device::{Device, Queue},
     format::Format,
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
@@ -23,7 +23,7 @@ use vulkano::{
     },
     render_pass::{RenderPass, Subpass},
     sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
-    shader::ShaderModule,
+    shader::ShaderModule, memory::allocator::StandardMemoryAllocator,
 };
 
 use crate::{
@@ -35,7 +35,7 @@ use crate::{
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/vert.glsl",
+        path: "src/model.vert",
         types_meta: {
             use bytemuck::{Pod, Zeroable};
 
@@ -47,7 +47,7 @@ pub mod vs {
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/frag.glsl"
+        path: "src/model.frag"
     }
 }
 
@@ -84,6 +84,8 @@ impl RenderPipeline {
         _dimensions: [u32; 2],
         queue: Arc<Queue>,
         sub_pass_index: u32,
+        mem: Arc<StandardMemoryAllocator>,
+        command_allocator: &StandardCommandBufferAllocator,
     ) -> RenderPipeline {
         let vs = vs::load(device.clone()).unwrap();
         let fs = fs::load(device.clone()).unwrap();
@@ -111,6 +113,13 @@ impl RenderPipeline {
             .build(device.clone())
             .unwrap();
 
+            let mut builder = AutoCommandBufferBuilder::primary(
+                command_allocator,
+                queue.queue_family_index(),
+                CommandBufferUsage::OneTimeSubmit,
+            )
+            .unwrap();
+
         let def_texture = {
             let dimensions = ImageDimensions::Dim2d {
                 width: 1,
@@ -119,17 +128,22 @@ impl RenderPipeline {
             };
             let image_data = vec![255 as u8, 255, 255, 255];
             let image = ImmutableImage::from_iter(
+                &mem,
                 image_data,
                 dimensions,
                 MipmapsCount::One,
                 Format::R8G8B8A8_SRGB,
-                queue.clone(),
+                &mut builder,
             )
-            .unwrap()
-            .0;
-
+            .unwrap();
             ImageView::new_default(image).unwrap()
         };
+        builder
+        .build()
+        .unwrap()
+        .execute(queue.clone())
+        .unwrap();
+        
         let def_sampler = Sampler::new(
             device.clone(),
             SamplerCreateInfo {
@@ -182,7 +196,7 @@ impl RenderPipeline {
 
     pub fn bind_pipeline(
         &self,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
     ) -> &RenderPipeline {
         builder.bind_pipeline_graphics(self.pipeline.clone());
 
@@ -192,7 +206,8 @@ impl RenderPipeline {
     pub fn bind_mesh(
         &self,
         // device: Arc<Device>,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        desc_allocator: Arc<StandardDescriptorSetAllocator>,
         instance_buffer: Arc<BufferSlice<[i32], CpuAccessibleBuffer<[i32]>>>,
         mvp_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
         mesh: &Mesh,
@@ -223,7 +238,7 @@ impl RenderPipeline {
             ));
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
-        if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {
+        if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors) {
             builder
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,

@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, DrawIndexedIndirectCommand,
-        PrimaryAutoCommandBuffer, SecondaryAutoCommandBuffer, SecondaryCommandBuffer,
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, DrawIndexedIndirectCommand,
+        PrimaryAutoCommandBuffer, SecondaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
@@ -46,7 +46,7 @@ use vulkano::{
     sync::{self, FlushError, GpuFuture},
 };
 
-use crate::terrain::transform::Transform;
+use crate::{terrain::transform::Transform, renderer_component2::buffer_usage_all};
 use crate::{
     engine::{RenderJobData, System},
     transform_compute,
@@ -108,7 +108,7 @@ impl Terrain {
     pub fn generate(&mut self, _transform: &Transform, sys: &System) {
         // let collider_set = &world.physics.collider_set;
         // let mm = &mut world.modeling.lock();
-        let perlin = Perlin::new();
+        let perlin = Perlin::new(0);
 
         let chunk_range = self.chunk_range;
         let terrain_size = self.terrain_size;
@@ -130,36 +130,36 @@ impl Terrain {
                 ),
                 vertex_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
-                        sys.device.clone(),
+                        &sys.memory_allocator,
                         (num_chunks * num_verts_chunk) as u64,
-                        BufferUsage::all(),
+                        buffer_usage_all(),
                         false,
                     )
                     .unwrap()
                 },
                 normals_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
-                        sys.device.clone(),
+                        &sys.memory_allocator,
                         (num_chunks * num_verts_chunk) as u64,
-                        BufferUsage::all(),
+                        buffer_usage_all(),
                         false,
                     )
                     .unwrap()
                 },
                 uvs_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
-                        sys.device.clone(),
+                        &sys.memory_allocator,
                         (num_chunks * num_verts_chunk) as u64,
-                        BufferUsage::all(),
+                        buffer_usage_all(),
                         false,
                     )
                     .unwrap()
                 },
                 index_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
-                        sys.device.clone(),
+                        &sys.memory_allocator,
                         (num_chunks * ((terrain_size - 1) * (terrain_size - 1)) * 6) as u64,
-                        BufferUsage::all(),
+                        buffer_usage_all(),
                         false,
                     )
                     .unwrap()
@@ -212,8 +212,8 @@ impl Terrain {
                             chunks.lock().get_mut(&x).unwrap().insert(z, true);
 
                             let mut builder = AutoCommandBufferBuilder::primary(
-                                sys.device.clone(),
-                                sys.device.active_queue_families().next().unwrap(),
+                                sys.command_buffer_allocator,
+                                sys.queue.queue_family_index(),
                                 CommandBufferUsage::OneTimeSubmit,
                             )
                             .unwrap();
@@ -232,13 +232,18 @@ impl Terrain {
                                     )
                                     .unwrap();
                             let vertecies = CpuAccessibleBuffer::from_iter(
-                                sys.device.clone(),
-                                BufferUsage::transfer_source(),
+                                &sys.memory_allocator,
+                                BufferUsage {
+                                    transfer_src: true,
+                                    ..Default::default()
+                                },
                                 false,
                                 m.0.clone(),
                             )
                             .unwrap();
-                            builder.copy_buffer(vertecies, vertex_slice).unwrap();
+                            builder
+                                .copy_buffer(CopyBufferInfo::buffers(vertecies, vertex_slice))
+                                .unwrap();
                             let vertex_slice =
                                 BufferSlice::from_typed_buffer_access(tcrd.normals_buffer.clone())
                                     .slice(
@@ -247,13 +252,18 @@ impl Terrain {
                                     )
                                     .unwrap();
                             let normals = CpuAccessibleBuffer::from_iter(
-                                sys.device.clone(),
-                                BufferUsage::transfer_source(),
+                                &sys.memory_allocator,
+                                BufferUsage {
+                                    transfer_src: true,
+                                    ..Default::default()
+                                },
                                 false,
                                 m.1.clone(),
                             )
                             .unwrap();
-                            builder.copy_buffer(normals, vertex_slice).unwrap();
+                            builder
+                                .copy_buffer(CopyBufferInfo::buffers(normals, vertex_slice))
+                                .unwrap();
 
                             let vertex_slice =
                                 BufferSlice::from_typed_buffer_access(tcrd.uvs_buffer.clone())
@@ -263,13 +273,18 @@ impl Terrain {
                                     )
                                     .unwrap();
                             let uvs = CpuAccessibleBuffer::from_iter(
-                                sys.device.clone(),
-                                BufferUsage::transfer_source(),
+                                &sys.memory_allocator,
+                                BufferUsage {
+                                    transfer_src: true,
+                                    ..Default::default()
+                                },
                                 false,
                                 m.2.clone(),
                             )
                             .unwrap();
-                            builder.copy_buffer(uvs, vertex_slice).unwrap();
+                            builder
+                                .copy_buffer(CopyBufferInfo::buffers(uvs, vertex_slice))
+                                .unwrap();
 
                             let start_index = (x * x_skip + z * z_skip) as u32;
                             let z_skip = (terrain_size - 1) * (terrain_size - 1) * 6;
@@ -282,8 +297,11 @@ impl Terrain {
                                     )
                                     .unwrap();
                             let indexs = CpuAccessibleBuffer::from_iter(
-                                sys.device.clone(),
-                                BufferUsage::transfer_source(),
+                                &sys.memory_allocator,
+                                BufferUsage {
+                                    transfer_src: true,
+                                    ..Default::default()
+                                },
                                 false,
                                 m.3.iter()
                                     .map(|i| i + start_index)
@@ -291,7 +309,9 @@ impl Terrain {
                                     .clone(),
                             )
                             .unwrap();
-                            builder.copy_buffer(indexs, index_slice).unwrap();
+                            builder
+                                .copy_buffer(CopyBufferInfo::buffers(indexs, index_slice))
+                                .unwrap();
                             let command_buffer = builder.build().unwrap();
                             command_buffers.lock().push(Arc::new(command_buffer));
 
@@ -307,23 +327,26 @@ impl Terrain {
         {
             // let command_buffers_g = command_buffers.lock();
             for command_buffer in (*command_buffers.lock()).clone() {
-                let execute = sync::now(sys.device.clone())
-                    .boxed()
-                    .then_execute(sys.queue.clone(), command_buffer);
+                let _ = command_buffer
+                .execute(sys.queue.clone())
+                .unwrap();
+                // let execute = sync::now(sys.device.clone())
+                //     .boxed()
+                //     .then_execute(sys.queue.clone(), command_buffer);
 
-                match execute {
-                    Ok(execute) => {
-                        let future = execute.then_signal_fence_and_flush();
-                        match future {
-                            Ok(_) => {}
-                            Err(FlushError::OutOfDate) => {}
-                            Err(_e) => {}
-                        }
-                    }
-                    Err(e) => {
-                        println!("Failed to flush future: {:?}", e);
-                    }
-                };
+                // match execute {
+                //     Ok(execute) => {
+                //         let future = execute.then_signal_fence_and_flush();
+                //         match future {
+                //             Ok(_) => {}
+                //             Err(FlushError::OutOfDate) => {}
+                //             Err(_e) => {}
+                //         }
+                //     }
+                //     Err(e) => {
+                //         println!("Failed to flush future: {:?}", e);
+                //     }
+                // };
             }
         }
     }
@@ -497,6 +520,9 @@ impl Component for Terrain {
                     pipeline,
                     device,
                     viewport,
+                    memory_allocator,
+                    descriptor_set_allocator,
+                    command_buffer_allocator,
                 } = rd;
                 let instance_data = vec![t_id];
                 // let mvp_data = vec![MVP {
@@ -508,8 +534,12 @@ impl Component for Terrain {
                     unsafe {
                         INSTANCE_BUFFER = Some(
                             CpuAccessibleBuffer::<[i32]>::from_iter(
-                                device.clone(),
-                                BufferUsage::storage_buffer(),
+                                memory_allocator,
+                                BufferUsage {
+                                    transfer_src: true,
+                                    storage_buffer: true,
+                                    ..Default::default()
+                                },
                                 false,
                                 instance_data,
                             )
@@ -521,74 +551,72 @@ impl Component for Terrain {
                 // let sub_commands = Box::new(Mutex::new(vec![]));
                 // if unsafe { COMMAND_BUFFER.is_none() } || cur_chunks != prev_chunks {
 
+                // let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
+                //     device.clone(),
+                //     device.active_queue_families().next().unwrap(),
+                //     CommandBufferUsage::SimultaneousUse,
+                //     pipeline.pipeline.subpass().clone(),
+                // )
+                // .unwrap();
+                // sub_command
+                //     .set_viewport(0, [viewport.clone()])
+                //     .bind_pipeline_graphics(pipeline.pipeline.clone());
 
-                    // let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
-                    //     device.clone(),
-                    //     device.active_queue_families().next().unwrap(),
-                    //     CommandBufferUsage::SimultaneousUse,
-                    //     pipeline.pipeline.subpass().clone(),
-                    // )
-                    // .unwrap();
-                    // sub_command
-                    //     .set_viewport(0, [viewport.clone()])
-                    //     .bind_pipeline_graphics(pipeline.pipeline.clone());
-            
+                let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
 
-                    let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
+                let mut descriptors = Vec::new();
 
-                    let mut descriptors = Vec::new();
+                // if let Some(mvp) = unsafe { &mvp_buffer } {
+                descriptors.push(WriteDescriptorSet::buffer(0, mvp.clone()));
+                // }
 
-                    // if let Some(mvp) = unsafe { &mvp_buffer } {
-                    descriptors.push(WriteDescriptorSet::buffer(0, mvp.clone()));
-                    // }
+                if let Some(texture) = texture.as_ref() {
+                    descriptors.push(WriteDescriptorSet::image_view_sampler(
+                        1,
+                        texture.image.clone(),
+                        texture.sampler.clone(),
+                    ));
+                } else {
+                    panic!("no terrain texture");
+                }
+                if let Some(i) = unsafe { &INSTANCE_BUFFER } {
+                    descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
+                }
+                let set = PersistentDescriptorSet::new(descriptor_set_allocator,layout.clone(), descriptors).unwrap();
+                    builder
+                        // .set_viewport(0, [viewport.clone()])
+                        // .bind_pipeline_graphics(pipeline.pipeline.clone())
+                        .bind_descriptor_sets(
+                            PipelineBindPoint::Graphics,
+                            pipeline.pipeline.layout().clone(),
+                            0,
+                            set.clone(),
+                        )
+                        .bind_vertex_buffers(
+                            0,
+                            (
+                                vertex_buffer.clone(),
+                                normals_buffer.clone(),
+                                uvs_buffer.clone(),
+                                // instance_buffer.clone(),
+                            ),
+                        )
+                        // .bind_vertex_buffers(1, transforms_buffer.data.clone())
+                        .bind_index_buffer(index_buffer.clone())
+                        .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
+                        .unwrap();
+                // }
 
-                    if let Some(texture) = texture.as_ref() {
-                        descriptors.push(WriteDescriptorSet::image_view_sampler(
-                            1,
-                            texture.image.clone(),
-                            texture.sampler.clone(),
-                        ));
-                    } else {
-                        panic!("no terrain texture");
-                    }
-                    if let Some(i) = unsafe { &INSTANCE_BUFFER } {
-                        descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
-                    }
-                    if let Ok(set) = PersistentDescriptorSet::new(layout.clone(), descriptors) {
-                        builder
-                            // .set_viewport(0, [viewport.clone()])
-                            // .bind_pipeline_graphics(pipeline.pipeline.clone())
-                            .bind_descriptor_sets(
-                                PipelineBindPoint::Graphics,
-                                pipeline.pipeline.layout().clone(),
-                                0,
-                                set.clone(),
-                            )
-                            .bind_vertex_buffers(
-                                0,
-                                (
-                                    vertex_buffer.clone(),
-                                    normals_buffer.clone(),
-                                    uvs_buffer.clone(),
-                                    // instance_buffer.clone(),
-                                ),
-                            )
-                            // .bind_vertex_buffers(1, transforms_buffer.data.clone())
-                            .bind_index_buffer(index_buffer.clone())
-                            .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-                            .unwrap();
-                    }
+                // let sub_command = sub_command.build().unwrap();
+                // sub_commands.lock().push(sub_command);
+                // sub_command.
+                //     });
+                // });
 
-                    // let sub_command = sub_command.build().unwrap();
-                    // sub_commands.lock().push(sub_command);
-                    // sub_command.
-                    //     });
-                    // });
-
-                    // let sub_command = sub_command.build().unwrap();
-                    // unsafe {
-                    //     COMMAND_BUFFER = Some(sub_command);
-                    // }
+                // let sub_command = sub_command.build().unwrap();
+                // unsafe {
+                //     COMMAND_BUFFER = Some(sub_command);
+                // }
                 // }
                 // if let Some(commands) = unsafe { &COMMAND_BUFFER } {
                 //     builder.execute_commands(commands).unwrap();

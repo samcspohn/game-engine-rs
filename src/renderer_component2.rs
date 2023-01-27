@@ -16,6 +16,7 @@ use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool},
     command_buffer::DrawIndexedIndirectCommand,
     device::Device,
+    memory::allocator::{FreeListAllocator, GenericMemoryAllocator, MemoryUsage},
     pipeline::ComputePipeline,
     shader::ShaderModule,
 };
@@ -189,6 +190,7 @@ pub struct SharedRendererData {
     pub indirect_buffer: Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>,
 
     pub device: Arc<Device>,
+    pub mem: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
     pub shader: Arc<ShaderModule>,
     pub pipeline: Arc<ComputePipeline>,
     pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
@@ -214,8 +216,26 @@ pub struct RendererManager {
     // pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
 }
 
+pub fn buffer_usage_all() -> BufferUsage{
+    BufferUsage {
+        transfer_src: true,
+        transfer_dst: true,
+        uniform_texel_buffer: true,
+        storage_texel_buffer: true,
+        uniform_buffer: true,
+        storage_buffer: true,
+        index_buffer: true,
+        vertex_buffer: true,
+        indirect_buffer: true,
+        shader_device_address: true,
+        ..Default::default()
+    }}
+
 impl RendererManager {
-    pub fn new(device: Arc<Device>) -> RendererManager {
+    pub fn new(
+        device: Arc<Device>,
+        mem: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
+    ) -> RendererManager {
         let shader = ur::load(device.clone()).unwrap();
 
         // Create compute-pipeline for applying compute shader to vertices.
@@ -235,8 +255,9 @@ impl RendererManager {
             transforms: _Storage::new(),
             shr_data: RwLock::new(SharedRendererData {
                 transform_ids_gpu: CpuAccessibleBuffer::from_iter(
-                    device.clone(),
-                    BufferUsage::all(),
+                    // device.clone(),
+                    &mem,
+                   buffer_usage_all(),
                     true,
                     vec![TransformId {
                         indirect_id: -1,
@@ -245,23 +266,25 @@ impl RendererManager {
                 )
                 .unwrap(),
                 renderers_gpu: CpuAccessibleBuffer::from_iter(
-                    device.clone(),
-                    BufferUsage::all(),
+                    // device.clone(),
+                    &mem,
+                    buffer_usage_all(),
                     true,
                     vec![0],
                 )
                 .unwrap(),
                 updates_gpu: CpuAccessibleBuffer::from_iter(
-                    device.clone(),
-                    BufferUsage::all(),
+                    // device.clone(),
+                    &mem,
+                    buffer_usage_all(),
                     true,
                     vec![0],
                 )
                 .unwrap(),
                 indirect: _Storage::new(),
                 indirect_buffer: CpuAccessibleBuffer::from_iter(
-                    device.clone(),
-                    BufferUsage::all(),
+                    &mem,
+                    buffer_usage_all(),
                     true,
                     vec![DrawIndexedIndirectCommand {
                         index_count: 0,
@@ -275,9 +298,12 @@ impl RendererManager {
                 device: device.clone(),
                 shader,
                 pipeline,
+                mem: mem.clone(),
                 uniform: Arc::new(CpuBufferPool::<ur::ty::Data>::new(
-                    device.clone(),
-                    BufferUsage::all(),
+                    mem.clone(),
+                    // device.clone(),
+                    buffer_usage_all(),
+                    MemoryUsage::Upload,
                 )),
             }),
         }
