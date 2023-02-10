@@ -1,10 +1,18 @@
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::{Color32, Rounding, Ui, WidgetText};
+use glium::memory_object;
+use rapier3d::na::dimension;
 use std::{env, fs};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
-use vulkano::command_buffer::{CopyBufferInfo, RenderPassBeginInfo};
+use vulkano::command_buffer::{
+    BlitImageInfo, CopyBufferInfo, CopyImageInfo, ImageBlit, PrimaryCommandBufferAbstract,
+    RenderPassBeginInfo,
+};
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
+use vulkano::image::sys::RawImage;
+use vulkano::image::view::ImageViewCreateInfo;
+use vulkano::image::{ImageDimensions, ImageLayout, StorageImage};
 use vulkano::memory::allocator::{MemoryUsage, StandardMemoryAllocator};
 use vulkano::swapchain::SwapchainPresentInfo;
 use vulkano::VulkanLibrary;
@@ -224,6 +232,10 @@ use rayon::prelude::*;
 //  #     egui::CentralPanel::default().show(ctx, |ui| my_tabs.ui(ui));
 //  # });
 
+struct FrameImage {
+    arc: Arc<AttachmentImage>,
+}
+
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
 
@@ -364,7 +376,7 @@ fn main() {
                     .iter()
                     .next()
                     .unwrap(),
-                present_mode: vulkano::swapchain::PresentMode::Immediate,
+                present_mode: vulkano::swapchain::PresentMode::Mailbox,
                 ..Default::default()
             },
         )
@@ -416,6 +428,12 @@ fn main() {
         attachments: {
             color: {
                 load: Clear,
+                store: DontCare,
+                format: Format::R8G8B8A8_UNORM,
+                samples: 1,
+            },
+            final_color: {
+                load: Clear,
                 store: Store,
                 format: swapchain.image_format(),
                 samples: 1,
@@ -430,7 +448,7 @@ fn main() {
         passes: [
             { color: [color], depth_stencil: {depth}, input: [] },
             // { color: [color], depth_stencil: {depth}, input: [] }, // for secondary cmmand buffers
-            { color: [color], depth_stencil: {}, input: [] } // Create a second renderpass to draw egui
+            { color: [final_color], depth_stencil: {}, input: [] } // Create a second renderpass to draw egui
         ]
     )
     .unwrap();
@@ -440,12 +458,66 @@ fn main() {
         dimensions: [0.0, 0.0],
         depth_range: 0.0..1.0,
     };
+    // let viewport2 = Viewport {
+    //     origin: [0.0, 0.0],
+    //     dimensions: [1024.0, 720.0],
+    //     depth_range: 0.0..1.0,
+    // };
+    let dimensions = images[0].dimensions().width_height();
+    let mut frame_color = FrameImage {
+        arc: AttachmentImage::with_usage(
+            &memory_allocator,
+            dimensions,
+            Format::R8G8B8A8_UNORM,
+            ImageUsage {
+                // sampled: true,
+                // storage: true,
+                transfer_src: true,
+                transient_attachment: false,
+                input_attachment: true,
+                ..ImageUsage::empty()
+            },
+        )
+        .unwrap(),
+    };
+    let mut uploads = AutoCommandBufferBuilder::primary(
+        &command_buffer_allocator,
+        queue.queue_family_index(),
+        CommandBufferUsage::OneTimeSubmit,
+    )
+    .unwrap();
+    // let src = ImageView::new_default(frame_color.arc.clone());
+    let frame_img = StorageImage::new(
+        &memory_allocator,
+        ImageDimensions::Dim2d {
+            width: dimensions[0],
+            height: dimensions[1],
+            array_layers: 1,
+        },
+        Format::R8G8B8A8_UNORM,
+        device.active_queue_family_indices().iter().copied(),
+    )
+    .unwrap();
+
+    uploads
+        .copy_image(CopyImageInfo::images(
+            frame_color.arc.clone(),
+            frame_img.clone(),
+        ))
+        // .blit_image(BlitImageInfo::images(
+        //     frame_color.arc.clone(),
+        //     frame_img.clone(),
+        // ))
+        .unwrap();
+
+    let _ = uploads.build().unwrap().execute(queue.clone()).unwrap();
 
     let mut framebuffers = window_size_dependent_setup(
         &images,
         render_pass.clone(),
         &mut viewport,
         memory_allocator.clone(),
+        &mut frame_color,
     );
 
     // let mut framebuffers =
@@ -507,6 +579,9 @@ fn main() {
         queue.clone(),
         Subpass::from(render_pass.clone(), 1).unwrap(),
     );
+    let frame_image_view = ImageView::new_default(frame_img.clone()).unwrap();
+    let fc = gui.register_user_image_view(frame_image_view.clone());
+
     // let mut egui_painter = egui_vulkano::Painter::new(
     //     device.clone(),
     //     queue.clone(),
@@ -573,32 +648,7 @@ fn main() {
 
     /////////////////////////////////////////////////////////////////////////////////////////
     let (tx, rx): (Sender<Input>, Receiver<Input>) = mpsc::channel();
-    let (rtx, rrx): (
-        Sender<(
-            Arc<(
-                usize,
-                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
-            )>,
-            glm::Vec3,
-            glm::Quat,
-            RendererData,
-            (usize, Vec<crate::particles::cs::ty::emitter_init>),
-            // Arc<(Vec<Offset>, Vec<Id>)>,
-            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
-        )>,
-        Receiver<(
-            Arc<(
-                usize,
-                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
-            )>,
-            glm::Vec3,
-            glm::Quat,
-            RendererData,
-            (usize, Vec<crate::particles::cs::ty::emitter_init>),
-            // Arc<(Vec<Offset>, Vec<Id>)>,
-            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
-        )>,
-    ) = mpsc::channel();
+    let (rtx, rrx): (Sender<_>, Receiver<_>) = mpsc::channel();
     // let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
     let running = Arc::new(AtomicBool::new(true));
 
@@ -831,15 +881,11 @@ fn main() {
                     )
                 };
 
-                // egui_ctx.begin_frame(egui_winit.take_egui_input(window));
-                // demo_app.ui(&ctx);
                 file_watcher.get_updates(&mut world.lock());
 
-                // gui.begin_frame();
-                // let ctx = gui.context();
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    editor_ui::editor_ui(&world, &mut fps_queue, &ctx);
+                    editor_ui::editor_ui(&world, &mut fps_queue, &ctx, fc.clone());
                 });
 
                 let render_jobs = world.lock().render();
@@ -935,6 +981,7 @@ fn main() {
                         render_pass.clone(),
                         &mut viewport,
                         memory_allocator.clone(),
+                        &mut frame_color,
                     );
                     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
                     recreate_swapchain = false;
@@ -974,6 +1021,17 @@ fn main() {
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
+
+                builder
+                    .copy_image(CopyImageInfo::images(
+                        frame_color.arc.clone(),
+                        frame_img.clone(),
+                    ))
+                    // .blit_image(BlitImageInfo::images(
+                    //     frame_color.arc.clone(),
+                    //     frame_img.clone(),
+                    // ))
+                    .unwrap();
 
                 // Get the shapes from egui
                 // let egui_output = egui_ctx.end_frame();
@@ -1318,6 +1376,7 @@ fn main() {
                             RenderPassBeginInfo {
                                 clear_values: vec![
                                     Some([0., 0., 0., 1.].into()),
+                                    Some([0., 0., 0., 1.].into()),
                                     Some(1f32.into()),
                                 ],
                                 ..RenderPassBeginInfo::framebuffer(
@@ -1587,6 +1646,7 @@ fn window_size_dependent_setup(
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     mem: Arc<StandardMemoryAllocator>,
+    color: &mut FrameImage,
 ) -> Vec<Arc<Framebuffer>> {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
@@ -1594,14 +1654,33 @@ fn window_size_dependent_setup(
         AttachmentImage::transient(&mem, dimensions, Format::D32_SFLOAT).unwrap(),
     )
     .unwrap();
+
+    color.arc = AttachmentImage::with_usage(
+        &mem,
+        dimensions,
+        Format::R8G8B8A8_UNORM,
+        ImageUsage {
+            transfer_src: true,
+            transfer_dst: false,
+            sampled: false,
+            storage: true,
+            color_attachment: true,
+            depth_stencil_attachment: false,
+            transient_attachment: false,
+            input_attachment: true,
+            ..ImageUsage::empty()
+        },
+    )
+    .unwrap();
     images
         .iter()
         .map(|image| {
             let view = ImageView::new_default(image.clone()).unwrap();
+            let color_view = ImageView::new_default(color.arc.clone()).unwrap();
             Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![view, depth_buffer.clone()],
+                    attachments: vec![color_view.clone(), view, depth_buffer.clone()],
                     ..Default::default()
                 },
             )
