@@ -90,7 +90,7 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                             "Hierarchy" => {
                                 // let resp = {
                                     let mut world = world.lock();
-                                    {
+                                    let resp = ui.scope(|ui| {
 
                                     let mut transforms = world.transforms.write();
                         
@@ -342,10 +342,10 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                             }
                                         }
                                     }
-                                }
+                                });
                                     // resp
                                 // };
-                                if let Some(cm) = unsafe { &context_menu } {
+                                if let Some(cm) = &context_menu {
                                     let g = match cm {
                                         GameObjectContextMenu::NewGameObject(t_id) => {
                                             let g = world
@@ -377,27 +377,27 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                     }
                                 } 
                                 // else if let Some(resp) = resp {
-                                //     resp.response.context_menu(|ui: &mut Ui| {
-                                //         let resp = ui.menu_button("Add Game Object", |ui| {});
-                                //         if resp.response.clicked() {
-                                //             let g = world.instantiate();
-                                //             unsafe {
-                                //                 _selected = Some(g.t);
-                                //                 _selected_transforms.clear();
-                                //                 _selected_transforms.insert(g.t, true);
-                                //             }
-                                //             println!("add game object");
-                                //             ui.close_menu();
-                                //         }
-                                //         if ui.menu_button("Save", |ui| {}).response.clicked() {
-                                //             crate::serialize::serialize(&world);
-                                //             ui.close_menu();
-                                //         }
-                                //         if ui.menu_button("Load", |ui| {}).response.clicked() {
-                                //             crate::serialize::deserialize(&mut world);
-                                //             ui.close_menu();
-                                //         }
-                                //     });
+                                    resp.response.context_menu(|ui: &mut Ui| {
+                                        let resp = ui.menu_button("Add Game Object", |ui| {});
+                                        if resp.response.clicked() {
+                                            let g = world.instantiate();
+                                            unsafe {
+                                                _selected = Some(g.t);
+                                                _selected_transforms.clear();
+                                                _selected_transforms.insert(g.t, true);
+                                            }
+                                            println!("add game object");
+                                            ui.close_menu();
+                                        }
+                                        if ui.menu_button("Save", |ui| {}).response.clicked() {
+                                            crate::serialize::serialize(&world);
+                                            ui.close_menu();
+                                        }
+                                        if ui.menu_button("Load", |ui| {}).response.clicked() {
+                                            crate::serialize::deserialize(&mut world);
+                                            ui.close_menu();
+                                        }
+                                    });
                                 // }
                             },
                             "Inspector" => {
