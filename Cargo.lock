@@ -1014,6 +1014,7 @@ dependencies = [
  "nalgebra-glm",
  "noise",
  "notify",
+ "num-integer",
  "num_cpus",
  "once_cell",
  "parking_lot 0.12.1",

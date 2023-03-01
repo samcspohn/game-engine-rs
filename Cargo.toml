@@ -19,6 +19,7 @@ debug = true
 
 [dependencies]
 num_cpus = "*"
+num-integer = "*"
 # component_derive = {path = "derive-macro"}
 
 libloading = "*"

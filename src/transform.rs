@@ -4,10 +4,15 @@ use force_send_sync::SendSync;
 use glm::{Mat3, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
-use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+use rayon::prelude::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+    IntoParallelRefMutIterator, ParallelIterator,
+};
 // use spin::{Mutex,RwLock};
+use num_integer::Roots;
 use puffin_egui::puffin;
 use serde::{Deserialize, Serialize};
+
 use std::{
     cmp::Reverse,
     collections::BinaryHeap,
@@ -520,57 +525,162 @@ impl Transforms {
         let transform_data = Mutex::new(Vec::<
             Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>,
         >::new());
-        (0..num_cpus::get()).into_par_iter().for_each(|id| {
-            let mut transform_ids = vec![
-                Vec::<i32>::with_capacity(len),
-                Vec::<i32>::with_capacity(len),
-                Vec::<i32>::with_capacity(len),
-            ];
-            let mut pos = Vec::<[f32; 3]>::with_capacity(len);
-            let mut rot = Vec::<[f32; 4]>::with_capacity(len);
-            let mut scl = Vec::<[f32; 3]>::with_capacity(len);
-            {
-                let start = len / num_cpus::get() * id;
-                let mut end = start + len / num_cpus::get();
-                if id == num_cpus::get() - 1 {
-                    end = len;
-                }
+        self.updates
+            .par_iter_mut()
+            .enumerate()
+            .chunks(
+                num_cpus::get()
+                    .sqrt()
+                    .max((len as f64 / num_cpus::get() as f64).ceil() as usize),
+            )
+            .for_each(|slice| {
+                let len = slice.len();
+                let mut transform_ids = vec![
+                    Vec::<i32>::with_capacity(len),
+                    Vec::<i32>::with_capacity(len),
+                    Vec::<i32>::with_capacity(len),
+                ];
+                let mut pos = Vec::<[f32; 3]>::with_capacity(len);
+                let mut rot = Vec::<[f32; 4]>::with_capacity(len);
+                let mut scl = Vec::<[f32; 3]>::with_capacity(len);
 
-                let u = &self.updates;
                 let p = &self.positions;
                 let r = &self.rotations;
                 let s = &self.scales;
 
-                puffin::profile_scope!("collect data");
-                for i in start..end {
-                    if u[i][POS_U].load(Ordering::Relaxed) {
+                for (i, u) in slice {
+                    if u[POS_U].load(Ordering::Relaxed) {
                         transform_ids[POS_U].push(i as i32);
                         let p = p[i].lock();
                         // p.data
                         pos.push([p.x, p.y, p.z]);
-                        u[i][POS_U].store(false, Ordering::Relaxed);
+                        u[POS_U].store(false, Ordering::Relaxed);
                     }
-                    if u[i][ROT_U].load(Ordering::Relaxed) {
+                    if u[ROT_U].load(Ordering::Relaxed) {
                         transform_ids[ROT_U].push(i as i32);
                         let r = r[i].lock();
                         // let a: [f32;4] = r.coords.into();
                         rot.push([r.w, r.k, r.j, r.i]);
-                        u[i][ROT_U].store(false, Ordering::Relaxed);
+                        u[ROT_U].store(false, Ordering::Relaxed);
                     }
-                    if u[i][SCL_U].load(Ordering::Relaxed) {
+                    if u[SCL_U].load(Ordering::Relaxed) {
                         transform_ids[SCL_U].push(i as i32);
                         let s = s[i].lock();
                         scl.push([s.x, s.y, s.z]);
-                        u[i][SCL_U].store(false, Ordering::Relaxed);
+                        u[SCL_U].store(false, Ordering::Relaxed);
                     }
                 }
-            }
-            {
-                puffin::profile_scope!("wrap in Arc");
                 let ret = Arc::new((transform_ids, pos, rot, scl));
                 transform_data.lock().push(ret);
-            }
-        });
+            });
+        // (0..num_cpus::get()).into_par_iter().for_each(|id| {
+        //     let mut transform_ids = vec![
+        //         Vec::<i32>::with_capacity(len),
+        //         Vec::<i32>::with_capacity(len),
+        //         Vec::<i32>::with_capacity(len),
+        //     ];
+        //     let mut pos = Vec::<[f32; 3]>::with_capacity(len);
+        //     let mut rot = Vec::<[f32; 4]>::with_capacity(len);
+        //     let mut scl = Vec::<[f32; 3]>::with_capacity(len);
+        //     {
+        //         let start = len / num_cpus::get() * id;
+        //         let mut end = start + len / num_cpus::get();
+        //         if id == num_cpus::get() - 1 {
+        //             end = len;
+        //         }
+
+        //         let u = &self.updates;
+        //         let p = &self.positions;
+        //         let r = &self.rotations;
+        //         let s = &self.scales;
+
+        //         puffin::profile_scope!("collect data");
+        //         for i in start..end {
+        //             if u[i][POS_U].load(Ordering::Relaxed) {
+        //                 transform_ids[POS_U].push(i as i32);
+        //                 let p = p[i].lock();
+        //                 // p.data
+        //                 pos.push([p.x, p.y, p.z]);
+        //                 u[i][POS_U].store(false, Ordering::Relaxed);
+        //             }
+        //             if u[i][ROT_U].load(Ordering::Relaxed) {
+        //                 transform_ids[ROT_U].push(i as i32);
+        //                 let r = r[i].lock();
+        //                 // let a: [f32;4] = r.coords.into();
+        //                 rot.push([r.w, r.k, r.j, r.i]);
+        //                 u[i][ROT_U].store(false, Ordering::Relaxed);
+        //             }
+        //             if u[i][SCL_U].load(Ordering::Relaxed) {
+        //                 transform_ids[SCL_U].push(i as i32);
+        //                 let s = s[i].lock();
+        //                 scl.push([s.x, s.y, s.z]);
+        //                 u[i][SCL_U].store(false, Ordering::Relaxed);
+        //             }
+        //         }
+        //     }
+        //     {
+        //         puffin::profile_scope!("wrap in Arc");
+        //         let ret = Arc::new((transform_ids, pos, rot, scl));
+        //         transform_data.lock().push(ret);
+        //     }
+        // });
         Arc::new((self.extent as usize, transform_data.into_inner()))
     }
 }
+
+// let f = |id| {
+//     let mut transform_ids = vec![
+//         Vec::<i32>::with_capacity(len),
+//         Vec::<i32>::with_capacity(len),
+//         Vec::<i32>::with_capacity(len),
+//     ];
+//     let mut pos = Vec::<[f32; 3]>::with_capacity(len);
+//     let mut rot = Vec::<[f32; 4]>::with_capacity(len);
+//     let mut scl = Vec::<[f32; 3]>::with_capacity(len);
+//     {
+//         let start = len / num_cpus::get() * id;
+//         let mut end = start + len / num_cpus::get();
+//         if id == num_cpus::get() - 1 {
+//             end = len;
+//         }
+
+//         let u = &self.updates;
+//         let p = &self.positions;
+//         let r = &self.rotations;
+//         let s = &self.scales;
+
+//         puffin::profile_scope!("collect data");
+//         for i in start..end {
+//             if u[i][POS_U].load(Ordering::Relaxed) {
+//                 transform_ids[POS_U].push(i as i32);
+//                 let p = p[i].lock();
+//                 // p.data
+//                 pos.push([p.x, p.y, p.z]);
+//                 u[i][POS_U].store(false, Ordering::Relaxed);
+//             }
+//             if u[i][ROT_U].load(Ordering::Relaxed) {
+//                 transform_ids[ROT_U].push(i as i32);
+//                 let r = r[i].lock();
+//                 // let a: [f32;4] = r.coords.into();
+//                 rot.push([r.w, r.k, r.j, r.i]);
+//                 u[i][ROT_U].store(false, Ordering::Relaxed);
+//             }
+//             if u[i][SCL_U].load(Ordering::Relaxed) {
+//                 transform_ids[SCL_U].push(i as i32);
+//                 let s = s[i].lock();
+//                 scl.push([s.x, s.y, s.z]);
+//                 u[i][SCL_U].store(false, Ordering::Relaxed);
+//             }
+//         }
+//     }
+//     {
+//         puffin::profile_scope!("wrap in Arc");
+//         let ret = Arc::new((transform_ids, pos, rot, scl));
+//         transform_data.lock().push(ret);
+//     }
+// };
+// if self.positions.len() < num_cpus::get() {
+//     (0..num_cpus::get()).into_iter().for_each(|i| f(i));
+// } else {
+//     (0..num_cpus::get()).into_par_iter().for_each(|i| f(i));
+// }
