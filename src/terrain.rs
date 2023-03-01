@@ -23,7 +23,7 @@ use vulkano::{
     buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, DrawIndexedIndirectCommand,
-        PrimaryAutoCommandBuffer, SecondaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
+        PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, SecondaryAutoCommandBuffer,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::{Device, Queue},
@@ -46,12 +46,12 @@ use vulkano::{
     sync::{self, FlushError, GpuFuture},
 };
 
-use crate::{terrain::transform::Transform, renderer_component2::buffer_usage_all};
 use crate::{
     engine::{RenderJobData, System},
     transform_compute,
 };
 use crate::{model, renderer::RenderPipeline, texture::Texture};
+use crate::{renderer_component2::buffer_usage_all, terrain::transform::Transform};
 // use crate::transform_compute::MVP;
 use crate::transform_compute::cs::ty::MVP;
 use crate::{
@@ -327,9 +327,7 @@ impl Terrain {
         {
             // let command_buffers_g = command_buffers.lock();
             for command_buffer in (*command_buffers.lock()).clone() {
-                let _ = command_buffer
-                .execute(sys.queue.clone())
-                .unwrap();
+                let _ = command_buffer.execute(sys.queue.clone()).unwrap();
                 // let execute = sync::now(sys.device.clone())
                 //     .boxed()
                 //     .then_execute(sys.queue.clone(), command_buffer);
@@ -582,29 +580,34 @@ impl Component for Terrain {
                 if let Some(i) = unsafe { &INSTANCE_BUFFER } {
                     descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
                 }
-                let set = PersistentDescriptorSet::new(descriptor_set_allocator,layout.clone(), descriptors).unwrap();
-                    builder
-                        // .set_viewport(0, [viewport.clone()])
-                        // .bind_pipeline_graphics(pipeline.pipeline.clone())
-                        .bind_descriptor_sets(
-                            PipelineBindPoint::Graphics,
-                            pipeline.pipeline.layout().clone(),
-                            0,
-                            set.clone(),
-                        )
-                        .bind_vertex_buffers(
-                            0,
-                            (
-                                vertex_buffer.clone(),
-                                normals_buffer.clone(),
-                                uvs_buffer.clone(),
-                                // instance_buffer.clone(),
-                            ),
-                        )
-                        // .bind_vertex_buffers(1, transforms_buffer.data.clone())
-                        .bind_index_buffer(index_buffer.clone())
-                        .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-                        .unwrap();
+                let set = PersistentDescriptorSet::new(
+                    descriptor_set_allocator,
+                    layout.clone(),
+                    descriptors,
+                )
+                .unwrap();
+                builder
+                    // .set_viewport(0, [viewport.clone()])
+                    // .bind_pipeline_graphics(pipeline.pipeline.clone())
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        pipeline.pipeline.layout().clone(),
+                        0,
+                        set.clone(),
+                    )
+                    .bind_vertex_buffers(
+                        0,
+                        (
+                            vertex_buffer.clone(),
+                            normals_buffer.clone(),
+                            uvs_buffer.clone(),
+                            // instance_buffer.clone(),
+                        ),
+                    )
+                    // .bind_vertex_buffers(1, transforms_buffer.data.clone())
+                    .bind_index_buffer(index_buffer.clone())
+                    .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
+                    .unwrap();
                 // }
 
                 // let sub_command = sub_command.build().unwrap();

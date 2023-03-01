@@ -1,9 +1,14 @@
 use egui::{emath::Numeric, Ui};
 use nalgebra_glm as glm;
+use parking_lot::Mutex;
 
-use crate::engine::{transform::Transform, Sys};
+use crate::engine::{transform::Transform, Sys, World};
 pub trait Inspectable {
     fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys);
+}
+
+pub trait Inspectable_ {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>);
 }
 pub struct Ins<'a, T>(pub &'a mut T);
 pub trait Inpsect {

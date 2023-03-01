@@ -443,7 +443,7 @@ impl Transforms {
         self.scale(t, glm::vec3(s.x / scl.x, s.y / scl.y, s.z / scl.z));
     }
     pub fn scale(&self, t: i32, s: Vec3) {
-        let mut scl = self.positions[t as usize].lock();
+        let mut scl = self.scales[t as usize].lock();
         *scl = mul_vec3(&s, &*scl);
         self.u_scl(t);
         let pos = self.get_position(t);
@@ -477,7 +477,6 @@ impl Transforms {
             self.rotate_child(*child, &ax, &pos, &rot, radians);
         }
     }
-
 
     fn rotate_child(&self, t: i32, axis: &Vec3, pos: &Vec3, r: &Quat, radians: f32) {
         // let ax = glm::quat_to_mat3(&r) * axis;
@@ -519,12 +518,7 @@ impl Transforms {
         // let u_iter = self.updates.par_iter_mut();
 
         let transform_data = Mutex::new(Vec::<
-            Arc<(
-                Vec<Vec<i32>>,
-                Vec<[f32; 3]>,
-                Vec<[f32; 4]>,
-                Vec<[f32; 3]>,
-            )>,
+            Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>,
         >::new());
         (0..num_cpus::get()).into_par_iter().for_each(|id| {
             let mut transform_ids = vec![

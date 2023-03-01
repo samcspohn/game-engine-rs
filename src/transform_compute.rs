@@ -7,17 +7,26 @@ use vulkano::{
     buffer::{
         BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer, TypedBufferAccess,
     },
-    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer, allocator::StandardCommandBufferAllocator, CopyBufferInfo},
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet, allocator::StandardDescriptorSetAllocator},
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CopyBufferInfo,
+        PrimaryAutoCommandBuffer,
+    },
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+    },
     device::Device,
     impl_vertex,
+    memory::allocator::StandardMemoryAllocator,
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
-    DeviceSize, memory::allocator::StandardMemoryAllocator,
+    DeviceSize,
 };
 
-use crate::{engine::transform::{POS_U, ROT_U, SCL_U}, renderer_component2::buffer_usage_all};
+use crate::{
+    engine::transform::{POS_U, ROT_U, SCL_U},
+    renderer_component2::buffer_usage_all,
+};
 
-use self::cs::ty::{transform,MVP, Data};
+use self::cs::ty::{transform, Data, MVP};
 
 // #[repr(C)]
 // #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -47,7 +56,10 @@ impl TransformCompute {
     pub fn update(
         &mut self,
         device: Arc<Device>,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
         positions_len: usize,
         mem: Arc<StandardMemoryAllocator>,
         command_allocator: &StandardCommandBufferAllocator,
@@ -63,7 +75,12 @@ impl TransformCompute {
             let device_local_buffer = DeviceLocalBuffer::<[transform]>::array(
                 &mem,
                 max_len as vulkano::DeviceSize,
-                BufferUsage {storage_buffer: true, transfer_dst: true, transfer_src: true, ..Default::default()},
+                BufferUsage {
+                    storage_buffer: true,
+                    transfer_dst: true,
+                    transfer_src: true,
+                    ..Default::default()
+                },
                 // BufferUsage::storage_buffer()
                 //     | BufferUsage::vertex_buffer_transfer_destination()
                 //     | BufferUsage::transfer_source(),
@@ -74,13 +91,21 @@ impl TransformCompute {
 
             transform_data.transform = device_local_buffer.clone();
             builder
-                .copy_buffer(CopyBufferInfo::buffers(copy_buffer, transform_data.transform.clone()))
+                .copy_buffer(CopyBufferInfo::buffers(
+                    copy_buffer,
+                    transform_data.transform.clone(),
+                ))
                 .unwrap();
 
             let device_local_buffer = DeviceLocalBuffer::<[MVP]>::array(
                 &mem,
                 max_len as vulkano::DeviceSize,
-                BufferUsage {storage_buffer: true, transfer_dst: true, transfer_src: true, ..Default::default()},
+                BufferUsage {
+                    storage_buffer: true,
+                    transfer_dst: true,
+                    transfer_src: true,
+                    ..Default::default()
+                },
                 // BufferUsage::storage_buffer()
                 //     | BufferUsage::vertex_buffer_transfer_destination()
                 //     | BufferUsage::transfer_source(),
@@ -92,7 +117,10 @@ impl TransformCompute {
 
             transform_data.mvp = device_local_buffer.clone();
             builder
-                .copy_buffer(CopyBufferInfo::buffers(copy_buffer, transform_data.mvp.clone()))
+                .copy_buffer(CopyBufferInfo::buffers(
+                    copy_buffer,
+                    transform_data.mvp.clone(),
+                ))
                 .unwrap();
         }
     }
@@ -348,7 +376,10 @@ impl TransformCompute {
 
     pub fn update_positions(
         &self,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
         view: glm::Mat4,
         proj: glm::Mat4,
         transform_uniforms: &CpuBufferPool<Data>,
@@ -356,10 +387,10 @@ impl TransformCompute {
         position_update_data: Option<(
             Arc<CpuAccessibleBuffer<[i32]>>,
             Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
-        )>,        
+        )>,
         mem: Arc<StandardMemoryAllocator>,
         command_allocator: &StandardCommandBufferAllocator,
-        desc_allocator: Arc<StandardDescriptorSetAllocator>
+        desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         // stage 0
         puffin::profile_scope!("update positions");
@@ -408,7 +439,10 @@ impl TransformCompute {
     }
     pub fn update_rotations(
         &self,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
         view: glm::Mat4,
         proj: glm::Mat4,
         transform_uniforms: &CpuBufferPool<Data>,
@@ -419,7 +453,7 @@ impl TransformCompute {
         )>,
         mem: Arc<StandardMemoryAllocator>,
         command_allocator: &StandardCommandBufferAllocator,
-        desc_allocator: Arc<StandardDescriptorSetAllocator>
+        desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         puffin::profile_scope!("update rotations");
         // stage 1
@@ -467,7 +501,10 @@ impl TransformCompute {
     }
     pub fn update_scales(
         &self,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
         view: glm::Mat4,
         proj: glm::Mat4,
         transform_uniforms: &CpuBufferPool<Data>,
@@ -478,7 +515,7 @@ impl TransformCompute {
         )>,
         mem: Arc<StandardMemoryAllocator>,
         command_allocator: &StandardCommandBufferAllocator,
-        desc_allocator: Arc<StandardDescriptorSetAllocator>
+        desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         puffin::profile_scope!("update scales");
         // stage 2
@@ -526,7 +563,10 @@ impl TransformCompute {
     }
     pub fn update_mvp(
         &self,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
         device: Arc<Device>,
         view: glm::Mat4,
         proj: glm::Mat4,
@@ -535,7 +575,7 @@ impl TransformCompute {
         transforms_len: i32,
         mem: Arc<StandardMemoryAllocator>,
         command_allocator: &StandardCommandBufferAllocator,
-        desc_allocator: Arc<StandardDescriptorSetAllocator>
+        desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         puffin::profile_scope!("update mvp");
         // stage 3
@@ -561,25 +601,15 @@ impl TransformCompute {
             [
                 WriteDescriptorSet::buffer(
                     0,
-                    CpuAccessibleBuffer::from_iter(
-                        &mem,
-                        buffer_usage_all(),
-                        false,
-                        vec![0],
-                    )
-                    .unwrap(),
+                    CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, vec![0])
+                        .unwrap(),
                 ),
                 WriteDescriptorSet::buffer(1, self.transform.clone()),
                 WriteDescriptorSet::buffer(2, self.mvp.clone()),
                 WriteDescriptorSet::buffer(
                     3,
-                    CpuAccessibleBuffer::from_iter(
-                        &mem,
-                        buffer_usage_all(),
-                        false,
-                        vec![0],
-                    )
-                    .unwrap(),
+                    CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, vec![0])
+                        .unwrap(),
                 ),
                 WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
             ],
@@ -606,7 +636,7 @@ pub fn transform_buffer_init(
     positions: Vec<transform>,
     mem: Arc<StandardMemoryAllocator>,
     command_allocator: &StandardCommandBufferAllocator,
-    desc_allocator: Arc<StandardDescriptorSetAllocator>
+    desc_allocator: Arc<StandardDescriptorSetAllocator>,
 ) -> TransformCompute {
     // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
     // let len = 2_000_000;
@@ -619,7 +649,12 @@ pub fn transform_buffer_init(
     let device_local_buffer = DeviceLocalBuffer::<[transform]>::array(
         &mem,
         max_len as vulkano::DeviceSize,
-        BufferUsage {storage_buffer: true, transfer_dst: true, transfer_src: true, ..Default::default()},
+        BufferUsage {
+            storage_buffer: true,
+            transfer_dst: true,
+            transfer_src: true,
+            ..Default::default()
+        },
         device.active_queue_family_indices().iter().copied(),
     )
     .unwrap();
@@ -628,8 +663,13 @@ pub fn transform_buffer_init(
     let device_local_buffer = DeviceLocalBuffer::<[MVP]>::array(
         &mem,
         max_len as vulkano::DeviceSize,
-         BufferUsage {storage_buffer: true, transfer_dst: true, transfer_src: true, ..Default::default()},
-         device.active_queue_family_indices().iter().copied(),
+        BufferUsage {
+            storage_buffer: true,
+            transfer_dst: true,
+            transfer_src: true,
+            ..Default::default()
+        },
+        device.active_queue_family_indices().iter().copied(),
     )
     .unwrap();
     let mvp = device_local_buffer;

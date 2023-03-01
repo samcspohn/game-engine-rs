@@ -58,7 +58,7 @@ impl Component for Bomb {
             &ray,
             dt,
             true,
-            QueryFilter::new()
+            QueryFilter::new(),
         ) {
             // let g = GameObject { t: self.t };
             // sys.defer.append(move |world| {

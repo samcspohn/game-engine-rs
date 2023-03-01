@@ -7,7 +7,7 @@ lazy_static! {
 }
 
 // stolen from egui demo
-pub fn drag_source(ui: &mut Ui, id: egui::Id, drag_data: String, body: impl Fn(&mut Ui)) {
+pub fn drag_source(ui: &mut Ui, id: egui::Id, drag_data: String, body: impl Fn(&mut Ui)) -> egui::Response {
     let is_being_dragged = ui.memory().is_being_dragged(id);
 
     let response = ui.scope(&body).response;
@@ -40,6 +40,7 @@ pub fn drag_source(ui: &mut Ui, id: egui::Id, drag_data: String, body: impl Fn(&
             ui.ctx().translate_layer(layer_id, delta);
         }
     }
+    response
 }
 
 pub fn drop_target<R>(

@@ -216,7 +216,7 @@ pub struct RendererManager {
     // pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
 }
 
-pub fn buffer_usage_all() -> BufferUsage{
+pub fn buffer_usage_all() -> BufferUsage {
     BufferUsage {
         transfer_src: true,
         transfer_dst: true,
@@ -229,7 +229,8 @@ pub fn buffer_usage_all() -> BufferUsage{
         indirect_buffer: true,
         shader_device_address: true,
         ..Default::default()
-    }}
+    }
+}
 
 impl RendererManager {
     pub fn new(
@@ -257,7 +258,7 @@ impl RendererManager {
                 transform_ids_gpu: CpuAccessibleBuffer::from_iter(
                     // device.clone(),
                     &mem,
-                   buffer_usage_all(),
+                    buffer_usage_all(),
                     true,
                     vec![TransformId {
                         indirect_id: -1,

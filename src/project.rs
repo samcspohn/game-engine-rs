@@ -30,7 +30,7 @@ pub fn save_project(file_watcher: &FileWatcher, world: &World) {
 
     let project = Project {
         files,
-        models: models.iter().map(|x| {(x.0.clone(),*x.1)}).collect(),
+        models: models.iter().map(|x| (x.0.clone(), *x.1)).collect(),
         model_id_gen: models_id_gen,
         textures,
         working_file,

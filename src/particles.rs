@@ -4,7 +4,8 @@ use crate::{
     engine::{transform::Transform, Component, Storage, Sys, World, _Storage},
     inspectable::{Inpsect, Ins, Inspectable},
     particle_sort::ParticleSort,
-    transform_compute::cs::ty::transform, renderer_component2::buffer_usage_all,
+    renderer_component2::buffer_usage_all,
+    transform_compute::cs::ty::transform,
 };
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
@@ -540,8 +541,7 @@ impl ParticleCompute {
         // std::mem::swap(&mut ei, &mut emitter_inits);
 
         let copy_buffer =
-            CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, emitter_inits)
-                .unwrap();
+            CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, emitter_inits).unwrap();
         let emitter_inits = DeviceLocalBuffer::<[cs::ty::emitter_init]>::array(
             &mem,
             len as vulkano::DeviceSize,

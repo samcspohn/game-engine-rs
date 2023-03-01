@@ -13,7 +13,10 @@ use tobj;
 // use std::mem::size_of;
 use nalgebra_glm as glm;
 // use rapier3d::na::Norm;
-use crate::{texture::{Texture, TextureManager}, renderer_component2::buffer_usage_all};
+use crate::{
+    renderer_component2::buffer_usage_all,
+    texture::{Texture, TextureManager},
+};
 use vulkano::memory::allocator::{MemoryAllocator, StandardMemoryAllocator};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
@@ -270,7 +273,7 @@ pub struct ModelRenderer {
 pub struct ModelManager {
     pub device: Arc<Device>,
     pub allocator: Arc<StandardMemoryAllocator>,
-    
+
     pub texture_manager: Arc<TextureManager>,
     pub models: HashMap<String, i32>,
     pub models_ids: HashMap<i32, ModelRenderer>,
@@ -284,7 +287,12 @@ impl ModelManager {
         }
     }
     fn from_file_id(&mut self, path: &str, id: i32) {
-        let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone(), &self.allocator);
+        let mesh = Mesh::load_model(
+            path,
+            self.device.clone(),
+            self.texture_manager.clone(),
+            &self.allocator,
+        );
         let m = ModelRenderer {
             file: path.into(),
             mesh,
@@ -306,8 +314,12 @@ impl ModelManager {
     pub fn reload(&mut self, path: &str) {
         if let Some(id) = self.models.get(path) {
             if let Some(m) = self.models_ids.get_mut(id) {
-                let mesh =
-                    Mesh::load_model(path, self.device.clone(), self.texture_manager.clone(), &self.allocator);
+                let mesh = Mesh::load_model(
+                    path,
+                    self.device.clone(),
+                    self.texture_manager.clone(),
+                    &self.allocator,
+                );
                 m.mesh = mesh;
             }
         }

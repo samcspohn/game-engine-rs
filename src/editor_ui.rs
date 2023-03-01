@@ -4,7 +4,6 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use puffin_egui::puffin;
 use spin::lazy;
-use vulkano::image::{view::ImageView, AttachmentImage};
 use std::{
     any::TypeId,
     collections::{HashMap, VecDeque},
@@ -12,7 +11,7 @@ use std::{
     path::PathBuf,
     sync::{atomic::Ordering, Arc},
 };
-use winit::platform::unix::x11::ffi::LastExtensionError;
+use vulkano::image::{view::ImageView, AttachmentImage};
 
 use crate::{
     drag_drop::drag_source,
@@ -20,6 +19,7 @@ use crate::{
         transform::{Transform, Transforms},
         GameObject, Sys, World,
     },
+    inspectable::{Inspectable, Inspectable_},
 };
 use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
@@ -37,18 +37,28 @@ enum GameObjectContextMenu {
     CopyGameObject(i32),
     DeleteGameObject(i32),
 }
+// pub(crate) static EDITOR_ASPECT_RATIO: Lazy<Mutex<f32>> = Lazy::new(|| {Mutex::new(1.)});
 
-struct TabViewer<'a>{image: egui::TextureId, world:&'a Mutex<World>, fps: &'a mut VecDeque<f32>, func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>) -> ()> }
+struct TabViewer<'a> {
+    image: egui::TextureId,
+    world: &'a Mutex<World>,
+    fps: &'a mut VecDeque<f32>,
+    // goi: &'a GameObjectInspector<'b>,
+    inspectable: &'a mut Option<Box<dyn Inspectable_>>,
+    func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Box<dyn Inspectable_>>) -> ()>,
+}
 
 impl egui_dock::TabViewer for TabViewer<'_> {
     type Tab = String;
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
-        if tab != "game" {
+        if tab != "Game" {
             // ui.label(format!("Content of {tab}"));
-            (self.func)(tab,ui,self.world, self.fps);
+            (self.func)(tab, ui, self.world, self.fps, self.inspectable);
         } else {
-            ui.image(self.image, ui.available_size());
+            let a = ui.available_size();
+            // *EDITOR_ASPECT_RATIO.lock() = a[0] / a[1];
+            ui.image(self.image, a);
         }
     }
 
@@ -57,24 +67,242 @@ impl egui_dock::TabViewer for TabViewer<'_> {
     }
 }
 
-pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: &Context, frame_color: egui::TextureId) {
+struct GameObjectInspector {
+    // world: &'a Mutex<World>,
+}
+
+static mut _selected: Option<i32> = None;
+
+impl Inspectable_ for GameObjectInspector {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
+        let mut world = world.lock();
+        let mut rmv: Option<(GameObject, std::any::TypeId, i32)> = None;
+
+        let resp = ui.scope(|ui| {
+
+            egui::ScrollArea::both().auto_shrink([false,false]).show(ui, |ui| {
+
+                if let Some(t_id) = unsafe { _selected } {
+                    let entities = world.entities.write();
+                    if let Some(ent) = &entities[t_id as usize] {
+                        let t = &*world.transforms.read();
+                        egui::CollapsingHeader::new("Transform")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                let mut pos = *t.positions[t_id as usize].lock();
+                                let prev_pos = pos.clone();
+                                // Ins(&mut pos).inspect("Postition", ui);
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::Label::new("Position"));
+                                    ui.add(egui::DragValue::new(&mut pos.x).speed(0.1));
+                                    ui.add(egui::DragValue::new(&mut pos.y).speed(0.1));
+                                    ui.add(egui::DragValue::new(&mut pos.z).speed(0.1));
+                                });
+                                if pos != prev_pos {
+                                    t.move_child(t_id, pos - prev_pos);
+                                }
+                                let mut rot = *t.rotations[t_id as usize].lock();
+                                ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.add(egui::Label::new("Rotation"));
+                                        let x = ui.add(
+                                            egui::Button::new("< X >").sense(egui::Sense::drag()),
+                                        );
+                                        // x.sense.drag = true;
+                                        if x.dragged() && x.drag_delta().x != 0. {
+                                            t.rotate(
+                                                t_id,
+                                                &glm::vec3(1., 0., 0.),
+                                                x.drag_delta().x / 10.,
+                                            );
+                                        }
+                                        let y = ui.add(
+                                            egui::Button::new("< Y >").sense(egui::Sense::drag()),
+                                        );
+                                        // y.sense.drag = true;
+                                        if y.dragged() && y.drag_delta().x != 0. {
+                                            t.rotate(
+                                                t_id,
+                                                &glm::vec3(0., 1., 0.),
+                                                y.drag_delta().x / 10.,
+                                            );
+                                        }
+                                        let z = ui.add(
+                                            egui::Button::new("< Z >").sense(egui::Sense::drag()),
+                                        );
+                                        // z.sense.drag = true;
+                                        if z.dragged() && z.drag_delta().x != 0. {
+                                            t.rotate(
+                                                t_id,
+                                                &glm::vec3(0., 0., 1.),
+                                                z.drag_delta().x / 10.,
+                                            );
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.add(egui::DragValue::new(&mut rot.coords.w).speed(0.1));
+                                        ui.add(egui::DragValue::new(&mut rot.coords.x).speed(0.1));
+                                        ui.add(egui::DragValue::new(&mut rot.coords.y).speed(0.1));
+                                        ui.add(egui::DragValue::new(&mut rot.coords.z).speed(0.1));
+                                    });
+                                });
+
+                                // Ins(&mut rot).inspect("Rotation", ui);
+                                // if let Some(rot) = unsafe { &mut CUR_EULER_ANGLES } {
+                                //     if changed_rot {
+                                //         // vec<3, T, Q> c = glm::cos(eulerAngle * T(0.5));
+                                //         // vec<3, T, Q> s = glm::sin(eulerAngle * T(0.5));
+
+                                //         // this->x = s.x * c.y * c.z - c.x * s.y * s.z;
+                                //         // this->y = c.x * s.y * c.z + s.x * c.y * s.z;
+                                //         // this->z = c.x * c.y * s.z - s.x * s.y * c.z;
+                                //         // this->w = c.x * c.y * c.z + s.x * s.y * s.z;
+
+                                //         // let c = glm::cos(&(*rot * 0.5));
+                                //         // let s = glm::sin(&(*rot * 0.5));
+                                //         // let q = glm::Quat {
+                                //         //     coords: [
+                                //         //         s.x * c.y * c.z - c.x * s.y * s.z, // x
+                                //         //         c.x * s.y * c.z + s.x * c.y * s.z, // y
+                                //         //         c.x * c.y * s.z - s.x * s.y * c.z, // z
+                                //         //         c.x * c.y * c.z + s.x * s.y * s.z, // w
+                                //         //     ].into(),
+                                //         // };
+
+                                //         // let mut q = glm::Mat4::identity();
+                                //         // q = glm::rotate(&q, rot.z, &glm::vec3(0., 0., 1.));
+                                //         // q = glm::rotate(&q, rot.y, &glm::vec3(0., 1., 0.));
+                                //         // q = glm::rotate(&q, rot.x, &glm::vec3(1., 0., 0.));
+                                //         // let q = glm::to_quat(&q);
+                                //         // let x = glm::quat_angle_axis(rot.x, &glm::vec3(1., 0., 0.));
+                                //         // let y = glm::quat_angle_axis(rot.y, &glm::vec3(0., 1., 0.));
+                                //         // let z = glm::quat_angle_axis(rot.z, &glm::vec3(0., 0., 1.));
+                                //         // let q = x * y * z;
+                                //         // *t.rotations[t_id as usize].lock() = q;
+                                //         // t.updates[t_id as usize][1].store(true, Ordering::Relaxed);
+                                //         t.set_rotation(t_id, q);
+                                //     }
+                                // }
+                                let mut scl = *t.scales[t_id as usize].lock();
+                                let prev_scl = scl.clone();
+                                // Ins(&mut scl).inspect("Scale", ui);
+                                ui.horizontal(|ui| {
+                                    ui.add(egui::Label::new("Scale"));
+                                    ui.add(egui::DragValue::new(&mut scl.x).speed(0.1));
+                                    ui.add(egui::DragValue::new(&mut scl.y).speed(0.1));
+                                    ui.add(egui::DragValue::new(&mut scl.z).speed(0.1));
+                                });
+                                if prev_scl != scl {
+                                    t.set_scale(t_id, scl);
+                                }
+                            });
+                        let mut components = ent.write();
+                        for (c_type, id) in components.iter_mut() {
+                            if let Some(c) = world.components.get(&c_type) {
+                                let c = c.read();
+                                // let name: String = c.get_name().into();
+                                ui.separator();
+                                let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
+                                egui::collapsing_header::CollapsingState::load_with_default_open(
+                                    ui.ctx(),
+                                    _id,
+                                    true,
+                                )
+                                .show_header(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.heading(c.get_name());
+                                        if ui.button("delete").clicked() {
+                                            println!("delete component");
+                                            let g = GameObject { t: t_id };
+                                            // world.remove_component(g, *c_type, *id)
+                                            rmv = Some((g, *c_type, *id));
+                                        }
+                                    });
+                                })
+                                .body(|ui| {
+                                    let transform = Transform {
+                                        id: t_id,
+                                        transforms: &world.transforms.read(),
+                                    };
+                                    c.inspect(transform, *id, ui, &mut world.sys.lock());
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+        });
+
+        if let Some((g, c_type, id)) = rmv {
+            world.remove_component(g, c_type, id)
+        }
+        // if let Some(resp) = resp {
+            if unsafe {_selected.is_some() } {
+
+                let mut compoenent_init: Option<(TypeId, i32)> = None;
+                resp.response.context_menu(|ui: &mut Ui| {
+                let resp = ui.menu_button("Add Component", |ui| {
+                    for (k, c) in &world.components {
+                        let mut c = c.write();
+                        let resp = ui.add(egui::Button::new(c.get_name()));
+                        if resp.clicked() {
+                            if let Some(t_id) = unsafe { _selected } {
+                                let c_id = c.new_default(t_id);
+                                let key = c.get_type();
+                                compoenent_init = Some((key, c_id));
+                            }
+                            ui.close_menu();
+                        }
+                    }
+                    if let (Some(t_id), Some((key, c_id))) = (unsafe { _selected }, compoenent_init)
+                    {
+                        let g = GameObject { t: t_id };
+                        world.add_component_id(g, key, c_id)
+                    }
+                });
+            });
+        }
+    }
+}
+struct ModelInspector {
+    file: String
+}
+
+impl Inspectable_ for ModelInspector {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
+        ui.add(egui::Label::new(self.file.as_str()));
+    }
+}
+
+pub fn editor_ui(
+    world: &Mutex<World>,
+    fps_queue: &mut VecDeque<f32>,
+    egui_ctx: &Context,
+    frame_color: egui::TextureId,
+) {
     {
         static mut _selected_transforms: Lazy<HashMap<i32, bool>> =
             Lazy::new(|| HashMap::<i32, bool>::new());
 
-        static mut _selected: Option<i32> = None;
         static mut context_menu: Option<GameObjectContextMenu> = None;
         unsafe { context_menu = None };
+        static mut inspectable: Option<Box<dyn Inspectable_>> = None;
+        let mut _inspectable: Option<Box<dyn Inspectable_>> = None;
+        // let game_object_inspector = GameObjectInspector {world: &world };
         // let mut world = world.lock();
 
         static mut dock: Lazy<Tree<String>> = Lazy::new(|| {
-            let mut tree = Tree::new(vec!["game".to_owned()]);
+            let mut tree = Tree::new(vec!["Game".to_owned()]);
 
             // You can modify the tree before constructing the dock
-            let [a, b] = tree.split_left(NodeIndex::root(), 0.15, vec!["Hierarchy".to_owned(), "tabx".to_owned()]);
+            let [a, b] = tree.split_left(
+                NodeIndex::root(),
+                0.15,
+                vec!["Hierarchy".to_owned(), "tabx".to_owned()],
+            );
             let [c, _] = tree.split_right(a, 0.8, vec!["Inspector".to_owned()]);
             let [_, _] = tree.split_below(b, 0.5, vec!["Project".to_owned()]);
-            let [_,_] = tree.split_below(c, 0.7, vec!["console".to_owned()]);
+            let [_, _] = tree.split_below(c, 0.7, vec!["console".to_owned()]);
             tree
         });
         // static mut CUR_EULER_ANGLES: Option<glm::Vec3> = None;
@@ -84,22 +312,23 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
             // }
             DockArea::new(&mut dock)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
-                .show(egui_ctx, &mut TabViewer {image: frame_color.clone(), world, fps: fps_queue, func:
-                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>| {
+                .show(egui_ctx, &mut TabViewer {image: frame_color.clone(), world, fps: fps_queue, inspectable: &mut _inspectable, func:
+                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, ins: &mut Option<Box<dyn Inspectable_>>| {
                         match tab {
                             "Hierarchy" => {
                                 // let resp = {
+                                    let w = &world;
                                     let mut world = world.lock();
                                     let resp = ui.scope(|ui| {
 
                                     let mut transforms = world.transforms.write();
-                        
+
                                     let hierarchy_ui = |ui: &mut egui::Ui| {
                                         if fps_queue.len() > 0 {
                                             let fps: f32 = fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
                                             ui.label(format!("fps: {}", 1.0 / fps));
                                         }
-                        
+
                                         fn transform_hierarchy_ui(
                                             transforms: &Transforms,
                                             selected_transforms: &mut HashMap<i32, bool>,
@@ -115,35 +344,27 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                                 true,
                                             )
                                             .show_header(ui, |ui| {
-                                                // ui.scope(|ui| {
-                        
-                                                // ui.set_max_width(100.0);
                                                 ui.horizontal(|ui| {
                                                     let label = egui::SelectableLabel::new(
                                                         *selected_transforms.get(&t.id).unwrap_or(&false),
                                                         format!("game object {}", t.id),
                                                     );
                                                     let resp = ui.add(label);
-                        
+
                                                     if resp.clicked() {
                                                         selected_transforms.clear();
                                                         selected_transforms.insert(t.id, true);
                                                         *selected = Some(t.id);
+                                                        unsafe { inspectable = Some(Box::new(GameObjectInspector {})); }
                                                         // unsafe {
                                                         //     CUR_EULER_ANGLES = None;
                                                         // };
                                                     }
-                        
-                                                    // let resp = ui.toggle_value(
-                                                    //     &mut selected_transforms
-                                                    //         .get_mut(&t.id)
-                                                    //         .unwrap_or(&mut this_selection),
-                                                    //     format!("game object {}", t.id),
-                                                    // );
+
                                                     let id = resp.id;
                                                     let is_being_dragged = ui.memory().is_being_dragged(id);
                                                     let pointer_released = ui.input().pointer.any_released();
-                        
+
                                                     // drop target
                                                     // on transform
                                                     // between transforms
@@ -172,12 +393,12 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                                         ));
                                                         ui.painter().add(a);
                                                     }
-                        
+
                                                     // if pointer_released { println!("id: {2}, top: {0}, botom: {1}, height: {height}", resp.rect.top(),resp.rect.bottom(), t.id); }
                                                     if TRANSFORM_DRAG.lock().is_none() {
                                                         if between && pointer_released {
                                                             let d_t_id: i32 = *DRAGGED_TRANSFORM.lock();
-                        
+
                                                             if d_t_id != t.id && d_t_id != 0 {
                                                                 *TRANSFORM_DRAG.lock() =
                                                                     Some(TransformDrag::DragBetweenTransform(
@@ -203,7 +424,7 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                                         }
                                                     }
                                                     // });
-                        
+
                                                     // drag source
                                                     let resp = ui.interact(resp.rect, id, egui::Sense::drag());
                                                     if resp.drag_started() {
@@ -223,7 +444,7 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                                             ui.ctx().translate_layer(layer_id, delta);
                                                         }
                                                     }
-                        
+
                                                     resp.context_menu(|ui: &mut Ui| {
                                                         // let resp = ui.menu_button("Add Child", |ui| {});
                                                         if ui.menu_button("Add Child", |ui| {}).response.clicked() {
@@ -272,7 +493,7 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                                         _ => {}
                                                     }
                                                 }
-                        
+
                                                 for child_id in t.get_meta().lock().children.iter() {
                                                     let child = Transform {
                                                         id: *child_id,
@@ -294,13 +515,13 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                                 // ui.label("The body is always custom");
                                             });
                                         }
-                        
+
                                         let root = Transform {
                                             id: 0,
                                             transforms: &&transforms,
                                         };
                                         let mut count = 0;
-                        
+
                                         // unsafe {
                                             egui::ScrollArea::both()
                                                 .auto_shrink([false, false])
@@ -316,9 +537,9 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                                 });
                                         // }
                                     };
-                        
+
                                     // windows
-                        
+
                                     *TRANSFORM_DRAG.lock() = None;
                                     puffin::profile_function!();
                                     // let mut open = true;
@@ -329,7 +550,7 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                     //     // .hscroll(true)
                                     //     .show(&egui_ctx, hierarchy_ui);
                                     hierarchy_ui(ui);
-                                    
+
                                     let d = &*TRANSFORM_DRAG.lock();
                                     if let Some(d) = d {
                                         // (d_t_id, t_id)
@@ -375,7 +596,7 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                             _selected_transforms.clear();
                                         // }
                                     }
-                                } 
+                                }
                                 // else if let Some(resp) = resp {
                                     resp.response.context_menu(|ui: &mut Ui| {
                                         let resp = ui.menu_button("Add Game Object", |ui| {});
@@ -401,177 +622,11 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                 // }
                             },
                             "Inspector" => {
-                                let mut rmv: Option<(GameObject, std::any::TypeId, i32)> = None;
-                                // let resp = egui::Window::new("Inspector")
-                                //     .default_size([200.0, 600.0])
-                                //     .vscroll(true)
-                                //     .show(&egui_ctx, |ui: &mut egui::Ui| {
-                                    let mut world = world.lock();
-                                        if let Some(t_id) = unsafe { _selected } {
-                                            let entities = world.entities.write();
-                                            if let Some(ent) = &entities[t_id as usize] {
-                                                // let t = Transform { id: t_id, transforms: &*world.transforms.read() };
-                                                let t = &*world.transforms.read();
-                                                egui::CollapsingHeader::new("Transform")
-                                                    .default_open(true)
-                                                    .show(ui, |ui| {
-                                                        let mut pos = *t.positions[t_id as usize].lock();
-                                                        let prev_pos = pos.clone();
-                                                        // Ins(&mut pos).inspect("Postition", ui);
-                                                        ui.horizontal(|ui| {
-                                                            ui.add(egui::Label::new("Position"));
-                                                            ui.add(egui::DragValue::new(&mut pos.x).speed(0.1));
-                                                            ui.add(egui::DragValue::new(&mut pos.y).speed(0.1));
-                                                            ui.add(egui::DragValue::new(&mut pos.z).speed(0.1));
-                                                        });
-                                                        if pos != prev_pos {
-                                                            t.move_child(t_id, pos - prev_pos);
-                                                        }
-                                                        let mut rot = *t.rotations[t_id as usize].lock();
-                                                        // if unsafe { CUR_EULER_ANGLES.is_none() } {
-                                                        //     unsafe {
-                                                        //         let rot = glm::quat_euler_angles(&rot);
-                                                        //         CUR_EULER_ANGLES = Some(rot);
-                                                        //     };
-                                                        // }
-                                                        let prev_rot = rot.clone();
-                                                        // static mut CURR_OFFSETS: Option<glm::Vec3> = None;
-                                                        let mut changed_rot = false;
-                                                        ui.vertical(|ui| {
-                                                            ui.horizontal(|ui| {
-                                                                // ui.add(egui::Label::new("Rotation"));
-                                                                ui.add(egui::Label::new("Rotation"));
-                                                                let x = ui.add(
-                                                                    egui::Button::new("< X >").sense(egui::Sense::drag()),
-                                                                );
-                                                                // x.sense.drag = true;
-                                                                if x.dragged() && x.drag_delta().x != 0. {
-                                                                    t.rotate(
-                                                                        t_id,
-                                                                        &glm::vec3(1., 0., 0.),
-                                                                        x.drag_delta().x / 10.,
-                                                                    );
-                                                                }
-                                                                let y = ui.add(
-                                                                    egui::Button::new("< Y >").sense(egui::Sense::drag()),
-                                                                );
-                                                                // y.sense.drag = true;
-                                                                if y.dragged() && y.drag_delta().x != 0. {
-                                                                    t.rotate(
-                                                                        t_id,
-                                                                        &glm::vec3(0., 1., 0.),
-                                                                        y.drag_delta().x / 10.,
-                                                                    );
-                                                                }
-                                                                let z = ui.add(
-                                                                    egui::Button::new("< Z >").sense(egui::Sense::drag()),
-                                                                );
-                                                                // z.sense.drag = true;
-                                                                if z.dragged() && z.drag_delta().x != 0. {
-                                                                    t.rotate(
-                                                                        t_id,
-                                                                        &glm::vec3(0., 0., 1.),
-                                                                        z.drag_delta().x / 10.,
-                                                                    );
-                                                                }
-                                                                // ui.add(egui::DragValue::new(&mut rot.coords.x).speed(0.1));
-                                                                // ui.add(egui::DragValue::new(&mut rot.coords.y).speed(0.1));
-                                                                // ui.add(egui::DragValue::new(&mut rot.coords.z).speed(0.1));
-                                                            });
-                                                            ui.horizontal(|ui| {
-                                                                ui.add(egui::DragValue::new(&mut rot.coords.w).speed(0.1));
-                                                                ui.add(egui::DragValue::new(&mut rot.coords.x).speed(0.1));
-                                                                ui.add(egui::DragValue::new(&mut rot.coords.y).speed(0.1));
-                                                                ui.add(egui::DragValue::new(&mut rot.coords.z).speed(0.1));
-                                                            });
-                                                        });
-                        
-                                                        // Ins(&mut rot).inspect("Rotation", ui);
-                                                        // if let Some(rot) = unsafe { &mut CUR_EULER_ANGLES } {
-                                                        //     if changed_rot {
-                                                        //         // vec<3, T, Q> c = glm::cos(eulerAngle * T(0.5));
-                                                        //         // vec<3, T, Q> s = glm::sin(eulerAngle * T(0.5));
-                        
-                                                        //         // this->x = s.x * c.y * c.z - c.x * s.y * s.z;
-                                                        //         // this->y = c.x * s.y * c.z + s.x * c.y * s.z;
-                                                        //         // this->z = c.x * c.y * s.z - s.x * s.y * c.z;
-                                                        //         // this->w = c.x * c.y * c.z + s.x * s.y * s.z;
-                        
-                                                        //         // let c = glm::cos(&(*rot * 0.5));
-                                                        //         // let s = glm::sin(&(*rot * 0.5));
-                                                        //         // let q = glm::Quat {
-                                                        //         //     coords: [
-                                                        //         //         s.x * c.y * c.z - c.x * s.y * s.z, // x
-                                                        //         //         c.x * s.y * c.z + s.x * c.y * s.z, // y
-                                                        //         //         c.x * c.y * s.z - s.x * s.y * c.z, // z
-                                                        //         //         c.x * c.y * c.z + s.x * s.y * s.z, // w
-                                                        //         //     ].into(),
-                                                        //         // };
-                        
-                                                        //         // let mut q = glm::Mat4::identity();
-                                                        //         // q = glm::rotate(&q, rot.z, &glm::vec3(0., 0., 1.));
-                                                        //         // q = glm::rotate(&q, rot.y, &glm::vec3(0., 1., 0.));
-                                                        //         // q = glm::rotate(&q, rot.x, &glm::vec3(1., 0., 0.));
-                                                        //         // let q = glm::to_quat(&q);
-                                                        //         // let x = glm::quat_angle_axis(rot.x, &glm::vec3(1., 0., 0.));
-                                                        //         // let y = glm::quat_angle_axis(rot.y, &glm::vec3(0., 1., 0.));
-                                                        //         // let z = glm::quat_angle_axis(rot.z, &glm::vec3(0., 0., 1.));
-                                                        //         // let q = x * y * z;
-                                                        //         // *t.rotations[t_id as usize].lock() = q;
-                                                        //         // t.updates[t_id as usize][1].store(true, Ordering::Relaxed);
-                                                        //         t.set_rotation(t_id, q);
-                                                        //     }
-                                                        // }
-                                                        let mut scl = *t.scales[t_id as usize].lock();
-                                                        let prev_scl = scl.clone();
-                                                        // Ins(&mut scl).inspect("Scale", ui);
-                                                        ui.horizontal(|ui| {
-                                                            ui.add(egui::Label::new("Scale"));
-                                                            ui.add(egui::DragValue::new(&mut scl.x).speed(0.1));
-                                                            ui.add(egui::DragValue::new(&mut scl.y).speed(0.1));
-                                                            ui.add(egui::DragValue::new(&mut scl.z).speed(0.1));
-                                                        });
-                                                        if prev_scl != scl {
-                                                            t.set_scale(t_id, scl);
-                                                        }
-                                                    });
-                                                let mut components = ent.write();
-                                                for (c_type, id) in components.iter_mut() {
-                                                    if let Some(c) = world.components.get(&c_type) {
-                                                        let c = c.read();
-                                                        // let name: String = c.get_name().into();
-                                                        ui.separator();
-                                                        let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
-                                                        egui::collapsing_header::CollapsingState::load_with_default_open(
-                                                            ui.ctx(),
-                                                            _id,
-                                                            true,
-                                                        )
-                                                        .show_header(ui, |ui| {
-                                                            ui.horizontal(|ui| {
-                                                                ui.heading(c.get_name());
-                                                                if ui.button("delete").clicked() {
-                                                                    println!("delete component");
-                                                                    let g = GameObject { t: t_id };
-                                                                    // world.remove_component(g, *c_type, *id)
-                                                                    rmv = Some((g, *c_type, *id));
-                                                                }
-                                                            });
-                                                        })
-                                                        .body(|ui| {
-                                                            let transform = Transform {
-                                                                id: t_id,
-                                                                transforms: &world.transforms.read(),
-                                                            };
-                                                            c.inspect(transform, *id, ui, &mut world.sys.lock());
-                                                        });
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    // });
-                                if let Some((g, c_type, id)) = rmv {
-                                    world.remove_component(g, c_type, id)
+                                
+                                if let Some(ins) = &mut inspectable {
+                                    // let mut world = world.lock();
+                                    ins.inspect(ui, world);
+                                } else {
                                 }
                             },
                             "Project" => {
@@ -612,73 +667,67 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
                                             for entry in files {
                                                 render_dir(ui, entry.path(), sys)
                                             }
-                        
+
                                             // ui.label("The body is always custom");
                                         });
                                     } else {
                                         if let Some(last_slash) = label.rfind("/") {
                                             let _label: String = label.substring(last_slash + 1, label.len()).into();
-                                            // drag_source(ui, id, body)
-                                            // let a = ui.label(label);
-                                            // a.
-                                            // let label = egui::Label::new(label);
-                        
-                                            // let a = ui.add(label);
-                                            // a.id
-                                            if let Some(last_dot) = label.rfind(".") {
-                                                let file_ext = label.substring(last_dot, label.len());
-                                                if file_ext == ".obj" {
-                                                    let mut mm = sys.model_manager.lock();
-                                                    if !mm.models.contains_key(&label) {
-                                                        mm.from_file(&label);
-                                                    }
-                                                }
-                                            }
-                        
+                                            // if let Some(last_dot) = label.rfind(".") {
+                                            //     let file_ext = label.substring(last_dot, label.len());
+                                            //     if file_ext == ".obj" {
+                                            //         let mut mm = sys.model_manager.lock();
+                                            //         if !mm.models.contains_key(&label) {
+                                            //             mm.from_file(&label);
+                                            //         }
+                                            //     }
+                                            // }
+
                                             let item_id = egui::Id::new(label.clone());
-                        
-                                            drag_source(ui, item_id, label, |ui| {
-                                                ui.add(egui::Label::new(_label.clone()).sense(egui::Sense::click()));
-                                            });
+
+                                            // let __label = _label.clone();
+
+
+                                            // let resp = ui.add(egui::Button::new(__label.clone()));
+                                            // // ui.interact(resp.rect, id, egui::Sense::click());
+                                            
+                                            // if resp.clicked() {
+                                            //             unsafe { inspectable = Some(Box::new(ModelInspector {file: __label.clone()})); }
+
+                                            //             // selected_transforms.clear();
+                                            //             // selected_transforms.insert(t.id, true);
+                                            //             // *selected = Some(t.id);
+                                            //             // unsafe { inspectable = Some(Box::new(GameObjectInspector {})); }
+                                            //             // // unsafe {
+                                            //                 // //     CUR_EULER_ANGLES = None;
+                                            //                 // // };
+                                            //         }
+                                            //         ui.interact(resp.rect, id, egui::Sense::drag());
+
+                                            //         let id = resp.id;
+                                            //         let is_being_dragged = ui.memory().is_being_dragged(id);
+
+                                            // if is_being_dragged {
+                                                let resp = drag_source(ui, item_id, label.clone(), move |ui| {
+                                                    ui.add(egui::Label::new(_label.clone()).sense(egui::Sense::click()));
+                                                    // if resp.clicked() {
+                                                    //     unsafe { inspectable = Some(Box::new(ModelInspector {file: __label.clone()})); }
+                                                    // }
+                                                });
+                                                if resp.clicked() {
+                                                    unsafe { inspectable = Some(Box::new(ModelInspector {file: label})); }
+                                                }
+                                            // }
                                         }
                                     }
                                 }
                                 render_dir(ui, cur_dir, &world.sys.lock());
-                                // if let Some(resp) = resp {
-                                //     let mut compoenent_init: Option<(TypeId, i32)> = None;
-                                //     resp.response.context_menu(|ui: &mut Ui| {
-                                //         let resp = ui.menu_button("Add Component", |ui| {
-                                //             // ui.add(egui::Button::new("text"));
-                                //             for (k, c) in &world.components {
-                                //                 let mut c = c.write();
-                                //                 let resp = ui.add(egui::Button::new(c.get_name()));
-                                //                 if resp.clicked() {
-                                //                     if let Some(t_id) = unsafe { _selected } {
-                                //                         let c_id = c.new_default(t_id);
-                                //                         let key = c.get_type();
-                                //                         compoenent_init = Some((key, c_id));
-                                //                     }
-                                //                     ui.close_menu();
-                                //                 }
-                                //             }
-                                //             if let (Some(t_id), Some((key, c_id))) = (unsafe { _selected }, compoenent_init)
-                                //             {
-                                //                 let g = GameObject { t: t_id };
-                                //                 world.add_component_id(g, key, c_id)
-                                //             }
-                                //         });
-                                //     });
-                                // }
                             }
                             _ => {}
                         }
                     })
                 });
         }
-
-      
-
-       
 
         // egui::Window::new("Project")
         //     .default_size([200.0, 600.0])
@@ -689,6 +738,5 @@ pub fn editor_ui(world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, egui_ctx: 
         //         //     ui.label(format!("{}", entry.unwrap().path().display()));
         //         // }
         //     });
-       
     }
 }

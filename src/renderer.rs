@@ -4,13 +4,17 @@ use bytemuck::{Pod, Zeroable};
 use vulkano::{
     buffer::{BufferSlice, CpuAccessibleBuffer, DeviceLocalBuffer},
     command_buffer::{
-        AutoCommandBufferBuilder, DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer, CommandBufferUsage, allocator::StandardCommandBufferAllocator, PrimaryCommandBufferAbstract,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
     },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet, allocator::StandardDescriptorSetAllocator},
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+    },
     device::{Device, Queue},
     format::Format,
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
     impl_vertex,
+    memory::allocator::StandardMemoryAllocator,
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState,
@@ -23,14 +27,13 @@ use vulkano::{
     },
     render_pass::{RenderPass, Subpass},
     sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
-    shader::ShaderModule, memory::allocator::StandardMemoryAllocator,
+    shader::ShaderModule,
 };
 
 use crate::{
     model::{Mesh, Normal, Vertex, UV},
     transform_compute::cs::ty::MVP,
 };
-
 
 pub mod vs {
     vulkano_shaders::shader! {
@@ -50,7 +53,6 @@ pub mod fs {
         path: "src/model.frag"
     }
 }
-
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
@@ -113,12 +115,12 @@ impl RenderPipeline {
             .build(device.clone())
             .unwrap();
 
-            let mut builder = AutoCommandBufferBuilder::primary(
-                command_allocator,
-                queue.queue_family_index(),
-                CommandBufferUsage::OneTimeSubmit,
-            )
-            .unwrap();
+        let mut builder = AutoCommandBufferBuilder::primary(
+            command_allocator,
+            queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
 
         let def_texture = {
             let dimensions = ImageDimensions::Dim2d {
@@ -138,12 +140,8 @@ impl RenderPipeline {
             .unwrap();
             ImageView::new_default(image).unwrap()
         };
-        builder
-        .build()
-        .unwrap()
-        .execute(queue.clone())
-        .unwrap();
-        
+        builder.build().unwrap().execute(queue.clone()).unwrap();
+
         let def_sampler = Sampler::new(
             device.clone(),
             SamplerCreateInfo {
@@ -196,7 +194,10 @@ impl RenderPipeline {
 
     pub fn bind_pipeline(
         &self,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
     ) -> &RenderPipeline {
         builder.bind_pipeline_graphics(self.pipeline.clone());
 
@@ -206,7 +207,10 @@ impl RenderPipeline {
     pub fn bind_mesh(
         &self,
         // device: Arc<Device>,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
         instance_buffer: Arc<BufferSlice<[i32], CpuAccessibleBuffer<[i32]>>>,
         mvp_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
@@ -238,7 +242,8 @@ impl RenderPipeline {
             ));
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
-        if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors) {
+        if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
+        {
             builder
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,

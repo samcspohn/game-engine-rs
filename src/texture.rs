@@ -7,7 +7,8 @@ use std::{
 use parking_lot::RwLock;
 use vulkano::{
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBufferAbstract,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        PrimaryCommandBufferAbstract,
     },
     device::{Device, Queue},
     format::Format,
@@ -20,7 +21,7 @@ pub struct TextureManager {
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
     pub textures: RwLock<HashMap<String, Arc<Texture>>>,
-    pub mem: Arc<StandardMemoryAllocator>
+    pub mem: Arc<StandardMemoryAllocator>,
 }
 
 impl TextureManager {
@@ -103,11 +104,7 @@ impl Texture {
                     )
                     .unwrap();
 
-                    let _ = uploads
-                        .build()
-                        .unwrap()
-                        .execute(queue.clone())
-                        .unwrap();
+                    let _ = uploads.build().unwrap().execute(queue.clone()).unwrap();
 
                     ImageView::new_default(image).unwrap()
                 }

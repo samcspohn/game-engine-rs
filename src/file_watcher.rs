@@ -3,7 +3,7 @@ use notify::{
     *,
 };
 use std::{
-    collections::{HashMap, BTreeMap},
+    collections::{BTreeMap, HashMap},
     fs,
     path::Path,
     sync::mpsc::{Receiver, Sender},

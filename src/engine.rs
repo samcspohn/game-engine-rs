@@ -27,9 +27,14 @@ use parking_lot::RwLock;
 use spin::Mutex;
 use vulkano::{
     buffer::DeviceLocalBuffer,
-    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer, allocator::StandardCommandBufferAllocator},
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
+        PrimaryAutoCommandBuffer,
+    },
+    descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{Device, Queue},
-    pipeline::graphics::viewport::Viewport, descriptor_set::allocator::StandardDescriptorSetAllocator, memory::allocator::StandardMemoryAllocator,
+    memory::allocator::StandardMemoryAllocator,
+    pipeline::graphics::viewport::Viewport,
 };
 
 use crate::{
@@ -46,7 +51,10 @@ use self::{physics::Physics, transform::_Transform};
 // }
 
 pub struct RenderJobData<'a> {
-    pub builder: &'a mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+    pub builder: &'a mut AutoCommandBufferBuilder<
+        PrimaryAutoCommandBuffer,
+        Arc<StandardCommandBufferAllocator>,
+    >,
     pub transforms: Arc<DeviceLocalBuffer<[crate::transform_compute::cs::ty::transform]>>,
     pub mvp: Arc<DeviceLocalBuffer<[crate::transform_compute::cs::ty::MVP]>>,
     pub view: &'a nalgebra_glm::Mat4,

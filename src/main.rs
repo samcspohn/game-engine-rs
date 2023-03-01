@@ -382,7 +382,7 @@ fn main() {
         )
         .unwrap()
     };
-
+    // let img_count = swapchain.image_count();
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
     let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
@@ -480,12 +480,12 @@ fn main() {
         )
         .unwrap(),
     };
-    let mut uploads = AutoCommandBufferBuilder::primary(
-        &command_buffer_allocator,
-        queue.queue_family_index(),
-        CommandBufferUsage::OneTimeSubmit,
-    )
-    .unwrap();
+    // let mut uploads = AutoCommandBufferBuilder::primary(
+    //     &command_buffer_allocator,
+    //     queue.queue_family_index(),
+    //     CommandBufferUsage::OneTimeSubmit,
+    // )
+    // .unwrap();
     // let src = ImageView::new_default(frame_color.arc.clone());
     let frame_img = StorageImage::new(
         &memory_allocator,
@@ -499,18 +499,18 @@ fn main() {
     )
     .unwrap();
 
-    uploads
-        .copy_image(CopyImageInfo::images(
-            frame_color.arc.clone(),
-            frame_img.clone(),
-        ))
-        // .blit_image(BlitImageInfo::images(
-        //     frame_color.arc.clone(),
-        //     frame_img.clone(),
-        // ))
-        .unwrap();
+    // uploads
+    //     .copy_image(CopyImageInfo::images(
+    //         frame_color.arc.clone(),
+    //         frame_img.clone(),
+    //     ))
+    //     // .blit_image(BlitImageInfo::images(
+    //     //     frame_color.arc.clone(),
+    //     //     frame_img.clone(),
+    //     // ))
+    //     .unwrap();
 
-    let _ = uploads.build().unwrap().execute(queue.clone()).unwrap();
+    // let _ = uploads.build().unwrap().execute(queue.clone()).unwrap();
 
     let mut framebuffers = window_size_dependent_setup(
         &images,
@@ -987,7 +987,7 @@ fn main() {
                     recreate_swapchain = false;
                 }
 
-                let aspect_ratio =
+                let aspect_ratio = // *editor_ui::EDITOR_ASPECT_RATIO.lock();
                     swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
                 let proj = glm::perspective(
                     aspect_ratio,
