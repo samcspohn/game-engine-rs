@@ -202,7 +202,7 @@ pub struct RendererManager {
 
     pub transforms: _Storage<TransformId>,
     pub updates: HashMap<i32, TransformId>,
-    pub shr_data: RwLock<SharedRendererData>,
+    pub shr_data: Arc<RwLock<SharedRendererData>>,
     // pub transform_ids_gpu: Arc<CpuAccessibleBuffer<[TransformId]>>,
     // pub transforms_gpu_len: i32,
     // pub renderers_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
@@ -254,7 +254,7 @@ impl RendererManager {
             indirect_model: RwLock::new(BTreeMap::new()),
             updates: HashMap::new(),
             transforms: _Storage::new(),
-            shr_data: RwLock::new(SharedRendererData {
+            shr_data: Arc::new(RwLock::new(SharedRendererData {
                 transform_ids_gpu: CpuAccessibleBuffer::from_iter(
                     // device.clone(),
                     &mem,
@@ -306,7 +306,7 @@ impl RendererManager {
                     buffer_usage_all(),
                     MemoryUsage::Upload,
                 )),
-            }),
+            })),
         }
     }
 }

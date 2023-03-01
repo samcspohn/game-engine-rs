@@ -434,7 +434,7 @@ pub struct World {
     pub(crate) components_names:
         HashMap<String, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) root: i32,
-    pub(crate) sys: Mutex<Sys>, // makers: Vec<Option<Mutex<Maker>>>,
+    pub(crate) sys: Arc<Mutex<Sys>>, // makers: Vec<Option<Mutex<Maker>>>,
 }
 
 #[allow(dead_code)]
@@ -458,7 +458,7 @@ impl World {
             components: HashMap::new(),
             components_names: HashMap::new(),
             root,
-            sys: Mutex::new(Sys {
+            sys: Arc::new(Mutex::new(Sys {
                 device,
                 model_manager: modeling,
                 renderer_manager,
@@ -468,7 +468,7 @@ impl World {
                 memory_allocator,
                 descriptor_set_allocator,
                 command_buffer_allocator,
-            }),
+            })),
         }
     }
     pub fn instantiate(&self) -> GameObject {

@@ -664,7 +664,7 @@ fn main() {
 
     let world = Arc::new(Mutex::new(World::new(
         model_manager.clone(),
-        renderer_manager.clone(),
+        renderer_manager,
         physics,
         particles.clone(),
         device.clone(),
@@ -681,6 +681,13 @@ fn main() {
         world.register::<Terrain>(true, true);
         world.register::<Bomb>(true, false);
     }
+    let rm = {
+        let w = world.lock();
+        let s = w.sys.lock();
+        let rm = s.renderer_manager.read();
+        let rm = rm.shr_data.clone();
+        rm
+    };
 
     let game_thread = {
         // let _perf = perf.clone();
@@ -890,8 +897,8 @@ fn main() {
 
                 let render_jobs = world.lock().render();
 
-                let rm = renderer_manager.read();
-                let mut rm = rm.shr_data.write();
+                // let rm = renderer_manager.read();
+                let mut rm = rm.write();
 
                 //
                 let res = coms.1.send(input.clone());

@@ -26,7 +26,7 @@ pub fn save_project(file_watcher: &FileWatcher, world: &World) {
         .iter()
         .map(|(f, _)| f.clone())
         .collect();
-    let working_file = "test.ron".into();
+    let working_file = "test.yaml".into();
 
     let project = Project {
         files,

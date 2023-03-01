@@ -157,187 +157,191 @@ pub fn game_thread_fn(
         // println!("waiting for input");
         let input = coms.1.recv().unwrap();
         // println!("input recvd");
-
-        let mut world = world.lock();
-        {
-            puffin::profile_scope!("game loop");
-            let inst = Instant::now();
+        let (transform_data, renderer_data, emitter_len,v) = {
+            let mut world = world.lock();
             {
-                puffin::profile_scope!("world update");
-                world.sys.lock().physics.step(&gravity);
-                world.update(&lazy_maker, &input);
+                puffin::profile_scope!("game loop");
+                let inst = Instant::now();
+                {
+                    puffin::profile_scope!("world update");
+                    world.sys.lock().physics.step(&gravity);
+                    world.update(&lazy_maker, &input);
+                }
+
+                let speed = 20.0 * input.time.dt;
+                if !input.get_key(&VirtualKeyCode::LControl) {
+                    // forward/backward
+                    if input.get_key(&VirtualKeyCode::W) {
+                        cam_pos +=
+                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
+                    }
+                    if input.get_key(&VirtualKeyCode::S) {
+                        cam_pos +=
+                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
+                    }
+                    //left/right
+                    if input.get_key(&VirtualKeyCode::A) {
+                        cam_pos +=
+                            (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
+                    }
+                    if input.get_key(&VirtualKeyCode::D) {
+                        cam_pos +=
+                            (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
+                    }
+                    // up/down
+                    if input.get_key(&VirtualKeyCode::Space) {
+                        cam_pos +=
+                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
+                    }
+                    if input.get_key(&VirtualKeyCode::LShift) {
+                        cam_pos +=
+                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
+                    }
+
+                    if input.get_mouse_button(&2) {
+                        cam_rot = glm::quat_rotate(
+                            &cam_rot,
+                            input.get_mouse_delta().0 as f32 * 0.01,
+                            &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
+                        );
+                        cam_rot = glm::quat_rotate(
+                            &cam_rot,
+                            input.get_mouse_delta().1 as f32 * 0.01,
+                            &Vec3::x(),
+                        );
+                    }
+                    const ALOT: f32 = 10_000_000. / 60.;
+                    // if input.get_mouse_button(&0) {
+                    //     let _cam_rot = cam_rot.clone();
+                    //     let _cam_pos = cam_pos.clone();
+                    //     // let rm = renderer_manager.clone();
+                    //     lazy_maker.append(move |world| {
+                    //         let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
+                    //         // let chunk_size =  (len / (64 * 64)).max(1);
+                    //         (0..len)
+                    //             .into_iter()
+                    //             // .chunks(chunk_size)
+                    //             .for_each(|_| {
+                    //                 let g = world.instantiate_with_transform(_Transform {
+                    //                     position: _cam_pos
+                    //                         + glm::quat_to_mat3(&_cam_rot)
+                    //                             * (glm::Vec3::y() * 4. - glm::Vec3::z() * 6.),
+                    //                     ..Default::default()
+                    //                 });
+                    //                 world.add_component(
+                    //                     g,
+                    //                     Bomb {
+                    //                         vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                    //                             + glm::vec3(
+                    //                                 rand::random(),
+                    //                                 rand::random(),
+                    //                                 rand::random(),
+                    //                             ) * 18.,
+                    //                     },
+                    //                 );
+                    //                 world.add_component(g, Renderer::new(0));
+                    //                 world.add_component(g, ParticleEmitter::new(0));
+                    //             });
+                    //     });
+                    // }
+                }
+
+                {
+                    puffin::profile_scope!("defered");
+                    lazy_maker.do_defered(&mut world);
+                }
+
+                perf.update("world".into(), Instant::now() - inst);
             }
-
-            let speed = 20.0 * input.time.dt;
-            if !input.get_key(&VirtualKeyCode::LControl) {
-                // forward/backward
-                if input.get_key(&VirtualKeyCode::W) {
-                    cam_pos +=
-                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
-                }
-                if input.get_key(&VirtualKeyCode::S) {
-                    cam_pos +=
-                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
-                }
-                //left/right
-                if input.get_key(&VirtualKeyCode::A) {
-                    cam_pos +=
-                        (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
-                }
-                if input.get_key(&VirtualKeyCode::D) {
-                    cam_pos +=
-                        (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
-                }
-                // up/down
-                if input.get_key(&VirtualKeyCode::Space) {
-                    cam_pos +=
-                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
-                }
-                if input.get_key(&VirtualKeyCode::LShift) {
-                    cam_pos +=
-                        (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
-                }
-
-                if input.get_mouse_button(&2) {
-                    cam_rot = glm::quat_rotate(
-                        &cam_rot,
-                        input.get_mouse_delta().0 as f32 * 0.01,
-                        &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
-                    );
-                    cam_rot = glm::quat_rotate(
-                        &cam_rot,
-                        input.get_mouse_delta().1 as f32 * 0.01,
-                        &Vec3::x(),
-                    );
-                }
-                const ALOT: f32 = 10_000_000. / 60.;
-                // if input.get_mouse_button(&0) {
-                //     let _cam_rot = cam_rot.clone();
-                //     let _cam_pos = cam_pos.clone();
-                //     // let rm = renderer_manager.clone();
-                //     lazy_maker.append(move |world| {
-                //         let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
-                //         // let chunk_size =  (len / (64 * 64)).max(1);
-                //         (0..len)
-                //             .into_iter()
-                //             // .chunks(chunk_size)
-                //             .for_each(|_| {
-                //                 let g = world.instantiate_with_transform(_Transform {
-                //                     position: _cam_pos
-                //                         + glm::quat_to_mat3(&_cam_rot)
-                //                             * (glm::Vec3::y() * 4. - glm::Vec3::z() * 6.),
-                //                     ..Default::default()
-                //                 });
-                //                 world.add_component(
-                //                     g,
-                //                     Bomb {
-                //                         vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
-                //                             + glm::vec3(
-                //                                 rand::random(),
-                //                                 rand::random(),
-                //                                 rand::random(),
-                //                             ) * 18.,
-                //                     },
-                //                 );
-                //                 world.add_component(g, Renderer::new(0));
-                //                 world.add_component(g, ParticleEmitter::new(0));
-                //             });
-                //     });
-                // }
-            }
-
-            {
-                puffin::profile_scope!("defered");
-                lazy_maker.do_defered(&mut world);
-            }
-
-            perf.update("world".into(), Instant::now() - inst);
-        }
-
-        // let positions_to_buffer = {
-        //     puffin::profile_scope!("prepare transforms");
-
-        //     let pos_len = { world.transforms.read().positions.len() };
-        //     let mut positions_to_buffer: Vec<[f32;3]> = { Vec::with_capacity(pos_len) };
-
-        //     unsafe {
-        //         positions_to_buffer.set_len(pos_len);
-        //     }
-        //     {
-        //         let positions = &mut world.transforms.write().positions;
-        //         let p_iter = positions.par_iter_mut();
-        //         let m_iter = positions_to_buffer.par_iter_mut();
-
-        //         let chunk_size = (pos_len / (64 * 64)).max(1);
-        //         p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
-        //             for (x, y) in slice {
-        //                 let x = x.get_mut();
-        //                 // let x = x.lock();
-        //                 *y = [x.x, x.y, x.z];
-        //             }
-        //         });
-        //     }
-
-        //     Arc::new(positions_to_buffer)
-        // };
-        let inst = Instant::now();
-        let transform_data = {
-            puffin::profile_scope!("get transform data");
-            world.transforms.write().get_transform_data_updates()
-        };
-        perf.update("get transform data".into(), Instant::now() - inst);
-
-        let inst = Instant::now();
-        let renderer_data = {
-            let sys = world.sys.lock();
+            let _sys = world.sys.clone();
+            let mut sys = _sys.lock();
             let mut rm = sys.renderer_manager.write();
-            // let a = rm.model_indirect.read();
-            // let b = a.deref();
-            let renderer_data = RendererData {
-                model_indirect: rm
-                    .model_indirect
-                    .read()
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-                indirect_model: rm
-                    .indirect_model
-                    .read()
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-                updates: rm
-                    .updates
-                    .iter()
-                    .flat_map(|(id, t)| {
-                        vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()].into_iter()
-                    })
-                    .collect(),
-                transforms_len: rm.transforms.data.len() as i32,
+
+            // let positions_to_buffer = {
+            //     puffin::profile_scope!("prepare transforms");
+
+            //     let pos_len = { world.transforms.read().positions.len() };
+            //     let mut positions_to_buffer: Vec<[f32;3]> = { Vec::with_capacity(pos_len) };
+
+            //     unsafe {
+            //         positions_to_buffer.set_len(pos_len);
+            //     }
+            //     {
+            //         let positions = &mut world.transforms.write().positions;
+            //         let p_iter = positions.par_iter_mut();
+            //         let m_iter = positions_to_buffer.par_iter_mut();
+
+            //         let chunk_size = (pos_len / (64 * 64)).max(1);
+            //         p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
+            //             for (x, y) in slice {
+            //                 let x = x.get_mut();
+            //                 // let x = x.lock();
+            //                 *y = [x.x, x.y, x.z];
+            //             }
+            //         });
+            //     }
+
+            //     Arc::new(positions_to_buffer)
+            // };
+            let inst = Instant::now();
+            let transform_data = {
+                puffin::profile_scope!("get transform data");
+                world.transforms.write().get_transform_data_updates()
             };
-            rm.updates.clear();
-            renderer_data
-        };
+            perf.update("get transform data".into(), Instant::now() - inst);
 
-        let emitter_len = world
-            .get_components::<ParticleEmitter>()
-            .unwrap()
-            .read()
-            .as_any()
-            .downcast_ref::<Storage<ParticleEmitter>>()
-            .unwrap()
-            .data
-            .len();
-        let v = {
-            let sys = world.sys.lock();
-            let mut emitter_inits = sys.particles.emitter_inits.lock();
-            let mut v = Vec::<emitter_init>::new();
-            std::mem::swap(&mut v, &mut emitter_inits);
-            v
-        };
-        // *lock = Arc::new(Mutex::new(Vec::new()));
+            let inst = Instant::now();
+            let renderer_data = {
+                // let a = rm.model_indirect.read();
+                // let b = a.deref();
+                let renderer_data = RendererData {
+                    model_indirect: rm
+                        .model_indirect
+                        .read()
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                    indirect_model: rm
+                        .indirect_model
+                        .read()
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                    updates: rm
+                        .updates
+                        .iter()
+                        .flat_map(|(id, t)| {
+                            vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()]
+                                .into_iter()
+                        })
+                        .collect(),
+                    transforms_len: rm.transforms.data.len() as i32,
+                };
+                rm.updates.clear();
+                renderer_data
+            };
 
-        perf.update("get renderer data".into(), Instant::now() - inst);
+            let emitter_len = world
+                .get_components::<ParticleEmitter>()
+                .unwrap()
+                .read()
+                .as_any()
+                .downcast_ref::<Storage<ParticleEmitter>>()
+                .unwrap()
+                .data
+                .len();
+            let v = {
+                // let sys = world.sys.lock();
+                let mut emitter_inits = sys.particles.emitter_inits.lock();
+                let mut v = Vec::<emitter_init>::new();
+                std::mem::swap(&mut v, &mut emitter_inits);
+                v
+            };
+            // *lock = Arc::new(Mutex::new(Vec::new()));
+
+            perf.update("get renderer data".into(), Instant::now() - inst);
+            (transform_data, renderer_data, emitter_len,v)
+        };
 
         // std::thread::sleep(Duration::from_millis(5));
         let inst = Instant::now();
