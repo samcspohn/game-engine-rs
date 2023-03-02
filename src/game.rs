@@ -164,7 +164,7 @@ pub fn game_thread_fn(
                 let inst = Instant::now();
                 {
                     puffin::profile_scope!("world update");
-                    world.sys.lock().physics.step(&gravity);
+                    // world.sys.lock().physics.step(&gravity);
                     world.update(&lazy_maker, &input);
                 }
 
@@ -253,9 +253,6 @@ pub fn game_thread_fn(
 
                 perf.update("world".into(), Instant::now() - inst);
             }
-            let _sys = world.sys.clone();
-            let mut sys = _sys.lock();
-            let mut rm = sys.renderer_manager.write();
 
             // let positions_to_buffer = {
             //     puffin::profile_scope!("prepare transforms");
@@ -291,6 +288,9 @@ pub fn game_thread_fn(
             perf.update("get transform data".into(), Instant::now() - inst);
 
             let inst = Instant::now();
+            let _sys = world.sys.clone();
+            let mut sys = _sys.lock();
+            let mut rm = sys.renderer_manager.write();
             let renderer_data = {
                 // let a = rm.model_indirect.read();
                 // let b = a.deref();
