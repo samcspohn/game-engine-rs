@@ -101,6 +101,7 @@ mod terrain;
 mod texture;
 mod time;
 mod transform_compute;
+mod asset_manager;
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
@@ -266,6 +267,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let surface = WindowBuilder::new()
+    // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
         .with_inner_size(LogicalSize {
             width: 1920,
             height: 1080,
