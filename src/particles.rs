@@ -85,7 +85,7 @@ pub mod fs {
     }
 }
 
-pub const MAX_PARTICLES: i32 = 8 * 1024 * 1024 * 4;
+pub const MAX_PARTICLES: i32 = 1024;
 // pub const NUM_EMITTERS: i32 = 1_200_000;
 
 // #[component]
@@ -170,7 +170,7 @@ impl ParticleCompute {
         command_allocator: &StandardCommandBufferAllocator,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> ParticleCompute {
-        let q = glm::Quat::identity();
+        // let q = glm::Quat::identity();
 
         // particles
         // let particles: Vec<cs::ty::particle> = (0..MAX_PARTICLES)

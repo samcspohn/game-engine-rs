@@ -1,4 +1,8 @@
+use std::time::Instant;
+
 use rapier3d::prelude::*;
+
+use crate::perf::Perf;
 
 pub struct Physics {
     pub rigid_body_set: RigidBodySet,
@@ -34,7 +38,8 @@ impl Physics {
             event_handler: (),
         }
     }
-    pub fn step(&mut self, gravity: &Vector<Real>) {
+    pub fn step(&mut self, gravity: &Vector<Real>, perf: &mut Perf) {
+        let inst = Instant::now();
         self.physics_pipeline.step(
             &gravity,
             &self.integration_parameters,
@@ -50,10 +55,17 @@ impl Physics {
             &self.physics_hooks,
             &self.event_handler,
         );
+        perf.update("physics step".into(), Instant::now() - inst);
+        
+        let inst = Instant::now();
         self.query_pipeline.update(
             // &self.island_manager,
             &self.rigid_body_set,
             &self.collider_set,
         );
+        perf.update("physics update".into(), Instant::now() - inst);
+    }
+    pub fn get_counters() {
+        
     }
 }

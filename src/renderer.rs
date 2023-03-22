@@ -32,7 +32,7 @@ use vulkano::{
 
 use crate::{
     model::{Mesh, Normal, Vertex, UV},
-    transform_compute::cs::ty::MVP,
+    transform_compute::cs::ty::MVP, texture::TextureManager,
 };
 
 pub mod vs {
@@ -206,6 +206,7 @@ impl RenderPipeline {
 
     pub fn bind_mesh(
         &self,
+        texture_manager: &TextureManager,
         // device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
@@ -229,6 +230,7 @@ impl RenderPipeline {
         descriptors.push(WriteDescriptorSet::buffer(0, mvp_buffer.clone()));
 
         if let Some(texture) = mesh.texture.as_ref() {
+            let texture = texture_manager.get_id(texture).unwrap().lock();
             descriptors.push(WriteDescriptorSet::image_view_sampler(
                 1,
                 texture.image.clone(),

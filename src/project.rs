@@ -1,54 +1,53 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{engine::World, file_watcher::FileWatcher, serialize};
+use crate::{engine::World, file_watcher::FileWatcher, serialize, asset_manager::AssetManagerBase};
 
 #[derive(Serialize, Deserialize)]
 struct Project {
     files: BTreeMap<String, u64>,
-    models: BTreeMap<String, i32>,
-    model_id_gen: i32,
-    textures: BTreeSet<String>,
+    model_manager: serde_yaml::Value,
+    texture_manager: serde_yaml::Value,
     working_file: String,
 }
 
 pub fn save_project(file_watcher: &FileWatcher, world: &World) {
     let sys = world.sys.lock();
     let files = file_watcher.files.clone();
-    let models = sys.model_manager.lock().models.clone();
-    let models_id_gen = sys.model_manager.lock().model_id_gen;
-    let textures = sys
+    let model_manager = serde_yaml::to_value(&*sys.model_manager.lock()).unwrap();
+    
+    let texture_manager = serde_yaml::to_value(&*sys
         .model_manager
         .lock()
-        .texture_manager
-        .textures
-        .read()
-        .iter()
-        .map(|(f, _)| f.clone())
-        .collect();
+        .const_params.1.lock()).unwrap();
     let working_file = "test.yaml".into();
 
     let project = Project {
         files,
-        models: models.iter().map(|x| (x.0.clone(), *x.1)).collect(),
-        model_id_gen: models_id_gen,
-        textures,
+        model_manager,
+        texture_manager,
         working_file,
     };
-    std::fs::write("project.ron", ron::to_string(&project).unwrap()).unwrap();
+    std::fs::write("project.yaml", serde_yaml::to_string(&project).unwrap()).unwrap();
     // serialize::serialize(world);
 }
 
 pub fn load_project(file_watcher: &mut FileWatcher, world: &mut World) {
-    if let Ok(s) = std::fs::read_to_string("project.ron") {
+    if let Ok(s) = std::fs::read_to_string("project.yaml") {
         {
-            let project: Project = ron::from_str(s.as_str()).unwrap();
+            let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
             file_watcher.files = project.files;
             let sys = world.sys.lock();
             let mut mm = sys.model_manager.lock();
-            mm.texture_manager.regen(project.textures);
-            mm.regen(project.models);
-            mm.model_id_gen = project.model_id_gen;
+            mm.regen(project.model_manager);
+            let mut tm = mm.const_params.1.lock();
+            tm.regen(project.texture_manager);
+            // let a = serde_yaml::from_value(project.texture_manager).unwrap();
+            // println!("{:?}", project.texture_manager);
+            // panic!();
+            // mm.const_params.1.assets = a;
+            // mm.regen(project.models);
+            // mm.id_gen = project.model_id_gen;
         }
         serialize::deserialize(world);
     }

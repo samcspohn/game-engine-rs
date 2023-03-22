@@ -63,6 +63,7 @@ pub struct RenderJobData<'a> {
     pub device: Arc<Device>,
     pub viewport: &'a Viewport,
     pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub texture_manager: &'a parking_lot::Mutex<crate::TextureManager>,
     pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     pub command_buffer_allocator: &'a StandardCommandBufferAllocator,
 }

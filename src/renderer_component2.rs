@@ -29,8 +29,8 @@ impl<'a> Inpsect for Ins<'a, ModelId> {
     fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys) {
         let drop_data = drag_drop::DRAG_DROP_DATA.lock();
 
-        let model: String = match sys.model_manager.lock().models_ids.get(&self.0.id) {
-            Some(model) => model.file.clone(),
+        let model: String = match sys.model_manager.lock().assets_id.get(&self.0.id) {
+            Some(model) => model.lock().file.clone(),
             None => "".into(),
         };
         let can_accept_drop_data = match drop_data.rfind(".obj") {
@@ -46,7 +46,7 @@ impl<'a> Inpsect for Ins<'a, ModelId> {
                 if response.hovered() && ui.input().pointer.any_released() {
                     let model_file: String = drop_data.clone();
 
-                    if let Some(id) = sys.model_manager.lock().models.get(&model_file) {
+                    if let Some(id) = sys.model_manager.lock().assets.get(&model_file) {
                         self.0.id = *id;
                     }
                 }
@@ -101,9 +101,10 @@ impl Inspectable for Renderer {
                         index_count: sys
                             .model_manager
                             .lock()
-                            .models_ids
+                            .assets_id
                             .get(&self.model_id.id)
                             .unwrap()
+                            .lock()
                             .mesh
                             .indeces
                             .len() as u32,
@@ -358,9 +359,10 @@ impl Component for Renderer {
                     index_count: sys
                         .model_manager
                         .lock()
-                        .models_ids
+                        .assets_id
                         .get(&self.model_id.id)
                         .unwrap()
+                        .lock()
                         .mesh
                         .indeces
                         .len() as u32,

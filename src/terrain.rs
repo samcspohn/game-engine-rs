@@ -47,6 +47,7 @@ use vulkano::{
 };
 
 use crate::{
+    asset_manager::AssetManagerBase,
     engine::{RenderJobData, System},
     transform_compute,
 };
@@ -73,7 +74,7 @@ struct TerrainChunkRenderData {
     pub normals_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
     pub uvs_buffer: Arc<CpuAccessibleBuffer<[UV]>>,
     pub index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
-    pub texture: Option<Arc<Texture>>,
+    pub texture: Option<i32>,
 }
 // #[component]
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -125,8 +126,10 @@ impl Terrain {
                 texture: Some(
                     sys.model_manager
                         .lock()
-                        .texture_manager
-                        .texture("grass.png"),
+                        .const_params
+                        .1
+                        .lock()
+                        .from_file("grass.png"),
                 ),
                 vertex_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
@@ -208,7 +211,15 @@ impl Terrain {
                                 .map(|slice| [slice[0] as u32, slice[1] as u32, slice[2] as u32])
                                 .collect();
 
-                            let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces);
+                            let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces)
+                                .collision_groups(InteractionGroups::none())
+                                .solver_groups(InteractionGroups::none())
+                                // .collision_groups(InteractionGroups::new(
+                                //     0b10.into(),
+                                //     (!0b10).into(),
+                                // ))
+                                .build();
+                            // .solver_groups(InteractionGroups::new(0b0011.into(), 0b1011.into()));
                             chunks.lock().get_mut(&x).unwrap().insert(z, true);
 
                             let mut builder = AutoCommandBufferBuilder::primary(
@@ -328,23 +339,6 @@ impl Terrain {
             // let command_buffers_g = command_buffers.lock();
             for command_buffer in (*command_buffers.lock()).clone() {
                 let _ = command_buffer.execute(sys.queue.clone()).unwrap();
-                // let execute = sync::now(sys.device.clone())
-                //     .boxed()
-                //     .then_execute(sys.queue.clone(), command_buffer);
-
-                // match execute {
-                //     Ok(execute) => {
-                //         let future = execute.then_signal_fence_and_flush();
-                //         match future {
-                //             Ok(_) => {}
-                //             Err(FlushError::OutOfDate) => {}
-                //             Err(_e) => {}
-                //         }
-                //     }
-                //     Err(e) => {
-                //         println!("Failed to flush future: {:?}", e);
-                //     }
-                // };
             }
         }
     }
@@ -492,6 +486,8 @@ impl Component for Terrain {
         let cur_chunks = self.cur_chunks.load(Ordering::Relaxed);
         let prev_chunks = self.prev_chunks;
 
+        // Box::new(move |_rd: &mut RenderJobData| {})
+
         if let Some(tcrd) = &self.tcrd {
             let vertex_buffer = tcrd.vertex_buffer.clone();
             let normals_buffer = tcrd.normals_buffer.clone();
@@ -521,6 +517,7 @@ impl Component for Terrain {
                     memory_allocator,
                     descriptor_set_allocator,
                     command_buffer_allocator,
+                    texture_manager,
                 } = rd;
                 let instance_data = vec![t_id];
                 // let mvp_data = vec![MVP {
@@ -569,11 +566,14 @@ impl Component for Terrain {
                 // }
 
                 if let Some(texture) = texture.as_ref() {
-                    descriptors.push(WriteDescriptorSet::image_view_sampler(
-                        1,
-                        texture.image.clone(),
-                        texture.sampler.clone(),
-                    ));
+                    if let Some(texture) = texture_manager.lock().get_id(texture) {
+                        let texture = texture.lock();
+                        descriptors.push(WriteDescriptorSet::image_view_sampler(
+                            1,
+                            texture.image.clone(),
+                            texture.sampler.clone(),
+                        ));
+                    }
                 } else {
                     panic!("no terrain texture");
                 }

@@ -1,5 +1,6 @@
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
+use num_integer::Roots;
 use parking_lot::{Mutex, RwLock};
 use puffin_egui::puffin;
 use rapier3d::prelude::*;
@@ -152,19 +153,37 @@ pub fn game_thread_fn(
     let mut perf = Perf {
         data: HashMap::new(),
     };
-
+    let mut phys_time = 0f32;
     while running.load(Ordering::SeqCst) {
         // println!("waiting for input");
         let input = coms.1.recv().unwrap();
         // println!("input recvd");
-        let (transform_data, renderer_data, emitter_len,v) = {
+        let (transform_data, renderer_data, emitter_len, v) = {
             let mut world = world.lock();
             {
                 puffin::profile_scope!("game loop");
                 let inst = Instant::now();
                 {
                     puffin::profile_scope!("world update");
-                    // world.sys.lock().physics.step(&gravity);
+                    if phys_time > 1.0 / 30.0 {
+                        let sys = world.sys.lock();
+                        let len = sys.physics.rigid_body_set.len();
+                        let num_threads = (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
+                        drop(sys);
+                        rayon::ThreadPoolBuilder::new()
+                            .num_threads(num_threads)
+                            .build_scoped(
+                                |thread| thread.run(),
+                                |pool| {
+                                    pool.install(|| {
+                                        world.sys.lock().physics.step(&gravity, &mut perf);
+                                    })
+                                },
+                            )
+                            .unwrap();
+                        phys_time -= 1.0 / 30.0;
+                    }
+                    phys_time += input.time.dt;
                     world.update(&lazy_maker, &input);
                 }
 
@@ -340,7 +359,7 @@ pub fn game_thread_fn(
             // *lock = Arc::new(Mutex::new(Vec::new()));
 
             perf.update("get renderer data".into(), Instant::now() - inst);
-            (transform_data, renderer_data, emitter_len,v)
+            (transform_data, renderer_data, emitter_len, v)
         };
 
         // std::thread::sleep(Duration::from_millis(5));

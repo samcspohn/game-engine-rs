@@ -9,11 +9,14 @@ use std::{
 // use ai::import::Importer;
 // use assimp as ai;
 use bytemuck::{Pod, Zeroable};
+use parking_lot::Mutex;
 use tobj;
 // use std::mem::size_of;
 use nalgebra_glm as glm;
 // use rapier3d::na::Norm;
 use crate::{
+    asset_manager::{self, Asset, AssetManagerBase},
+    inspectable::Inspectable_,
     renderer_component2::buffer_usage_all,
     texture::{Texture, TextureManager},
 };
@@ -79,7 +82,7 @@ pub struct Mesh {
     pub uvs_buffer: Arc<CpuAccessibleBuffer<[UV]>>,
     pub index_buffer: Arc<CpuAccessibleBuffer<[u16]>>,
     pub normals_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
-    pub texture: Option<Arc<Texture>>, // pub texture: Option<Arc<ImageView<ImmutableImage>>>,
+    pub texture: Option<i32>, // pub texture: Option<Arc<ImageView<ImmutableImage>>>,
                                        // pub sampler: Option<Arc<Sampler>>,
 }
 
@@ -142,7 +145,7 @@ impl Mesh {
     pub fn load_model(
         path: &str,
         device: Arc<Device>,
-        texture_manager: Arc<TextureManager>,
+        texture_manager: Arc<Mutex<TextureManager>>,
         allocator: &(impl MemoryAllocator + ?Sized),
     ) -> Mesh {
         // let sub_path = path.split("/");
@@ -157,14 +160,14 @@ impl Mesh {
         for (i, m) in models.iter().enumerate() {
             let mesh = &m.mesh;
 
-            println!("model[{}].name = \'{}\'", i, m.name);
-            println!("model[{}].mesh.material_id = {:?}", i, mesh.material_id);
+            // println!("model[{}].name = \'{}\'", i, m.name);
+            // println!("model[{}].mesh.material_id = {:?}", i, mesh.material_id);
 
-            println!(
-                "Size of model[{}].face_arities: {}",
-                i,
-                mesh.face_arities.len()
-            );
+            // println!(
+            //     "Size of model[{}].face_arities: {}",
+            //     i,
+            //     mesh.face_arities.len()
+            // );
 
             // let mut next_face = 0;
 
@@ -175,7 +178,7 @@ impl Mesh {
             }
 
             // Normals and texture coordinates are also loaded, but not printed in this example
-            println!("model[{}].vertices: {}", i, mesh.positions.len() / 3);
+            // println!("model[{}].vertices: {}", i, mesh.positions.len() / 3);
 
             // assert!(mesh.positions.len() % 3 == 0);
             for v in mesh.positions.chunks(3) {
@@ -194,9 +197,9 @@ impl Mesh {
                 uvs.push(UV { uv: [uv[0], uv[1]] });
             }
         }
-        println!("num indices {}", indices.len());
-        println!("num vertices {}", vertices.len());
-        println!("num normals {}", normals.len());
+        // println!("num indices {}", indices.len());
+        // println!("num vertices {}", vertices.len());
+        // println!("num normals {}", normals.len());
 
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
             // device.clone(),
@@ -242,8 +245,8 @@ impl Mesh {
                 let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string()
                     + "/"
                     + &m.diffuse_texture);
-                println!("tex {}", diff_path);
-                texture = Some(texture_manager.texture(diff_path));
+                // println!("tex {}", diff_path);
+                texture = Some(texture_manager.lock().from_file(diff_path));
                 // texture = Some(Arc::new(Texture::from_file(diff_path, device.clone(), queue.clone())));
             }
         }
@@ -270,80 +273,133 @@ pub struct ModelRenderer {
     pub count: u32,
 }
 
-pub struct ModelManager {
-    pub device: Arc<Device>,
-    pub allocator: Arc<StandardMemoryAllocator>,
-
-    pub texture_manager: Arc<TextureManager>,
-    pub models: HashMap<String, i32>,
-    pub models_ids: HashMap<i32, ModelRenderer>,
-    pub model_id_gen: i32,
-}
-
-impl ModelManager {
-    pub fn regen(&mut self, models: BTreeMap<String, i32>) {
-        for (f, id) in models {
-            self.from_file_id(&f, id);
-        }
-    }
-    fn from_file_id(&mut self, path: &str, id: i32) {
-        let mesh = Mesh::load_model(
-            path,
-            self.device.clone(),
-            self.texture_manager.clone(),
-            &self.allocator,
-        );
-        let m = ModelRenderer {
-            file: path.into(),
+impl
+    Asset<
+        ModelRenderer,
+        (
+            Arc<Device>,
+            Arc<Mutex<TextureManager>>,
+            Arc<StandardMemoryAllocator>,
+        ),
+    > for ModelRenderer
+{
+    fn from_file(
+        file: &str,
+        params: &(
+            Arc<Device>,
+            Arc<Mutex<TextureManager>>,
+            Arc<StandardMemoryAllocator>,
+        ),
+    ) -> ModelRenderer {
+        let mesh = Mesh::load_model(file, params.0.clone(), params.1.clone(), &params.2);
+        ModelRenderer {
+            file: file.into(),
             mesh,
             count: 1,
-        };
-        self.models_ids.insert(id, m);
-        self.models.insert(path.into(), id);
-    }
-    pub fn from_file(&mut self, path: &str) -> i32 {
-        if let Some(id) = self.models.get(path) {
-            *id
-        } else {
-            let id = self.model_id_gen;
-            self.model_id_gen += 1;
-            self.from_file_id(path, id);
-            id
-        }
-    }
-    pub fn reload(&mut self, path: &str) {
-        if let Some(id) = self.models.get(path) {
-            if let Some(m) = self.models_ids.get_mut(id) {
-                let mesh = Mesh::load_model(
-                    path,
-                    self.device.clone(),
-                    self.texture_manager.clone(),
-                    &self.allocator,
-                );
-                m.mesh = mesh;
-            }
-        }
-    }
-    pub(crate) fn remove(&mut self, path: &str) {
-        if let Some(id) = self.models.get(path) {
-            self.models_ids.remove(id);
-            self.models.remove(path);
         }
     }
 
-    pub fn procedural(&mut self, mesh: Mesh) -> i32 {
-        let id = self.model_id_gen;
-        self.model_id_gen += 1;
-        let m = ModelRenderer {
-            file: "".into(),
-            mesh,
-            count: 1,
-        };
-
-        // let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
-
-        self.models_ids.insert(id, m);
-        id
-        // self.models.insert(path.into(), id);
+    fn reload(
+        &mut self,
+        params: &(
+            Arc<Device>,
+            Arc<Mutex<TextureManager>>,
+            Arc<StandardMemoryAllocator>,
+        ),
+    ) {
+        let mesh = Mesh::load_model(&self.file, params.0.clone(), params.1.clone(), &params.2);
     }
 }
+
+impl Inspectable_ for ModelRenderer {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &parking_lot::Mutex<crate::engine::World>) {
+        ui.add(egui::Label::new(self.file.as_str()));
+    }
+}
+
+
+pub type ModelManager = asset_manager::AssetManager<
+    (
+        Arc<Device>,
+        Arc<Mutex<TextureManager>>,
+        Arc<StandardMemoryAllocator>,
+    ),
+    ModelRenderer,
+>;
+// pub struct ModelManager {
+//     pub device: Arc<Device>,
+//     pub allocator: Arc<StandardMemoryAllocator>,
+
+//     pub texture_manager: Arc<TextureManager>,
+//     pub models: HashMap<String, i32>,
+//     pub models_ids: HashMap<i32, ModelRenderer>,
+//     pub model_id_gen: i32,
+// }
+
+// impl ModelManager {
+//     pub fn regen(&mut self, models: BTreeMap<String, i32>) {
+//         for (f, id) in models {
+//             self.from_file_id(&f, id);
+//         }
+//     }
+//     fn from_file_id(&mut self, path: &str, id: i32) {
+//         let mesh = Mesh::load_model(
+//             path,
+//             self.device.clone(),
+//             self.texture_manager.clone(),
+//             &self.allocator,
+//         );
+//         let m = ModelRenderer {
+//             file: path.into(),
+//             mesh,
+//             count: 1,
+//         };
+//         self.models_ids.insert(id, m);
+//         self.models.insert(path.into(), id);
+//     }
+//     pub fn from_file(&mut self, path: &str) -> i32 {
+//         if let Some(id) = self.models.get(path) {
+//             *id
+//         } else {
+//             let id = self.model_id_gen;
+//             self.model_id_gen += 1;
+//             self.from_file_id(path, id);
+//             id
+//         }
+//     }
+//     pub fn reload(&mut self, path: &str) {
+//         if let Some(id) = self.models.get(path) {
+//             if let Some(m) = self.models_ids.get_mut(id) {
+//                 let mesh = Mesh::load_model(
+//                     path,
+//                     self.device.clone(),
+//                     self.texture_manager.clone(),
+//                     &self.allocator,
+//                 );
+//                 m.mesh = mesh;
+//             }
+//         }
+//     }
+//     pub(crate) fn remove(&mut self, path: &str) {
+//         if let Some(id) = self.models.get(path) {
+//             self.models_ids.remove(id);
+//             self.models.remove(path);
+//         }
+//     }
+
+//     pub fn procedural(&mut self, mesh: Mesh) -> i32 {
+//         let id = self.model_id_gen;
+//         self.model_id_gen += 1;
+//         let m = ModelRenderer {
+//             file: "".into(),
+//             mesh,
+//             count: 1,
+//         };
+
+//         // let mesh = Mesh::load_model(path, self.device.clone(), self.texture_manager.clone());
+
+//         self.models_ids.insert(id, m);
+//         id
+//         // self.models.insert(path.into(), id);
+//     }
+// }

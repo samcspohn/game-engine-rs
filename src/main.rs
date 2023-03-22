@@ -87,6 +87,7 @@ mod model;
 mod perf;
 mod renderer;
 // mod renderer_component;
+mod asset_manager;
 mod drag_drop;
 mod editor_ui;
 mod file_watcher;
@@ -101,16 +102,16 @@ mod terrain;
 mod texture;
 mod time;
 mod transform_compute;
-mod asset_manager;
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
+use crate::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::engine::physics::Physics;
 use crate::engine::transform::{Transform, Transforms};
 use crate::engine::{GameObject, RenderJobData, Sys, World};
 use crate::game::{game_thread_fn, Bomb};
 use crate::inspectable::{Inpsect, Ins};
-use crate::model::ModelManager;
+use crate::model::{ModelManager, ModelRenderer};
 use crate::particles::cs::ty::t;
 use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
@@ -267,7 +268,7 @@ fn main() {
 
     let event_loop = EventLoop::new();
     let surface = WindowBuilder::new()
-    // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+        // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
         .with_inner_size(LogicalSize {
             width: 1920,
             height: 1080,
@@ -395,21 +396,21 @@ fn main() {
 
     // let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
-    let texture_manager = Arc::new(TextureManager {
-        device: device.clone(),
-        queue: queue.clone(),
-        textures: Default::default(),
-        mem: memory_allocator.clone(),
-    });
+    let texture_manager = Arc::new(Mutex::new(TextureManager::new((device.clone(),queue.clone(),memory_allocator.clone()))));
 
-    let model_manager = ModelManager {
-        device: device.clone(),
-        allocator: memory_allocator.clone(),
-        models: HashMap::new(),
-        models_ids: HashMap::new(),
-        texture_manager,
-        model_id_gen: 0,
-    };
+    let model_manager = ModelManager::new((
+        device.clone(),
+        texture_manager.clone(),
+        memory_allocator.clone(),
+    ));
+    // let model_manager = ModelManager {
+    //     device: device.clone(),
+    //     allocator: memory_allocator.clone(),
+    //     models: HashMap::new(),
+    //     models_ids: HashMap::new(),
+    //     texture_manager,
+    //     model_id_gen: 0,
+    // };
 
     let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
         device.clone(),
@@ -422,6 +423,13 @@ fn main() {
         model_manager.lock().from_file("src/cube/cube.obj");
     }
 
+    let assets_manager = Arc::new(Mutex::new(AssetsManager::new()));
+    {
+        let mut assets_manager = assets_manager.lock();
+        assets_manager.add_asset_manager(".obj", model_manager.clone());
+        assets_manager.add_asset_manager(".png", texture_manager.clone());
+        assets_manager.add_asset_manager(".jpeg", texture_manager.clone());
+    }
     // let uniform_buffer =
     //     CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
 
@@ -741,6 +749,8 @@ fn main() {
                         save_project(&file_watcher, &world.lock());
 
                         perf.print();
+
+                        // world.lock().sys.lock().physics.
                     }
                     WindowEvent::MouseInput {
                         device_id: _,
@@ -894,7 +904,7 @@ fn main() {
 
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    editor_ui::editor_ui(&world, &mut fps_queue, &ctx, fc.clone());
+                    editor_ui::editor_ui(&world, &mut fps_queue, &ctx, fc.clone(), assets_manager.clone());
                 });
 
                 let render_jobs = world.lock().render();
@@ -1167,29 +1177,14 @@ fn main() {
                             ))
                             .unwrap();
                     }
-                    // let mut updates = rd.updates.lock().unwrap_unchecked();
-                    // std::mem::swap(&mut updates, &mut rd.updates.as_mut());
-                    // let updates = rd.updates.clone();
-                    // let updates: Vec<i32> = _rm
-                    //     .updates
-                    //     .iter()
-                    //     .flat_map(|(id, t)| {
-                    //         vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()]
-                    //             .into_iter()
-                    //     })
-                    //     .collect();
-
-                    // let mut indirect_vec = Vec::new();
-                    // for i in &rm.indirect.data {
-                    //     indirect_vec.push(i.clone());
-                    // }
-                    rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
-                        &memory_allocator,
-                        buffer_usage_all(),
-                        false,
-                        rm.indirect.data.clone(),
-                    )
-                    .unwrap();
+                    if rm.indirect.data.len() > 0 {
+                        rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
+                            &memory_allocator,
+                            buffer_usage_all(),
+                            false,
+                            rm.indirect.data.clone(),
+                        ).unwrap();
+                    }
 
                     let mut offset_vec = Vec::new();
                     let mut offset = 0;
@@ -1406,7 +1401,8 @@ fn main() {
 
                         for (_ind_id, m_id) in rd.indirect_model.iter() {
                             if let Some(ind) = rd.model_indirect.get(&m_id) {
-                                if let Some(mr) = mm.models_ids.get(&m_id) {
+                                if let Some(mr) = mm.assets_id.get(&m_id) {
+                                    let mr = mr.lock();
                                     if ind.count == 0 {
                                         continue;
                                     }
@@ -1425,6 +1421,7 @@ fn main() {
                                         {
                                             // println!("{}",renderer_buffer.len());
                                             rend.bind_mesh(
+                                                &texture_manager.lock(),
                                                 &mut builder,
                                                 descriptor_set_allocator.clone(),
                                                 renderer_buffer.clone(),
@@ -1462,6 +1459,7 @@ fn main() {
                         memory_allocator: memory_allocator.clone(),
                         descriptor_set_allocator: descriptor_set_allocator.clone(),
                         command_buffer_allocator: &command_buffer_allocator,
+                        texture_manager: &texture_manager,
                     };
                     for job in render_jobs {
                         job(&mut rjd);

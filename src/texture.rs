@@ -17,50 +17,61 @@ use vulkano::{
     sampler::{Sampler, SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
 };
 
-pub struct TextureManager {
-    pub device: Arc<Device>,
-    pub queue: Arc<Queue>,
-    pub textures: RwLock<HashMap<String, Arc<Texture>>>,
-    pub mem: Arc<StandardMemoryAllocator>,
-}
+use crate::{asset_manager::{self, Asset}, inspectable::Inspectable_};
 
-impl TextureManager {
-    pub fn regen(&self, textures: BTreeSet<String>) {
-        for t in textures {
-            self.texture(&t);
-        }
-    }
-    pub fn texture(&self, path: &str) -> Arc<Texture> {
-        {
-            if let Some(tex) = self.textures.read().get(path.into()) {
-                return tex.clone();
-            }
-        }
-        {
-            let tex = Arc::new(Texture::from_file(
-                path,
-                self.device.clone(),
-                self.queue.clone(),
-                &self.mem,
-            ));
-            self.textures.write().insert(path.into(), tex.clone());
-            tex
-        }
-    }
-}
+// pub struct TextureManager {
+//     pub device: Arc<Device>,
+//     pub queue: Arc<Queue>,
+//     pub textures: RwLock<HashMap<String, Arc<Texture>>>,
+//     pub mem: Arc<StandardMemoryAllocator>,
+// }
+
+// impl TextureManager {
+//     pub fn regen(&self, textures: BTreeSet<String>) {
+//         for t in textures {
+//             self.texture(&t);
+//         }
+//     }
+//     pub fn texture(&self, path: &str) -> Arc<Texture> {
+//         {
+//             if let Some(tex) = self.textures.read().get(path.into()) {
+//                 return tex.clone();
+//             }
+//         }
+//         {
+//             let tex = Arc::new(Texture::from_file(
+//                 path,
+//                 self.device.clone(),
+//                 self.queue.clone(),
+//                 &self.mem,
+//             ));
+//             self.textures.write().insert(path.into(), tex.clone());
+//             tex
+//         }
+//     }
+// }
+
+pub type TextureManager = asset_manager::AssetManager<(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>),Texture>;
 
 pub struct Texture {
+    pub file: String,
     pub image: Arc<ImageView<ImmutableImage>>,
     pub sampler: Arc<Sampler>,
 }
-
-impl Texture {
-    pub fn from_file(
+impl Inspectable_ for Texture {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &parking_lot::Mutex<crate::engine::World>) {
+        
+    }
+}
+impl Asset<Texture, (Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)> for Texture {
+    fn from_file(
         path: &str,
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        mem: &StandardMemoryAllocator,
+        params: &(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)
     ) -> Texture {
+
+        let (device,
+        queue,
+        mem) = params;
         let image = {
             match image::open(path) {
                 Ok(img) => {
@@ -127,6 +138,10 @@ impl Texture {
         )
         .unwrap();
 
-        Texture { image, sampler }
+        Texture { file: path.into(), image, sampler }
+    }
+
+    fn reload(&mut self, params: &(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)) {
+        *self = Self::from_file(self.file.as_str(), params)
     }
 }

@@ -19,7 +19,7 @@ use crate::{
         transform::{Transform, Transforms},
         GameObject, Sys, World,
     },
-    inspectable::{Inspectable, Inspectable_},
+    inspectable::{Inspectable, Inspectable_}, asset_manager::AssetsManager,
 };
 use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
@@ -44,8 +44,9 @@ struct TabViewer<'a> {
     world: &'a Mutex<World>,
     fps: &'a mut VecDeque<f32>,
     // goi: &'a GameObjectInspector<'b>,
-    inspectable: &'a mut Option<Box<dyn Inspectable_>>,
-    func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Box<dyn Inspectable_>>) -> ()>,
+    inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
+    assets_manager: Arc<Mutex<AssetsManager>>,
+    func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<Mutex<AssetsManager>>) -> ()>,
 }
 
 impl egui_dock::TabViewer for TabViewer<'_> {
@@ -54,7 +55,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         if tab != "Game" {
             // ui.label(format!("Content of {tab}"));
-            (self.func)(tab, ui, self.world, self.fps, self.inspectable);
+            (self.func)(tab, ui, self.world, self.fps, self.inspectable, self.assets_manager.clone());
         } else {
             let a = ui.available_size();
             // *EDITOR_ASPECT_RATIO.lock() = a[0] / a[1];
@@ -279,6 +280,7 @@ pub fn editor_ui(
     fps_queue: &mut VecDeque<f32>,
     egui_ctx: &Context,
     frame_color: egui::TextureId,
+    assets_manager: Arc<Mutex<AssetsManager>>
 ) {
     {
         static mut _selected_transforms: Lazy<HashMap<i32, bool>> =
@@ -286,8 +288,8 @@ pub fn editor_ui(
 
         static mut context_menu: Option<GameObjectContextMenu> = None;
         unsafe { context_menu = None };
-        static mut inspectable: Option<Box<dyn Inspectable_>> = None;
-        let mut _inspectable: Option<Box<dyn Inspectable_>> = None;
+        static mut inspectable: Option<Arc<Mutex<dyn Inspectable_>>> = None;
+        // let mut _inspectable: Option<Box<dyn Inspectable_>> = None;
         // let game_object_inspector = GameObjectInspector {world: &world };
         // let mut world = world.lock();
 
@@ -312,8 +314,9 @@ pub fn editor_ui(
             // }
             DockArea::new(&mut dock)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
-                .show(egui_ctx, &mut TabViewer {image: frame_color.clone(), world, fps: fps_queue, inspectable: &mut _inspectable, func:
-                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, ins: &mut Option<Box<dyn Inspectable_>>| {
+                .show(egui_ctx, &mut TabViewer {image: frame_color.clone(), world, fps: fps_queue, inspectable: &mut inspectable, assets_manager, func:
+                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<Mutex<AssetsManager>>| {
+                        let assets_manager = assets_manager.clone();
                         match tab {
                             "Hierarchy" => {
                                 // let resp = {
@@ -355,7 +358,7 @@ pub fn editor_ui(
                                                         selected_transforms.clear();
                                                         selected_transforms.insert(t.id, true);
                                                         *selected = Some(t.id);
-                                                        unsafe { inspectable = Some(Box::new(GameObjectInspector {})); }
+                                                        unsafe { inspectable = Some(Arc::new(Mutex::new(GameObjectInspector {}))); }
                                                         // unsafe {
                                                         //     CUR_EULER_ANGLES = None;
                                                         // };
@@ -625,7 +628,7 @@ pub fn editor_ui(
                                 
                                 if let Some(ins) = &mut inspectable {
                                     // let mut world = world.lock();
-                                    ins.inspect(ui, world);
+                                    ins.lock().inspect(ui, world);
                                 } else {
                                 }
                             },
@@ -633,7 +636,7 @@ pub fn editor_ui(
                                 let world = world.lock();
                                 use substring::Substring;
                                 let cur_dir: PathBuf = "./test_project_rs".into();
-                                fn render_dir(ui: &mut egui::Ui, cur_dir: PathBuf, sys: &Sys) {
+                                fn render_dir(ui: &mut egui::Ui, cur_dir: PathBuf, sys: &Sys, assets_manager: &Arc<Mutex<AssetsManager>>) {
                                     // let label = format!("{:?}", cur_dir);
                                     let label: String = cur_dir.clone().into_os_string().into_string().unwrap();
                                     let id = ui.make_persistent_id(label.clone());
@@ -662,10 +665,10 @@ pub fn editor_ui(
                                             dirs.sort_by_key(|dir| dir.path());
                                             files.sort_by_key(|dir| dir.path());
                                             for entry in dirs {
-                                                render_dir(ui, entry.path(), sys)
+                                                render_dir(ui, entry.path(), sys, assets_manager)
                                             }
                                             for entry in files {
-                                                render_dir(ui, entry.path(), sys)
+                                                render_dir(ui, entry.path(), sys, assets_manager)
                                             }
 
                                             // ui.label("The body is always custom");
@@ -715,13 +718,15 @@ pub fn editor_ui(
                                                     // }
                                                 });
                                                 if resp.clicked() {
-                                                    unsafe { inspectable = Some(Box::new(ModelInspector {file: label})); }
+                                                    
+                                                    unsafe { inspectable = assets_manager.lock().inspect(label.as_str()) };
+                                                    // unsafe { inspectable = Some(Box::new(ModelInspector {file: label})); }
                                                 }
                                             // }
                                         }
                                     }
                                 }
-                                render_dir(ui, cur_dir, &world.sys.lock());
+                                render_dir(ui, cur_dir, &world.sys.lock(), &assets_manager);
                             }
                             _ => {}
                         }

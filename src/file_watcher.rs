@@ -13,7 +13,7 @@ use substring::Substring;
 use walkdir::WalkDir;
 // use relative_path;
 
-use crate::engine::World;
+use crate::{engine::World, asset_manager::AssetManagerBase};
 
 pub struct FileWatcher {
     pub(crate) files: BTreeMap<String, u64>,
