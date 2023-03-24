@@ -5,7 +5,7 @@ struct particle {
     int sorted;
 };
 struct particle_template {
-    vec3 color;
+    vec4 color;
     float speed;
     float emission_rate;
 };

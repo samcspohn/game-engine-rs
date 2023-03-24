@@ -141,7 +141,7 @@ impl Asset<Texture, (Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)> for T
         Texture { file: path.into(), image, sampler }
     }
 
-    fn reload(&mut self, params: &(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)) {
-        *self = Self::from_file(self.file.as_str(), params)
+    fn reload(&mut self, file: &str, params: &(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)) {
+        *self = Self::from_file(file, params)
     }
 }

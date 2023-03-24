@@ -301,13 +301,14 @@ impl
 
     fn reload(
         &mut self,
+        file: &str,
         params: &(
             Arc<Device>,
             Arc<Mutex<TextureManager>>,
             Arc<StandardMemoryAllocator>,
         ),
     ) {
-        let mesh = Mesh::load_model(&self.file, params.0.clone(), params.1.clone(), &params.2);
+        let mesh = Mesh::load_model(file, params.0.clone(), params.1.clone(), &params.2);
     }
 }
 

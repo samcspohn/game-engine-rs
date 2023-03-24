@@ -61,19 +61,19 @@ void main() {
     mat4 mvp = proj * view * model;
     particle_template templ = templates[template_ids[i]];
     gl_Position = mvp * vec4(-.5, .5, 0.0, 1.0);
-    color = vec4(templ.color, p_l[i].life * 0.5);
+    color = vec4(templ.color.rgb, p_l[i].life * 0.5);
     EmitVertex();
 
     gl_Position = mvp * vec4( -.5, -.5, 0.0, 1.0);
-    color = vec4(templ.color, p_l[i].life * 0.5);
+    color = vec4(templ.color.rgb, p_l[i].life * 0.5);
     EmitVertex();
     
     gl_Position = mvp * vec4( .5, .5, 0.0, 1.0);
-    color = vec4(templ.color, p_l[i].life * 0.5);
+    color = vec4(templ.color.rgb, p_l[i].life * 0.5);
     EmitVertex();
 
     gl_Position = mvp * vec4( .5, -.5, 0.0, 1.0);
-    color = vec4(templ.color, p_l[i].life * 0.5);
+    color = vec4(templ.color.rgb, p_l[i].life * 0.5);
     EmitVertex();
     
     EndPrimitive();

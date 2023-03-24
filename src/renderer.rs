@@ -140,7 +140,7 @@ impl RenderPipeline {
             .unwrap();
             ImageView::new_default(image).unwrap()
         };
-        builder.build().unwrap().execute(queue.clone()).unwrap();
+        let _ = builder.build().unwrap().execute(queue.clone()).unwrap();
 
         let def_sampler = Sampler::new(
             device.clone(),
