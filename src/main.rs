@@ -393,46 +393,6 @@ fn main() {
         device.clone(),
         Default::default(),
     ));
-
-    // let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
-
-    let texture_manager = Arc::new(Mutex::new(TextureManager::new((device.clone(),queue.clone(),memory_allocator.clone()))));
-
-    let model_manager = ModelManager::new((
-        device.clone(),
-        texture_manager.clone(),
-        memory_allocator.clone(),
-    ));
-    // let model_manager = ModelManager {
-    //     device: device.clone(),
-    //     allocator: memory_allocator.clone(),
-    //     models: HashMap::new(),
-    //     models_ids: HashMap::new(),
-    //     texture_manager,
-    //     model_id_gen: 0,
-    // };
-
-    let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
-        device.clone(),
-        memory_allocator.clone(),
-    )));
-    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
-
-    let model_manager = Arc::new(Mutex::new(model_manager));
-    {
-        model_manager.lock().from_file("src/cube/cube.obj");
-    }
-
-    let assets_manager = Arc::new(Mutex::new(AssetsManager::new()));
-    {
-        let mut assets_manager = assets_manager.lock();
-        assets_manager.add_asset_manager(".obj", model_manager.clone());
-        assets_manager.add_asset_manager(".png", texture_manager.clone());
-        assets_manager.add_asset_manager(".jpeg", texture_manager.clone());
-    }
-    // let uniform_buffer =
-    //     CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
-
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
         attachments: {
@@ -462,6 +422,59 @@ fn main() {
         ]
     )
     .unwrap();
+
+    // let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
+
+    let texture_manager = Arc::new(Mutex::new(TextureManager::new(
+        (device.clone(), queue.clone(), memory_allocator.clone()),
+    )));
+
+    let model_manager = ModelManager::new(
+        (
+            device.clone(),
+            texture_manager.clone(),
+            memory_allocator.clone(),
+        ),
+    );
+    // let model_manager = ModelManager {
+    //     device: device.clone(),
+    //     allocator: memory_allocator.clone(),
+    //     models: HashMap::new(),
+    //     models_ids: HashMap::new(),
+    //     texture_manager,
+    //     model_id_gen: 0,
+    // };
+
+    let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
+        device.clone(),
+        memory_allocator.clone(),
+    )));
+    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
+
+    let model_manager = Arc::new(Mutex::new(model_manager));
+    {
+        model_manager.lock().from_file("src/cube/cube.obj");
+    }
+
+    let particles = Arc::new(particles::ParticleCompute::new(
+        device.clone(),
+        render_pass.clone(),
+        // swapchain.clone(),
+        queue.clone(),
+        memory_allocator.clone(),
+        &command_buffer_allocator,
+        descriptor_set_allocator.clone(),
+    ));
+
+    let assets_manager = Arc::new(Mutex::new(AssetsManager::new()));
+    {
+        let mut assets_manager = assets_manager.lock();
+        assets_manager.add_asset_manager("model", &["obj"], model_manager.clone());
+        assets_manager.add_asset_manager("texture", &["png","jpeg"], texture_manager.clone());
+        assets_manager.add_asset_manager("particle_template", &["ptem"], particles.particle_template_manager.clone());
+    }
+    // let uniform_buffer =
+    //     CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
 
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
@@ -557,16 +570,6 @@ fn main() {
     let mut modifiers = ModifiersState::default();
 
     //////////////////////////////////////////////////
-
-    let particles = Arc::new(particles::ParticleCompute::new(
-        device.clone(),
-        render_pass.clone(),
-        // swapchain.clone(),
-        queue.clone(),
-        memory_allocator.clone(),
-        &command_buffer_allocator,
-        descriptor_set_allocator.clone(),
-    ));
 
     let mut input = Input {
         ..Default::default()
@@ -713,8 +716,9 @@ fn main() {
     let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
     {
         let mut world = world.lock();
-        file_watcher.init(&mut world);
-        load_project(&mut file_watcher, &mut world)
+        load_project(&mut file_watcher, &mut world, assets_manager.clone());
+        file_watcher.init(assets_manager.clone());
+        // save_project(&file_watcher, &mut world, assets_manager.clone());
     }
     // let mut selected_transforms: HashMap<i32, bool> = HashMap::<i32, bool>::new();
 
@@ -746,7 +750,7 @@ fn main() {
 
                         game_thread.join().unwrap();
 
-                        save_project(&file_watcher, &world.lock());
+                        save_project(&file_watcher, &world.lock(), assets_manager.clone());
 
                         perf.print();
 
@@ -900,12 +904,20 @@ fn main() {
                     )
                 };
 
-                file_watcher.get_updates(&mut world.lock());
+                file_watcher.get_updates(assets_manager.clone());
 
+                let inst = Instant::now();
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    editor_ui::editor_ui(&world, &mut fps_queue, &ctx, fc.clone(), assets_manager.clone());
+                    editor_ui::editor_ui(
+                        &world,
+                        &mut fps_queue,
+                        &ctx,
+                        fc.clone(),
+                        assets_manager.clone(),
+                    );
                 });
+                perf.update("gui".into(), Instant::now() - inst);
 
                 let render_jobs = world.lock().render();
 
@@ -1183,7 +1195,8 @@ fn main() {
                             buffer_usage_all(),
                             false,
                             rm.indirect.data.clone(),
-                        ).unwrap();
+                        )
+                        .unwrap();
                     }
 
                     let mut offset_vec = Vec::new();

@@ -648,8 +648,21 @@ pub fn editor_ui(
                                         )
                                         .show_header(ui, |ui| {
                                             if let Some(last_slash) = label.rfind("/") {
-                                                let label = label.substring(last_slash + 1, label.len());
-                                                ui.label(label);
+                                                let _label = label.substring(last_slash + 1, label.len());
+                                                let resp = ui.label(_label);//.sense(Sense::click());
+                                                resp.context_menu(|ui| {
+                                                    ui.menu_button("new particle template", |ui| {
+                                                        static mut TEXT: String = String::new();
+
+                                                        unsafe { let resp2 = ui.text_edit_singleline(&mut TEXT); 
+                                                            if resp2.lost_focus() && ui.input().key_pressed(egui::Key::Enter) {
+                                                                ui.close_menu();
+                                                                assets_manager.lock().new_asset(format!("{label}/{TEXT}.ptem").as_str());
+                                                                TEXT = "".into();
+                                                            }
+                                                        }
+                                                    });
+                                                });
                                             }
                                         })
                                         .body(|ui| {

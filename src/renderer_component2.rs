@@ -46,7 +46,7 @@ impl<'a> Inpsect for Ins<'a, ModelId> {
                 if response.hovered() && ui.input().pointer.any_released() {
                     let model_file: String = drop_data.clone();
 
-                    if let Some(id) = sys.model_manager.lock().assets.get(&std::path::Path::new(model_file.as_str()).to_path_buf()) {
+                    if let Some(id) = sys.model_manager.lock().assets.get(&model_file) {
                         self.0.id = *id;
                     }
                 }

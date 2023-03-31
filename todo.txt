@@ -1,1 +1,9 @@
 fix model manager sharing between
+
+
+
+--------------------------PARTICLES-------------------------------
+add different rng for particle emission
+add color over life
+add color over emission
+add particle count display

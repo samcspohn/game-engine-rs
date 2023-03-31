@@ -90,7 +90,7 @@ void update_particle(uint id) {
         // particles[id].rot = lookAt(vec3(rotate(cam_rot) * vec4(0,0,-1,1)).xyz, 
         // vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
         particles[id].rot = look_at;
-        p_l[id].life -= dt;
+        p_l[id].life -= dt * 1.0 / templates[template_ids[id]].life_time;
         if(p_l[id].life < 0.0) {
             int avail_id = atomicAdd(avail_count,-1);
             avail[avail_id - 1] = id;

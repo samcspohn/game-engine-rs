@@ -8,6 +8,7 @@ struct particle_template {
     vec4 color;
     float speed;
     float emission_rate;
+    float life_time;
 };
 struct pos_lif {
     vec3 pos; // 12

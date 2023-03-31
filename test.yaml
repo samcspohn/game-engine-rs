@@ -139,4 +139,6 @@ t_c:
   c:
   - - Renderer
     - (model_id:(id:0),id:5)
+  - - ParticleEmitter
+    - (template:1)
   t_c: []

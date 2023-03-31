@@ -47,30 +47,50 @@ files:
   ./test_project_rs/res/models/sphere/smooth_sphere.mtl: 1671756120
   ./test_project_rs/res/models/sphere/smooth_sphere.obj: 1673282407
   ./test_project_rs/res/models/sphere/sphere.obj: 1671756120
-model_manager:
-  assets:
-    ./test_project_rs\res\models\ship1\ship.obj: 7
-    ./test_project_rs\res\models\Spruce_obj\Spruce.obj: 8
-    ./test_project_rs\res\models\ship1\3guns.obj: 5
-    ./test_project_rs\res\models\nanosuit\nanosuit.obj: 4
-    ./test_project_rs\res\models\cube\cube.obj: 3
-    src/cube/cube.obj: 0
-    ./test_project_rs\res\models\sphere\smooth_sphere.obj: 1
-    ./test_project_rs\res\models\sphere\sphere.obj: 2
-    ./test_project_rs\res\models\ship1\maingun.obj: 6
-  id_gen: 9
-texture_manager:
-  assets:
-    ./test_project_rs\res\models\nanosuit/leg_dif.png: 7
-    ./test_project_rs\res\models\nanosuit/helmet_diff.png: 6
-    ./test_project_rs\res\models\Spruce_obj/Spruce branches.png: 8
-    grass.png: 10
-    ./test_project_rs\res\models\cube/container2.png: 1
-    src/cube/container2.png: 0
-    ./test_project_rs\res\models\Spruce_obj/Spruce trunk.jpeg: 9
-    ./test_project_rs\res\models\nanosuit/arm_dif.png: 2
-    ./test_project_rs\res\models\nanosuit/body_dif.png: 3
-    ./test_project_rs\res\models\nanosuit/glass_dif.png: 4
-    ./test_project_rs\res\models\nanosuit/hand_dif.png: 5
-  id_gen: 11
+  ./test_project_rs/res/test.ptem: 1680024344
+  ./test_project_rs/test.ptem: 1680018210
+assets:
+  model:
+    assets:
+      ./test_project_rs/res/models/nanosuit/nanosuit.obj: 4
+      ./test_project_rs/res/models/ship1/3guns.obj: 5
+      ./test_project_rs/res/models/ship1/ship.obj: 7
+      ./test_project_rs/res/models/ship1/maingun.obj: 6
+      ./test_project_rs/res/models/sphere/smooth_sphere.obj: 1
+      ./test_project_rs/res/models/cube/cube.obj: 3
+      ./test_project_rs/res/models/Spruce_obj/Spruce.obj: 8
+      src/cube/cube.obj: 0
+      ./test_project_rs/res/models/sphere/sphere.obj: 2
+    id_gen: 9
+  particle_template:
+    assets:
+      default.ptem: 0
+      ./test_project_rs/test.ptem: 1
+    id_gen: 2
+  texture:
+    assets:
+      ./test_project_rs/res/models/nanosuit/arm_showroom_ddn.png: 4
+      src/cube/container2.png: 0
+      ./test_project_rs/res/models/nanosuit/helmet_showroom_ddn.png: 15
+      ./test_project_rs/res/models/Spruce_obj/Spruce trunk.jpeg: 21
+      ./test_project_rs/res/models/nanosuit/arm_showroom_spec.png: 5
+      ./test_project_rs/res/models/nanosuit/leg_showroom_spec.png: 19
+      ./test_project_rs/res/models/nanosuit/hand_showroom_ddn.png: 12
+      ./test_project_rs/res/models/Spruce_obj/Spruce branches.png: 20
+      ./test_project_rs/res/models/nanosuit/helmet_diff.png: 14
+      ./test_project_rs/res/models/nanosuit/hand_showroom_spec.png: 13
+      ./test_project_rs/res/models/nanosuit/glass_dif.png: 10
+      ./test_project_rs/res/models/cube/container2.png: 1
+      ./test_project_rs/res/models/nanosuit/arm_dif.png: 3
+      ./test_project_rs/res/models/nanosuit/leg_dif.png: 17
+      ./test_project_rs/res/models/nanosuit/helmet_showroom_spec.png: 16
+      ./test_project_rs/res/models/nanosuit/body_showroom_spec.png: 8
+      ./test_project_rs/res/models/nanosuit/body_showroom_ddn.png: 7
+      ./test_project_rs/res/models/nanosuit/leg_showroom_ddn.png: 18
+      grass.png: 22
+      ./test_project_rs/res/models/cube/container2_specular.png: 2
+      ./test_project_rs/res/models/nanosuit/hand_dif.png: 11
+      ./test_project_rs/res/models/nanosuit/glass_ddn.png: 9
+      ./test_project_rs/res/models/nanosuit/body_dif.png: 6
+    id_gen: 23
 working_file: test.yaml

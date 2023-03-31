@@ -57,6 +57,7 @@ void main() {
     int _i = id[0];
     int i = sorted[_i];
 
+    vec4 col = {1.,0.,0.,1.};
     mat4 model = translate(p_l[i].pos) * rotate(look_at);
     mat4 mvp = proj * view * model;
     particle_template templ = templates[template_ids[i]];

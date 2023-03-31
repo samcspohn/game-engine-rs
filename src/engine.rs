@@ -142,6 +142,9 @@ impl<T: 'static> _Storage<T> {
     pub fn get(&self, i: &i32) -> &T {
         &self.data[*i as usize]
     }
+    pub fn get_mut(&mut self, i: &i32) -> &mut T {
+        &mut self.data[*i as usize]
+    }
     pub fn new() -> _Storage<T> {
         _Storage::<T> {
             data: Vec::new(),
