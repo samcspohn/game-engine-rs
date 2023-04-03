@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, collections::BTreeMap};
 
 use crate::{
     asset_manager::{self, Asset, AssetManagerBase},
@@ -6,7 +6,7 @@ use crate::{
     inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
     particle_sort::ParticleSort,
     renderer_component2::buffer_usage_all,
-    transform_compute::cs::ty::transform,
+    transform_compute::cs::ty::transform, color_gradient::ColorGradient,
 };
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
@@ -194,6 +194,10 @@ impl Inspectable_ for ParticleTemplate {
         field(ui, "life time", |ui| {
             ui.add(egui::DragValue::new(&mut self.life_time));
         });
+        field(ui, "color over life", |ui| {
+            static mut  cg: ColorGradient = ColorGradient {nodes: BTreeMap::new() };
+            unsafe { cg.edit(ui); }
+        })
         // ui.color_edit_button_rgba_premultiplied(&mut self.color);
         // ui.add(egui::DragValue::new(&mut self.emission_rate));
         // ui.add(egui::DragValue::new(&mut self.speed));

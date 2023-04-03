@@ -102,6 +102,7 @@ mod terrain;
 mod texture;
 mod time;
 mod transform_compute;
+mod color_gradient;
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
@@ -379,7 +380,7 @@ fn main() {
                     .iter()
                     .next()
                     .unwrap(),
-                present_mode: vulkano::swapchain::PresentMode::Mailbox,
+                present_mode: vulkano::swapchain::PresentMode::Immediate,
                 ..Default::default()
             },
         )
