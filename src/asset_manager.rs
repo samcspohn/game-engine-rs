@@ -31,7 +31,7 @@ struct TestAsset {}
 
 #[derive(Serialize, Deserialize)]
 pub struct AssetManager<P, T: Inspectable_ + Asset<T, P>> {
-    pub assets: HashMap<String, i32>,
+    pub assets: BTreeMap<String, i32>,
     #[serde(skip_serializing, skip_deserializing)]
     pub assets_id: HashMap<i32, Arc<Mutex<T>>>,
     pub id_gen: i32,
@@ -66,7 +66,7 @@ pub struct AssetManager<P, T: Inspectable_ + Asset<T, P>> {
 impl<P, T: Inspectable_ + Asset<T, P>> AssetManager<P, T> {
     pub fn new(const_params: P) -> Self {
         Self {
-            assets: HashMap::new(),
+            assets: BTreeMap::new(),
             assets_id: HashMap::new(),
             id_gen: 0,
             const_params,

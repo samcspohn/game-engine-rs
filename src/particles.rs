@@ -8,6 +8,9 @@ use crate::{
     renderer_component2::buffer_usage_all,
     transform_compute::cs::ty::transform, color_gradient::ColorGradient,
 };
+// use lazy_static::lazy::Lazy;
+use once_cell::sync::Lazy;
+
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -195,7 +198,7 @@ impl Inspectable_ for ParticleTemplate {
             ui.add(egui::DragValue::new(&mut self.life_time));
         });
         field(ui, "color over life", |ui| {
-            static mut  cg: ColorGradient = ColorGradient {nodes: BTreeMap::new() };
+            static mut  cg: Lazy<ColorGradient> = Lazy::new( || ColorGradient::new());
             unsafe { cg.edit(ui); }
         })
         // ui.color_edit_button_rgba_premultiplied(&mut self.color);

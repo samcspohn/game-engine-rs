@@ -380,7 +380,7 @@ fn main() {
                     .iter()
                     .next()
                     .unwrap(),
-                present_mode: vulkano::swapchain::PresentMode::Immediate,
+                present_mode: vulkano::swapchain::PresentMode::Mailbox,
                 ..Default::default()
             },
         )
@@ -850,16 +850,16 @@ fn main() {
 
                 let full = Instant::now();
 
-                if input.get_key(&VirtualKeyCode::Escape) {
-                    *control_flow = ControlFlow::Exit;
-                    running.store(false, Ordering::SeqCst);
-                    let game_thread = game_thread.remove(0);
-                    let _res = coms.1.send(input.clone());
+                // if input.get_key(&VirtualKeyCode::Escape) {
+                //     *control_flow = ControlFlow::Exit;
+                //     running.store(false, Ordering::SeqCst);
+                //     let game_thread = game_thread.remove(0);
+                //     let _res = coms.1.send(input.clone());
 
-                    game_thread.join().unwrap();
+                //     game_thread.join().unwrap();
 
-                    perf.print();
-                }
+                //     perf.print();
+                // }
                 static mut GRAB_MODE: bool = true;
                 if input.get_key_press(&VirtualKeyCode::G) {
                     unsafe {
