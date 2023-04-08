@@ -24,6 +24,11 @@ struct VkDrawIndirectCommand {
     uint    firstVertex;
     uint    firstInstance;
 };
+struct transform {
+    vec3 position;
+    vec4 rotation;
+    vec3 scale;
+};
 
 // struct particle {
 //     vec3 vel;
@@ -73,6 +78,18 @@ layout(set = 0, binding = 8) buffer d {
     VkDrawIndirectCommand draw[];
 };
 
+layout(set = 0, binding = 9) buffer _n {
+    int next[];
+};
+layout(set = 0, binding = 10) buffer pt {
+    particle_template templates[];
+};
+layout(set = 0, binding = 11) buffer e {
+    emitter emitters[];
+};
+layout(set = 0, binding = 12) buffer t {
+    transform transforms[];
+};
 // shared uint[512] local_buckets;
 const uint skip_size = (1<<16) / 128;
 shared uint[128] local_sums;
@@ -92,13 +109,30 @@ void main() {
                 break;
             case 1:
                 // add particles to sort buffer / update particle keys
-                float z = (view * vec4(p_l[id].pos, 1.0)).z;
+                // float z = (view * vec4(p_l[id].pos, 1.0)).z;
                 // int i = particles[id].sorted;
-                if(p_l[id].life > 0.f && z < 0.f) { // add to sort or update
+                if(p_l[id].life > 0.f) { // add to sort or update
+                float z = (view * vec4(p_l[id].pos, 1.0)).z;
+                particle_template templ = templates[emitters[particles[id].emitter_id].template_id];
+                if (templ.trail == 1) {
+                    vec3 next_pos;
+                    if (next[id] >= 0) {
+                        next_pos = p_l[next[id]].pos;
+                    } else if (next[id] < -1) {
+                        next_pos = transforms[-next[id] - 2].position;
+                    } else {
+                        next_pos = p_l[id].pos;
+                    }
+                    z = (z + (view * vec4(next_pos, 1.0)).z) / 2;
+                }
+                if(z < 0.f){
+
                     int i = atomicAdd(avail_count[0],1); // elements to sort
                     z = -sqrt(-z);
                     a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
                     a1[i].p_id = id;
+                    a2[i] = id;
+                }
                     // a1[i].rot = p_l[id].rot;
                     // a1[i].pos = p_l[id].pos;
                     // a1[i].life = p_l[id].life;

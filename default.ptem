@@ -6,3 +6,13 @@ color:
 speed: 1.0
 emission_rate: 10.0
 life_time: 1.0
+color_over_life:
+  nodes:
+    0:
+    - 0.0
+    - - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
+  id_gen: 1
+trail: false

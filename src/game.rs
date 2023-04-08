@@ -230,39 +230,39 @@ pub fn game_thread_fn(
                         );
                     }
                     const ALOT: f32 = 10_000_000. / 60.;
-                    // if input.get_mouse_button(&0) {
-                    //     let _cam_rot = cam_rot.clone();
-                    //     let _cam_pos = cam_pos.clone();
-                    //     // let rm = renderer_manager.clone();
-                    //     lazy_maker.append(move |world| {
-                    //         let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
-                    //         // let chunk_size =  (len / (64 * 64)).max(1);
-                    //         (0..len)
-                    //             .into_iter()
-                    //             // .chunks(chunk_size)
-                    //             .for_each(|_| {
-                    //                 let g = world.instantiate_with_transform(_Transform {
-                    //                     position: _cam_pos
-                    //                         + glm::quat_to_mat3(&_cam_rot)
-                    //                             * (glm::Vec3::y() * 4. - glm::Vec3::z() * 6.),
-                    //                     ..Default::default()
-                    //                 });
-                    //                 world.add_component(
-                    //                     g,
-                    //                     Bomb {
-                    //                         vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
-                    //                             + glm::vec3(
-                    //                                 rand::random(),
-                    //                                 rand::random(),
-                    //                                 rand::random(),
-                    //                             ) * 18.,
-                    //                     },
-                    //                 );
-                    //                 world.add_component(g, Renderer::new(0));
-                    //                 world.add_component(g, ParticleEmitter::new(0));
-                    //             });
-                    //     });
-                    // }
+                    if input.get_mouse_button(&0) && input.get_mouse_button(&2) {
+                        let _cam_rot = cam_rot.clone();
+                        let _cam_pos = cam_pos.clone();
+                        // let rm = renderer_manager.clone();
+                        lazy_maker.append(move |world| {
+                            let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
+                            // let chunk_size =  (len / (64 * 64)).max(1);
+                            (0..len)
+                                .into_iter()
+                                // .chunks(chunk_size)
+                                .for_each(|_| {
+                                    let g = world.instantiate_with_transform(_Transform {
+                                        position: _cam_pos
+                                            + glm::quat_to_mat3(&_cam_rot)
+                                                * (glm::Vec3::y() * 4. - glm::Vec3::z() * 6.),
+                                        ..Default::default()
+                                    });
+                                    world.add_component(
+                                        g,
+                                        Bomb {
+                                            vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                                                + glm::vec3(
+                                                    rand::random(),
+                                                    rand::random(),
+                                                    rand::random(),
+                                                ) * 18.,
+                                        },
+                                    );
+                                    // world.add_component(g, Renderer::new(0));
+                                    world.add_component(g, ParticleEmitter::new(1));
+                                });
+                        });
+                    }
                 }
 
                 {

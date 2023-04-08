@@ -1,3 +1,17 @@
+struct emitter {
+    // vec3 pos;
+    int alive;
+    int transform_id;
+    float emission;
+    int template_id;
+    int last;
+};
+struct emitter_init {
+    int transform_id;
+    int alive;
+    int template_id;
+    int e_id;
+};
 struct particle {
     vec3 vel;
     int emitter_id;
@@ -9,6 +23,8 @@ struct particle_template {
     float speed;
     float emission_rate;
     float life_time;
+    vec4 color_life[200];
+    int trail;
 };
 struct pos_lif {
     vec3 pos; // 12

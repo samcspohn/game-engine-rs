@@ -1,8 +1,20 @@
-use std::collections::HashMap;
+use nalgebra_glm as glm;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 
+#[derive(Serialize, Deserialize)]
 pub struct ColorGradient {
     pub nodes: HashMap<i32, (f32, [f32; 4])>,
     id_gen: i32,
+}
+
+impl Default for ColorGradient {
+    fn default() -> Self {
+        Self {
+            nodes: HashMap::from_iter([(0, (0., [1., 1., 1., 1.]))]),
+            id_gen: 1,
+        }
+    }
 }
 
 impl ColorGradient {
@@ -12,6 +24,42 @@ impl ColorGradient {
             id_gen: 1,
         };
         a.nodes.insert(0, (0., [1., 1., 1., 1.]));
+        a
+    }
+    pub fn to_color_array(&self) -> [[f32; 4]; 200] {
+        let mut a = [[1.0; 4]; 200];
+        let mut sorted = self
+            .nodes
+            .iter()
+            .map(|(i, n)| (n.0, n.1))
+            .collect::<Vec<(f32, [f32; 4])>>();
+        sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+        if sorted.len() == 0 {
+            return a;
+        }
+        if sorted.len() == 1 {
+            return [sorted[0].1; 200];
+        }
+        for x in sorted.windows(2) {
+            let b = (x[0].0 * 200.) as usize;
+            let e = (x[1].0 * 200.) as usize;
+            let mut start = glm::make_vec4(&x[0].1);
+            let step = (glm::make_vec4(&x[1].1) - start) / (e - b) as f32;
+            for i in b..e {
+                a[i] = start.into();
+                start += step;
+            }
+        }
+        let last = sorted.last().unwrap();
+        let b = (last.0 * 200.) as usize;
+        let e = 200 as usize;
+        let start = glm::make_vec4(&last.1);
+        // let step = glm::make_vec4(&x[1].1) - start;
+        for i in b..e {
+            a[i] = start.into();
+            // start += step;
+        }
         a
     }
     pub fn edit(&mut self, ui: &mut egui::Ui) -> egui::Response {
@@ -59,7 +107,9 @@ impl ColorGradient {
                     egui::pos2(rect.left() + y.0 * rect.width() + 8., rect.bottom()), // bottom tip
                 ));
                 color_picker |= b;
-                if b && ui.input().pointer.primary_clicked() {
+                if b && (ui.input().pointer.primary_clicked()
+                    || ui.input().pointer.secondary_clicked())
+                {
                     unsafe {
                         rgba_premul = y.1;
                         key = *x;
@@ -110,10 +160,9 @@ impl ColorGradient {
                 ui.memory().close_popup();
                 unsafe { key = -1 }
             }
-
         }
         if response.clicked() {
-            if color_picker {
+            if color_picker && unsafe { self.nodes.contains_key(&key) } {
                 ui.memory().toggle_popup(popup_id);
             } else {
                 println!(
@@ -143,6 +192,16 @@ impl ColorGradient {
                 ui.memory().toggle_popup(popup_id);
 
                 response.mark_changed();
+            }
+        } else if response.secondary_clicked() {
+            if color_picker {
+                // ui.memory().toggle_popup(popup_id);
+                unsafe {
+                    if let Some(_) = self.nodes.remove(&key) {}
+                    if ui.memory().is_popup_open(popup_id) {
+                        key = -1;
+                    }
+                }
             }
         } else if response.drag_released() {
             unsafe { key = -1 }

@@ -1373,8 +1373,10 @@ fn main() {
                 );
                 particles.sort.sort(
                     view.into(),
-                    particles.particles.clone(),
-                    particles.particle_positions_lifes.clone(),
+                    transform_compute.transform.clone(),
+                    &particles.particle_buffers,
+                    // particles.particle_buffers.particles.clone(),
+                    // particles.particle_buffers.particle_positions_lifes.clone(),
                     device.clone(),
                     queue.clone(),
                     &mut builder,
@@ -1490,6 +1492,7 @@ fn main() {
                     proj.clone(),
                     cam_rot.coords.into(),
                     cam_pos.into(),
+                    transform_compute.transform.clone(),
                     memory_allocator.clone(),
                     &command_buffer_allocator,
                     descriptor_set_allocator.clone(),

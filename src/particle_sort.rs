@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{particles::MAX_PARTICLES, renderer_component2::buffer_usage_all};
+use crate::{particles::{MAX_PARTICLES, ParticleBuffers}, renderer_component2::buffer_usage_all, transform_compute::cs::ty::transform, renderer::vs::ty::tr};
 
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer},
@@ -213,8 +213,10 @@ impl ParticleSort {
     pub fn sort(
         &self,
         view: [[f32; 4]; 4],
-        particles: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::particle]>>,
-        particle_positions_lifes: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::pos_lif]>>,
+        transform: Arc<DeviceLocalBuffer<[transform]>>,
+        pb: &ParticleBuffers,
+        // particles: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::particle]>>,
+        // particle_positions_lifes: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::pos_lif]>>,
         _device: Arc<Device>,
         _queue: Arc<Queue>,
         builder: &mut AutoCommandBufferBuilder<
@@ -291,13 +293,18 @@ impl ParticleSort {
                 [
                     WriteDescriptorSet::buffer(0, self.a1.clone()),
                     WriteDescriptorSet::buffer(1, self.a2.clone()),
-                    // WriteDescriptorSet::buffer(2, particles.clone()),
-                    WriteDescriptorSet::buffer(3, particle_positions_lifes.clone()),
+                    WriteDescriptorSet::buffer(2, pb.particles.clone()),
+                    WriteDescriptorSet::buffer(3, pb.particle_positions_lifes.clone()),
                     WriteDescriptorSet::buffer(4, bound_indirect.clone()),
                     WriteDescriptorSet::buffer(5, self.avail_count.clone()),
                     WriteDescriptorSet::buffer(6, uniform_sub_buffer.clone()),
                     WriteDescriptorSet::buffer(7, self.buckets.clone()),
                     WriteDescriptorSet::buffer(8, self.draw.clone()),
+                    WriteDescriptorSet::buffer(9, pb.particle_next.clone()),
+                    WriteDescriptorSet::buffer(10, pb.particle_template.lock().clone()),
+                    WriteDescriptorSet::buffer(11, pb.emitters.lock().clone()),
+                    WriteDescriptorSet::buffer(12, transform.clone()),
+
                 ],
             )
             .unwrap();
@@ -334,19 +341,19 @@ impl ParticleSort {
         // stage 1
         build_stage(builder, 1, MAX_PARTICLES);
 
-        // // stage 2
+        // stage 2
         build_stage(builder, 2, 65536);
 
-        // // stage 3
+        // stage 3
         build_stage(builder, 3, -1);
 
-        // // stage 4
+        // stage 4
         build_stage(builder, 4, 128); // buckets
 
-        // // stage 5
+        // stage 5
         build_stage(builder, 5, -1);
 
-        // // stage 6
+        // stage 6
         build_stage(builder, 6, 1);
 
         // let temp = self.a1.clone();

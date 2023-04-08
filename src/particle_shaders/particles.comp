@@ -10,20 +10,7 @@ struct transform {
 };
 
 
-struct emitter {
-    // vec3 pos;
-    int alive;
-    int transform_id;
-    float emission;
-    int template_id;
-};
 
-struct emitter_init {
-    int transform_id;
-    int alive;
-    int template_id;
-    int e_id;
-};
 // struct particle_emitter_prototype {
 
 // };
@@ -38,12 +25,12 @@ layout(set = 0, binding = 1) buffer p {
 layout(set = 0, binding = 2) buffer _p {
     pos_lif p_l[];
 };
+layout(set = 0, binding = 3) buffer _n {
+    int next[];
+};
 layout(set = 0, binding = 9) buffer pt {
     int template_ids[];
 };
-// layout(set = 0, binding = 3) buffer l {
-//     float life[];
-// };
 layout(set = 0, binding = 4) buffer a {
     uint avail[];
 };
@@ -94,6 +81,7 @@ void update_particle(uint id) {
         if(p_l[id].life < 0.0) {
             int avail_id = atomicAdd(avail_count,-1);
             avail[avail_id - 1] = id;
+            next[id] = -1;
         }
     }
 }
@@ -114,6 +102,16 @@ void update_emitter(uint id) {
             template_ids[i] = emitters[id].template_id;
             p_l[i].pos = transforms[emitters[id].transform_id].position;
             p_l[i].life = 1.0;
+            if(templ.trail == 1){
+                int last = emitters[id].last;
+                if(last >= 0){
+                    next[last] = int(i);
+                } 
+                next[i] = -int(emitters[id].transform_id) - 2;
+                emitters[id].last = int(i);
+            } else {
+                next[i] = -1;
+            }
         }
         emitters[id].emission -= float(emission);
     } 
@@ -123,6 +121,9 @@ void update_emitter(uint id) {
 void init_emitters(uint id){
     emitter_init init = emitter_inits[id];
     emitter e;
+    // if (emitters[init.e_id].alive == 1) {
+
+    // }
     e.alive = init.alive;
     e.transform_id = init.transform_id;
     e.template_id = init.template_id;
