@@ -3,7 +3,6 @@ use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use puffin_egui::puffin;
-use spin::lazy;
 use std::{
     any::TypeId,
     collections::{HashMap, VecDeque},
@@ -48,7 +47,7 @@ struct TabViewer<'a> {
     assets_manager: Arc<Mutex<AssetsManager>>,
     func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<Mutex<AssetsManager>>) -> ()>,
 }
-
+static mut playing: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_> {
     type Tab = String;
 
@@ -57,6 +56,24 @@ impl egui_dock::TabViewer for TabViewer<'_> {
             // ui.label(format!("Content of {tab}"));
             (self.func)(tab, ui, self.world, self.fps, self.inspectable, self.assets_manager.clone());
         } else {
+            ui.horizontal_top(|ui| {
+                if unsafe {playing} {
+                    if ui.button("Stop").clicked() {
+                        println!("stop game");
+                        unsafe { playing = false; }
+                        {
+                            let mut world = self.world.lock();
+                            world.clear();
+                            crate::serialize::deserialize(&mut world);
+                        }
+                    }    
+                } else {
+                    if ui.button("Play").clicked() {
+                        println!("play game");
+                        unsafe { playing = true; }
+                    }
+                }
+            });
             let a = ui.available_size();
             // *EDITOR_ASPECT_RATIO.lock() = a[0] / a[1];
             ui.image(self.image, a);
@@ -103,13 +120,15 @@ impl Inspectable_ for GameObjectInspector {
                                     t.move_child(t_id, pos - prev_pos);
                                 }
                                 let mut rot = *t.rotations[t_id as usize].lock();
+                                let mut rot = glm::quat_euler_angles(&rot);
                                 ui.vertical(|ui| {
                                     ui.horizontal(|ui| {
                                         ui.add(egui::Label::new("Rotation"));
-                                        let x = ui.add(
-                                            egui::Button::new("< X >").sense(egui::Sense::drag()),
-                                        );
+                                        // let x = ui.add(
+                                        //     egui::Button::new(format!("{}", )).sense(egui::Sense::drag()),
+                                        // );
                                         // x.sense.drag = true;
+                                        let x = ui.drag_angle(&mut rot.z);
                                         if x.dragged() && x.drag_delta().x != 0. {
                                             t.rotate(
                                                 t_id,
@@ -117,9 +136,10 @@ impl Inspectable_ for GameObjectInspector {
                                                 x.drag_delta().x / 10.,
                                             );
                                         }
-                                        let y = ui.add(
-                                            egui::Button::new("< Y >").sense(egui::Sense::drag()),
-                                        );
+                                        // let y = ui.add(
+                                        //     egui::Button::new("< Y >").sense(egui::Sense::drag()),
+                                        // );
+                                        let y = ui.drag_angle(&mut rot.y);
                                         // y.sense.drag = true;
                                         if y.dragged() && y.drag_delta().x != 0. {
                                             t.rotate(
@@ -128,9 +148,10 @@ impl Inspectable_ for GameObjectInspector {
                                                 y.drag_delta().x / 10.,
                                             );
                                         }
-                                        let z = ui.add(
-                                            egui::Button::new("< Z >").sense(egui::Sense::drag()),
-                                        );
+                                        // let z = ui.add(
+                                        //     egui::Button::new("< Z >").sense(egui::Sense::drag()),
+                                        // );
+                                        let z = ui.drag_angle(&mut rot.x);
                                         // z.sense.drag = true;
                                         if z.dragged() && z.drag_delta().x != 0. {
                                             t.rotate(
@@ -140,12 +161,12 @@ impl Inspectable_ for GameObjectInspector {
                                             );
                                         }
                                     });
-                                    ui.horizontal(|ui| {
-                                        ui.add(egui::DragValue::new(&mut rot.coords.w).speed(0.1));
-                                        ui.add(egui::DragValue::new(&mut rot.coords.x).speed(0.1));
-                                        ui.add(egui::DragValue::new(&mut rot.coords.y).speed(0.1));
-                                        ui.add(egui::DragValue::new(&mut rot.coords.z).speed(0.1));
-                                    });
+                                    // ui.horizontal(|ui| {
+                                    //     ui.add(egui::DragValue::new(&mut rot.coords.w).speed(0.1));
+                                    //     ui.add(egui::DragValue::new(&mut rot.coords.x).speed(0.1));
+                                    //     ui.add(egui::DragValue::new(&mut rot.coords.y).speed(0.1));
+                                    //     ui.add(egui::DragValue::new(&mut rot.coords.z).speed(0.1));
+                                    // });
                                 });
 
                                 // Ins(&mut rot).inspect("Rotation", ui);
@@ -200,7 +221,7 @@ impl Inspectable_ for GameObjectInspector {
                         let mut components = ent.write();
                         for (c_type, id) in components.iter_mut() {
                             if let Some(c) = world.components.get(&c_type) {
-                                let c = c.read();
+                                let mut c = c.write();
                                 // let name: String = c.get_name().into();
                                 ui.separator();
                                 let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
@@ -319,6 +340,7 @@ pub fn editor_ui(
                         let assets_manager = assets_manager.clone();
                         match tab {
                             "Hierarchy" => {
+
                                 // let resp = {
                                     let w = &world;
                                     let mut world = world.lock();
@@ -331,6 +353,10 @@ pub fn editor_ui(
                                             let fps: f32 = fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
                                             ui.label(format!("fps: {}", 1.0 / fps));
                                         }
+                                        ui.label(format!("entities: {}",transforms.active()));
+                                        // if playing {
+                                        //     return;
+                                        // }
 
                                         fn transform_hierarchy_ui(
                                             transforms: &Transforms,

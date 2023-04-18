@@ -30,7 +30,7 @@ t_c:
     - 1.0
   c:
   - - Renderer
-    - (model_id:(id:7),id:0)
+    - (model_id:(id:7),id:12)
   t_c:
   - t:
       position:
@@ -48,7 +48,7 @@ t_c:
       - 1.0
     c:
     - - Renderer
-      - (model_id:(id:6),id:1)
+      - (model_id:(id:6),id:13)
     t_c:
     - t:
         position:
@@ -66,7 +66,7 @@ t_c:
         - 1.0
       c:
       - - Renderer
-        - (model_id:(id:5),id:2)
+        - (model_id:(id:5),id:14)
       t_c: []
   - t:
       position:
@@ -84,7 +84,7 @@ t_c:
       - 1.0
     c:
     - - Renderer
-      - (model_id:(id:6),id:3)
+      - (model_id:(id:6),id:15)
     t_c:
     - t:
         position:
@@ -102,7 +102,7 @@ t_c:
         - 1.0
       c:
       - - Renderer
-        - (model_id:(id:5),id:4)
+        - (model_id:(id:5),id:16)
       t_c: []
 - t:
     position:
@@ -128,17 +128,33 @@ t_c:
     - 25.7
     - 0.0
     rotation:
-    - 0.34624305
-    - -0.9103895
-    - 0.21038389
-    - -0.08398378
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
     scale:
     - 1.0
     - 1.0
     - 1.0
   c:
-  - - Renderer
-    - (model_id:(id:0),id:5)
   - - ParticleEmitter
     - (template:1)
+  - - Renderer
+    - (model_id:(id:0),id:17)
+  t_c: []
+- t:
+    position:
+    - 0.0
+    - 0.0
+    - 0.0
+    rotation:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    scale:
+    - 1.0
+    - 1.0
+    - 1.0
+  c: []
   t_c: []

@@ -1,6 +1,6 @@
 use egui::Ui;
 use lazy_static::lazy_static;
-use spin::lock_api::Mutex;
+use parking_lot::Mutex;
 
 lazy_static! {
     pub static ref DRAG_DROP_DATA: Mutex<String> = Mutex::new(String::from(""));

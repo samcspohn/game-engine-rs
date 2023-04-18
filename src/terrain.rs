@@ -83,7 +83,7 @@ pub struct Terrain {
     // pub queue: Arc<Queue>,
     // pub texture_manager: Arc<TextureManager>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub chunks: Arc<Mutex<HashMap<i32, HashMap<i32, bool>>>>,
+    pub chunks: Arc<Mutex<HashMap<i32, HashMap<i32, ColliderHandle>>>>,
     #[serde(skip_serializing, skip_deserializing)]
     cur_chunks: Arc<AtomicI32>,
     #[serde(skip_serializing, skip_deserializing)]
@@ -220,7 +220,13 @@ impl Terrain {
                                 // ))
                                 .build();
                             // .solver_groups(InteractionGroups::new(0b0011.into(), 0b1011.into()));
-                            chunks.lock().get_mut(&x).unwrap().insert(z, true);
+                            chunks
+                                .lock()
+                                .entry(x)
+                                .or_insert(HashMap::new())
+                                .insert(z, ColliderHandle::invalid());
+                            let x_ = x;
+                            let z_ = z;
 
                             let mut builder = AutoCommandBufferBuilder::primary(
                                 sys.command_buffer_allocator,
@@ -326,8 +332,10 @@ impl Terrain {
                             let command_buffer = builder.build().unwrap();
                             command_buffers.lock().push(Arc::new(command_buffer));
 
+                            let _chunks = chunks.clone();
                             sys.defer.append(move |world| {
-                                world.sys.lock().physics.collider_set.insert(collider);
+                                let handle = world.sys.lock().physics.collider_set.insert(collider);
+                                _chunks.lock().get_mut(&x_).unwrap().insert(z_, handle);
                             });
                             cur_chunks.fetch_add(1, Ordering::Relaxed);
                         });
@@ -507,17 +515,14 @@ impl Component for Terrain {
             Box::new(move |rd: &mut RenderJobData| {
                 let RenderJobData {
                     builder,
-                    transforms: _,
+                    transforms,
                     mvp,
-                    view: _,
-                    proj: _,
+                    view,
+                    proj,
                     pipeline,
-                    device,
                     viewport,
-                    memory_allocator,
-                    descriptor_set_allocator,
-                    command_buffer_allocator,
                     texture_manager,
+                    vk,
                 } = rd;
                 let instance_data = vec![t_id];
                 // let mvp_data = vec![MVP {
@@ -529,7 +534,7 @@ impl Component for Terrain {
                     unsafe {
                         INSTANCE_BUFFER = Some(
                             CpuAccessibleBuffer::<[i32]>::from_iter(
-                                memory_allocator,
+                                &vk.mem_alloc,
                                 BufferUsage {
                                     transfer_src: true,
                                     storage_buffer: true,
@@ -581,7 +586,7 @@ impl Component for Terrain {
                     descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
                 }
                 let set = PersistentDescriptorSet::new(
-                    descriptor_set_allocator,
+                    &vk.desc_alloc,
                     layout.clone(),
                     descriptors,
                 )
@@ -639,5 +644,14 @@ impl Component for Terrain {
     fn update(&mut self, transform: Transform, sys: &crate::engine::System) {
         self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
         self.generate(&transform, sys);
+    }
+    fn deinit(&mut self, transform: Transform, id: i32, sys: &mut Sys) {
+        let chunks = self.chunks.lock();
+        for x in chunks.iter() {
+            for (z, col) in x.1 {
+                // let physics = &mut sys.physics;
+                sys.physics.remove_collider(*col);
+            }
+        }
     }
 }

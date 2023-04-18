@@ -1,4 +1,4 @@
-use glm::{vec4, Vec3};
+use glm::{vec4, Vec3, vec3, Quat, Mat4};
 use nalgebra_glm as glm;
 use num_integer::Roots;
 use parking_lot::{Mutex, RwLock};
@@ -47,8 +47,8 @@ impl Component for Bomb {
         let pos = transform.get_position();
         let vel = self.vel;
         let dt = sys.input.time.dt.min(1. / 20.);
-        // let dt = 1. / 100.;
-        // let dir = vel * (1.0 / 100.0);
+                                    // let dt = 1. / 100.;
+                                    // let dir = vel * (1.0 / 100.0);
         let ray = rapier3d::prelude::Ray {
             origin: point![pos.x, pos.y, pos.z],
             dir: vel,
@@ -61,7 +61,7 @@ impl Component for Bomb {
             true,
             QueryFilter::new(),
         ) {
-            // let g = GameObject { t: self.t };
+            // let g = GameObject { t: transform.id };
             // sys.defer.append(move |world| {
             //     world.delete(g);
             // });
@@ -90,6 +90,75 @@ impl Inspectable for Bomb {
         // });
     }
 }
+
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct Player {
+    rof: f32,
+    speed: f32,
+}
+impl Component for Player {
+    fn update(&mut self, transform: Transform, sys: &System) {
+        let input = &sys.input;
+        let speed = 20.0 * input.time.dt;
+        if !input.get_key(&VirtualKeyCode::LControl) {
+            // forward/backward
+            if input.get_key(&VirtualKeyCode::W) {
+                transform.translate((vec3(0.,0.,1.) * -speed));
+                // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
+            }
+            if input.get_key(&VirtualKeyCode::S) {
+                transform.translate((vec3(0.,0.,1.) * speed));
+                // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
+            }
+            //left/right
+            if input.get_key(&VirtualKeyCode::A) {
+                transform.translate(vec3(1.,0.,0.) * -speed);
+                // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
+            }
+            if input.get_key(&VirtualKeyCode::D) {
+                transform.translate(vec3(1.,0.,0.) * speed);
+                // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
+            }
+            // up/down
+            if input.get_key(&VirtualKeyCode::Space) {
+                transform.translate(vec3(0.,1.,0.) * -speed);
+                // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
+            }
+            if input.get_key(&VirtualKeyCode::LShift) {
+                transform.translate(vec3(0.,1.,0.) * speed);
+                // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
+            }
+
+            if input.get_mouse_button(&2) {
+                transform.rotate(&Vec3::y(), input.get_mouse_delta().0 as f32 * 0.01);
+                transform.rotate(&Vec3::x(), input.get_mouse_delta().1 as f32 * 0.01);
+                // cam_rot = glm::quat_rotate(
+                //     &cam_rot,
+                //     input.get_mouse_delta().0 as f32 * 0.01,
+                //     &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
+                // );
+                // cam_rot = glm::quat_rotate(
+                //     &cam_rot,
+                //     input.get_mouse_delta().1 as f32 * 0.01,
+                //     &Vec3::x(),
+                // );
+            }
+        }
+    }
+}
+
+impl Inspectable for Player {
+    fn inspect(&mut self, _transform: Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+        // ui.add(egui::Label::new("Bomb"));
+        // egui::CollapsingHeader::new("Bomb")
+        //     .default_open(true)
+        //     .show(ui, |ui| {
+        Ins(&mut self.rof).inspect("rof", ui, sys);
+        Ins(&mut self.speed).inspect("speed", ui, sys);
+        // });
+    }
+}
+
 // #[component]
 // pub struct Maker {}
 // impl Component for Maker {
@@ -119,12 +188,6 @@ impl Inspectable for Bomb {
 
 pub fn game_thread_fn(
     world: Arc<Mutex<World>>,
-    // _device: Arc<Device>,
-    // _queue: Arc<vulkano::device::Queue>,
-    // model_manager: Arc<Mutex<ModelManager>>,
-    // renderer_manager: Arc<RwLock<RendererManager>>,
-    // particles: Arc<ParticleCompute>,
-    // texture_manager: Arc<TextureManager>,
     coms: (
         Sender<(
             Arc<(
@@ -135,8 +198,6 @@ pub fn game_thread_fn(
             glm::Quat,
             RendererData,
             (usize, Vec<crate::particles::cs::ty::emitter_init>),
-            // Arc<(Vec<Offset>, Vec<Id>)>,
-            // Arc<&HashMap<i32, HashMap<i32, Mesh>>>,
         )>,
         Receiver<Input>,
         // Sender<Terrain>,
@@ -148,12 +209,13 @@ pub fn game_thread_fn(
 
     ////////////////////////////////////////////////
     let mut cam_pos = glm::vec3(0.0, 0.0, -3.0);
-    let mut cam_rot = glm::quat(1.0, 0.0, 0.0, 0.0);
+    let mut cam_rot = glm::quat(-1.0, 0.0, 0.0, 0.0);
 
     let mut perf = Perf {
         data: HashMap::new(),
     };
     let mut phys_time = 0f32;
+
     while running.load(Ordering::SeqCst) {
         // println!("waiting for input");
         let input = coms.1.recv().unwrap();
@@ -168,7 +230,8 @@ pub fn game_thread_fn(
                     if phys_time > 1.0 / 30.0 {
                         let sys = world.sys.lock();
                         let len = sys.physics.rigid_body_set.len();
-                        let num_threads = (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
+                        let num_threads =
+                            (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
                         drop(sys);
                         rayon::ThreadPoolBuilder::new()
                             .num_threads(num_threads)
@@ -242,20 +305,27 @@ pub fn game_thread_fn(
                                 // .chunks(chunk_size)
                                 .for_each(|_| {
                                     let g = world.instantiate_with_transform(_Transform {
-                                        position: _cam_pos
-                                            + glm::quat_to_mat3(&_cam_rot)
-                                                * (glm::Vec3::y() * 4. - glm::Vec3::z() * 6.),
+                                        // position: _cam_pos
+                                        //     + glm::quat_to_mat3(&_cam_rot)
+                                        //         * (glm::Vec3::y() * 10. - glm::Vec3::z() * 25.)
+                                        //     + glm::vec3(
+                                        //         rand::random::<f32>() - 0.5,
+                                        //         rand::random::<f32>() - 0.5,
+                                        //         rand::random::<f32>() - 0.5,
+                                        //     ) * 18.,
+                                        position: glm::vec3((rand::random::<f32>() - 0.5) * 1000f32 ,100f32,(rand::random::<f32>() - 0.5) * 1000f32),
                                         ..Default::default()
                                     });
                                     world.add_component(
                                         g,
                                         Bomb {
-                                            vel: glm::quat_to_mat3(&_cam_rot) * -glm::Vec3::z() * 50.
+                                            vel: glm::Vec3::y()
+                                                * 50.
                                                 + glm::vec3(
-                                                    rand::random(),
-                                                    rand::random(),
-                                                    rand::random(),
-                                                ) * 18.,
+                                                    rand::random::<f32>() - 0.5,
+                                                    rand::random::<f32>() - 0.5,
+                                                    rand::random::<f32>() - 0.5,
+                                                ) * 40.,
                                         },
                                     );
                                     // world.add_component(g, Renderer::new(0));
@@ -272,33 +342,6 @@ pub fn game_thread_fn(
 
                 perf.update("world".into(), Instant::now() - inst);
             }
-
-            // let positions_to_buffer = {
-            //     puffin::profile_scope!("prepare transforms");
-
-            //     let pos_len = { world.transforms.read().positions.len() };
-            //     let mut positions_to_buffer: Vec<[f32;3]> = { Vec::with_capacity(pos_len) };
-
-            //     unsafe {
-            //         positions_to_buffer.set_len(pos_len);
-            //     }
-            //     {
-            //         let positions = &mut world.transforms.write().positions;
-            //         let p_iter = positions.par_iter_mut();
-            //         let m_iter = positions_to_buffer.par_iter_mut();
-
-            //         let chunk_size = (pos_len / (64 * 64)).max(1);
-            //         p_iter.zip_eq(m_iter).chunks(chunk_size).for_each(|slice| {
-            //             for (x, y) in slice {
-            //                 let x = x.get_mut();
-            //                 // let x = x.lock();
-            //                 *y = [x.x, x.y, x.z];
-            //             }
-            //         });
-            //     }
-
-            //     Arc::new(positions_to_buffer)
-            // };
             let inst = Instant::now();
             let transform_data = {
                 puffin::profile_scope!("get transform data");

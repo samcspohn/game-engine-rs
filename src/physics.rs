@@ -68,4 +68,8 @@ impl Physics {
     pub fn get_counters() {
         
     }
+    pub fn remove_collider(&mut self, handle: ColliderHandle) {
+        if let Some(_) = self.collider_set.remove(handle, &mut self.island_manager, &mut self.rigid_body_set, true) {}
+
+    }
 }

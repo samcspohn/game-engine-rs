@@ -1019,7 +1019,6 @@ dependencies = [
  "scoped_threadpool",
  "serde",
  "serde_yaml",
- "spin",
  "substring",
  "tobj",
  "vulkano",

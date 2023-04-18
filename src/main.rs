@@ -4,6 +4,7 @@ use egui::{Color32, Rounding, Ui, WidgetText};
 use glium::memory_object;
 use rapier3d::na::dimension;
 use std::{env, fs};
+use vulkan_manager::VulkanManager;
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
 use vulkano::command_buffer::{
     BlitImageInfo, CopyBufferInfo, CopyImageInfo, ImageBlit, PrimaryCommandBufferAbstract,
@@ -88,6 +89,8 @@ mod perf;
 mod renderer;
 // mod renderer_component;
 mod asset_manager;
+mod camera;
+mod color_gradient;
 mod drag_drop;
 mod editor_ui;
 mod file_watcher;
@@ -102,7 +105,7 @@ mod terrain;
 mod texture;
 mod time;
 mod transform_compute;
-mod color_gradient;
+mod vulkan_manager;
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
@@ -110,7 +113,7 @@ use crate::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::engine::physics::Physics;
 use crate::engine::transform::{Transform, Transforms};
 use crate::engine::{GameObject, RenderJobData, Sys, World};
-use crate::game::{game_thread_fn, Bomb};
+use crate::game::{game_thread_fn, Bomb, Player};
 use crate::inspectable::{Inpsect, Ins};
 use crate::model::{ModelManager, ModelRenderer};
 use crate::particles::cs::ty::t;
@@ -125,115 +128,6 @@ use crate::transform_compute::cs;
 use crate::transform_compute::cs::ty::transform;
 use crate::{drag_drop::drag_source, drag_drop::drop_target};
 use crate::{input::Input, renderer::RenderPipeline};
-
-use rayon::prelude::*;
-
-// enum TransformDrag {
-//     DragToTransform(i32,i32),
-//     DragBetweenTransform(i32,i32,bool)
-
-// }
-// lazy_static::lazy_static! {
-
-//     static ref dragged_transform: Mutex<i32> = Mutex::new(0);
-//     static ref transform_drag: Mutex<Option<TransformDrag>> = Mutex::new(None);
-
-// }
-
-// use egui::{
-//     color_picker::{color_picker_color32, Alpha},
-//     Id, LayerId, Slider,
-// };
-
-// use egui_dock::{DockArea, NodeIndex, Style, TabViewer};
-
-// struct MyTab {
-//     title: String,
-//     world: Arc<Mutex<World>>,
-//     f: fn(&mut World, &mut Ui)
-// }
-
-// struct MyTabs {
-//     tree: Tree<MyTab>
-// }
-
-// struct MyContext {
-//     pub title: String,
-//     pub age: u32,
-//     pub style: Option<Style>,
-// }
-
-// impl TabViewer for MyContext {
-//     type Tab = String;
-
-//     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
-//         // match tab.as_str() {
-//         //     "Simple Demo" => self.simple_demo(ui),
-//         //     "Style Editor" => self.style_editor(ui),
-//         //     _ => {
-//         //         ui.label(tab.as_str());
-//         //     }
-//         // }
-//     }
-
-//     // fn context_menu(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
-//     //     match tab.as_str() {
-//     //         "Simple Demo" => self.simple_demo_menu(ui),
-//     //         _ => {
-//     //             ui.label(tab.to_string());
-//     //             ui.label("This is a context menu");
-//     //         }
-//     //     }
-//     // }
-
-//     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText {
-//         tab.as_str().into()
-//     }
-// }
-
-//  use egui_dock::{NodeIndex};
-
-//  struct MyTabs {
-//      tree: Tree<String>
-//  }
-
-//  impl MyTabs {
-//     //  pub fn new() -> Self {
-//     //      let tab1 = "tab1".to_string();
-//     //      let tab2 = "tab2".to_string();
-
-//     //      let mut tree = Tree::new(vec![tab1]);
-//     //      tree.split_left(NodeIndex::root(), 0.20, vec![tab2]);
-
-//     //      Self { tree }
-//     //  }
-
-//      fn ui(&mut self, ui: &mut egui::Ui) {
-//          let style = egui_dock::Style::from_egui(ui.style().as_ref());
-//          egui_dock::DockArea::new(&mut self.tree)
-//              .style(style)
-//              .show_inside(ui, &mut TabViewer {});
-//      }
-//  }
-
-//  struct TabViewer {}
-
-//  impl egui_dock::TabViewer for TabViewer {
-//      type Tab = String;
-
-//      fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
-//          ui.label(format("Content of {tab}"));
-//      }
-
-//      fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
-//          (&*tab).into()
-//      }
-//  }
-//
-//  # let mut my_tabs = MyTabs::new();
-//  # egui::__run_test_ctx(|ctx| {
-//  #     egui::CentralPanel::default().show(ctx, |ui| my_tabs.ui(ui));
-//  # });
 
 struct FrameImage {
     arc: Arc<AttachmentImage>,
@@ -250,97 +144,11 @@ fn main() {
         // below will be monitored for changes.
         if let Ok(_) = watcher.watch(Path::new("./test_project"), RecursiveMode::Recursive) {}
     }
-
-    // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
-    let library = VulkanLibrary::new().unwrap();
-    let required_extensions = vulkano_win::required_extensions(&library);
-
-    // Now creating the instance.
-    let instance = Instance::new(
-        library,
-        InstanceCreateInfo {
-            enabled_extensions: required_extensions,
-            // Enable enumerating devices that use non-conformant vulkan implementations. (ex. MoltenVK)
-            enumerate_portability: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
     let event_loop = EventLoop::new();
-    let surface = WindowBuilder::new()
-        // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-        .with_inner_size(LogicalSize {
-            width: 1920,
-            height: 1080,
-        })
-        .build_vk_surface(&event_loop, instance.clone())
-        .unwrap();
-
-    let device_extensions = DeviceExtensions {
-        khr_swapchain: true,
-        // nv_geometry_shader_passthrough: true,
-        ..DeviceExtensions::empty()
-    };
-
-    let (physical_device, queue_family_index) = instance
-        .enumerate_physical_devices()
-        .unwrap()
-        .filter(|p| p.supported_extensions().contains(&device_extensions))
-        .filter_map(|p| {
-            p.queue_family_properties()
-                .iter()
-                .enumerate()
-                .position(|(i, q)| {
-                    q.queue_flags.graphics && p.surface_support(i as u32, &surface).unwrap_or(false)
-                })
-                .map(|i| (p, i as u32))
-        })
-        .min_by_key(|(p, _)| match p.properties().device_type {
-            PhysicalDeviceType::DiscreteGpu => 0,
-            PhysicalDeviceType::IntegratedGpu => 1,
-            PhysicalDeviceType::VirtualGpu => 2,
-            PhysicalDeviceType::Cpu => 3,
-            PhysicalDeviceType::Other => 4,
-            _ => 5,
-        })
-        .expect("No suitable physical device found");
-
-    // Some little debug infos.
-    println!(
-        "Using device: {} (type: {:?})",
-        physical_device.properties().device_name,
-        physical_device.properties().device_type,
-    );
-
-    // Now initializing the device. This is probably the most important object of Vulkan.
-    //
-    // The iterator of created queues is returned by the function alongside the device.
-
-    let features = Features {
-        geometry_shader: true,
-        ..Default::default()
-    };
-    let (device, mut queues) = Device::new(
-        // Which physical device to connect to.
-        physical_device,
-        DeviceCreateInfo {
-            enabled_extensions: device_extensions,
-            enabled_features: features,
-            queue_create_infos: vec![QueueCreateInfo {
-                queue_family_index,
-                ..Default::default()
-            }],
-
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    // Since we can request multiple queues, the `queues` variable is in fact an iterator. We
-    // only use one queue in this example, so we just retrieve the first and only element of the
-    // iterator.
-    let queue = queues.next().unwrap();
+    let vk = VulkanManager::new(&event_loop);
+    let device = vk.device.clone();
+    let queue = vk.queue.clone();
+    let surface = vk.surface.clone();
 
     // Before we can draw on the surface, we have to create what is called a swapchain. Creating
     // a swapchain allocates the color buffers that will contain the image that will ultimately
@@ -380,20 +188,20 @@ fn main() {
                     .iter()
                     .next()
                     .unwrap(),
-                present_mode: vulkano::swapchain::PresentMode::Mailbox,
+                present_mode: vulkano::swapchain::PresentMode::Immediate,
                 ..Default::default()
             },
         )
         .unwrap()
     };
-    // let img_count = swapchain.image_count();
-    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+    // // let img_count = swapchain.image_count();
+    // let vk.mem_alloc = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
-    let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
-        device.clone(),
-        Default::default(),
-    ));
+    // let vk.desc_alloc = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
+    // let vk.comm_alloc = Arc::new(StandardCommandBufferAllocator::new(
+    //     device.clone(),
+    //     Default::default(),
+    // ));
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
         attachments: {
@@ -426,29 +234,21 @@ fn main() {
 
     // let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
-    let texture_manager = Arc::new(Mutex::new(TextureManager::new(
-        (device.clone(), queue.clone(), memory_allocator.clone()),
-    )));
+    let texture_manager = Arc::new(Mutex::new(TextureManager::new((
+        device.clone(),
+        queue.clone(),
+        vk.mem_alloc.clone(),
+    ))));
 
-    let model_manager = ModelManager::new(
-        (
-            device.clone(),
-            texture_manager.clone(),
-            memory_allocator.clone(),
-        ),
-    );
-    // let model_manager = ModelManager {
-    //     device: device.clone(),
-    //     allocator: memory_allocator.clone(),
-    //     models: HashMap::new(),
-    //     models_ids: HashMap::new(),
-    //     texture_manager,
-    //     model_id_gen: 0,
-    // };
+    let model_manager = ModelManager::new((
+        device.clone(),
+        texture_manager.clone(),
+        vk.mem_alloc.clone(),
+    ));
 
     let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
         device.clone(),
-        memory_allocator.clone(),
+        vk.mem_alloc.clone(),
     )));
     // let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
 
@@ -462,17 +262,21 @@ fn main() {
         render_pass.clone(),
         // swapchain.clone(),
         queue.clone(),
-        memory_allocator.clone(),
-        &command_buffer_allocator,
-        descriptor_set_allocator.clone(),
+        vk.mem_alloc.clone(),
+        &vk.comm_alloc,
+        vk.desc_alloc.clone(),
     ));
 
     let assets_manager = Arc::new(Mutex::new(AssetsManager::new()));
     {
         let mut assets_manager = assets_manager.lock();
         assets_manager.add_asset_manager("model", &["obj"], model_manager.clone());
-        assets_manager.add_asset_manager("texture", &["png","jpeg"], texture_manager.clone());
-        assets_manager.add_asset_manager("particle_template", &["ptem"], particles.particle_template_manager.clone());
+        assets_manager.add_asset_manager("texture", &["png", "jpeg"], texture_manager.clone());
+        assets_manager.add_asset_manager(
+            "particle_template",
+            &["ptem"],
+            particles.particle_template_manager.clone(),
+        );
     }
     // let uniform_buffer =
     //     CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
@@ -490,7 +294,7 @@ fn main() {
     let dimensions = images[0].dimensions().width_height();
     let mut frame_color = FrameImage {
         arc: AttachmentImage::with_usage(
-            &memory_allocator,
+            &vk.mem_alloc,
             dimensions,
             Format::R8G8B8A8_UNORM,
             ImageUsage {
@@ -504,15 +308,9 @@ fn main() {
         )
         .unwrap(),
     };
-    // let mut uploads = AutoCommandBufferBuilder::primary(
-    //     &command_buffer_allocator,
-    //     queue.queue_family_index(),
-    //     CommandBufferUsage::OneTimeSubmit,
-    // )
-    // .unwrap();
-    // let src = ImageView::new_default(frame_color.arc.clone());
+
     let frame_img = StorageImage::new(
-        &memory_allocator,
+        &vk.mem_alloc,
         ImageDimensions::Dim2d {
             width: dimensions[0],
             height: dimensions[1],
@@ -523,29 +321,13 @@ fn main() {
     )
     .unwrap();
 
-    // uploads
-    //     .copy_image(CopyImageInfo::images(
-    //         frame_color.arc.clone(),
-    //         frame_img.clone(),
-    //     ))
-    //     // .blit_image(BlitImageInfo::images(
-    //     //     frame_color.arc.clone(),
-    //     //     frame_img.clone(),
-    //     // ))
-    //     .unwrap();
-
-    // let _ = uploads.build().unwrap().execute(queue.clone()).unwrap();
-
     let mut framebuffers = window_size_dependent_setup(
         &images,
         render_pass.clone(),
         &mut viewport,
-        memory_allocator.clone(),
+        vk.mem_alloc.clone(),
         &mut frame_color,
     );
-
-    // let mut framebuffers =
-    //     window_size_dependent_setup(device.clone(), &images, render_pass.clone());
 
     let rend = RenderPipeline::new(
         device.clone(),
@@ -553,20 +335,12 @@ fn main() {
         images[0].dimensions().width_height(),
         queue.clone(),
         0,
-        memory_allocator.clone(),
-        &command_buffer_allocator,
+        vk.mem_alloc.clone(),
+        &vk.comm_alloc,
     );
-    // let rend2 = RenderPipeline::new(
-    //     device.clone(),
-    //     render_pass.clone(),
-    //     images[0].dimensions().width_height(),
-    //     queue.clone(),
-    //     1,
-    // );
     let mut recreate_swapchain = false;
 
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
-    // let rotation_start = Instant::now();
 
     let mut modifiers = ModifiersState::default();
 
@@ -576,15 +350,11 @@ fn main() {
         ..Default::default()
     };
 
-    // let mut perf = HashMap::<String, SegQueue<Duration>>::new();
     let mut perf = Perf {
         data: HashMap::<String, SegQueue<Duration>>::new(),
     };
 
     let _loops = 0;
-
-    // let egui_ctx = egui::Context::default();
-    // let mut egui_winit = egui_winit::State::new(window);
 
     let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
         &event_loop,
@@ -595,20 +365,6 @@ fn main() {
     );
     let frame_image_view = ImageView::new_default(frame_img.clone()).unwrap();
     let fc = gui.register_user_image_view(frame_image_view.clone());
-
-    // let mut egui_painter = egui_vulkano::Painter::new(
-    //     device.clone(),
-    //     queue.clone(),
-    //     Subpass::from(render_pass.clone(), 1).unwrap(),
-    // )
-    // .unwrap();
-
-    //Set up some window to look at for the test
-
-    // let mut egui_test = egui_demo_lib::ColorTest::default();
-    // let mut demo_windows = egui_demo_lib::DemoWindows::default();
-    // let mut egui_bench = Benchmark::new(1000);
-    // let mut my_texture = egui_ctx.load_texture("my_texture", ColorImage::example());
 
     let mut frame_time = Instant::now();
     // let mut fps_time: f32 = 0.0;
@@ -626,9 +382,9 @@ fn main() {
             };
             1
         ],
-        memory_allocator.clone(),
-        &command_buffer_allocator,
-        descriptor_set_allocator.clone(),
+        vk.mem_alloc.clone(),
+        &vk.comm_alloc,
+        vk.desc_alloc.clone(),
     );
 
     let cs = cs::load(device.clone()).unwrap();
@@ -644,7 +400,7 @@ fn main() {
     .expect("Failed to create compute shader");
 
     let transform_uniforms = CpuBufferPool::<cs::ty::Data>::new(
-        memory_allocator.clone(),
+        vk.mem_alloc.clone(),
         buffer_usage_all(),
         MemoryUsage::Download,
     );
@@ -683,9 +439,9 @@ fn main() {
         particles.clone(),
         device.clone(),
         queue.clone(),
-        memory_allocator.clone(),
-        descriptor_set_allocator.clone(),
-        command_buffer_allocator.clone(),
+        vk.mem_alloc.clone(),
+        vk.desc_alloc.clone(),
+        vk.comm_alloc.clone(),
     )));
     {
         let mut world = world.lock();
@@ -694,6 +450,7 @@ fn main() {
         // world.register::<Maker>(true);
         world.register::<Terrain>(true, true);
         world.register::<Bomb>(true, false);
+        world.register::<Player>(true, false);
     }
     let rm = {
         let w = world.lock();
@@ -732,8 +489,8 @@ fn main() {
             Event::DeviceEvent { event, .. } => match event {
                 DeviceEvent::MouseMotion { delta } => {
                     if focused {
-                        input.mouse_x = delta.0;
-                        input.mouse_y = delta.1;
+                        input.mouse_x += delta.0;
+                        input.mouse_y += delta.1;
                     }
                 }
                 _ => (),
@@ -945,22 +702,22 @@ fn main() {
                     let position_update_data = transform_compute.get_position_update_data(
                         device.clone(),
                         transform_data.clone(),
-                        memory_allocator.clone(),
-                        &command_buffer_allocator,
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
                     );
 
                     let rotation_update_data = transform_compute.get_rotation_update_data(
                         device.clone(),
                         transform_data.clone(),
-                        memory_allocator.clone(),
-                        &command_buffer_allocator,
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
                     );
 
                     let scale_update_data = transform_compute.get_scale_update_data(
                         device.clone(),
                         transform_data.clone(),
-                        memory_allocator.clone(),
-                        &command_buffer_allocator,
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
                     );
                     (
                         position_update_data,
@@ -1012,7 +769,7 @@ fn main() {
                         // device.clone(),
                         render_pass.clone(),
                         &mut viewport,
-                        memory_allocator.clone(),
+                        vk.mem_alloc.clone(),
                         &mut frame_color,
                     );
                     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
@@ -1038,6 +795,7 @@ fn main() {
                         Ok(r) => r,
                         Err(AcquireError::OutOfDate) => {
                             recreate_swapchain = true;
+                            println!("falied to aquire next image");
                             return;
                         }
                         Err(e) => panic!("Failed to acquire next image: {:?}", e),
@@ -1048,7 +806,7 @@ fn main() {
                 }
 
                 let mut builder = AutoCommandBufferBuilder::primary(
-                    &command_buffer_allocator,
+                    &vk.comm_alloc,
                     queue.queue_family_index(),
                     CommandBufferUsage::OneTimeSubmit,
                 )
@@ -1083,8 +841,8 @@ fn main() {
                         device.clone(),
                         &mut builder,
                         transform_data.0,
-                        memory_allocator.clone(),
-                        &command_buffer_allocator,
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
                     );
                     // {
                     //     puffin::profile_scope!("update transforms");
@@ -1096,9 +854,9 @@ fn main() {
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         position_update_data,
-                        memory_allocator.clone(),
-                        &command_buffer_allocator,
-                        descriptor_set_allocator.clone(),
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
+                        vk.desc_alloc.clone(),
                     );
 
                     // stage 1
@@ -1109,9 +867,9 @@ fn main() {
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         rotation_update_data,
-                        memory_allocator.clone(),
-                        &command_buffer_allocator,
-                        descriptor_set_allocator.clone(),
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
+                        vk.desc_alloc.clone(),
                     );
 
                     // stage 2
@@ -1122,9 +880,9 @@ fn main() {
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         scale_update_data,
-                        memory_allocator.clone(),
-                        &command_buffer_allocator,
-                        descriptor_set_allocator.clone(),
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
+                        vk.desc_alloc.clone(),
                     );
 
                     // stage 3
@@ -1136,9 +894,9 @@ fn main() {
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         transform_data.0 as i32,
-                        memory_allocator.clone(),
-                        &command_buffer_allocator,
-                        descriptor_set_allocator.clone(),
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
+                        vk.desc_alloc.clone(),
                     );
                 }
 
@@ -1162,9 +920,9 @@ fn main() {
 
                         let copy_buffer = rm.transform_ids_gpu.clone();
                         unsafe {
-                            // vulkano::buffer::CpuAccessibleBuffer::uninitialized_array(memory_allocator, len, usage, host_cached)
+                            // vulkano::buffer::CpuAccessibleBuffer::uninitialized_array(vk.mem_alloc, len, usage, host_cached)
                             rm.transform_ids_gpu = CpuAccessibleBuffer::uninitialized_array(
-                                &memory_allocator,
+                                &vk.mem_alloc,
                                 // device.clone(),
                                 max_len as u64,
                                 buffer_usage_all(),
@@ -1172,8 +930,8 @@ fn main() {
                             )
                             .unwrap();
                             rm.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
-                                // memory_allocator.clone(),
-                                &memory_allocator,
+                                // vk.mem_alloc.clone(),
+                                &vk.mem_alloc,
                                 // device.clone(),
                                 max_len as u64,
                                 buffer_usage_all(),
@@ -1192,7 +950,7 @@ fn main() {
                     }
                     if rm.indirect.data.len() > 0 {
                         rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
-                            &memory_allocator,
+                            &vk.mem_alloc,
                             buffer_usage_all(),
                             false,
                             rm.indirect.data.clone(),
@@ -1210,7 +968,7 @@ fn main() {
                     }
                     if offset_vec.len() > 0 {
                         let offsets_buffer = CpuAccessibleBuffer::from_iter(
-                            &memory_allocator,
+                            &vk.mem_alloc,
                             buffer_usage_all(),
                             false,
                             offset_vec,
@@ -1222,7 +980,7 @@ fn main() {
                             let update_num = rd.updates.len() / 3;
                             if update_num > 0 {
                                 rm.updates_gpu = CpuAccessibleBuffer::from_iter(
-                                    &memory_allocator,
+                                    &vk.mem_alloc,
                                     buffer_usage_all(),
                                     false,
                                     rd.updates,
@@ -1242,7 +1000,7 @@ fn main() {
                                 .unwrap();
 
                             let update_renderers_set = PersistentDescriptorSet::new(
-                                &descriptor_set_allocator,
+                                &vk.desc_alloc,
                                 renderer_pipeline
                                     .layout()
                                     .set_layouts()
@@ -1292,7 +1050,7 @@ fn main() {
                             let update_renderers_set = {
                                 puffin::profile_scope!("update renderers: stage 1: descriptor set");
                                 PersistentDescriptorSet::new(
-                                    &descriptor_set_allocator,
+                                    &vk.desc_alloc,
                                     renderer_pipeline
                                         .layout()
                                         .set_layouts()
@@ -1342,9 +1100,9 @@ fn main() {
                     input.time.time,
                     cam_pos.into(),
                     cam_rot.coords.into(),
-                    memory_allocator.clone(),
-                    &command_buffer_allocator,
-                    descriptor_set_allocator.clone(),
+                    vk.mem_alloc.clone(),
+                    &vk.comm_alloc,
+                    vk.desc_alloc.clone(),
                 );
                 particles.emitter_update(
                     device.clone(),
@@ -1355,9 +1113,9 @@ fn main() {
                     input.time.time,
                     cam_pos.into(),
                     cam_rot.coords.into(),
-                    memory_allocator.clone(),
-                    &command_buffer_allocator,
-                    descriptor_set_allocator.clone(),
+                    vk.mem_alloc.clone(),
+                    &vk.comm_alloc,
+                    vk.desc_alloc.clone(),
                 );
                 particles.particle_update(
                     device.clone(),
@@ -1367,31 +1125,25 @@ fn main() {
                     input.time.time,
                     cam_pos.into(),
                     cam_rot.coords.into(),
-                    memory_allocator.clone(),
-                    &command_buffer_allocator,
-                    descriptor_set_allocator.clone(),
+                    vk.mem_alloc.clone(),
+                    &vk.comm_alloc,
+                    vk.desc_alloc.clone(),
                 );
                 particles.sort.sort(
                     view.into(),
+                    proj.into(),
                     transform_compute.transform.clone(),
                     &particles.particle_buffers,
-                    // particles.particle_buffers.particles.clone(),
-                    // particles.particle_buffers.particle_positions_lifes.clone(),
                     device.clone(),
                     queue.clone(),
                     &mut builder,
-                    &descriptor_set_allocator,
+                    &vk.desc_alloc,
                 );
 
                 {
                     puffin::profile_scope!("render meshes");
 
                     builder
-                        // .begin_render_pass(
-                        //     framebuffers[image_num].clone(),
-                        //     SubpassContents::Inline,
-                        //     vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
-                        // )
                         .begin_render_pass(
                             RenderPassBeginInfo {
                                 clear_values: vec![
@@ -1439,7 +1191,7 @@ fn main() {
                                             rend.bind_mesh(
                                                 &texture_manager.lock(),
                                                 &mut builder,
-                                                descriptor_set_allocator.clone(),
+                                                vk.desc_alloc.clone(),
                                                 renderer_buffer.clone(),
                                                 transform_compute.mvp.clone(),
                                                 &mr.mesh,
@@ -1452,17 +1204,6 @@ fn main() {
                             }
                         }
                     }
-                    // builder.end_render_pass().unwrap();
-                    // builder
-                    // .begin_render_pass(
-                    //     framebuffers[image_num].clone(),
-                    //     SubpassContents::SecondaryCommandBuffers,
-                    //     vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()], // clear color
-                    // )
-                    // .unwrap()
-                    // .set_viewport(0, [viewport.clone()]);
-
-                    // rend.bind_pipeline(&mut builder);
                     let mut rjd = RenderJobData {
                         builder: &mut builder,
                         transforms: transform_compute.transform.clone(),
@@ -1470,12 +1211,9 @@ fn main() {
                         view: &view,
                         proj: &proj,
                         pipeline: &rend,
-                        device: device.clone(),
                         viewport: &viewport,
-                        memory_allocator: memory_allocator.clone(),
-                        descriptor_set_allocator: descriptor_set_allocator.clone(),
-                        command_buffer_allocator: &command_buffer_allocator,
                         texture_manager: &texture_manager,
+                        vk: vk.clone(),
                     };
                     for job in render_jobs {
                         job(&mut rjd);
@@ -1493,9 +1231,9 @@ fn main() {
                     cam_rot.coords.into(),
                     cam_pos.into(),
                     transform_compute.transform.clone(),
-                    memory_allocator.clone(),
-                    &command_buffer_allocator,
-                    descriptor_set_allocator.clone(),
+                    vk.mem_alloc.clone(),
+                    &vk.comm_alloc,
+                    vk.desc_alloc.clone(),
                 );
 
                 // Automatically start the next render subpass and draw the gui
@@ -1505,12 +1243,7 @@ fn main() {
                     .downcast_ref::<Window>()
                     .unwrap()
                     .inner_size();
-                // let sf: f32 = surface
-                //     .object()
-                //     .unwrap()
-                //     .downcast_ref::<Window>()
-                //     .unwrap()
-                //     .scale_factor() as f32;
+
                 builder.set_viewport(0, [viewport.clone()]);
                 // gui.draw_on_image(previous_frame_end, images[image_num as usize].clone());
                 builder
@@ -1528,7 +1261,7 @@ fn main() {
                 //     .unwrap();
 
                 input.time.time += input.time.dt;
-                input.time.dt = (frame_time.elapsed().as_secs_f64() as f32).min(0.1);
+                input.time.dt = frame_time.elapsed().as_secs_f64() as f32;
 
                 fps_queue.push_back(input.time.dt);
                 if fps_queue.len() > 100 {
@@ -1712,51 +1445,3 @@ fn window_size_dependent_setup(
         })
         .collect::<Vec<_>>()
 }
-// pub struct Benchmark {
-//     capacity: usize,
-//     entities: usize,
-//     data: VecDeque<f64>,
-// }
-
-// impl Benchmark {
-//     pub fn new(capacity: usize) -> Self {
-//         Self {
-//             capacity,
-//             entities: 0,
-//             data: VecDeque::with_capacity(capacity),
-//         }
-//     }
-
-//     pub fn draw(&self, ui: &mut Ui) {
-//         let iter = self
-//             .data
-//             .iter()
-//             .enumerate()
-//             .map(|(i, v)| Value::new(i as f64, *v * 1000.0));
-//         let curve = Line::new(Values::from_values_iter(iter)).color(Color32::BLUE);
-//         let target = HLine::new(1000.0 / 60.0).color(Color32::RED);
-
-//         if let Some(fps) = self.data.back() {
-//             let fps = 1.0 / fps;
-//             ui.label(format!("fps: {}", fps));
-//         }
-//         ui.label(format!("entities: {}", self.entities));
-//         ui.label("Time in milliseconds that the gui took to draw:");
-//         Plot::new("plot")
-//             .view_aspect(2.0)
-//             .include_y(0)
-//             .show(ui, |plot_ui| {
-//                 plot_ui.line(curve);
-//                 plot_ui.hline(target)
-//             });
-//         ui.label("The red line marks the frametime target for drawing at 60 FPS.");
-//     }
-
-//     pub fn push(&mut self, v: f64, ent: usize) {
-//         self.entities = ent;
-//         if self.data.len() >= self.capacity {
-//             self.data.pop_front();
-//         }
-//         self.data.push_back(v);
-//     }
-// }

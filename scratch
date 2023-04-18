@@ -13,6 +13,7 @@ use std::{
     },
 };
 
+use rapier3d::na::coordinates::X;
 use serde::{Deserialize, Serialize};
 use transform::{Transform, Transforms};
 
@@ -24,7 +25,7 @@ use crossbeam::queue::SegQueue;
 
 use parking_lot::RwLock;
 use parking_lot::Mutex;
-// use spin::Mutex;
+use spin::Mutex;
 use vulkano::{
     buffer::DeviceLocalBuffer,
     command_buffer::{
@@ -39,7 +40,7 @@ use vulkano::{
 
 use crate::{
     input::Input, inspectable::Inspectable, model::ModelManager, particles::ParticleCompute,
-    renderer::RenderPipeline, renderer_component2::RendererManager,
+    renderer::RenderPipeline, renderer_component2::RendererManager, vulkan_manager::VulkanManager,
 };
 
 use self::{physics::Physics, transform::_Transform};
@@ -50,17 +51,6 @@ use self::{physics::Physics, transform::_Transform};
 //     };
 // }
 
-// RenderJobData {
-//     builder: &mut builder,
-//     transforms: transform_compute.transform.clone(),
-//     mvp: transform_compute.mvp.clone(),
-//     view: &view,
-//     proj: &proj,
-//     pipeline: &rend,
-//     viewport: &viewport,
-//     texture_manager: &texture_manager,
-//     vk: vk.clone(),
-// };
 pub struct RenderJobData<'a> {
     pub builder: &'a mut AutoCommandBufferBuilder<
         PrimaryAutoCommandBuffer,
@@ -73,9 +63,10 @@ pub struct RenderJobData<'a> {
     pub pipeline: &'a RenderPipeline,
     pub viewport: &'a Viewport,
     pub texture_manager: &'a parking_lot::Mutex<crate::TextureManager>,
-    pub vk: Arc<crate::vulkan_manager::VulkanManager>,
+    pub vk: Arc<VulkanManager>,
 
 }
+
 pub struct LazyMaker {
     work: SegQueue<Box<dyn FnOnce(&mut World) + Send + Sync>>,
 }
@@ -183,9 +174,10 @@ pub trait StorageBase {
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn erase(&mut self, i: i32);
-    fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
-    fn init(&self, transform: Transform, i: i32, sys: &mut Sys);
-    fn inspect(&self, transform: Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys);
+    fn deinit(&mut self, transform: Transform, i: i32, sys: &mut Sys);
+    fn deinit_all(&mut self, transforms: &mut Transforms, sys: &mut Sys);
+    fn init(&mut self, transform: Transform, i: i32, sys: &mut Sys);
+    fn inspect(&mut self, transform: Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys);
     fn get_name(&self) -> &'static str;
     fn get_type(&self) -> TypeId;
     fn new_default(&mut self, t: i32) -> i32;
@@ -196,7 +188,7 @@ pub trait StorageBase {
 
 // use pqueue::Queue;
 pub struct Storage<T> {
-    pub data: Vec<Mutex<(i32, T)>>,
+    pub data: Vec<(i32, T)>,
     pub valid: Vec<AtomicBool>,
     avail: pqueue::Queue<Reverse<i32>>,
     extent: i32,
@@ -207,12 +199,12 @@ impl<T: 'static> Storage<T> {
     pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
         match self.avail.pop() {
             Some(Reverse(i)) => {
-                *self.data[i as usize].lock() = (transform, d);
+                self.data[i as usize] = (transform, d);
                 self.valid[i as usize].store(true, Ordering::Relaxed);
                 i
             }
             None => {
-                self.data.push(Mutex::new((transform, d)));
+                self.data.push((transform, d));
                 self.valid.push(AtomicBool::new(true));
                 self.extent += 1;
                 self.extent as i32 - 1
@@ -221,7 +213,7 @@ impl<T: 'static> Storage<T> {
     }
     pub fn erase(&mut self, id: i32) {
         // self.data[id as usize] = None;
-        drop(self.data[id as usize].lock());
+        drop(&self.data[id as usize].1);
         self.valid[id as usize].store(false, Ordering::Relaxed);
         self.avail.push(Reverse(id));
     }
@@ -320,14 +312,14 @@ impl<
         // }
 
         self.data
-            .par_iter()
+            .par_iter_mut()
             .zip_eq(self.valid.par_iter())
             .enumerate()
             .chunks(chunk_size)
             .for_each(|slice| {
                 for (_i, (d, v)) in slice {
                     if v.load(Ordering::Relaxed) {
-                        let mut d = d.lock();
+                        // let mut d = &d;
                         let trans = Transform {
                             id: d.0,
                             transforms: &transforms,
@@ -355,15 +347,14 @@ impl<
     fn erase(&mut self, i: i32) {
         self.erase(i);
     }
-    fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys) {
-        self.data[i as usize].lock().1.deinit(transform, i, sys);
+    fn deinit(&mut self, transform: Transform, i: i32, sys: &mut Sys) {
+        self.data[i as usize].1.deinit(transform, i, sys);
     }
-    fn init(&self, transform: Transform, i: i32, sys: &mut Sys) {
-        self.data[i as usize].lock().1.init(transform, i, sys);
+    fn init(&mut self, transform: Transform, i: i32, sys: &mut Sys) {
+        self.data[i as usize].1.init(transform, i, sys);
     }
-    fn inspect(&self, transform: Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, transform: Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         self.data[i as usize]
-            .lock()
             .1
             .inspect(transform, i, ui, sys);
     }
@@ -382,13 +373,13 @@ impl<
     }
 
     fn copy(&mut self, t: i32, i: i32) -> i32 {
-        let p = self.data[i as usize].lock().1.clone();
+        let p = self.data[i as usize].1.clone();
 
         self.emplace(t, p)
     }
 
     fn serialize(&self, i: i32) -> Result<String, ron::Error> {
-        ron::to_string(&self.data[i as usize].lock().1)
+        ron::to_string(&self.data[i as usize].1)
     }
     fn clear(&mut self) {
         self.data.clear();
@@ -412,9 +403,26 @@ impl<
             .enumerate()
             .for_each(|(_i, (d, v))| {
                 if v.load(Ordering::Relaxed) {
-                    let mut d = d.lock();
+                    // let &mut d = d;
                     let t_id = d.0;
                     render_jobs.push(d.1.on_render(t_id));
+                }
+            });
+    }
+
+    fn deinit_all(&mut self, transforms: &mut Transforms, sys: &mut Sys) {
+        self.data
+            .iter_mut()
+            .zip(self.valid.iter())
+            .enumerate()
+            .for_each(|(i, (d, v))| {
+                if v.load(Ordering::Relaxed) {
+                    // let mut d = &d;
+                    let t_id = d.0;
+                    let t = transforms.get_transform(t_id);
+                    d.1.deinit(t, i as i32, sys);
+                    // self.deinit(t, i as i32, sys);
+                    // render_jobs.push(d.1.on_render(t_id));
                 }
             });
     }
@@ -805,10 +813,11 @@ impl World {
     }
 
     pub fn clear(&mut self) {
-        self.entities.write().clear();
         for a in &self.components {
+            a.1.write().deinit_all(&mut self.transforms.write(), &mut self.sys.lock());
             a.1.write().clear();
         }
+        self.entities.write().clear();
         self.transforms.write().clear();
         self.root = self.transforms.write().new_root();
         self.entities.write().push(None);

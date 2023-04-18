@@ -92,7 +92,7 @@ impl<'a> Transform<'a> {
     //         self.move_child(*child, v);
     //     }
     // }
-    pub fn translate(&self, mut v: Vec3) {
+    pub fn translate(&self, v: Vec3) {
         self.transforms.translate(self.id, v);
     }
     pub fn get_position(&self) -> Vec3 {
@@ -184,6 +184,9 @@ fn mul_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
 
 #[allow(dead_code)]
 impl Transforms {
+    pub fn active(&self) -> usize {
+        self.extent as usize - self.avail.len()
+    }
     pub fn get_transform<'a>(&self, t: i32) -> Transform {
         Transform {
             id: t,

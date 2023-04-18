@@ -213,6 +213,7 @@ impl ParticleSort {
     pub fn sort(
         &self,
         view: [[f32; 4]; 4],
+        proj: [[f32; 4]; 4],
         transform: Arc<DeviceLocalBuffer<[transform]>>,
         pb: &ParticleBuffers,
         // particles: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::particle]>>,
@@ -225,31 +226,12 @@ impl ParticleSort {
         >,
         desc_allocator: &StandardDescriptorSetAllocator,
     ) {
-        // let dimensions = ImageDimensions::Dim2d {
-        //             width: 1,
-        //             height: 1,
-        //             array_layers: 1,
-        //         };
-        // let img1 = StorageImage::new(
-        //     device.clone(),
-        //     dimensions,
-        //     Format::R8G8B8A8_UNORM,
-        //     [queue.family()],
-        // )
-        // .unwrap();
-
-        // let img2 = StorageImage::new(
-        //     device.clone(),
-        //     dimensions,
-        //     Format::R8G8B8A8_UNORM,
-        //     [queue.family()],
-        // )
-        // .unwrap();
 
         let mut uniform_data = cs::ty::Data {
             num_jobs: MAX_PARTICLES,
             stage: 0,
             view,
+            proj,
             _dummy0: Default::default(),
         };
         // let uniform_sub_buffer = { self.uniforms.next(uniform_data).unwrap() };

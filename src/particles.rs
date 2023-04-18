@@ -90,7 +90,7 @@ pub mod fs {
     }
 }
 
-pub const MAX_PARTICLES: i32 = 1024*1024*8;
+pub const MAX_PARTICLES: i32 = 1024*1024*8*2;
 // pub const NUM_EMITTERS: i32 = 1_200_000;
 
 // #[component]
@@ -212,6 +212,7 @@ impl Inspectable_ for ParticleTemplate {
             // static mut  cg: Lazy<ColorGradient> = Lazy::new( || ColorGradient::new());
             self.color_over_life.edit(ui);
         });
+        // ui.add()
         // field(ui, "trail", |ui| {
           ui.checkbox(&mut self.trail, "trail");
         // })
