@@ -7,7 +7,7 @@ use crate::{
     inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
     particle_sort::ParticleSort,
     renderer_component2::buffer_usage_all,
-    transform_compute::cs::ty::transform,
+    transform_compute::cs::ty::transform, vulkan_manager::VulkanManager,
 };
 // use lazy_static::lazy::Lazy;
 use once_cell::sync::Lazy;
@@ -90,7 +90,7 @@ pub mod fs {
     }
 }
 
-pub const MAX_PARTICLES: i32 = 1024*1024*8*2;
+pub const MAX_PARTICLES: i32 = 1024 * 1024 * 8 * 2;
 // pub const NUM_EMITTERS: i32 = 1_200_000;
 
 // #[component]
@@ -214,7 +214,7 @@ impl Inspectable_ for ParticleTemplate {
         });
         // ui.add()
         // field(ui, "trail", |ui| {
-          ui.checkbox(&mut self.trail, "trail");
+        ui.checkbox(&mut self.trail, "trail");
         // })
         // ui.color_edit_button_rgba_premultiplied(&mut self.color);
         // ui.add(egui::DragValue::new(&mut self.emission_rate));
@@ -302,12 +302,48 @@ pub struct ParticleCompute {
     // pub particle_template: Mutex<Arc<DeviceLocalBuffer<[cs::ty::particle_template]>>>,
     // pub avail: Arc<DeviceLocalBuffer<[u32]>>,
     // pub avail_count: Arc<DeviceLocalBuffer<i32>>,
-    pub render_pipeline: Arc<GraphicsPipeline>,
+    // pub render_pipeline: Arc<GraphicsPipeline>,
     pub compute_pipeline: Arc<ComputePipeline>,
     pub compute_uniforms: CpuBufferPool<cs::ty::Data>,
     pub render_uniforms: CpuBufferPool<gs::ty::Data>,
     pub def_texture: Arc<ImageView<ImmutableImage>>,
     pub def_sampler: Arc<Sampler>,
+}
+pub struct ParticleRenderPipeline {
+    pub arc: Arc<GraphicsPipeline>,
+}
+impl ParticleRenderPipeline {
+    pub fn new(vk: &VulkanManager, render_pass: Arc<RenderPass>) -> Self {
+
+        let vs = vs::load(vk.device.clone()).unwrap();
+        let fs = fs::load(vk.device.clone()).unwrap();
+        let gs = gs::load(vk.device.clone()).unwrap();
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+        let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
+        let mut depth_stencil_state = DepthStencilState::simple_depth_test();
+        depth_stencil_state.depth = Some(DepthState {
+            enable_dynamic: false,
+            write_enable: StateMode::Fixed(false),
+            compare_op: StateMode::Fixed(CompareOp::Less),
+        });
+
+        let render_pipeline = GraphicsPipeline::start()
+        .vertex_input_state(BuffersDefinition::new())
+        .vertex_shader(vs.entry_point("main").unwrap(), ())
+        // .input_assembly_state(InputAssemblyState::new())
+        .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
+        .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        .geometry_shader(gs.entry_point("main").unwrap(), ())
+        // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
+        .fragment_shader(fs.entry_point("main").unwrap(), ())
+        .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+        .depth_stencil_state(depth_stencil_state)
+        .color_blend_state(blend_state)
+        .render_pass(subpass)
+        .build(vk.device.clone())
+        .unwrap();
+    Self { arc: render_pipeline }
+    }
 }
 
 impl ParticleCompute {
@@ -405,7 +441,8 @@ impl ParticleCompute {
         // let avail: Vec<u32> = (0..MAX_PARTICLES).into_iter().map(|i| i as u32).collect();
 
         let copy_buffer =
-            CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, 0..MAX_PARTICLES).unwrap();
+            CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, 0..MAX_PARTICLES)
+                .unwrap();
         let avail = DeviceLocalBuffer::<[u32]>::array(
             &mem,
             MAX_PARTICLES as vulkano::DeviceSize,
@@ -601,7 +638,7 @@ impl ParticleCompute {
                 avail,
                 avail_count,
             },
-            render_pipeline,
+            // render_pipeline,
             compute_pipeline,
             compute_uniforms: uniforms,
             render_uniforms,
@@ -910,6 +947,7 @@ impl ParticleCompute {
     }
     pub fn render_particles(
         &self,
+        particle_render_pipeline: &ParticleRenderPipeline,
         builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
@@ -925,8 +963,7 @@ impl ParticleCompute {
     ) {
         let mut pb = &self.particle_buffers;
 
-        builder.bind_pipeline_graphics(self.render_pipeline.clone());
-        let layout = self.render_pipeline.layout().set_layouts().get(0).unwrap();
+        let layout = particle_render_pipeline.arc.layout().set_layouts().get(0).unwrap();
 
         let mut descriptors = Vec::new();
         let uniform_sub_buffer = {
@@ -955,14 +992,8 @@ impl ParticleCompute {
             6,
             pb.particle_template_ids.clone(),
         ));
-        descriptors.push(WriteDescriptorSet::buffer(
-            7,
-            pb.particle_next.clone(),
-        ));
-        descriptors.push(WriteDescriptorSet::buffer(
-            8,
-            transform.clone(),
-        ));
+        descriptors.push(WriteDescriptorSet::buffer(7, pb.particle_next.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(8, transform.clone()));
 
         // if let Some(texture) = mesh.texture.as_ref() {
         //     descriptors.push(WriteDescriptorSet::image_view_sampler(
@@ -982,9 +1013,10 @@ impl ParticleCompute {
             PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors).unwrap();
 
         builder
+            .bind_pipeline_graphics(particle_render_pipeline.arc.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
-                self.render_pipeline.layout().clone(),
+                particle_render_pipeline.arc.layout().clone(),
                 0,
                 set.clone(),
             )

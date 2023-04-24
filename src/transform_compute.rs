@@ -1,8 +1,14 @@
-use std::{ptr, sync::Arc};
+use std::{cell::UnsafeCell, ptr, sync::Arc};
 
+use crate::{
+    engine::transform::{POS_U, ROT_U, SCL_U},
+    renderer_component2::buffer_usage_all,
+};
 use bytemuck::{Pod, Zeroable};
 use nalgebra_glm as glm;
 use puffin_egui::puffin;
+use rayon::prelude::*;
+use sync_unsafe_cell::SyncUnsafeCell;
 use vulkano::{
     buffer::{
         BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer, TypedBufferAccess,
@@ -19,11 +25,6 @@ use vulkano::{
     memory::allocator::StandardMemoryAllocator,
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     DeviceSize,
-};
-
-use crate::{
-    engine::transform::{POS_U, ROT_U, SCL_U},
-    renderer_component2::buffer_usage_all,
 };
 
 use self::cs::ty::{transform, Data, MVP};
@@ -133,7 +134,6 @@ impl TransformCompute {
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
         )>,
         mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
     ) -> Option<(
         Arc<CpuAccessibleBuffer<[i32]>>,
         Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
@@ -145,6 +145,17 @@ impl TransformCompute {
             .sum();
 
         if transform_ids_len_pos > 0 {
+            let mut offset = 0;
+            let offset = transform_data
+                .1
+                .iter()
+                .map(|i| {
+                    let o = offset;
+                    offset += i.0[POS_U].len();
+                    o
+                })
+                .collect::<Vec<usize>>();
+
             let transform_ids_buffer_pos = unsafe {
                 puffin::profile_scope!("transform_ids_buffer");
                 // let inst = Instant::now();
@@ -156,19 +167,38 @@ impl TransformCompute {
                 )
                 .unwrap();
                 {
-                    let mut mapping = uninitialized.write().unwrap();
-                    let mut offset = 0;
-                    for i in &transform_data.1 {
-                        let j = &i.0[POS_U];
-                        let j_iter = j.iter();
-                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                        j_iter.zip(m_iter).for_each(|(j, m)| {
-                            // for  in slice {
-                            ptr::write(m, *j);
-                            // }
-                        });
-                        offset += j.len();
-                    }
+                    let mapping = uninitialized.write().unwrap();
+                    let mapping = Arc::new(SyncUnsafeCell::new(mapping));
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(8)
+                        .build_scoped(
+                            |thread| thread.run(),
+                            |pool| {
+                                pool.install(|| {
+                                    transform_data
+                                        .1
+                                        .par_iter()
+                                        .zip_eq(offset.par_iter())
+                                        .for_each(|(i, offset)| {
+                                            let j = &i.0[POS_U];
+                                            let j_iter = j.iter();
+                                            let mapping: UnsafeCell<
+                                                &mut vulkano::buffer::cpu_access::WriteLock<[i32]>,
+                                            > = std::mem::transmute(mapping.as_ref());
+                                            // let mapping: &mut vulkano::buffer::cpu_access::WriteLock<[i32]> = std::mem::transmute(&mapping);
+                                            let m_iter = mapping.into_inner()
+                                                [*offset..*&(offset + j.len())]
+                                                .iter_mut();
+                                            j_iter.zip(m_iter).for_each(|(j, m)| {
+                                                // for  in slice {
+                                                ptr::write(m, *j);
+                                                // }
+                                            });
+                                        });
+                                })
+                            },
+                        )
+                        .unwrap();
                 }
                 uninitialized
             };
@@ -186,19 +216,44 @@ impl TransformCompute {
                     .unwrap()
                 };
                 {
-                    let mut mapping = uninitialized.write().unwrap();
-                    let mut offset = 0;
-                    for i in &transform_data.1 {
-                        let j = &i.1;
-                        let j_iter = j.iter();
-                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                        j_iter.zip(m_iter).for_each(|(j, m)| {
-                            // for  in slice {
-                            ptr::write(m, *j);
-                            // }
-                        });
-                        offset += j.len()
-                    }
+                    let mapping = uninitialized.write().unwrap();
+                    let mapping = Arc::new(SyncUnsafeCell::new(mapping));
+
+                    // let mut offset = 0;
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(8)
+                        .build_scoped(
+                            |thread| thread.run(),
+                            |pool| {
+                                pool.install(|| {
+                                    transform_data
+                                        .1
+                                        .par_iter()
+                                        .zip_eq(offset.par_iter())
+                                        .for_each(|(i, offset)| {
+                                            let j = &i.1;
+                                            let j_iter = j.iter();
+                                            let mapping: UnsafeCell<
+                                                &mut vulkano::buffer::cpu_access::WriteLock<
+                                                    [[f32; 3]],
+                                                >,
+                                            > = std::mem::transmute(mapping.as_ref());
+
+                                            let m_iter = mapping.into_inner()
+                                                [*offset..*&(offset + j.len())]
+                                                .iter_mut();
+
+                                            j_iter.zip(m_iter).for_each(|(j, m)| {
+                                                // for  in slice {
+                                                ptr::write(m, *j);
+                                                // }
+                                            });
+                                            // offset += j.len()
+                                        });
+                                })
+                            },
+                        )
+                        .unwrap();
                 }
                 uninitialized
             };
@@ -216,7 +271,7 @@ impl TransformCompute {
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
         )>,
         mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
+        // command_allocator: &StandardCommandBufferAllocator,
     ) -> Option<(
         Arc<CpuAccessibleBuffer<[i32]>>,
         Arc<CpuAccessibleBuffer<[[f32; 4]]>>,
@@ -298,7 +353,7 @@ impl TransformCompute {
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
         )>,
         mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
+        // command_allocator: &StandardCommandBufferAllocator,
     ) -> Option<(
         Arc<CpuAccessibleBuffer<[i32]>>,
         Arc<CpuAccessibleBuffer<[[f32; 3]]>>,

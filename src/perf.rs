@@ -1,9 +1,9 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::BTreeMap, time::Duration};
 
 use crossbeam::queue::SegQueue;
 
 pub struct Perf {
-    pub data: HashMap<String, SegQueue<Duration>>,
+    pub data: BTreeMap<String, SegQueue<Duration>>,
 }
 
 impl Perf {
@@ -27,9 +27,9 @@ impl Perf {
 
     pub fn print(&mut self) {
         let p = {
-            let mut a = HashMap::new();
+            let mut a = BTreeMap::new();
             std::mem::swap(&mut a, &mut self.data);
-            // self.data = HashMap::new();
+            // self.data = BtreeMap::new();
             a.into_iter()
         };
         // let p = self.data.into_iter();

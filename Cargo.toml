@@ -90,6 +90,7 @@ substring = "*"
 lazy_static = "*"
 notify = { version = "*", features = ["serde"] }
 relative-path = "*"
+sync-unsafe-cell = "0.1.0"
 
 # [package]
 # name = "examples"

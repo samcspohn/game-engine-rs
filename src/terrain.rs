@@ -488,7 +488,7 @@ impl Terrain {
 }
 
 impl Component for Terrain {
-    fn on_render(&mut self, t_id: i32) -> Box<dyn FnOnce(&mut RenderJobData) -> ()> {
+    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) -> ()> {
         let chunks = self.chunks.clone();
         // static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
         let cur_chunks = self.cur_chunks.load(Ordering::Relaxed);

@@ -4,14 +4,14 @@ use std::collections::{BTreeMap, HashMap};
 
 #[derive(Serialize, Deserialize)]
 pub struct ColorGradient {
-    pub nodes: HashMap<i32, (f32, [f32; 4])>,
+    pub nodes: BTreeMap<i32, (f32, [f32; 4])>,
     id_gen: i32,
 }
 
 impl Default for ColorGradient {
     fn default() -> Self {
         Self {
-            nodes: HashMap::from_iter([(0, (0., [1., 1., 1., 1.]))]),
+            nodes: BTreeMap::from_iter([(0, (0., [1., 1., 1., 1.]))]),
             id_gen: 1,
         }
     }
@@ -20,7 +20,7 @@ impl Default for ColorGradient {
 impl ColorGradient {
     pub fn new() -> Self {
         let mut a = Self {
-            nodes: HashMap::new(),
+            nodes: BTreeMap::new(),
             id_gen: 1,
         };
         a.nodes.insert(0, (0., [1., 1., 1., 1.]));

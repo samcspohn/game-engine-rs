@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc};
 
+use parking_lot::Mutex;
 use vulkano::{
     command_buffer::allocator::StandardCommandBufferAllocator,
     descriptor_set::allocator::StandardDescriptorSetAllocator,
@@ -9,16 +10,19 @@ use vulkano::{
     },
     instance::{Instance, InstanceCreateInfo},
     memory::allocator::StandardMemoryAllocator,
-    swapchain::Surface,
-    VulkanLibrary,
+    swapchain::{Surface, Swapchain, SwapchainCreateInfo},
+    VulkanLibrary, image::{ImageUsage, SwapchainImage},
 };
 use vulkano_win::VkSurfaceBuild;
-use winit::{dpi::LogicalSize, event_loop::EventLoop, window::WindowBuilder};
+use winit::{dpi::LogicalSize, event_loop::EventLoop, window::{WindowBuilder, Window}};
 
 pub struct VulkanManager {
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
     pub surface: Arc<Surface>,
+    pub swapchain: Mutex<Arc<Swapchain>>,
+    pub images: Vec<Arc<SwapchainImage>>,
+    pub instance: Arc<Instance>,
     // pub event_loop: EventLoop<()>,
     pub mem_alloc: Arc<StandardMemoryAllocator>,
     pub desc_alloc: Arc<StandardDescriptorSetAllocator>,
@@ -30,7 +34,7 @@ impl VulkanManager {
         // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
         let library = VulkanLibrary::new().unwrap();
         let required_extensions = vulkano_win::required_extensions(&library);
-
+        // required_extensions.ext_headless_surface = true;
         // Now creating the instance.
         let instance = Instance::new(
             library,
@@ -127,11 +131,56 @@ impl VulkanManager {
             device.clone(),
             Default::default(),
         ));
+          let (mut swapchain, images) = {
+            // Querying the capabilities of the surface. When we create the swapchain we can only
+            // pass values that are allowed by the capabilities.
+            let surface_capabilities = device
+                .physical_device()
+                .surface_capabilities(&surface, Default::default())
+                .unwrap();
+
+            // Choosing the internal format that the images will have.
+            let image_format = Some(
+                device
+                    .physical_device()
+                    .surface_formats(&surface, Default::default())
+                    .unwrap()[0]
+                    .0,
+            );
+            let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
+
+            // Please take a look at the docs for the meaning of the parameters we didn't mention.
+            Swapchain::new(
+                device.clone(),
+                surface.clone(),
+                SwapchainCreateInfo {
+                    min_image_count: surface_capabilities.min_image_count,
+                    image_format,
+                    image_extent: window.inner_size().into(),
+                    image_usage: ImageUsage {
+                        color_attachment: true,
+                        ..ImageUsage::empty()
+                    },
+                    composite_alpha: surface_capabilities
+                        .supported_composite_alpha
+                        .iter()
+                        .next()
+                        .unwrap(),
+                    present_mode: vulkano::swapchain::PresentMode::Immediate,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        // self.swapchain = swapchain.clone();
 
         Arc::new(Self {
             device,
             queue,
+            instance,
             surface,
+            swapchain: Mutex::new(swapchain),
+            images,
             mem_alloc: memory_allocator,
             desc_alloc: descriptor_set_allocator,
             comm_alloc: command_buffer_allocator,

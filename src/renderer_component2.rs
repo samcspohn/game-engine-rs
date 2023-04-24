@@ -1,3 +1,5 @@
+use parking_lot::RwLock;
+use puffin_egui::puffin;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -7,17 +9,22 @@ use crate::{
     drag_drop::{self, drop_target},
     engine::{transform::Transform, Component, Storage, Sys, World, _Storage},
     inspectable::{Inpsect, Ins, Inspectable},
+    vulkan_manager::VulkanManager, transform_compute::TransformCompute,
 };
 use bytemuck::{Pod, Zeroable};
-use parking_lot::RwLock;
+// use parking_lot::RwLock;
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool},
-    command_buffer::DrawIndexedIndirectCommand,
+    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, TypedBufferAccess},
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CopyBufferInfo,
+        DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
+    },
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::Device,
     memory::allocator::{FreeListAllocator, GenericMemoryAllocator, MemoryUsage},
-    pipeline::ComputePipeline,
+    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     shader::ShaderModule,
 };
 
@@ -195,6 +202,140 @@ pub struct SharedRendererData {
     pub shader: Arc<ShaderModule>,
     pub pipeline: Arc<ComputePipeline>,
     pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
+}
+
+impl SharedRendererData {
+    pub fn update(
+        &mut self,
+        // rm: &mut parking_lot::RwLockWriteGuard<SharedRendererData>,
+        rd: &mut RendererData,
+        vk: Arc<VulkanManager>,
+        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        view: nalgebra_glm::Mat4,
+        renderer_pipeline: Arc<ComputePipeline>,
+        transform_compute: &TransformCompute,
+    ) -> Vec<i32> {
+        let rm = self;
+        if rm.transform_ids_gpu.len() < rd.transforms_len as u64 {
+            let len = rd.transforms_len;
+            let max_len = (len as f32 + 1.).log2().ceil();
+            let max_len = (2 as u32).pow(max_len as u32);
+
+            let copy_buffer = rm.transform_ids_gpu.clone();
+            unsafe {
+                rm.transform_ids_gpu = CpuAccessibleBuffer::uninitialized_array(
+                    &vk.mem_alloc,
+                    max_len as u64,
+                    buffer_usage_all(),
+                    false,
+                )
+                .unwrap();
+                rm.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
+                    &vk.mem_alloc,
+                    max_len as u64,
+                    buffer_usage_all(),
+                    false,
+                )
+                .unwrap();
+            }
+
+            // let copy = CopyBufferInfo::buffers(copy_buffer, rm.transform_ids_gpu.clone());
+            builder
+                .copy_buffer(CopyBufferInfo::buffers(
+                    copy_buffer,
+                    rm.transform_ids_gpu.clone(),
+                ))
+                .unwrap();
+        }
+        if rm.indirect.data.len() > 0 {
+            rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
+                &vk.mem_alloc,
+                buffer_usage_all(),
+                false,
+                rm.indirect.data.clone(),
+            )
+            .unwrap();
+        }
+
+        let mut offset_vec = Vec::new();
+        let mut offset = 0;
+        for (_, m_id) in rd.indirect_model.iter() {
+            offset_vec.push(offset);
+            if let Some(ind) = rd.model_indirect.get(&m_id) {
+                offset += ind.count;
+            }
+        }
+        if offset_vec.len() > 0 {
+            let offsets_buffer = CpuAccessibleBuffer::from_iter(
+                &vk.mem_alloc,
+                buffer_usage_all(),
+                false,
+                offset_vec.clone(),
+            )
+            .unwrap();
+
+            {
+                puffin::profile_scope!("update renderers: stage 0");
+                let update_num = rd.updates.len() / 3;
+                let mut rd_updates = Vec::new();
+                std::mem::swap(&mut rd_updates, &mut rd.updates);
+                if update_num > 0 {
+                    rm.updates_gpu = CpuAccessibleBuffer::from_iter(
+                        &vk.mem_alloc,
+                        buffer_usage_all(),
+                        false,
+                        rd_updates,
+                    )
+                    .unwrap();
+                }
+
+                // stage 0
+                let uniforms = rm
+                    .uniform
+                    .from_data(ur::ty::Data {
+                        num_jobs: update_num as i32,
+                        stage: 0,
+                        view: view.into(),
+                        _dummy0: Default::default(),
+                    })
+                    .unwrap();
+
+                let update_renderers_set = PersistentDescriptorSet::new(
+                    &vk.desc_alloc,
+                    renderer_pipeline
+                        .layout()
+                        .set_layouts()
+                        .get(0) // 0 is the index of the descriptor set.
+                        .unwrap()
+                        .clone(),
+                    [
+                        // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
+                        WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
+                        WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
+                        WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
+                        WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
+                        WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
+                        WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
+                        WriteDescriptorSet::buffer(6, uniforms.clone()),
+                    ],
+                )
+                .unwrap();
+
+                builder
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Compute,
+                        renderer_pipeline.layout().clone(),
+                        0, // Bind this descriptor set to index 0.
+                        update_renderers_set.clone(),
+                    )
+                    .dispatch([update_num as u32 / 128 + 1, 1, 1])
+                    .unwrap();
+            }
+            offset_vec
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 pub struct RendererManager {

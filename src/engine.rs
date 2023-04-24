@@ -118,7 +118,7 @@ pub trait Component {
     fn init(&mut self, transform: Transform, id: i32, sys: &mut Sys) {}
     fn deinit(&mut self, transform: Transform, id: i32, _sys: &mut Sys) {}
     fn update(&mut self, transform: Transform, sys: &System) {}
-    fn on_render(&mut self, t_id: i32) -> Box<dyn FnOnce(&mut RenderJobData) -> ()> {
+    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) -> ()> {
         Box::new(|rd: &mut RenderJobData| {})
     }
 }
@@ -180,7 +180,7 @@ pub trait StorageBase {
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
         command_buffer_allocator: &StandardCommandBufferAllocator,
     );
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>);
+    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) -> ()>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn erase(&mut self, i: i32);
     fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
@@ -402,7 +402,7 @@ impl<
         self.emplace(transform, d)
     }
 
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>>) {
+    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) -> ()>>) {
         if !self.has_render {
             return;
         }
@@ -794,7 +794,7 @@ impl World {
             );
         }
     }
-    pub fn render(&self) -> Vec<Box<dyn FnOnce(&mut RenderJobData) -> ()>> {
+    pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) -> ()>> {
         // let transforms = self.transforms.read();
         // let sys = self.sys.lock();
         let mut render_jobs = vec![];

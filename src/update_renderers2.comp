@@ -1,13 +1,12 @@
- #version 450
+#version 450
 #include "util.glsl"
 
-
 struct VkDrawIndexedIndirectCommand {
-    int    indexCount;
-    uint    instanceCount;
-    uint    firstIndex;
-    int     vertexOffset;
-    uint    firstInstance;
+    int indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
 };
 
 struct transform {
@@ -21,29 +20,17 @@ struct transform_id {
     int id;
 };
 
-
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) buffer u {
-    int updates[];
-};
-layout(set = 0, binding = 1) buffer _t {
-    transform_id transform_ids[];
-};
-layout(set = 0, binding = 2) buffer r {
-    int renderers[];
-};
+layout(set = 0, binding = 0) buffer u { int updates[]; };
+layout(set = 0, binding = 1) buffer _t { transform_id transform_ids[]; };
+layout(set = 0, binding = 2) buffer r { int renderers[]; };
 layout(set = 0, binding = 3) buffer a {
     VkDrawIndexedIndirectCommand indirect[];
 };
-layout(set = 0, binding = 4) buffer t {
-    transform transforms[];
-};
+layout(set = 0, binding = 4) buffer t { transform transforms[]; };
 
-layout(set = 0, binding = 5) buffer o {
-    int offsets[];
-};
-
+layout(set = 0, binding = 5) buffer o { int offsets[]; };
 
 layout(set = 0, binding = 6) uniform Data {
     int num_jobs;
@@ -51,33 +38,31 @@ layout(set = 0, binding = 6) uniform Data {
     mat4 view;
 };
 
-
 void main() {
     const uint id = gl_GlobalInvocationID.x;
-    if(id < num_jobs) {
-        switch(stage) {
-            case 0:
-            {
+    if (id < num_jobs) {
+        switch (stage) {
+        case 0: {
 
-                int _id = int(id) * 3;
-                int t_id = updates[_id + 0];
-                int ind_id = updates[_id + 1];
-                int r_id = updates[_id + 2];
-                transform_id trans_id;
-                trans_id.indirect_id = ind_id;
-                trans_id.id = r_id;
-                transform_ids[t_id] = trans_id;
+            int _id = int(id) * 3;
+            int t_id = updates[_id + 0];
+            int ind_id = updates[_id + 1];
+            int r_id = updates[_id + 2];
+            transform_id trans_id;
+            trans_id.indirect_id = ind_id;
+            trans_id.id = r_id;
+            transform_ids[t_id] = trans_id;
+        } break;
+        case 1:
+            int t_id = transform_ids[id].id;
+            int ind_id = transform_ids[id].indirect_id;
+            // && (view * vec4(transforms[t_id].position, 1)).z < 0.f
+            if (t_id != -1 &&
+                (view * vec4(transforms[t_id].position, 1)).z < 0.f) {
+                uint r_id = atomicAdd(indirect[ind_id].instanceCount, 1);
+                renderers[offsets[ind_id] + r_id] = t_id;
             }
-                break;
-            case 1:
-                int t_id = transform_ids[id].id;
-                int ind_id = transform_ids[id].indirect_id;
-                // && (view * vec4(transforms[t_id].position, 1)).z < 0.f
-                if(t_id != -1 && (view * vec4(transforms[t_id].position, 1)).z < 0.f ) {
-                    uint r_id = atomicAdd(indirect[ind_id].instanceCount,1);
-                    renderers[offsets[ind_id] + r_id] = t_id;
-                }
-                break;
+            break;
         }
     }
 }

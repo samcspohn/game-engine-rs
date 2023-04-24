@@ -1,3 +1,4 @@
+use camera::CameraData;
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::{Color32, Rounding, Ui, WidgetText};
@@ -33,7 +34,7 @@ use winit::dpi::LogicalSize;
 use winit::event::MouseButton;
 
 use std::any::TypeId;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use std::path::{Path, PathBuf};
 use std::{
@@ -99,6 +100,7 @@ mod inspectable;
 mod particle_sort;
 mod particles;
 mod project;
+mod render_pipeline;
 mod renderer_component2;
 mod serialize;
 mod terrain;
@@ -149,84 +151,18 @@ fn main() {
     let device = vk.device.clone();
     let queue = vk.queue.clone();
     let surface = vk.surface.clone();
-
-    // Before we can draw on the surface, we have to create what is called a swapchain. Creating
-    // a swapchain allocates the color buffers that will contain the image that will ultimately
-    // be visible on the screen. These images are returned alongside the swapchain.
-    let (mut swapchain, images) = {
-        // Querying the capabilities of the surface. When we create the swapchain we can only
-        // pass values that are allowed by the capabilities.
-        let surface_capabilities = device
-            .physical_device()
-            .surface_capabilities(&surface, Default::default())
-            .unwrap();
-
-        // Choosing the internal format that the images will have.
-        let image_format = Some(
-            device
-                .physical_device()
-                .surface_formats(&surface, Default::default())
-                .unwrap()[0]
-                .0,
-        );
-        let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
-
-        // Please take a look at the docs for the meaning of the parameters we didn't mention.
-        Swapchain::new(
-            device.clone(),
-            surface.clone(),
-            SwapchainCreateInfo {
-                min_image_count: surface_capabilities.min_image_count,
-                image_format,
-                image_extent: window.inner_size().into(),
-                image_usage: ImageUsage {
-                    color_attachment: true,
-                    ..ImageUsage::empty()
-                },
-                composite_alpha: surface_capabilities
-                    .supported_composite_alpha
-                    .iter()
-                    .next()
-                    .unwrap(),
-                present_mode: vulkano::swapchain::PresentMode::Immediate,
-                ..Default::default()
-            },
-        )
-        .unwrap()
-    };
-    // // let img_count = swapchain.image_count();
-    // let vk.mem_alloc = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-
-    // let vk.desc_alloc = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
-    // let vk.comm_alloc = Arc::new(StandardCommandBufferAllocator::new(
-    //     device.clone(),
-    //     Default::default(),
-    // ));
     let render_pass = vulkano::ordered_passes_renderpass!(
         device.clone(),
         attachments: {
-            color: {
-                load: Clear,
-                store: DontCare,
-                format: Format::R8G8B8A8_UNORM,
-                samples: 1,
-            },
             final_color: {
                 load: Clear,
                 store: Store,
-                format: swapchain.image_format(),
-                samples: 1,
-            },
-            depth: {
-                load: Clear,
-                store: DontCare,
-                format: Format::D32_SFLOAT,
+                format: vk.swapchain.lock().image_format(),
                 samples: 1,
             }
         },
         passes: [
-            { color: [color], depth_stencil: {depth}, input: [] },
-            // { color: [color], depth_stencil: {depth}, input: [] }, // for secondary cmmand buffers
+            // { color: [color], depth_stencil: {depth}, input: [] },
             { color: [final_color], depth_stencil: {}, input: [] } // Create a second renderpass to draw egui
         ]
     )
@@ -286,12 +222,7 @@ fn main() {
         dimensions: [0.0, 0.0],
         depth_range: 0.0..1.0,
     };
-    // let viewport2 = Viewport {
-    //     origin: [0.0, 0.0],
-    //     dimensions: [1024.0, 720.0],
-    //     depth_range: 0.0..1.0,
-    // };
-    let dimensions = images[0].dimensions().width_height();
+    let dimensions = vk.images[0].dimensions().width_height();
     let mut frame_color = FrameImage {
         arc: AttachmentImage::with_usage(
             &vk.mem_alloc,
@@ -322,7 +253,7 @@ fn main() {
     .unwrap();
 
     let mut framebuffers = window_size_dependent_setup(
-        &images,
+        &vk.images,
         render_pass.clone(),
         &mut viewport,
         vk.mem_alloc.clone(),
@@ -332,7 +263,7 @@ fn main() {
     let rend = RenderPipeline::new(
         device.clone(),
         render_pass.clone(),
-        images[0].dimensions().width_height(),
+        vk.images[0].dimensions().width_height(),
         queue.clone(),
         0,
         vk.mem_alloc.clone(),
@@ -351,7 +282,7 @@ fn main() {
     };
 
     let mut perf = Perf {
-        data: HashMap::<String, SegQueue<Duration>>::new(),
+        data: BTreeMap::<String, SegQueue<Duration>>::new(),
     };
 
     let _loops = 0;
@@ -359,9 +290,9 @@ fn main() {
     let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
         &event_loop,
         surface.clone(),
-        Some(swapchain.image_format()),
+        Some(vk.swapchain.lock().image_format()),
         queue.clone(),
-        Subpass::from(render_pass.clone(), 1).unwrap(),
+        Subpass::from(render_pass.clone(), 0).unwrap(),
     );
     let frame_image_view = ImageView::new_default(frame_img.clone()).unwrap();
     let fc = gui.register_user_image_view(frame_image_view.clone());
@@ -406,7 +337,6 @@ fn main() {
     );
 
     let mut fps_queue = std::collections::VecDeque::new();
-    // let render_uniforms = CpuBufferPool::<vs::ty::UniformBufferObject>::new(device.clone(), BufferUsage::all());
 
     let mut focused = true;
 
@@ -423,12 +353,6 @@ fn main() {
     let running = Arc::new(AtomicBool::new(true));
 
     let coms = (rrx, tx);
-
-    // let _device = device.clone();
-    // let _queue = queue.clone();
-    // let _model_manager = model_manager.clone();
-    // let _renderer_manager = renderer_manager.clone();
-    // let _particles = particles.clone();
 
     let physics = Physics::new();
 
@@ -478,10 +402,8 @@ fn main() {
         file_watcher.init(assets_manager.clone());
         // save_project(&file_watcher, &mut world, assets_manager.clone());
     }
-    // let mut selected_transforms: HashMap<i32, bool> = HashMap::<i32, bool>::new();
 
-    // let mut selected = None;
-    // let _surface = surface.clone();
+    let mut cam_data = CameraData::new(vk.clone());
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
         *control_flow = ControlFlow::Poll;
@@ -546,39 +468,28 @@ fn main() {
                     // WindowEvent::AxisMotion { device_id, axis, value } => {
                     //     println!("axis {:#?}: {}", axis, value);
                     // },
-                    WindowEvent::KeyboardInput {
-                        input:
+                    WindowEvent::KeyboardInput { input: x, .. } => {
+                        let _ = match x {
                             KeyboardInput {
                                 state: ElementState::Released,
                                 virtual_keycode: Some(key),
                                 ..
-                            },
-                        ..
-                    } => {
-                        let _ = match key {
-                            _ => {
+                            } => {
                                 input.key_downs.insert(key.clone(), false);
                                 input.key_ups.insert(key.clone(), true);
                             }
-                        };
-                    }
-                    WindowEvent::ModifiersChanged(m) => modifiers = m,
-                    WindowEvent::KeyboardInput {
-                        input:
                             KeyboardInput {
                                 state: ElementState::Pressed,
                                 virtual_keycode: Some(key),
                                 ..
-                            },
-                        ..
-                    } => {
-                        let _ = match key {
-                            _ => {
+                            } => {
                                 input.key_presses.insert(key.clone(), true);
                                 input.key_downs.insert(key.clone(), true);
                             }
+                            _ => {}
                         };
                     }
+                    WindowEvent::ModifiersChanged(m) => modifiers = m,
                     WindowEvent::Resized(_size) => {
                         recreate_swapchain = true;
                         // if size.width == 0 || size.height == 0 {
@@ -607,16 +518,6 @@ fn main() {
 
                 let full = Instant::now();
 
-                // if input.get_key(&VirtualKeyCode::Escape) {
-                //     *control_flow = ControlFlow::Exit;
-                //     running.store(false, Ordering::SeqCst);
-                //     let game_thread = game_thread.remove(0);
-                //     let _res = coms.1.send(input.clone());
-
-                //     game_thread.join().unwrap();
-
-                //     perf.print();
-                // }
                 static mut GRAB_MODE: bool = true;
                 if input.get_key_press(&VirtualKeyCode::G) {
                     unsafe {
@@ -646,7 +547,7 @@ fn main() {
                         .set_cursor_visible(modifiers.shift());
                 }
 
-                let (transform_data, cam_pos, cam_rot, rd, emitter_inits) = {
+                let (transform_data, cam_pos, cam_rot, mut rd, emitter_inits) = {
                     puffin::profile_scope!("wait for game");
                     let inst = Instant::now();
                     let (transform_data, cam_pos, cam_rot, renderer_data, emitter_inits) =
@@ -682,11 +583,10 @@ fn main() {
                 // let rm = renderer_manager.read();
                 let mut rm = rm.write();
 
-                //
+                // start new game frame
                 let res = coms.1.send(input.clone());
                 if res.is_err() {
                     return;
-                    // println!("ohno");
                 }
 
                 input.key_presses.clear();
@@ -703,21 +603,18 @@ fn main() {
                         device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
                     );
 
                     let rotation_update_data = transform_compute.get_rotation_update_data(
                         device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
                     );
 
                     let scale_update_data = transform_compute.get_scale_update_data(
                         device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
                     );
                     (
                         position_update_data,
@@ -752,6 +649,7 @@ fn main() {
                         .inner_size()
                         .into();
 
+                    let mut swapchain = vk.swapchain.lock();
                     let (new_swapchain, new_images) =
                         match swapchain.recreate(SwapchainCreateInfo {
                             image_extent: dimensions.into(),
@@ -762,7 +660,7 @@ fn main() {
                             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
                         };
 
-                    swapchain = new_swapchain;
+                    *swapchain = new_swapchain;
 
                     framebuffers = window_size_dependent_setup(
                         &new_images,
@@ -775,9 +673,9 @@ fn main() {
                     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
                     recreate_swapchain = false;
                 }
-
+                let img_ext = vk.swapchain.lock().image_extent();
                 let aspect_ratio = // *editor_ui::EDITOR_ASPECT_RATIO.lock();
-                    swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
+                    img_ext[0] as f32 / img_ext[1] as f32;
                 let proj = glm::perspective(
                     aspect_ratio,
                     std::f32::consts::FRAC_PI_2 as f32,
@@ -791,7 +689,7 @@ fn main() {
                 let view: Mat4 = glm::look_at_lh(&cam_pos, &target, &up);
 
                 let (image_num, suboptimal, acquire_future) =
-                    match acquire_next_image(swapchain.clone(), None) {
+                    match acquire_next_image(vk.swapchain.lock().clone(), None) {
                         Ok(r) => r,
                         Err(AcquireError::OutOfDate) => {
                             recreate_swapchain = true;
@@ -811,27 +709,6 @@ fn main() {
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
-
-                builder
-                    .copy_image(CopyImageInfo::images(
-                        frame_color.arc.clone(),
-                        frame_img.clone(),
-                    ))
-                    // .blit_image(BlitImageInfo::images(
-                    //     frame_color.arc.clone(),
-                    //     frame_img.clone(),
-                    // ))
-                    .unwrap();
-
-                // Get the shapes from egui
-                // let egui_output = egui_ctx.end_frame();
-                // let platform_output = egui_output.platform_output;
-                // egui_winit.handle_platform_output(window, &egui_ctx, platform_output);
-
-                // gui
-                // let _result = egui_painter
-                //     .update_textures(egui_output.textures_delta, &mut builder)
-                //     .expect("egui texture error");
 
                 {
                     puffin::profile_scope!("transform update compute");
@@ -884,261 +761,99 @@ fn main() {
                         &vk.comm_alloc,
                         vk.desc_alloc.clone(),
                     );
-
-                    // stage 3
-                    transform_compute.update_mvp(
-                        &mut builder,
+                }
+                {
+                    // update particles
+                    // let particles = particles.read();
+                    particles.emitter_init(
                         device.clone(),
-                        view.clone(),
-                        proj.clone(),
-                        &transform_uniforms,
-                        compute_pipeline.clone(),
-                        transform_data.0 as i32,
+                        &mut builder,
+                        transform_compute.transform.clone(),
+                        emitter_inits.1.clone(),
+                        emitter_inits.0,
+                        input.time.dt,
+                        input.time.time,
+                        cam_pos.into(),
+                        cam_rot.coords.into(),
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
+                        vk.desc_alloc.clone(),
+                    );
+                    particles.emitter_update(
+                        device.clone(),
+                        &mut builder,
+                        transform_compute.transform.clone(),
+                        emitter_inits.0,
+                        input.time.dt,
+                        input.time.time,
+                        cam_pos.into(),
+                        cam_rot.coords.into(),
+                        vk.mem_alloc.clone(),
+                        &vk.comm_alloc,
+                        vk.desc_alloc.clone(),
+                    );
+                    particles.particle_update(
+                        device.clone(),
+                        &mut builder,
+                        transform_compute.transform.clone(),
+                        input.time.dt,
+                        input.time.time,
+                        cam_pos.into(),
+                        cam_rot.coords.into(),
                         vk.mem_alloc.clone(),
                         &vk.comm_alloc,
                         vk.desc_alloc.clone(),
                     );
                 }
-
                 // compute shader renderers
-                {
+                let offset_vec = {
                     puffin::profile_scope!("process renderers");
                     let renderer_pipeline = rm.pipeline.clone();
-                    // let renderers = &mut renderer_manager.renderers.write();
 
                     builder.bind_pipeline_compute(renderer_pipeline.clone());
 
                     if !lock_cull {
                         cull_view = view.clone();
                     }
+                    let offset_vec = rm.update(
+                        &mut rd,
+                        vk.clone(),
+                        &mut builder,
+                        view.clone(),
+                        renderer_pipeline.clone(),
+                        &transform_compute,
+                    );
+                    offset_vec
+                };
 
-                    // for (_, i) in renderers.iter_mut() {
-                    if rm.transform_ids_gpu.len() < rd.transforms_len as u64 {
-                        let len = rd.transforms_len;
-                        let max_len = (len as f32 + 1.).log2().ceil();
-                        let max_len = (2 as u32).pow(max_len as u32);
-
-                        let copy_buffer = rm.transform_ids_gpu.clone();
-                        unsafe {
-                            // vulkano::buffer::CpuAccessibleBuffer::uninitialized_array(vk.mem_alloc, len, usage, host_cached)
-                            rm.transform_ids_gpu = CpuAccessibleBuffer::uninitialized_array(
-                                &vk.mem_alloc,
-                                // device.clone(),
-                                max_len as u64,
-                                buffer_usage_all(),
-                                false,
-                            )
-                            .unwrap();
-                            rm.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
-                                // vk.mem_alloc.clone(),
-                                &vk.mem_alloc,
-                                // device.clone(),
-                                max_len as u64,
-                                buffer_usage_all(),
-                                false,
-                            )
-                            .unwrap();
-                        }
-
-                        // let copy = CopyBufferInfo::buffers(copy_buffer, rm.transform_ids_gpu.clone());
-                        builder
-                            .copy_buffer(CopyBufferInfo::buffers(
-                                copy_buffer,
-                                rm.transform_ids_gpu.clone(),
-                            ))
-                            .unwrap();
-                    }
-                    if rm.indirect.data.len() > 0 {
-                        rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
-                            &vk.mem_alloc,
-                            buffer_usage_all(),
-                            false,
-                            rm.indirect.data.clone(),
-                        )
-                        .unwrap();
-                    }
-
-                    let mut offset_vec = Vec::new();
-                    let mut offset = 0;
-                    for (_, m_id) in rd.indirect_model.iter() {
-                        offset_vec.push(offset);
-                        if let Some(ind) = rd.model_indirect.get(&m_id) {
-                            offset += ind.count;
-                        }
-                    }
-                    if offset_vec.len() > 0 {
-                        let offsets_buffer = CpuAccessibleBuffer::from_iter(
-                            &vk.mem_alloc,
-                            buffer_usage_all(),
-                            false,
-                            offset_vec,
-                        )
-                        .unwrap();
-
-                        {
-                            puffin::profile_scope!("update renderers: stage 0");
-                            let update_num = rd.updates.len() / 3;
-                            if update_num > 0 {
-                                rm.updates_gpu = CpuAccessibleBuffer::from_iter(
-                                    &vk.mem_alloc,
-                                    buffer_usage_all(),
-                                    false,
-                                    rd.updates,
-                                )
-                                .unwrap();
-                            }
-
-                            // stage 0
-                            let uniforms = rm
-                                .uniform
-                                .from_data(ur::ty::Data {
-                                    num_jobs: update_num as i32,
-                                    stage: 0,
-                                    view: cull_view.into(),
-                                    _dummy0: Default::default(),
-                                })
-                                .unwrap();
-
-                            let update_renderers_set = PersistentDescriptorSet::new(
-                                &vk.desc_alloc,
-                                renderer_pipeline
-                                    .layout()
-                                    .set_layouts()
-                                    .get(0) // 0 is the index of the descriptor set.
-                                    .unwrap()
-                                    .clone(),
-                                [
-                                    // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
-                                    WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
-                                    WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
-                                    WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
-                                    WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                                    WriteDescriptorSet::buffer(
-                                        4,
-                                        transform_compute.transform.clone(),
-                                    ),
-                                    WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
-                                    WriteDescriptorSet::buffer(6, uniforms.clone()),
-                                ],
-                            )
-                            .unwrap();
-
-                            builder
-                                .bind_descriptor_sets(
-                                    PipelineBindPoint::Compute,
-                                    renderer_pipeline.layout().clone(),
-                                    0, // Bind this descriptor set to index 0.
-                                    update_renderers_set.clone(),
-                                )
-                                .dispatch([update_num as u32 / 128 + 1, 1, 1])
-                                .unwrap();
-                        }
-                        {
-                            puffin::profile_scope!("update renderers: stage 1");
-                            // stage 1
-                            let uniforms = {
-                                puffin::profile_scope!("update renderers: stage 1: uniform data");
-                                rm.uniform
-                                    .from_data(ur::ty::Data {
-                                        num_jobs: rd.transforms_len as i32,
-                                        stage: 1,
-                                        view: cull_view.into(),
-                                        _dummy0: Default::default(),
-                                    })
-                                    .unwrap()
-                            };
-                            let update_renderers_set = {
-                                puffin::profile_scope!("update renderers: stage 1: descriptor set");
-                                PersistentDescriptorSet::new(
-                                    &vk.desc_alloc,
-                                    renderer_pipeline
-                                        .layout()
-                                        .set_layouts()
-                                        .get(0) // 0 is the index of the descriptor set.
-                                        .unwrap()
-                                        .clone(),
-                                    [
-                                        WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
-                                        WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
-                                        WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
-                                        WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                                        WriteDescriptorSet::buffer(
-                                            4,
-                                            transform_compute.transform.clone(),
-                                        ),
-                                        WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
-                                        WriteDescriptorSet::buffer(6, uniforms.clone()),
-                                    ],
-                                )
-                                .unwrap()
-                            };
-                            {
-                                puffin::profile_scope!(
-                                    "update renderers: stage 1: bind pipeline/dispatch"
-                                );
-                                builder
-                                    .bind_descriptor_sets(
-                                        PipelineBindPoint::Compute,
-                                        renderer_pipeline.layout().clone(),
-                                        0, // Bind this descriptor set to index 0.
-                                        update_renderers_set.clone(),
-                                    )
-                                    .dispatch([rd.transforms_len as u32 / 128 + 1, 1, 1])
-                                    .unwrap();
-                            }
-                        }
-                    }
-                }
-                // let particles = particles.read();
-                particles.emitter_init(
-                    device.clone(),
+                cam_data.update(cam_pos, cam_rot, 0.01f32, 10_000f32, 70f32);
+                let image = cam_data.render(
+                    vk.clone(),
                     &mut builder,
-                    transform_compute.transform.clone(),
-                    emitter_inits.1.clone(),
-                    emitter_inits.0,
-                    input.time.dt,
-                    input.time.time,
-                    cam_pos.into(),
-                    cam_rot.coords.into(),
-                    vk.mem_alloc.clone(),
-                    &vk.comm_alloc,
-                    vk.desc_alloc.clone(),
+                    &mut transform_compute,
+                    particles.clone(),
+                    &transform_uniforms,
+                    transform_data,
+                    compute_pipeline.clone(),
+                    rm.pipeline.clone(),
+                    offset_vec,
+                    &mut rm,
+                    &mut rd,
+                    image_num,
+                    &model_manager.lock(),
+                    &texture_manager,
+                    &render_jobs,
                 );
-                particles.emitter_update(
-                    device.clone(),
-                    &mut builder,
-                    transform_compute.transform.clone(),
-                    emitter_inits.0,
-                    input.time.dt,
-                    input.time.time,
-                    cam_pos.into(),
-                    cam_rot.coords.into(),
-                    vk.mem_alloc.clone(),
-                    &vk.comm_alloc,
-                    vk.desc_alloc.clone(),
-                );
-                particles.particle_update(
-                    device.clone(),
-                    &mut builder,
-                    transform_compute.transform.clone(),
-                    input.time.dt,
-                    input.time.time,
-                    cam_pos.into(),
-                    cam_rot.coords.into(),
-                    vk.mem_alloc.clone(),
-                    &vk.comm_alloc,
-                    vk.desc_alloc.clone(),
-                );
-                particles.sort.sort(
-                    view.into(),
-                    proj.into(),
-                    transform_compute.transform.clone(),
-                    &particles.particle_buffers,
-                    device.clone(),
-                    queue.clone(),
-                    &mut builder,
-                    &vk.desc_alloc,
-                );
+                builder
+                .copy_image(CopyImageInfo::images(
+                    image.clone(),
+                    frame_img.clone(),
+                ))
+                // .blit_image(BlitImageInfo::images(
+                //     frame_color.arc.clone(),
+                //     frame_img.clone(),
+                // ))
+                .unwrap();
 
                 {
                     puffin::profile_scope!("render meshes");
@@ -1148,93 +863,18 @@ fn main() {
                             RenderPassBeginInfo {
                                 clear_values: vec![
                                     Some([0., 0., 0., 1.].into()),
-                                    Some([0., 0., 0., 1.].into()),
-                                    Some(1f32.into()),
+                                    // Some([0., 0., 0., 1.].into()),
+                                    // Some(1f32.into()),
                                 ],
                                 ..RenderPassBeginInfo::framebuffer(
                                     framebuffers[image_num as usize].clone(),
                                 )
                             },
-                            SubpassContents::Inline,
+                            SubpassContents::SecondaryCommandBuffers,
                         )
                         .unwrap()
                         .set_viewport(0, [viewport.clone()]);
-
-                    rend.bind_pipeline(&mut builder);
-
-                    {
-                        let mm = model_manager.lock();
-
-                        let mut offset = 0;
-
-                        for (_ind_id, m_id) in rd.indirect_model.iter() {
-                            if let Some(ind) = rd.model_indirect.get(&m_id) {
-                                if let Some(mr) = mm.assets_id.get(&m_id) {
-                                    let mr = mr.lock();
-                                    if ind.count == 0 {
-                                        continue;
-                                    }
-                                    if let Some(indirect_buffer) =
-                                        BufferSlice::from_typed_buffer_access(
-                                            rm.indirect_buffer.clone(),
-                                        )
-                                        .slice(ind.id as u64..(ind.id + 1) as u64)
-                                    {
-                                        // println!("{}",indirect_buffer.len());
-                                        if let Some(renderer_buffer) =
-                                            BufferSlice::from_typed_buffer_access(
-                                                rm.renderers_gpu.clone(),
-                                            )
-                                            .slice(offset..(offset + ind.count as u64) as u64)
-                                        {
-                                            // println!("{}",renderer_buffer.len());
-                                            rend.bind_mesh(
-                                                &texture_manager.lock(),
-                                                &mut builder,
-                                                vk.desc_alloc.clone(),
-                                                renderer_buffer.clone(),
-                                                transform_compute.mvp.clone(),
-                                                &mr.mesh,
-                                                indirect_buffer.clone(),
-                                            );
-                                        }
-                                    }
-                                }
-                                offset += ind.count as u64;
-                            }
-                        }
-                    }
-                    let mut rjd = RenderJobData {
-                        builder: &mut builder,
-                        transforms: transform_compute.transform.clone(),
-                        mvp: transform_compute.mvp.clone(),
-                        view: &view,
-                        proj: &proj,
-                        pipeline: &rend,
-                        viewport: &viewport,
-                        texture_manager: &texture_manager,
-                        vk: vk.clone(),
-                    };
-                    for job in render_jobs {
-                        job(&mut rjd);
-                    }
-
-                    // builder
-                    //     .next_subpass(SubpassContents::SecondaryCommandBuffers)
-                    //     .unwrap();
                 }
-                // let particles = particles.read();
-                particles.render_particles(
-                    &mut builder,
-                    view.clone(),
-                    proj.clone(),
-                    cam_rot.coords.into(),
-                    cam_pos.into(),
-                    transform_compute.transform.clone(),
-                    vk.mem_alloc.clone(),
-                    &vk.comm_alloc,
-                    vk.desc_alloc.clone(),
-                );
 
                 // Automatically start the next render subpass and draw the gui
                 let size = surface
@@ -1244,21 +884,9 @@ fn main() {
                     .unwrap()
                     .inner_size();
 
-                builder.set_viewport(0, [viewport.clone()]);
-                // gui.draw_on_image(previous_frame_end, images[image_num as usize].clone());
-                builder
-                    .next_subpass(SubpassContents::SecondaryCommandBuffers)
-                    .unwrap();
                 let gui_commands = gui.draw_on_subpass_image([size.width, size.height]);
                 builder.execute_commands(gui_commands).unwrap();
-                // egui_painter
-                //     .draw(
-                //         &mut builder,
-                //         [(size.width as f32) / sf, (size.height as f32) / sf],
-                //         &egui_ctx,
-                //         egui_output.shapes,
-                //     )
-                //     .unwrap();
+
 
                 input.time.time += input.time.dt;
                 input.time.dt = frame_time.elapsed().as_secs_f64() as f32;
@@ -1272,16 +900,8 @@ fn main() {
                 frame_time = Instant::now();
 
                 builder.end_render_pass().unwrap();
-                // builder
-                // };
 
-                // let command_buffer = {
-                //     puffin::profile_scope!("builder build");
                 let command_buffer = builder.build().unwrap();
-                // };
-
-                // {
-                //     puffin::profile_scope!("execute command buffer");
                 let execute = previous_frame_end
                     .take()
                     .unwrap()
@@ -1294,7 +914,7 @@ fn main() {
                             .then_swapchain_present(
                                 queue.clone(),
                                 SwapchainPresentInfo::swapchain_image_index(
-                                    swapchain.clone(),
+                                    vk.swapchain.lock().clone(),
                                     image_num,
                                 ),
                             )
@@ -1336,67 +956,6 @@ fn main() {
     });
 }
 
-// /// This method is called once during initialization, then again whenever the window is resized
-// fn _window_size_dependent_setup(
-//     device: Arc<Device>,
-//     images: &[Arc<SwapchainImage<Window>>],
-//     render_pass: Arc<RenderPass>,
-// ) -> Vec<Arc<Framebuffer>> {
-//     let dimensions = images[0].dimensions().width_height();
-
-//     let depth_buffer = ImageView::new_default(
-//         AttachmentImage::transient(device.clone(), dimensions, Format::D32_SFLOAT).unwrap(),
-//     )
-//     .unwrap();
-
-//     let framebuffers = images
-//         .iter()
-//         .map(|image| {
-//             let view = ImageView::new_default(image.clone()).unwrap();
-//             Framebuffer::new(
-//                 render_pass.clone(),
-//                 FramebufferCreateInfo {
-//                     attachments: vec![view, depth_buffer.clone()],
-//                     ..Default::default()
-//                 },
-//             )
-//             .unwrap()
-//         })
-//         .collect::<Vec<_>>();
-
-//     framebuffers
-// }
-
-// fn window_size_dependent_setup(
-//     images: &[Arc<SwapchainImage>],
-//     device: Arc<Device>,
-//     render_pass: Arc<RenderPass>,
-//     viewport: &mut Viewport,
-// ) -> Vec<Arc<Framebuffer>> {
-//     let dimensions = images[0].dimensions().width_height();
-//     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-
-//     let depth_buffer = ImageView::new_default(
-//         AttachmentImage::transient(device.clone(), dimensions, Format::D32_SFLOAT).unwrap(),
-//     )
-//     .unwrap();
-
-//     images
-//         .iter()
-//         .map(|image| {
-//             let view = ImageView::new_default(image.clone()).unwrap();
-//             Framebuffer::new(
-//                 render_pass.clone(),
-//                 FramebufferCreateInfo {
-//                     attachments: vec![view, depth_buffer.clone()],
-//                     ..Default::default()
-//                 },
-//             )
-//             .unwrap()
-//         })
-//         .collect::<Vec<_>>()
-// }
-
 /// This method is called once during initialization, then again whenever the window is resized
 fn window_size_dependent_setup(
     images: &[Arc<SwapchainImage>],
@@ -1407,37 +966,15 @@ fn window_size_dependent_setup(
 ) -> Vec<Arc<Framebuffer>> {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-    let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(&mem, dimensions, Format::D32_SFLOAT).unwrap(),
-    )
-    .unwrap();
-
-    color.arc = AttachmentImage::with_usage(
-        &mem,
-        dimensions,
-        Format::R8G8B8A8_UNORM,
-        ImageUsage {
-            transfer_src: true,
-            transfer_dst: false,
-            sampled: false,
-            storage: true,
-            color_attachment: true,
-            depth_stencil_attachment: false,
-            transient_attachment: false,
-            input_attachment: true,
-            ..ImageUsage::empty()
-        },
-    )
-    .unwrap();
     images
         .iter()
         .map(|image| {
             let view = ImageView::new_default(image.clone()).unwrap();
-            let color_view = ImageView::new_default(color.arc.clone()).unwrap();
+            // let color_view = ImageView::new_default(color.arc.clone()).unwrap();
             Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![color_view.clone(), view, depth_buffer.clone()],
+                    attachments: vec![view],
                     ..Default::default()
                 },
             )

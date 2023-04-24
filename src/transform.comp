@@ -1,8 +1,7 @@
- #version 450
+#version 450
 #include "util.glsl"
 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
-
 
 struct transform {
     vec3 position;
@@ -15,20 +14,11 @@ struct MVP {
     mat4 m;
 };
 
-layout(set = 0, binding = 0) buffer p {
-    float to_buffer[];
-};
-layout(set = 0, binding = 1) buffer tr {
-    transform transforms[];
-};
-layout(set = 0, binding = 2) buffer m {
-    MVP mvp[];
-};
+layout(set = 0, binding = 0) buffer p { float to_buffer[]; };
+layout(set = 0, binding = 1) buffer tr { transform transforms[]; };
+layout(set = 0, binding = 2) buffer m { MVP mvp[]; };
 
-layout(set = 0, binding = 3) buffer _t {
-    int transform_ids[];
-};
-
+layout(set = 0, binding = 3) buffer _t { int transform_ids[]; };
 
 layout(set = 0, binding = 4) uniform Data {
     int num_jobs;
@@ -37,33 +27,32 @@ layout(set = 0, binding = 4) uniform Data {
     mat4 proj;
 };
 
-
 void main() {
     const uint id = gl_GlobalInvocationID.x;
-    if(id < num_jobs) {
-        switch(stage) {
-            case 0:
-                {
-                    int i = int(id) * 3;
-                    transforms[transform_ids[id]].position = vec3(to_buffer[i],to_buffer[i + 1],to_buffer[i+2]);
-                }
-                break;
-             case 1:
-                {
-                    int i = int(id) * 4;
-                    transforms[transform_ids[id]].rotation = vec4(to_buffer[i],to_buffer[i + 1],to_buffer[i+2], to_buffer[i+3]);
-                }
-                break;
-             case 2:
-                {
-                    int i = int(id) * 3;
-                    transforms[transform_ids[id]].scale = vec3(to_buffer[i],to_buffer[i + 1],to_buffer[i+2]);
-                }
-                break;
-            case 3:
-                mvp[id].m = translate(transforms[id].position) * rotate(transforms[id].rotation) * scale(transforms[id].scale);
-                mvp[id].mvp = proj * view * mvp[id].m;
-                break;
+    if (id < num_jobs) {
+        switch (stage) {
+        case 0: {
+            int i = int(id) * 3;
+            transforms[transform_ids[id]].position =
+                vec3(to_buffer[i], to_buffer[i + 1], to_buffer[i + 2]);
+        } break;
+        case 1: {
+            int i = int(id) * 4;
+            transforms[transform_ids[id]].rotation =
+                vec4(to_buffer[i], to_buffer[i + 1], to_buffer[i + 2],
+                     to_buffer[i + 3]);
+        } break;
+        case 2: {
+            int i = int(id) * 3;
+            transforms[transform_ids[id]].scale =
+                vec3(to_buffer[i], to_buffer[i + 1], to_buffer[i + 2]);
+        } break;
+        case 3:
+            mvp[id].m = translate(transforms[id].position) *
+                        rotate(transforms[id].rotation) *
+                        scale(transforms[id].scale);
+            mvp[id].mvp = proj * view * mvp[id].m;
+            break;
         }
     }
 }

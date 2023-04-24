@@ -7,7 +7,7 @@ use rapier3d::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, BTreeMap},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, Sender},
@@ -212,7 +212,7 @@ pub fn game_thread_fn(
     let mut cam_rot = glm::quat(-1.0, 0.0, 0.0, 0.0);
 
     let mut perf = Perf {
-        data: HashMap::new(),
+        data: BTreeMap::new(),
     };
     let mut phys_time = 0f32;
 
