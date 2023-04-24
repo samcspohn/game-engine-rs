@@ -435,8 +435,6 @@ impl TransformCompute {
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
-        view: glm::Mat4,
-        proj: glm::Mat4,
         transform_uniforms: &CpuBufferPool<Data>,
         compute_pipeline: Arc<ComputePipeline>,
         position_update_data: Option<(
@@ -455,8 +453,8 @@ impl TransformCompute {
                 let uniform_data = cs::ty::Data {
                     num_jobs: transform_ids_buffer.len() as i32,
                     stage: 0,
-                    view: view.into(),
-                    proj: proj.into(),
+                    view: Default::default(),
+                    proj: Default::default(),
                     _dummy0: Default::default(),
                 };
                 transform_uniforms.from_data(uniform_data).unwrap()
@@ -498,8 +496,6 @@ impl TransformCompute {
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
-        view: glm::Mat4,
-        proj: glm::Mat4,
         transform_uniforms: &CpuBufferPool<Data>,
         compute_pipeline: Arc<ComputePipeline>,
         rotation_update_data: Option<(
@@ -517,8 +513,8 @@ impl TransformCompute {
                 let uniform_data = cs::ty::Data {
                     num_jobs: transform_ids_buffer.len() as i32,
                     stage: 1,
-                    view: view.into(),
-                    proj: proj.into(),
+                    view: Default::default(),
+                    proj: Default::default(),
                     _dummy0: Default::default(),
                 };
                 transform_uniforms.from_data(uniform_data).unwrap()
@@ -560,8 +556,6 @@ impl TransformCompute {
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
-        view: glm::Mat4,
-        proj: glm::Mat4,
         transform_uniforms: &CpuBufferPool<Data>,
         compute_pipeline: Arc<ComputePipeline>,
         scale_update_data: Option<(
@@ -579,8 +573,8 @@ impl TransformCompute {
                 let uniform_data = cs::ty::Data {
                     num_jobs: transform_ids_buffer.len() as i32,
                     stage: 2,
-                    view: view.into(),
-                    proj: proj.into(),
+                    view: Default::default(),
+                    proj: Default::default(),
                     _dummy0: Default::default(),
                 };
                 transform_uniforms.from_data(uniform_data).unwrap()

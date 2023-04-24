@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use glm::{Mat4, Quat, Vec3};
+use glm::{Mat4, Quat, Vec3, radians, Vec1, vec1};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
@@ -42,11 +42,11 @@ pub struct CameraData {
     rend: RenderPipeline,
     particle_render_pipeline: ParticleRenderPipeline,
     // surface: Arc<Surface>,
-    render_pass: Arc<RenderPass>,
+    _render_pass: Arc<RenderPass>,
     viewport: Viewport,
     // swapchain: Arc<Swapchain>,
     framebuffers: Vec<Arc<Framebuffer>>,
-    output: Vec<Arc<AttachmentImage>>,
+    pub output: Vec<Arc<AttachmentImage>>,
     // recreate_swapchain: bool,
     // previous_frame_end: Option<Box<dyn GpuFuture>>,
     cam_pos: Vec3,
@@ -92,9 +92,14 @@ impl CameraData {
         let rot = glm::quat_to_mat3(&self.cam_rot);
         let target = self.cam_pos + rot * Vec3::z();
         let up = rot * Vec3::y();
-        let view: Mat4 = glm::look_at_lh(&self.cam_pos, &target, &up);
-        self.view = view;
-        self.proj = glm::perspective(fov, std::f32::consts::FRAC_PI_2 as f32, near, far);
+        self.view = glm::look_at_lh(&self.cam_pos, &target, &up);
+        let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
+        self.proj = glm::perspective(
+            aspect_ratio,
+            radians(&vec1(fov)).x,
+            near,
+            far,
+        );
     }
     pub fn new(vk: Arc<VulkanManager>) -> Self {
         let render_pass = vulkano::ordered_passes_renderpass!(
@@ -115,8 +120,6 @@ impl CameraData {
             },
             passes: [
                 { color: [color], depth_stencil: {depth}, input: [] }
-                // { color: [color], depth_stencil: {depth}, input: [] }, // for secondary cmmand buffers
-                // { color: [final_color], depth_stencil: {}, input: [] } // Create a second renderpass to draw egui
             ]
         )
         .unwrap();
@@ -125,67 +128,13 @@ impl CameraData {
             dimensions: [0.0, 0.0],
             depth_range: 0.0..1.0,
         };
-        // let frame_color = FrameImage {
-        //     arc: AttachmentImage::with_usage(
-        //         &vk.mem_alloc,
-        //         [1920,1080],
-        //         Format::R8G8B8A8_UNORM,
-        //         ImageUsage {
-        //             // sampled: true,
-        //             // storage: true,
-        //             transfer_src: true,
-        //             transient_attachment: false,
-        //             input_attachment: true,
-        //             ..ImageUsage::empty()
-        //         },
-        //     )
-        //     .unwrap(),
-        // };
-        // let surface = Surface::headless(vk.instance.clone(), None).unwrap();
-        // let (swapchain, images) = {
-        //     // Querying the capabilities of the surface. When we create the swapchain we can only
-        //     // pass values that are allowed by the capabilities.
-        //     let surface_capabilities = vk.device
-        //         .physical_device()
-        //         .surface_capabilities(&vk.surface, Default::default())
-        //         .unwrap();
 
-        //     // Choosing the internal format that the images will have.
-        //     let image_format = Some(
-        //         vk.device
-        //             .physical_device()
-        //             .surface_formats(&vk.surface, Default::default())
-        //             .unwrap()[0]
-        //             .0,
-        //     );
-        //     // let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
-
-        //     // Please take a look at the docs for the meaning of the parameters we didn't mention.
-        //     Swapchain::new(
-        //         vk.device.clone(),
-        //         vk.surface.clone(),
-        //         SwapchainCreateInfo {
-        //             min_image_count: surface_capabilities.min_image_count,
-        //             image_format,
-        //             image_extent: [1920,1080],
-        //             image_usage: ImageUsage {
-        //                 color_attachment: true,
-        //                 ..ImageUsage::empty()
-        //             },
-        //             composite_alpha: surface_capabilities
-        //                 .supported_composite_alpha
-        //                 .iter()
-        //                 .next()
-        //                 .unwrap(),
-        //             present_mode: vulkano::swapchain::PresentMode::Immediate,
-        //             ..Default::default()
-        //         },
-        //     )
-        //     .unwrap()
-        // };
-
-        let (framebuffers, output) =
-            window_size_dependent_setup(render_pass.clone(), &mut viewport, vk.clone());
+        let (framebuffers, output) = window_size_dependent_setup(
+            [1920, 1080],
+            render_pass.clone(),
+            &mut viewport,
+            vk.clone(),
+        );
 
         let rend = RenderPipeline::new(
             vk.device.clone(),
@@ -200,7 +149,7 @@ impl CameraData {
             // surface,
             rend,
             particle_render_pipeline: ParticleRenderPipeline::new(&vk, render_pass.clone()),
-            render_pass,
+            _render_pass: render_pass,
             viewport,
             framebuffers,
             output,
@@ -212,7 +161,14 @@ impl CameraData {
             // swapchain,
         }
     }
-    pub fn resize(&mut self) {}
+    pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>) {
+        (self.framebuffers, self.output) = window_size_dependent_setup(
+            dimensions,
+            self._render_pass.clone(),
+            &mut self.viewport,
+            vk,
+        )
+    }
     pub fn render(
         &mut self,
         vk: Arc<VulkanManager>,
@@ -239,19 +195,19 @@ impl CameraData {
     ) -> Arc<AttachmentImage> {
         // let a = Mutex::new(());
         // let b = a.lock();
-        let aspect_ratio = 1920f32 / 1080f32; // *editor_ui::EDITOR_ASPECT_RATIO.lock();
-                                              // vk.swapchain.lock().image_extent()[0] as f32 / vk.swapchain.lock().image_extent()[1] as f32;
-        self.proj = glm::perspective(
-            aspect_ratio,
-            std::f32::consts::FRAC_PI_2 as f32,
-            0.01,
-            10000.0,
-        );
+        // let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1]; // *editor_ui::EDITOR_ASPECT_RATIO.lock();
+        //                                                                               // vk.swapchain.lock().image_extent()[0] as f32 / vk.swapchain.lock().image_extent()[1] as f32;
+        // self.proj = glm::perspective(
+        //     aspect_ratio,
+        //     std::f32::consts::FRAC_PI_2 as f32,
+        //     0.01,
+        //     10000.0,
+        // );
 
-        let rot = glm::quat_to_mat3(&self.cam_rot);
-        let target = self.cam_pos + rot * Vec3::z();
-        let up = rot * Vec3::y();
-        self.view = glm::look_at_lh(&self.cam_pos, &target, &up);
+        // let rot = glm::quat_to_mat3(&self.cam_rot);
+        // let target = self.cam_pos + rot * Vec3::z();
+        // let up = rot * Vec3::y();
+        // self.view = glm::look_at_lh(&self.cam_pos, &target, &up);
 
         transform_compute.update_mvp(
             builder,
@@ -340,7 +296,7 @@ impl CameraData {
             .begin_render_pass(
                 RenderPassBeginInfo {
                     clear_values: vec![
-                        Some([0., 0., 0., 1.].into()),
+                        Some([0.2, 0.25, 1., 1.].into()),
                         // Some([0., 0., 0., 1.].into()),
                         Some(1f32.into()),
                     ],
@@ -427,13 +383,14 @@ impl CameraData {
 
 /// This method is called once during initialization, then again whenever the window is resized
 fn window_size_dependent_setup(
+    dimensions: [u32; 2],
     // images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     vk: Arc<VulkanManager>,
     // color: &mut FrameImage,
 ) -> (Vec<Arc<Framebuffer>>, Vec<Arc<AttachmentImage>>) {
-    let dimensions = [1920, 1080]; //images[0].dimensions().width_height();
+    // let dimensions = [1920, 1080]; //images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
     let depth_buffer = ImageView::new_default(
         AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::D32_SFLOAT).unwrap(),
@@ -467,9 +424,9 @@ fn window_size_dependent_setup(
                 dimensions,
                 Format::R8G8B8A8_UNORM,
                 ImageUsage {
-                    transfer_src: true,
+                    transfer_src: false,
                     transfer_dst: false,
-                    sampled: false,
+                    sampled: true,
                     storage: true,
                     color_attachment: true,
                     depth_stencil_attachment: false,

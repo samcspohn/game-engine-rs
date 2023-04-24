@@ -49,6 +49,7 @@ files:
   ./test_project_rs/res/models/sphere/sphere.obj: 1671756120
   ./test_project_rs/res/test.ptem: 1680024344
   ./test_project_rs/test.ptem: 1680018210
+  ./test_project_rs/test2.ptem: 1682368673
 assets:
   model:
     assets:
@@ -65,8 +66,9 @@ assets:
   particle_template:
     assets:
       ./test_project_rs/test.ptem: 1
+      ./test_project_rs/test2.ptem: 2
       default.ptem: 0
-    id_gen: 2
+    id_gen: 3
   texture:
     assets:
       ./test_project_rs/res/models/Spruce_obj/Spruce branches.png: 20

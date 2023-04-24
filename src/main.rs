@@ -112,6 +112,7 @@ mod vulkan_manager;
 // use rapier3d::prelude::*;
 
 use crate::asset_manager::{AssetManagerBase, AssetsManager};
+use crate::editor_ui::EDITOR_ASPECT_RATIO;
 use crate::engine::physics::Physics;
 use crate::engine::transform::{Transform, Transforms};
 use crate::engine::{GameObject, RenderJobData, Sys, World};
@@ -196,7 +197,6 @@ fn main() {
     let particles = Arc::new(particles::ParticleCompute::new(
         device.clone(),
         render_pass.clone(),
-        // swapchain.clone(),
         queue.clone(),
         vk.mem_alloc.clone(),
         &vk.comm_alloc,
@@ -222,52 +222,11 @@ fn main() {
         dimensions: [0.0, 0.0],
         depth_range: 0.0..1.0,
     };
-    let dimensions = vk.images[0].dimensions().width_height();
-    let mut frame_color = FrameImage {
-        arc: AttachmentImage::with_usage(
-            &vk.mem_alloc,
-            dimensions,
-            Format::R8G8B8A8_UNORM,
-            ImageUsage {
-                // sampled: true,
-                // storage: true,
-                transfer_src: true,
-                transient_attachment: false,
-                input_attachment: true,
-                ..ImageUsage::empty()
-            },
-        )
-        .unwrap(),
-    };
-
-    let frame_img = StorageImage::new(
-        &vk.mem_alloc,
-        ImageDimensions::Dim2d {
-            width: dimensions[0],
-            height: dimensions[1],
-            array_layers: 1,
-        },
-        Format::R8G8B8A8_UNORM,
-        device.active_queue_family_indices().iter().copied(),
-    )
-    .unwrap();
 
     let mut framebuffers = window_size_dependent_setup(
         &vk.images,
         render_pass.clone(),
         &mut viewport,
-        vk.mem_alloc.clone(),
-        &mut frame_color,
-    );
-
-    let rend = RenderPipeline::new(
-        device.clone(),
-        render_pass.clone(),
-        vk.images[0].dimensions().width_height(),
-        queue.clone(),
-        0,
-        vk.mem_alloc.clone(),
-        &vk.comm_alloc,
     );
     let mut recreate_swapchain = false;
 
@@ -294,8 +253,8 @@ fn main() {
         queue.clone(),
         Subpass::from(render_pass.clone(), 0).unwrap(),
     );
-    let frame_image_view = ImageView::new_default(frame_img.clone()).unwrap();
-    let fc = gui.register_user_image_view(frame_image_view.clone());
+
+    let mut _fc = HashMap::new();
 
     let mut frame_time = Instant::now();
     // let mut fps_time: f32 = 0.0;
@@ -492,6 +451,7 @@ fn main() {
                     WindowEvent::ModifiersChanged(m) => modifiers = m,
                     WindowEvent::Resized(_size) => {
                         recreate_swapchain = true;
+                        
                         // if size.width == 0 || size.height == 0 {
                         //     minimized = true;
                         // } else {
@@ -565,7 +525,76 @@ fn main() {
 
                 file_watcher.get_updates(assets_manager.clone());
 
+                let dimensions = surface
+                    .object()
+                    .unwrap()
+                    .downcast_ref::<Window>()
+                    .unwrap()
+                    .inner_size();
+                if dimensions.width == 0 || dimensions.height == 0 {
+                    return;
+                }
+                previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+                if recreate_swapchain {
+                    println!("recreate swapchain");
+                    println!("dimensions {}: {}", dimensions.width, dimensions.height);
+                    let dimensions: [u32; 2] = surface
+                        .object()
+                        .unwrap()
+                        .downcast_ref::<Window>()
+                        .unwrap()
+                        .inner_size()
+                        .into();
+
+                    let mut swapchain = vk.swapchain.lock();
+                    let (new_swapchain, new_images) =
+                        match swapchain.recreate(SwapchainCreateInfo {
+                            image_extent: dimensions.into(),
+                            ..swapchain.create_info()
+                        }) {
+                            Ok(r) => r,
+                            Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
+                            Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+                        };
+
+                    *swapchain = new_swapchain;
+
+                    framebuffers = window_size_dependent_setup(
+                        &new_images,
+                        // device.clone(),
+                        render_pass.clone(),
+                        &mut viewport,
+                    );
+                    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+                    recreate_swapchain = false;
+                }
+
+                let (image_num, suboptimal, acquire_future) =
+                    match acquire_next_image(vk.swapchain.lock().clone(), None) {
+                        Ok(r) => r,
+                        Err(AcquireError::OutOfDate) => {
+                            recreate_swapchain = true;
+                            println!("falied to aquire next image");
+                            return;
+                        }
+                        Err(e) => panic!("Failed to acquire next image: {:?}", e),
+                    };
+
+                let fc = _fc.entry(image_num).or_insert((|| {
+                    let frame_image_view =
+                        ImageView::new_default(cam_data.output[image_num as usize].clone())
+                            .unwrap();
+                    let fc = gui.register_user_image_view(frame_image_view.clone());
+                    fc
+                })());
+
+                if suboptimal {
+                    recreate_swapchain = true;
+                }
+
                 let inst = Instant::now();
+                let dimensions = *EDITOR_ASPECT_RATIO.lock();
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
                     editor_ui::editor_ui(
@@ -576,6 +605,13 @@ fn main() {
                         assets_manager.clone(),
                     );
                 });
+                {
+                    let ear = EDITOR_ASPECT_RATIO.lock();
+                    if dimensions != *ear {
+                        cam_data.resize(*ear, vk.clone());
+                        _fc.clear();
+                    }
+                }
                 perf.update("gui".into(), Instant::now() - inst);
 
                 let render_jobs = world.lock().render();
@@ -627,82 +663,6 @@ fn main() {
                 // render_thread = thread::spawn( || {
                 let inst = Instant::now();
 
-                let dimensions = surface
-                    .object()
-                    .unwrap()
-                    .downcast_ref::<Window>()
-                    .unwrap()
-                    .inner_size();
-                if dimensions.width == 0 || dimensions.height == 0 {
-                    return;
-                }
-                previous_frame_end.as_mut().unwrap().cleanup_finished();
-
-                if recreate_swapchain {
-                    println!("recreate swapchain");
-                    println!("dimensions {}: {}", dimensions.width, dimensions.height);
-                    let dimensions: [u32; 2] = surface
-                        .object()
-                        .unwrap()
-                        .downcast_ref::<Window>()
-                        .unwrap()
-                        .inner_size()
-                        .into();
-
-                    let mut swapchain = vk.swapchain.lock();
-                    let (new_swapchain, new_images) =
-                        match swapchain.recreate(SwapchainCreateInfo {
-                            image_extent: dimensions.into(),
-                            ..swapchain.create_info()
-                        }) {
-                            Ok(r) => r,
-                            Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
-                            Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-                        };
-
-                    *swapchain = new_swapchain;
-
-                    framebuffers = window_size_dependent_setup(
-                        &new_images,
-                        // device.clone(),
-                        render_pass.clone(),
-                        &mut viewport,
-                        vk.mem_alloc.clone(),
-                        &mut frame_color,
-                    );
-                    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-                    recreate_swapchain = false;
-                }
-                let img_ext = vk.swapchain.lock().image_extent();
-                let aspect_ratio = // *editor_ui::EDITOR_ASPECT_RATIO.lock();
-                    img_ext[0] as f32 / img_ext[1] as f32;
-                let proj = glm::perspective(
-                    aspect_ratio,
-                    std::f32::consts::FRAC_PI_2 as f32,
-                    0.01,
-                    10000.0,
-                );
-
-                let rot = glm::quat_to_mat3(&cam_rot);
-                let target = cam_pos + rot * Vec3::z();
-                let up = rot * Vec3::y();
-                let view: Mat4 = glm::look_at_lh(&cam_pos, &target, &up);
-
-                let (image_num, suboptimal, acquire_future) =
-                    match acquire_next_image(vk.swapchain.lock().clone(), None) {
-                        Ok(r) => r,
-                        Err(AcquireError::OutOfDate) => {
-                            recreate_swapchain = true;
-                            println!("falied to aquire next image");
-                            return;
-                        }
-                        Err(e) => panic!("Failed to acquire next image: {:?}", e),
-                    };
-
-                if suboptimal {
-                    recreate_swapchain = true;
-                }
-
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &vk.comm_alloc,
                     queue.queue_family_index(),
@@ -726,8 +686,6 @@ fn main() {
                     // stage 0
                     transform_compute.update_positions(
                         &mut builder,
-                        view.clone(),
-                        proj.clone(),
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         position_update_data,
@@ -739,8 +697,6 @@ fn main() {
                     // stage 1
                     transform_compute.update_rotations(
                         &mut builder,
-                        view.clone(),
-                        proj.clone(),
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         rotation_update_data,
@@ -752,8 +708,6 @@ fn main() {
                     // stage 2
                     transform_compute.update_scales(
                         &mut builder,
-                        view.clone(),
-                        proj.clone(),
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         scale_update_data,
@@ -812,14 +766,13 @@ fn main() {
 
                     builder.bind_pipeline_compute(renderer_pipeline.clone());
 
-                    if !lock_cull {
-                        cull_view = view.clone();
-                    }
+                    // if !lock_cull {
+                    //     cull_view = view.clone();
+                    // }
                     let offset_vec = rm.update(
                         &mut rd,
                         vk.clone(),
                         &mut builder,
-                        view.clone(),
                         renderer_pipeline.clone(),
                         &transform_compute,
                     );
@@ -827,7 +780,7 @@ fn main() {
                 };
 
                 cam_data.update(cam_pos, cam_rot, 0.01f32, 10_000f32, 70f32);
-                let image = cam_data.render(
+                let _image = cam_data.render(
                     vk.clone(),
                     &mut builder,
                     &mut transform_compute,
@@ -844,16 +797,16 @@ fn main() {
                     &texture_manager,
                     &render_jobs,
                 );
-                builder
-                .copy_image(CopyImageInfo::images(
-                    image.clone(),
-                    frame_img.clone(),
-                ))
+                // builder
+                // .copy_image(CopyImageInfo::images(
+                //     image.clone(),
+                //     frame_img.clone(),
+                // ))
                 // .blit_image(BlitImageInfo::images(
                 //     frame_color.arc.clone(),
                 //     frame_img.clone(),
                 // ))
-                .unwrap();
+                // .unwrap();
 
                 {
                     puffin::profile_scope!("render meshes");
@@ -886,7 +839,6 @@ fn main() {
 
                 let gui_commands = gui.draw_on_subpass_image([size.width, size.height]);
                 builder.execute_commands(gui_commands).unwrap();
-
 
                 input.time.time += input.time.dt;
                 input.time.dt = frame_time.elapsed().as_secs_f64() as f32;
@@ -961,8 +913,6 @@ fn window_size_dependent_setup(
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
-    mem: Arc<StandardMemoryAllocator>,
-    color: &mut FrameImage,
 ) -> Vec<Arc<Framebuffer>> {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];

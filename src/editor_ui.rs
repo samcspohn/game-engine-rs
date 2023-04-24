@@ -36,7 +36,7 @@ enum GameObjectContextMenu {
     CopyGameObject(i32),
     DeleteGameObject(i32),
 }
-// pub(crate) static EDITOR_ASPECT_RATIO: Lazy<Mutex<f32>> = Lazy::new(|| {Mutex::new(1.)});
+pub(crate) static EDITOR_ASPECT_RATIO: Lazy<Mutex<[u32;2]>> = Lazy::new(|| {Mutex::new([1920,1080])});
 
 struct TabViewer<'a> {
     image: egui::TextureId,
@@ -75,7 +75,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                 }
             });
             let a = ui.available_size();
-            // *EDITOR_ASPECT_RATIO.lock() = a[0] / a[1];
+            *EDITOR_ASPECT_RATIO.lock() = [a[0] as u32, a[1] as u32];
             ui.image(self.image, a);
         }
     }

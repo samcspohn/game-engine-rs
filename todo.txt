@@ -1,6 +1,8 @@
 fix model manager sharing between
 
+v impl multi camera support
 
+impl camera component
 
 --------------------------PARTICLES-------------------------------
 add different rng for particle emission

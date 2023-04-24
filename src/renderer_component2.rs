@@ -211,7 +211,6 @@ impl SharedRendererData {
         rd: &mut RendererData,
         vk: Arc<VulkanManager>,
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
-        view: nalgebra_glm::Mat4,
         renderer_pipeline: Arc<ComputePipeline>,
         transform_compute: &TransformCompute,
     ) -> Vec<i32> {
@@ -295,7 +294,7 @@ impl SharedRendererData {
                     .from_data(ur::ty::Data {
                         num_jobs: update_num as i32,
                         stage: 0,
-                        view: view.into(),
+                        view: Default::default(),
                         _dummy0: Default::default(),
                     })
                     .unwrap();

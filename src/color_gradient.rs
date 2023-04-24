@@ -27,11 +27,11 @@ impl ColorGradient {
         a
     }
     pub fn to_color_array(&self) -> [[f32; 4]; 200] {
-        let mut a = [[1.0; 4]; 200];
+        let mut a = [[0.0; 4]; 200];
         let mut sorted = self
             .nodes
             .iter()
-            .map(|(i, n)| (n.0, n.1))
+            .map(|(_, n)| (n.0, n.1))
             .collect::<Vec<(f32, [f32; 4])>>();
         sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
