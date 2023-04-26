@@ -22,5 +22,8 @@ game-engine:
     ☐ render targets
   models:
     ☐ fix multiple meshes
+  editor:
+    ☐ menu bar
+    ☐ drag/drop assets
   
   
