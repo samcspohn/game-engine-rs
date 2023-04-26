@@ -627,53 +627,20 @@ fn main() {
                 } else {
                     -1
                 };
-
-                let fc: TextureId = match fc_map
-                    .entry(cam_num) {
-                        Entry::Occupied(mut o) => {
-                            match o.get_mut().entry(image_num) {
-                                Entry::Occupied(o) => *o.get(),
-                                Entry::Vacant(v) => {
-                                    let frame_image_view = ImageView::new_default(if unsafe { PLAYING_GAME } {
-                                        cam_datas[0].lock().output[image_num as usize].clone()
-                                    } else {
-                                        cam_data.output[image_num as usize].clone()
-                                    })
-                                    .unwrap();
-                                    let fc = gui.register_user_image_view(frame_image_view.clone());
-                                    // fc
-                                    *v.insert(fc)
-                                }
-                            }
-                        },
-                        Entry::Vacant(v) => {
-                            let v = v.insert(Default::default());
-                            let frame_image_view = ImageView::new_default(if unsafe { PLAYING_GAME } {
-                                cam_datas[0].lock().output[image_num as usize].clone()
-                            } else {
-                                cam_data.output[image_num as usize].clone()
-                            })
-                            .unwrap();
-                            let fc = gui.register_user_image_view(frame_image_view.clone());
-                            // fc
-                            v.insert(image_num, fc.clone());
-                            fc
-                        }
-                    };
-                    // let fc = fc_map
-                    // .entry(cam_num)
-                    // .or_insert(HashMap::<u32, TextureId>::new())
-                    // .entry(image_num)
-                    // .or_insert((|| {
-                    //     let frame_image_view = ImageView::new_default(if unsafe { PLAYING_GAME } {
-                    //         cam_datas[0].lock().output[image_num as usize].clone()
-                    //     } else {
-                    //         cam_data.output[image_num as usize].clone()
-                    //     })
-                    //     .unwrap();
-                    //     let fc = gui.register_user_image_view(frame_image_view.clone());
-                    //     fc
-                    // })());
+                let fc = fc_map
+                    .entry(cam_num)
+                    .or_insert(HashMap::<u32, TextureId>::new())
+                    .entry(image_num)
+                    .or_insert_with(|| {
+                        let frame_image_view = ImageView::new_default(if unsafe { PLAYING_GAME } {
+                            cam_datas[0].lock().output[image_num as usize].clone()
+                        } else {
+                            cam_data.output[image_num as usize].clone()
+                        })
+                        .unwrap();
+                        let fc = gui.register_user_image_view(frame_image_view.clone());
+                        fc
+                    });
 
                 if suboptimal {
                     recreate_swapchain = true;
