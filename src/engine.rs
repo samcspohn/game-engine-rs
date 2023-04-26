@@ -112,7 +112,11 @@ pub trait Component {
     // fn assign_transform(&mut self, t: Transform);
     fn init(&mut self, transform: Transform, id: i32, sys: &mut Sys) {}
     fn deinit(&mut self, transform: Transform, id: i32, _sys: &mut Sys) {}
+    fn on_start(&mut self, transform: Transform, sys: &System) {} // TODO implement call
+    fn on_destroy(&mut self, transform: Transform, sys: &System) {} // TODO implement call
     fn update(&mut self, transform: Transform, sys: &System) {}
+    fn late_update(&mut self, transform: Transform, sys: &System) {} // TODO implement call
+    fn editor_update(&mut self, transform: Transform, sys: &System) {}
     fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) -> ()> {
         Box::new(|rd: &mut RenderJobData| {})
     }
@@ -162,6 +166,16 @@ pub trait StorageBase {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn update(
+        &mut self,
+        transforms: &Transforms,
+        phys: &physics::Physics,
+        lazy_maker: &Defer,
+        input: &Input,
+        modeling: &parking_lot::Mutex<crate::ModelManager>,
+        rendering: &RwLock<crate::RendererManager>,
+        vk: Arc<VulkanManager>
+    );
+    fn editor_update(
         &mut self,
         transforms: &Transforms,
         phys: &physics::Physics,
@@ -398,6 +412,49 @@ impl<
                     let mut d = d.lock();
                     let t_id = d.0;
                     render_jobs.push(d.1.on_render(t_id));
+                }
+            });
+    }
+
+    fn editor_update(
+        &mut self,
+        transforms: &Transforms,
+        phys: &physics::Physics,
+        lazy_maker: &Defer,
+        input: &Input,
+        modeling: &parking_lot::Mutex<crate::ModelManager>,
+        rendering: &RwLock<crate::RendererManager>,
+        vk: Arc<VulkanManager>
+    ) {
+        if !self.has_update {
+            return;
+        }
+        let chunk_size = (self.data.len() / (64 * 64)).max(1);
+
+        let sys = System {
+            trans: &transforms,
+            physics: phys,
+            defer: &lazy_maker,
+            input,
+            model_manager: modeling,
+            rendering,
+            vk,
+        };
+        self.data
+            .par_iter()
+            .zip_eq(self.valid.par_iter())
+            .enumerate()
+            .chunks(chunk_size)
+            .for_each(|slice| {
+                for (_i, (d, v)) in slice {
+                    if v.load(Ordering::Relaxed) {
+                        let mut d = d.lock();
+                        let trans = Transform {
+                            id: d.0,
+                            transforms: &transforms,
+                        };
+                        d.1.editor_update(trans, &sys);
+                    }
                 }
             });
     }
@@ -756,6 +813,28 @@ impl World {
         let sys = self.sys.lock();
         for (_, stor) in &self.components {
             stor.write().update(
+                &transforms,
+                &sys.physics,
+                &lazy_maker,
+                &input,
+                &sys.model_manager,
+                &sys.renderer_manager,
+                sys.vk.clone(),
+            );
+        }
+    }
+    pub fn editor_update(
+        &mut self,
+        // phys: &physics::Physics,
+        lazy_maker: &Defer,
+        input: &Input,
+        // modeling: &Mutex<crate::ModelManager>,
+        // rendering: &Mutex<crate::RendererManager>,
+    ) {
+        let transforms = self.transforms.read();
+        let sys = self.sys.lock();
+        for (_, stor) in &self.components {
+            stor.write().editor_update(
                 &transforms,
                 &sys.physics,
                 &lazy_maker,

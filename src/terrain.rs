@@ -502,16 +502,6 @@ impl Component for Terrain {
             let uvs_buffer = tcrd.uvs_buffer.clone();
             let index_buffer = tcrd.index_buffer.clone();
             let texture = tcrd.texture.clone();
-            // if let (Some(vertex_buffer), Some(normals_buffer), Some(uvs_buffer), Some(index_buffer)) = (
-            //     &self.vertex_buffer,
-            //     &self.normals_buffer,
-            //     &self.uvs_buffer,
-            //     &self.index_buffer,
-            // ) {
-            // let vertex_buffer = vertex_buffer.clone();
-            // let normals_buffer = normals_buffer.clone();
-            // let uvs_buffer = uvs_buffer.clone();
-            // let index_buffer = index_buffer.clone();
             Box::new(move |rd: &mut RenderJobData| {
                 let RenderJobData {
                     builder,
@@ -547,20 +537,6 @@ impl Component for Terrain {
                         );
                     }
                 }
-
-                // let sub_commands = Box::new(Mutex::new(vec![]));
-                // if unsafe { COMMAND_BUFFER.is_none() } || cur_chunks != prev_chunks {
-
-                // let mut sub_command = AutoCommandBufferBuilder::secondary_graphics(
-                //     device.clone(),
-                //     device.active_queue_families().next().unwrap(),
-                //     CommandBufferUsage::SimultaneousUse,
-                //     pipeline.pipeline.subpass().clone(),
-                // )
-                // .unwrap();
-                // sub_command
-                //     .set_viewport(0, [viewport.clone()])
-                //     .bind_pipeline_graphics(pipeline.pipeline.clone());
 
                 let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
 
@@ -609,39 +585,19 @@ impl Component for Terrain {
                             // instance_buffer.clone(),
                         ),
                     )
-                    // .bind_vertex_buffers(1, transforms_buffer.data.clone())
                     .bind_index_buffer(index_buffer.clone())
                     .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
                     .unwrap();
-                // }
-
-                // let sub_command = sub_command.build().unwrap();
-                // sub_commands.lock().push(sub_command);
-                // sub_command.
-                //     });
-                // });
-
-                // let sub_command = sub_command.build().unwrap();
-                // unsafe {
-                //     COMMAND_BUFFER = Some(sub_command);
-                // }
-                // }
-                // if let Some(commands) = unsafe { &COMMAND_BUFFER } {
-                //     builder.execute_commands(commands).unwrap();
-                //     // return;
-                // }
-                // builder.execute_commands(sub_command).unwrap();
-
-                // let sub_commands = sub_commands.into_inner();
-                // builder.execute_commands_from_vec(sub_commands).unwrap();
             })
         } else {
             Box::new(move |_rd: &mut RenderJobData| {})
         }
-
-        // let render_data = CustRendData {instance_buffer}
     }
     fn update(&mut self, transform: Transform, sys: &crate::engine::System) {
+        self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
+        self.generate(&transform, sys);
+    }
+    fn editor_update(&mut self, transform: Transform, sys: &System) {
         self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
         self.generate(&transform, sys);
     }
@@ -649,7 +605,6 @@ impl Component for Terrain {
         let chunks = self.chunks.lock();
         for x in chunks.iter() {
             for (z, col) in x.1 {
-                // let physics = &mut sys.physics;
                 sys.physics.remove_collider(*col);
             }
         }

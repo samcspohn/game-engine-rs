@@ -155,9 +155,6 @@ impl Component for Player {
 
             const ALOT: f32 = 10_000_000. / 60.;
             if input.get_mouse_button(&0) && input.get_mouse_button(&2) {
-                // let _cam_rot = cam_rot.clone();
-                // let _cam_pos = cam_pos.clone();
-                // let rm = renderer_manager.clone();
                 let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
                 sys.defer.append(move |world| {
                     // let len =
@@ -204,13 +201,8 @@ impl Component for Player {
 
 impl Inspectable for Player {
     fn inspect(&mut self, _transform: Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
-        // ui.add(egui::Label::new("Bomb"));
-        // egui::CollapsingHeader::new("Bomb")
-        //     .default_open(true)
-        //     .show(ui, |ui| {
         Ins(&mut self.rof).inspect("rof", ui, sys);
         Ins(&mut self.speed).inspect("speed", ui, sys);
-        // });
     }
 }
 
@@ -241,7 +233,7 @@ impl Inspectable for Player {
 //     }
 // }
 
-type game_comm = (
+type GameComm = (
     Sender<(
         Arc<(
             usize,
@@ -256,7 +248,7 @@ type game_comm = (
     // Sender<Terrain>,
 );
 
-pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: game_comm, running: Arc<AtomicBool>) {
+pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBool>) {
     let gravity = vector![0.0, -9.81, 0.0];
     let defer = Defer::new();
 
@@ -306,6 +298,8 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: game_comm, running: Arc<At
                 }
 
                 perf.update("world".into(), Instant::now() - inst);
+            } else {
+                world.editor_update(&defer, &input);
             }
             let inst = Instant::now();
             let transform_data = {
@@ -316,7 +310,7 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: game_comm, running: Arc<At
 
             let inst = Instant::now();
             let _sys = world.sys.clone();
-            let mut sys = _sys.lock();
+            let sys = _sys.lock();
             let mut rm = sys.renderer_manager.write();
             let renderer_data = {
                 // let a = rm.model_indirect.read();

@@ -76,7 +76,7 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use glm::{quat_axis, vec3, vec4, Mat4, Quat, Vec3};
+use glm::{quat_axis, vec3, vec4, Mat4, Quat, Vec3, quat_euler_angles, quat_rotation};
 
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -360,7 +360,7 @@ fn main() {
     let mut cam_data = CameraData::new(vk.clone());
     let mut playing_game = unsafe { PLAYING_GAME };
 
-    let (mut cam_pos, mut cam_rot) = (vec3(0., 0., 0.), Quat::new(1., 0., 0., 0.));
+    let (mut cam_pos, mut cam_rot) = (Vec3::default(), glm::quat(-1., 0., 0., 0.));
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
         *control_flow = ControlFlow::Poll;
