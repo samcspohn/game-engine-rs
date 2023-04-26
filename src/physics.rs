@@ -57,6 +57,7 @@ impl Physics {
         );
         perf.update("physics step".into(), Instant::now() - inst);
         
+        // TODO: investigate if necessary
         let inst = Instant::now();
         self.query_pipeline.update(
             // &self.island_manager,

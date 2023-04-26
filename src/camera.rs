@@ -1,9 +1,13 @@
-use std::sync::Arc;
+use std::{
+    f32::consts::{FRAC_PI_2, FRAC_PI_4, PI},
+    sync::Arc,
+};
 
-use glm::{Mat4, Quat, Vec3, radians, Vec1, vec1};
+use glm::{radians, vec1, Mat4, Quat, Vec1, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
+use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{BufferSlice, CpuAccessibleBuffer, CpuBufferPool},
     command_buffer::{
@@ -27,6 +31,7 @@ use winit::window::Window;
 
 use crate::{
     engine::{transform::Transform, Component, RenderJobData, System},
+    inspectable::{Inpsect, Ins, Inspectable},
     model::ModelManager,
     particles::{ParticleCompute, ParticleRenderPipeline},
     renderer::RenderPipeline,
@@ -54,22 +59,53 @@ pub struct CameraData {
     view: Mat4,
     proj: Mat4,
 }
-#[derive(Clone)]
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Camera {
-    data: Arc<Mutex<CameraData>>,
+    #[serde(skip_serializing, skip_deserializing)]
+    data: Option<Arc<Mutex<CameraData>>>,
     fov: f32,
     near: f32,
     far: f32,
 }
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            data: None,
+            fov: 60f32,
+            near: 0.1f32,
+            far: 100f32,
+        }
+    }
+}
+impl Inspectable for Camera {
+    fn inspect(
+        &mut self,
+        transform: Transform,
+        id: i32,
+        ui: &mut egui::Ui,
+        sys: &mut crate::engine::Sys,
+    ) {
+        Ins(&mut self.fov).inspect("fov", ui, sys);
+        Ins(&mut self.near).inspect("near", ui, sys);
+        Ins(&mut self.far).inspect("far", ui, sys);
+    }
+}
 impl Component for Camera {
+    fn init(&mut self, transform: Transform, id: i32, sys: &mut crate::engine::Sys) {
+        self.data = Some(Arc::new(Mutex::new(CameraData::new(sys.vk.clone()))));
+    }
     fn update(&mut self, transform: Transform, sys: &System) {
-        self.data.lock().update(
-            transform.get_position(),
-            transform.get_rotation(),
-            self.near,
-            self.far,
-            self.fov,
-        )
+        if let Some(cam_data) = &self.data {
+            cam_data.lock().update(
+                transform.get_position(),
+                transform.get_rotation(),
+                self.near,
+                self.far,
+                self.fov,
+            )
+        }
         // let mut data = self.data.lock();
         // data.cam_pos = transform.get_position();
         // data.cam_rot = transform.get_rotation();
@@ -81,9 +117,13 @@ impl Component for Camera {
     }
 }
 impl Camera {
-    // pub fn get_data(&self) -> Arc<CameraData> {
-    //     self.data.clone()
-    // }
+    pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
+        if let Some(data) = &self.data {
+            Some(data.clone())
+        } else {
+            None
+        }
+    }
 }
 impl CameraData {
     pub fn update(&mut self, pos: Vec3, rot: Quat, near: f32, far: f32, fov: f32) {
@@ -94,12 +134,7 @@ impl CameraData {
         let up = rot * Vec3::y();
         self.view = glm::look_at_lh(&self.cam_pos, &target, &up);
         let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
-        self.proj = glm::perspective(
-            aspect_ratio,
-            radians(&vec1(fov)).x,
-            near,
-            far,
-        );
+        self.proj = glm::perspective(aspect_ratio, radians(&vec1(fov)).x, near, far);
     }
     pub fn new(vk: Arc<VulkanManager>) -> Self {
         let render_pass = vulkano::ordered_passes_renderpass!(

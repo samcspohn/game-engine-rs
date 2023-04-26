@@ -47,7 +47,7 @@ struct TabViewer<'a> {
     assets_manager: Arc<Mutex<AssetsManager>>,
     func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<Mutex<AssetsManager>>) -> ()>,
 }
-static mut playing: bool = false;
+pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_> {
     type Tab = String;
 
@@ -57,10 +57,10 @@ impl egui_dock::TabViewer for TabViewer<'_> {
             (self.func)(tab, ui, self.world, self.fps, self.inspectable, self.assets_manager.clone());
         } else {
             ui.horizontal_top(|ui| {
-                if unsafe {playing} {
+                if unsafe {PLAYING_GAME} {
                     if ui.button("Stop").clicked() {
                         println!("stop game");
-                        unsafe { playing = false; }
+                        unsafe { PLAYING_GAME = false; }
                         {
                             let mut world = self.world.lock();
                             world.clear();
@@ -70,7 +70,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                 } else {
                     if ui.button("Play").clicked() {
                         println!("play game");
-                        unsafe { playing = true; }
+                        unsafe { PLAYING_GAME = true; }
                     }
                 }
             });

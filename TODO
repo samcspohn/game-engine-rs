@@ -1,0 +1,12 @@
+
+game-engine:
+  ✔ impl multi camera support @done(23-04-24 17:08)
+  ☐ fix model manager sharing between game thread and render thread
+  ☐ impl camera component
+  ☐ optimize transform data push to GPU
+  particles:
+    ☐ add different rng type for particle emission
+    ☐ add color over life @started(23-04-24 17:13)
+    ☐ add color over emission
+    ☐ add size over life
+    ☐ add particle count display

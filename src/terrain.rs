@@ -133,7 +133,7 @@ impl Terrain {
                 ),
                 vertex_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
-                        &sys.memory_allocator,
+                        &sys.vk.mem_alloc,
                         (num_chunks * num_verts_chunk) as u64,
                         buffer_usage_all(),
                         false,
@@ -142,7 +142,7 @@ impl Terrain {
                 },
                 normals_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
-                        &sys.memory_allocator,
+                        &sys.vk.mem_alloc,
                         (num_chunks * num_verts_chunk) as u64,
                         buffer_usage_all(),
                         false,
@@ -151,7 +151,7 @@ impl Terrain {
                 },
                 uvs_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
-                        &sys.memory_allocator,
+                        &sys.vk.mem_alloc,
                         (num_chunks * num_verts_chunk) as u64,
                         buffer_usage_all(),
                         false,
@@ -160,7 +160,7 @@ impl Terrain {
                 },
                 index_buffer: unsafe {
                     CpuAccessibleBuffer::uninitialized_array(
-                        &sys.memory_allocator,
+                        &sys.vk.mem_alloc,
                         (num_chunks * ((terrain_size - 1) * (terrain_size - 1)) * 6) as u64,
                         buffer_usage_all(),
                         false,
@@ -198,7 +198,7 @@ impl Terrain {
                                 x,
                                 z,
                                 terrain_size,
-                                sys.device.clone(),
+                                sys.vk.device.clone(),
                             );
 
                             let ter_verts: Vec<Point<f32>> =
@@ -229,8 +229,8 @@ impl Terrain {
                             let z_ = z;
 
                             let mut builder = AutoCommandBufferBuilder::primary(
-                                sys.command_buffer_allocator,
-                                sys.queue.queue_family_index(),
+                                &sys.vk.comm_alloc,
+                                sys.vk.queue.queue_family_index(),
                                 CommandBufferUsage::OneTimeSubmit,
                             )
                             .unwrap();
@@ -249,7 +249,7 @@ impl Terrain {
                                     )
                                     .unwrap();
                             let vertecies = CpuAccessibleBuffer::from_iter(
-                                &sys.memory_allocator,
+                                &sys.vk.mem_alloc,
                                 BufferUsage {
                                     transfer_src: true,
                                     ..Default::default()
@@ -269,7 +269,7 @@ impl Terrain {
                                     )
                                     .unwrap();
                             let normals = CpuAccessibleBuffer::from_iter(
-                                &sys.memory_allocator,
+                                &sys.vk.mem_alloc,
                                 BufferUsage {
                                     transfer_src: true,
                                     ..Default::default()
@@ -290,7 +290,7 @@ impl Terrain {
                                     )
                                     .unwrap();
                             let uvs = CpuAccessibleBuffer::from_iter(
-                                &sys.memory_allocator,
+                                &sys.vk.mem_alloc,
                                 BufferUsage {
                                     transfer_src: true,
                                     ..Default::default()
@@ -314,7 +314,7 @@ impl Terrain {
                                     )
                                     .unwrap();
                             let indexs = CpuAccessibleBuffer::from_iter(
-                                &sys.memory_allocator,
+                                &sys.vk.mem_alloc,
                                 BufferUsage {
                                     transfer_src: true,
                                     ..Default::default()
@@ -346,7 +346,7 @@ impl Terrain {
         {
             // let command_buffers_g = command_buffers.lock();
             for command_buffer in (*command_buffers.lock()).clone() {
-                let _ = command_buffer.execute(sys.queue.clone()).unwrap();
+                let _ = command_buffer.execute(sys.vk.queue.clone()).unwrap();
             }
         }
     }

@@ -1,4 +1,4 @@
-use glm::{vec4, Vec3, vec3, Quat, Mat4};
+use glm::{vec3, vec4, Mat4, Quat, Vec3};
 use nalgebra_glm as glm;
 use num_integer::Roots;
 use parking_lot::{Mutex, RwLock};
@@ -7,7 +7,7 @@ use rapier3d::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, BTreeMap},
+    collections::{BTreeMap, HashMap},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, Sender},
@@ -20,10 +20,12 @@ use winit::event::VirtualKeyCode;
 // use rapier3d::{na::point, prelude::InteractionGroups};
 
 use crate::{
+    camera::{Camera, CameraData},
+    editor_ui::PLAYING_GAME,
     engine::{
         physics::Physics,
         transform::{self, Transform, _Transform},
-        Component, GameObject, LazyMaker, Storage, Sys, System, World,
+        Component, Defer, GameObject, Storage, Sys, System, World,
     },
     input::Input,
     inspectable::{self, Inpsect, Ins, Inspectable},
@@ -47,8 +49,8 @@ impl Component for Bomb {
         let pos = transform.get_position();
         let vel = self.vel;
         let dt = sys.input.time.dt.min(1. / 20.);
-                                    // let dt = 1. / 100.;
-                                    // let dir = vel * (1.0 / 100.0);
+        // let dt = 1. / 100.;
+        // let dir = vel * (1.0 / 100.0);
         let ray = rapier3d::prelude::Ray {
             origin: point![pos.x, pos.y, pos.z],
             dir: vel,
@@ -99,49 +101,102 @@ pub struct Player {
 impl Component for Player {
     fn update(&mut self, transform: Transform, sys: &System) {
         let input = &sys.input;
-        let speed = 20.0 * input.time.dt;
+        let speed = self.speed * input.time.dt;
         if !input.get_key(&VirtualKeyCode::LControl) {
             // forward/backward
             if input.get_key(&VirtualKeyCode::W) {
-                transform.translate((vec3(0.,0.,1.) * -speed));
+                transform.translate((vec3(0., 0., 1.) * -speed));
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
             }
             if input.get_key(&VirtualKeyCode::S) {
-                transform.translate((vec3(0.,0.,1.) * speed));
+                transform.translate((vec3(0., 0., 1.) * speed));
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
             }
             //left/right
             if input.get_key(&VirtualKeyCode::A) {
-                transform.translate(vec3(1.,0.,0.) * -speed);
+                transform.translate(vec3(1., 0., 0.) * -speed);
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
             }
             if input.get_key(&VirtualKeyCode::D) {
-                transform.translate(vec3(1.,0.,0.) * speed);
+                transform.translate(vec3(1., 0., 0.) * speed);
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
             }
             // up/down
             if input.get_key(&VirtualKeyCode::Space) {
-                transform.translate(vec3(0.,1.,0.) * -speed);
+                transform.translate(vec3(0., 1., 0.) * -speed);
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
             }
             if input.get_key(&VirtualKeyCode::LShift) {
-                transform.translate(vec3(0.,1.,0.) * speed);
+                transform.translate(vec3(0., 1., 0.) * speed);
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
             }
 
             if input.get_mouse_button(&2) {
-                transform.rotate(&Vec3::y(), input.get_mouse_delta().0 as f32 * 0.01);
-                transform.rotate(&Vec3::x(), input.get_mouse_delta().1 as f32 * 0.01);
-                // cam_rot = glm::quat_rotate(
-                //     &cam_rot,
-                //     input.get_mouse_delta().0 as f32 * 0.01,
-                //     &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
-                // );
-                // cam_rot = glm::quat_rotate(
-                //     &cam_rot,
-                //     input.get_mouse_delta().1 as f32 * 0.01,
-                //     &Vec3::x(),
-                // );
+                let mut cam_rot = transform.get_rotation();
+                cam_rot = glm::quat_rotate(
+                    &cam_rot,
+                    input.get_mouse_delta().0 as f32 * 0.01,
+                    &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
+                );
+                cam_rot = glm::quat_rotate(
+                    &cam_rot,
+                    input.get_mouse_delta().1 as f32 * 0.01,
+                    &Vec3::x(),
+                );
+                transform.set_rotation(cam_rot);
+                // transform.rotate(&Vec3::y(), input.get_mouse_delta().0 as f32 * 0.01);
+                // transform.rotate(&Vec3::x(), input.get_mouse_delta().1 as f32 * -0.01);
+                // transform.set_rotation(glm::mat3_to_quat(&glm::mat4_to_mat3(&glm::look_at(
+                //     &vec3(0., 0., 0.),
+                //     &-transform.forward(),
+                //     &Vec3::y(),
+                // ))));
+            }
+
+            const ALOT: f32 = 10_000_000. / 60.;
+            if input.get_mouse_button(&0) && input.get_mouse_button(&2) {
+                // let _cam_rot = cam_rot.clone();
+                // let _cam_pos = cam_pos.clone();
+                // let rm = renderer_manager.clone();
+                let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
+                sys.defer.append(move |world| {
+                    // let len =
+                    // let chunk_size =  (len / (64 * 64)).max(1);
+                    (0..len)
+                        .into_iter()
+                        // .chunks(chunk_size)
+                        .for_each(|_| {
+                            let g = world.instantiate_with_transform(_Transform {
+                                // position: _cam_pos
+                                //     + glm::quat_to_mat3(&_cam_rot)
+                                //         * (glm::Vec3::y() * 10. - glm::Vec3::z() * 25.)
+                                //     + glm::vec3(
+                                //         rand::random::<f32>() - 0.5,
+                                //         rand::random::<f32>() - 0.5,
+                                //         rand::random::<f32>() - 0.5,
+                                //     ) * 18.,
+                                position: glm::vec3(
+                                    (rand::random::<f32>() - 0.5) * 1000f32,
+                                    100f32,
+                                    (rand::random::<f32>() - 0.5) * 1000f32,
+                                ),
+                                ..Default::default()
+                            });
+                            world.add_component(
+                                g,
+                                Bomb {
+                                    vel: glm::Vec3::y() * 50.
+                                        + glm::vec3(
+                                            rand::random::<f32>() - 0.5,
+                                            rand::random::<f32>() - 0.5,
+                                            rand::random::<f32>() - 0.5,
+                                        ) * 40.,
+                                },
+                            );
+                            // world.add_component(g, Renderer::new(0));
+                            world.add_component(g, ParticleEmitter::new(1));
+                        });
+                });
             }
         }
     }
@@ -186,30 +241,26 @@ impl Inspectable for Player {
 //     }
 // }
 
-pub fn game_thread_fn(
-    world: Arc<Mutex<World>>,
-    coms: (
-        Sender<(
-            Arc<(
-                usize,
-                Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
-            )>,
-            glm::Vec3,
-            glm::Quat,
-            RendererData,
-            (usize, Vec<crate::particles::cs::ty::emitter_init>),
+type game_comm = (
+    Sender<(
+        Arc<(
+            usize,
+            Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
         )>,
-        Receiver<Input>,
-        // Sender<Terrain>,
-    ),
-    running: Arc<AtomicBool>,
-) {
+        Vec<Arc<Mutex<CameraData>>>,
+        i32,
+        RendererData,
+        (usize, Vec<crate::particles::cs::ty::emitter_init>),
+    )>,
+    Receiver<Input>,
+    // Sender<Terrain>,
+);
+
+pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: game_comm, running: Arc<AtomicBool>) {
     let gravity = vector![0.0, -9.81, 0.0];
-    let lazy_maker = LazyMaker::new();
+    let defer = Defer::new();
 
     ////////////////////////////////////////////////
-    let mut cam_pos = glm::vec3(0.0, 0.0, -3.0);
-    let mut cam_rot = glm::quat(-1.0, 0.0, 0.0, 0.0);
 
     let mut perf = Perf {
         data: BTreeMap::new(),
@@ -220,9 +271,9 @@ pub fn game_thread_fn(
         // println!("waiting for input");
         let input = coms.1.recv().unwrap();
         // println!("input recvd");
-        let (transform_data, renderer_data, emitter_len, v) = {
+        let (transform_data, renderer_data, emitter_len, v, cam_datas, main_cam_id) = {
             let mut world = world.lock();
-            {
+            if unsafe { PLAYING_GAME } {
                 puffin::profile_scope!("game loop");
                 let inst = Instant::now();
                 {
@@ -247,97 +298,11 @@ pub fn game_thread_fn(
                         phys_time -= 1.0 / 30.0;
                     }
                     phys_time += input.time.dt;
-                    world.update(&lazy_maker, &input);
+                    world.update(&defer, &input);
                 }
-
-                let speed = 20.0 * input.time.dt;
-                if !input.get_key(&VirtualKeyCode::LControl) {
-                    // forward/backward
-                    if input.get_key(&VirtualKeyCode::W) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
-                    }
-                    if input.get_key(&VirtualKeyCode::S) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
-                    }
-                    //left/right
-                    if input.get_key(&VirtualKeyCode::A) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
-                    }
-                    if input.get_key(&VirtualKeyCode::D) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
-                    }
-                    // up/down
-                    if input.get_key(&VirtualKeyCode::Space) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
-                    }
-                    if input.get_key(&VirtualKeyCode::LShift) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
-                    }
-
-                    if input.get_mouse_button(&2) {
-                        cam_rot = glm::quat_rotate(
-                            &cam_rot,
-                            input.get_mouse_delta().0 as f32 * 0.01,
-                            &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
-                        );
-                        cam_rot = glm::quat_rotate(
-                            &cam_rot,
-                            input.get_mouse_delta().1 as f32 * 0.01,
-                            &Vec3::x(),
-                        );
-                    }
-                    const ALOT: f32 = 10_000_000. / 60.;
-                    if input.get_mouse_button(&0) && input.get_mouse_button(&2) {
-                        let _cam_rot = cam_rot.clone();
-                        let _cam_pos = cam_pos.clone();
-                        // let rm = renderer_manager.clone();
-                        lazy_maker.append(move |world| {
-                            let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
-                            // let chunk_size =  (len / (64 * 64)).max(1);
-                            (0..len)
-                                .into_iter()
-                                // .chunks(chunk_size)
-                                .for_each(|_| {
-                                    let g = world.instantiate_with_transform(_Transform {
-                                        // position: _cam_pos
-                                        //     + glm::quat_to_mat3(&_cam_rot)
-                                        //         * (glm::Vec3::y() * 10. - glm::Vec3::z() * 25.)
-                                        //     + glm::vec3(
-                                        //         rand::random::<f32>() - 0.5,
-                                        //         rand::random::<f32>() - 0.5,
-                                        //         rand::random::<f32>() - 0.5,
-                                        //     ) * 18.,
-                                        position: glm::vec3((rand::random::<f32>() - 0.5) * 1000f32 ,100f32,(rand::random::<f32>() - 0.5) * 1000f32),
-                                        ..Default::default()
-                                    });
-                                    world.add_component(
-                                        g,
-                                        Bomb {
-                                            vel: glm::Vec3::y()
-                                                * 50.
-                                                + glm::vec3(
-                                                    rand::random::<f32>() - 0.5,
-                                                    rand::random::<f32>() - 0.5,
-                                                    rand::random::<f32>() - 0.5,
-                                                ) * 40.,
-                                        },
-                                    );
-                                    // world.add_component(g, Renderer::new(0));
-                                    world.add_component(g, ParticleEmitter::new(1));
-                                });
-                        });
-                    }
-                }
-
                 {
                     puffin::profile_scope!("defered");
-                    lazy_maker.do_defered(&mut world);
+                    defer.do_defered(&mut world);
                 }
 
                 perf.update("world".into(), Instant::now() - inst);
@@ -401,8 +366,37 @@ pub fn game_thread_fn(
             };
             // *lock = Arc::new(Mutex::new(Vec::new()));
 
+            let camera_components = world.get_components::<Camera>().unwrap().read();
+            let camera_storage = camera_components
+                .as_any()
+                .downcast_ref::<Storage<Camera>>()
+                .unwrap();
+            let mut main_cam_id = -1;
+            let cam_datas = camera_storage
+                .valid
+                .iter()
+                .zip(camera_storage.data.iter())
+                .map(|(v, d)| {
+                    if v.load(Ordering::Relaxed) {
+                        let d = d.lock();
+                        main_cam_id = d.0;
+                        d.1.get_data()
+                    } else {
+                        None
+                    }
+                })
+                .filter(|a| a.is_some())
+                .map(|a| a.unwrap())
+                .collect();
             perf.update("get renderer data".into(), Instant::now() - inst);
-            (transform_data, renderer_data, emitter_len, v)
+            (
+                transform_data,
+                renderer_data,
+                emitter_len,
+                v,
+                cam_datas,
+                main_cam_id,
+            )
         };
 
         // std::thread::sleep(Duration::from_millis(5));
@@ -410,8 +404,8 @@ pub fn game_thread_fn(
 
         let res = coms.0.send((
             transform_data.clone(),
-            cam_pos.clone(),
-            cam_rot.clone(),
+            cam_datas,
+            main_cam_id,
             renderer_data,
             (emitter_len, v),
             // render_data,

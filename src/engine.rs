@@ -22,8 +22,8 @@ use rayon::prelude::*;
 
 use crossbeam::queue::SegQueue;
 
-use parking_lot::RwLock;
 use parking_lot::Mutex;
+use parking_lot::RwLock;
 // use spin::Mutex;
 use vulkano::{
     buffer::DeviceLocalBuffer,
@@ -39,7 +39,7 @@ use vulkano::{
 
 use crate::{
     input::Input, inspectable::Inspectable, model::ModelManager, particles::ParticleCompute,
-    renderer::RenderPipeline, renderer_component2::RendererManager,
+    renderer::RenderPipeline, renderer_component2::RendererManager, vulkan_manager::VulkanManager,
 };
 
 use self::{physics::Physics, transform::_Transform};
@@ -74,13 +74,12 @@ pub struct RenderJobData<'a> {
     pub viewport: &'a Viewport,
     pub texture_manager: &'a parking_lot::Mutex<crate::TextureManager>,
     pub vk: Arc<crate::vulkan_manager::VulkanManager>,
-
 }
-pub struct LazyMaker {
+pub struct Defer {
     work: SegQueue<Box<dyn FnOnce(&mut World) + Send + Sync>>,
 }
 
-impl LazyMaker {
+impl Defer {
     pub fn append<T: 'static>(&self, f: T)
     where
         T: FnOnce(&mut World) + Send + Sync,
@@ -92,8 +91,8 @@ impl LazyMaker {
             w(wrld);
         }
     }
-    pub fn new() -> LazyMaker {
-        LazyMaker {
+    pub fn new() -> Defer {
+        Defer {
             work: SegQueue::new(),
         }
     }
@@ -102,15 +101,11 @@ impl LazyMaker {
 pub struct System<'a> {
     pub trans: &'a Transforms,
     pub physics: &'a crate::engine::physics::Physics,
-    pub defer: &'a crate::engine::LazyMaker,
+    pub defer: &'a crate::engine::Defer,
     pub input: &'a crate::input::Input,
     pub model_manager: &'a parking_lot::Mutex<crate::ModelManager>,
     pub rendering: &'a RwLock<crate::RendererManager>,
-    pub device: Arc<Device>,
-    pub queue: Arc<Queue>,
-    pub memory_allocator: Arc<StandardMemoryAllocator>,
-    pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    pub command_buffer_allocator: &'a StandardCommandBufferAllocator,
+    pub vk: Arc<VulkanManager>
 }
 
 pub trait Component {
@@ -170,15 +165,11 @@ pub trait StorageBase {
         &mut self,
         transforms: &Transforms,
         phys: &physics::Physics,
-        lazy_maker: &LazyMaker,
+        lazy_maker: &Defer,
         input: &Input,
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        memory_allocator: Arc<StandardMemoryAllocator>,
-        descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-        command_buffer_allocator: &StandardCommandBufferAllocator,
+        vk: Arc<VulkanManager>
     );
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) -> ()>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
@@ -262,15 +253,11 @@ impl<
         &mut self,
         transforms: &Transforms,
         physics: &physics::Physics,
-        lazy_maker: &LazyMaker,
+        lazy_maker: &Defer,
         input: &Input,
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        memory_allocator: Arc<StandardMemoryAllocator>,
-        descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-        command_buffer_allocator: &StandardCommandBufferAllocator,
+        vk: Arc<VulkanManager>
     ) {
         if !self.has_update {
             return;
@@ -284,11 +271,7 @@ impl<
             input,
             model_manager: modeling,
             rendering,
-            device,
-            queue,
-            memory_allocator,
-            descriptor_set_allocator,
-            command_buffer_allocator,
+            vk,
         };
         // (0..self.data.len())
 
@@ -426,15 +409,16 @@ pub struct GameObject {
 }
 
 pub struct Sys {
-    pub device: Arc<Device>,
-    pub queue: Arc<Queue>,
+    // pub device: Arc<Device>,
+    // pub queue: Arc<Queue>,
     pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub physics: Physics, // bombs: Vec<Option<Mutex<Bomb>>>,
     pub particles: Arc<ParticleCompute>,
-    pub memory_allocator: Arc<StandardMemoryAllocator>,
-    pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    // pub memory_allocator: Arc<StandardMemoryAllocator>,
+    // pub descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
+    // pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    pub vk: Arc<VulkanManager>,
 }
 // #[derive(Default)]
 pub struct World {
@@ -456,11 +440,7 @@ impl World {
         renderer_manager: Arc<RwLock<RendererManager>>,
         physics: Physics,
         particles: Arc<ParticleCompute>,
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        memory_allocator: Arc<StandardMemoryAllocator>,
-        descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-        command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+        vk: Arc<VulkanManager>,
     ) -> World {
         let trans = RwLock::new(Transforms::new());
         let root = trans.write().new_root();
@@ -471,15 +451,11 @@ impl World {
             components_names: HashMap::new(),
             root,
             sys: Arc::new(Mutex::new(Sys {
-                device,
                 model_manager: modeling,
                 renderer_manager,
                 physics,
                 particles,
-                queue,
-                memory_allocator,
-                descriptor_set_allocator,
-                command_buffer_allocator,
+                vk: vk.clone()
             })),
         }
     }
@@ -771,7 +747,7 @@ impl World {
     pub fn update(
         &mut self,
         // phys: &physics::Physics,
-        lazy_maker: &LazyMaker,
+        lazy_maker: &Defer,
         input: &Input,
         // modeling: &Mutex<crate::ModelManager>,
         // rendering: &Mutex<crate::RendererManager>,
@@ -786,11 +762,7 @@ impl World {
                 &input,
                 &sys.model_manager,
                 &sys.renderer_manager,
-                sys.device.clone(),
-                sys.queue.clone(),
-                sys.memory_allocator.clone(),
-                sys.descriptor_set_allocator.clone(),
-                &sys.command_buffer_allocator,
+                sys.vk.clone(),
             );
         }
     }

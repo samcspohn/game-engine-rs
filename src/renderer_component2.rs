@@ -66,6 +66,8 @@ impl<'a> Inpsect for Ins<'a, ModelId> {
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Renderer {
     model_id: ModelId,
+    // #[serde(skip_serializing, skip_deserializing)]
+    // TODO fix incrementing id when toggling play/stop
     id: i32,
 }
 
