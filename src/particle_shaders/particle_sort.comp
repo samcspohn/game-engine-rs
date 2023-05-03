@@ -3,54 +3,18 @@
 #include "particle.glsl"
 layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
-// struct _a {
-//     // vec4 rot;
-//     // vec3 pos;
-//     uint key;
-//     // int proto_id;
-//     // float life;
-//     int p_id;
-// };
-struct DispatchIndirectCommand {
-    uint x;
-    uint y;
-    uint z;
-};
-struct VkDrawIndirectCommand {
-    uint vertexCount;
-    uint instanceCount;
-    uint firstVertex;
-    uint firstInstance;
-};
 struct transform {
     vec3 position;
     vec4 rotation;
     vec3 scale;
 };
 
-// struct particle {
-//     vec3 vel;
-//     int emitter_id;
-//     int sorted;
-// };
-// struct particle_template {
-//     vec3 color;
-//     float speed;
-//     float emission_rate;
-// };
-// struct pos_lif {
-//     vec3 pos;
-//     float life;
-//     vec4 rot;
-//     int template_id;
-// };
-
 layout(set = 0, binding = 0) buffer _a1 { _a a1[]; };
-layout(set = 0, binding = 1) buffer _a2 { int a2[]; };
+layout(set = 0, binding = 1) buffer _a2 { uint a2[]; };
 layout(set = 0, binding = 2) buffer p { particle particles[]; };
 layout(set = 0, binding = 3) buffer _p { pos_lif p_l[]; };
 layout(set = 0, binding = 4) buffer l { DispatchIndirectCommand indirect[]; };
-layout(set = 0, binding = 5) buffer a_c { int avail_count[]; };
+layout(set = 0, binding = 5) buffer a_c { int avail_count; };
 layout(set = 0, binding = 6) uniform Data {
     int num_jobs;
     int stage;
@@ -64,33 +28,53 @@ layout(set = 0, binding = 9) buffer _n { int next[]; };
 layout(set = 0, binding = 10) buffer pt { particle_template templates[]; };
 layout(set = 0, binding = 11) buffer e { emitter emitters[]; };
 layout(set = 0, binding = 12) buffer t { transform transforms[]; };
+layout(set = 0, binding = 13) buffer al { uint alive[]; };
+layout(set = 0, binding = 14) buffer al_c { uint alive_count; };
 // shared uint[512] local_buckets;
 const uint skip_size = (1 << 16) / 128;
-shared uint[128] local_sums;
+shared uint[128] local_sums;   // TODO: increase local sums
+
+vec2 get_radius(in vec3 pos1, in vec3 pos2) {
+    vec4 _vp_pos1 = (proj * view * vec4(pos1, 1.0));
+    vec3 vp_pos1 = _vp_pos1.xyz / _vp_pos1.w;
+
+    vec4 _vp_pos2 = (proj * view * vec4(pos2, 1.0));
+    vec3 vp_pos2 = _vp_pos2.xyz / _vp_pos2.w;
+
+    // pos2 = (vp_pos2 + vp_pos1) / 2.f;
+    vec2 r = abs(vp_pos2.xy - vp_pos1.xy);
+    // r.x = abs(r.x);
+    // r.y = abs(r.y);
+    return r;
+}
 void main() {
-    int id = int(gl_GlobalInvocationID.x);
-    int jobs = num_jobs >= 0 ? num_jobs : avail_count[0];
+    uint id = gl_GlobalInvocationID.x;
+    int jobs = num_jobs >= 0 ? num_jobs : avail_count;
+    if (stage == 1) {
+        jobs = int(alive_count);
+    }
 
     if (id < jobs) {
         switch (stage) {
-        case 0:
-            // update sorted for particles
-            // particles[a1[id].p_id].sorted = id;
-            avail_count[0] = 0;
-
-            break;
         case 1:
             // add particles to sort buffer / update particle keys
             // float z = (view * vec4(p_l[id].pos, 1.0)).z;
             // int i = particles[id].sorted;
-            if (p_l[id].life > 0.f) {   // add to sort or update
-                vec3 v_pos = (view * vec4(p_l[id].pos, 1.0)).xyz;
+            // if (p_l[id].life > 0.f) 
+            {   // add to sort or update
+                id = alive[id];
+                // if (id == 0)
+                //     return;
+                // if(p_l[id].life <= 0.f)
+                //     return;
+                float z = (view * vec4(p_l[id].pos, 1.0)).z;
                 vec4 _vp_pos = (proj * view * vec4(p_l[id].pos, 1.0));
                 vec3 vp_pos = _vp_pos.xyz / _vp_pos.w;
-                float z = v_pos.z;
-                particle_template templ =
-                    templates[emitters[particles[id].emitter_id].template_id];
-                if (templ.trail == 1) {
+                int templ_id = emitters[particles[id].emitter_id].template_id;
+                bool templ_trail = templates[templ_id].trail == 1;
+                float z2 = z;
+                vec3 next_pos = p_l[id].pos;
+                if (templ_trail) {
                     vec3 next_pos;
                     if (next[id] >= 0) {
                         next_pos = p_l[next[id]].pos;
@@ -99,30 +83,49 @@ void main() {
                     } else {
                         next_pos = p_l[id].pos;
                     }
-                    z = (z + (view * vec4(next_pos, 1.0)).z) / 2;
+                    z2 = (view * vec4(next_pos, 1.0)).z;
                 }
-                if (z < 0.f && vp_pos.x > -1.f && vp_pos.x < 1.f &&
-                    vp_pos.y > -1.f && vp_pos.y < 1.f) {
+                vec4 _vp_pos2 = (proj * view * vec4(next_pos, 1.0));
+                vec3 vp_pos2 = _vp_pos2.xyz / _vp_pos2.w;
 
-                    int i = atomicAdd(avail_count[0], 1);   // elements to sort
-                    z = -sqrt(-z);
+                vec2 r = vp_pos2.xy - vp_pos.xy;
+                vec2 center = (vp_pos2.xy + vp_pos.xy) / 2.f;
+                float radius = dot(r, r) / 2.f;
+
+                vec2 test = center;
+                if (center.x < -1.f) {
+                    test.x = -1.f;
+                } else if (center.x > 1.f) {
+                    test.x = 1.f;
+                }
+                if (center.y < -1.f) {
+                    test.y = -1.f;
+                } else if (center.y > 1.f) {
+                    test.y = 1.f;
+                }
+                vec2 dist = center.xy - test;
+                float _dist = dot(dist, dist);
+                radius = 0.2;
+                if ((z < 0.f || z2 < 0.f) && _dist <= radius) {
+                    int i = atomicAdd(avail_count, 1);   // elements to sort
+                    z = -sqrt(-(z + z2) / 2.f);
+                    z = min(z, 0);
                     a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
                     a1[i].p_id = id;
-                    a2[i] = id;
+                    // a2[i] = id;
                 }
             }
             break;
         case 2:
             if (id == 0) {
-                indirect[0].x = avail_count[0] / 1024 +
-                                1;   // for 3   MAX_PARTICLES / 128 + 1 ;
+                indirect[0].x = avail_count / 1024 + 1;   // for 3
                 indirect[0].y = 1;
                 indirect[0].z = 1;
             }
             buckets[id] = 0;
             break;
         case 3:
-            if (id < avail_count[0]) {
+            if (id < avail_count) {
                 atomicAdd(buckets[a1[id].key >> 16], 1);
             }
             break;
@@ -153,18 +156,18 @@ void main() {
             }
             break;
         case 5:
-            if (id < avail_count[0]) {
+            if (id < avail_count) {
                 a2[atomicAdd(buckets[a1[id].key >> 16], 1) - 1] = a1[id].p_id;
             }
             break;
 
         case 6:
-            // avail_count[0] -= avail_count[1];
+            // avail_count -= avail_count[1];
             // avail_count[1] = 0;
-            indirect[0].x = avail_count[0] / 128 + 1;   // for 0
+            indirect[0].x = avail_count / 128 + 1;   // for 0
             indirect[0].y = 1;
             indirect[0].z = 1;
-            draw[0].vertexCount = avail_count[0];   // avail_count[0];
+            draw[0].vertexCount = avail_count;   // avail_count;
             break;
         }
     }

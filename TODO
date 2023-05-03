@@ -11,6 +11,8 @@ game-engine:
     ☐ color over emission
     ☐ size over life
     ☐ particle count display
+    ☐ fix culling @started(23-04-30 16:13)
+    ☐ active particles list
   lights:
     ☐ lights
     ☐ shadows
@@ -19,11 +21,13 @@ game-engine:
   camera:
     ✔ camera @done(23-04-26 10:06)
     ✔ multiple camera @done(23-04-26 10:06)
+    ☐ re-add cull view
     ☐ render targets
   models:
     ☐ fix multiple meshes
   editor:
     ☐ menu bar
     ☐ drag/drop assets
+    ☐ fix cross platform path serialization
   
   

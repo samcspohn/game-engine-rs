@@ -1,6 +1,6 @@
 use std::{
     f32::consts::{FRAC_PI_2, FRAC_PI_4, PI},
-    sync::Arc,
+    sync::Arc, collections::VecDeque,
 };
 
 use glm::{radians, vec1, Mat4, Quat, Vec1, Vec3};
@@ -52,8 +52,12 @@ pub struct CameraData {
     // swapchain: Arc<Swapchain>,
     framebuffers: Vec<Arc<Framebuffer>>,
     pub output: Vec<Arc<AttachmentImage>>,
+    pub camera_view_data: std::collections::VecDeque<CameraViewData>,
     // recreate_swapchain: bool,
     // previous_frame_end: Option<Box<dyn GpuFuture>>,
+}
+#[derive(Clone, Default)]
+pub struct CameraViewData {
     cam_pos: Vec3,
     cam_rot: Quat,
     view: Mat4,
@@ -96,25 +100,6 @@ impl Component for Camera {
     fn init(&mut self, transform: Transform, id: i32, sys: &mut crate::engine::Sys) {
         self.data = Some(Arc::new(Mutex::new(CameraData::new(sys.vk.clone()))));
     }
-    fn update(&mut self, transform: Transform, sys: &System) {
-        if let Some(cam_data) = &self.data {
-            cam_data.lock().update(
-                transform.get_position(),
-                transform.get_rotation(),
-                self.near,
-                self.far,
-                self.fov,
-            )
-        }
-        // let mut data = self.data.lock();
-        // data.cam_pos = transform.get_position();
-        // data.cam_rot = transform.get_rotation();
-        // let rot = glm::quat_to_mat3(&data.cam_rot);
-        // let target = data.cam_pos + rot * Vec3::z();
-        // let up = rot * Vec3::y();
-        // let view: Mat4 = glm::look_at_lh(&data.cam_pos, &target, &up);
-        // data.view = view;
-    }
 }
 impl Camera {
     pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
@@ -124,17 +109,31 @@ impl Camera {
             None
         }
     }
+    pub fn _update(&mut self, transform: Transform) {
+        if let Some(cam_data) = &self.data {
+            cam_data.lock().update(
+                transform.get_position(),
+                transform.get_rotation(),
+                self.near,
+                self.far,
+                self.fov,
+            )
+        }
+    }
 }
 impl CameraData {
     pub fn update(&mut self, pos: Vec3, rot: Quat, near: f32, far: f32, fov: f32) {
-        self.cam_pos = pos;
-        self.cam_rot = rot;
-        let rot = glm::quat_to_mat3(&self.cam_rot);
-        let target = self.cam_pos + rot * Vec3::z();
+        // let cvd = &mut self.camera_view_data;
+        let mut cvd = CameraViewData::default();
+        cvd.cam_pos = pos;
+        cvd.cam_rot = rot;
+        let rot = glm::quat_to_mat3(&cvd.cam_rot);
+        let target = cvd.cam_pos + rot * Vec3::z();
         let up = rot * Vec3::y();
-        self.view = glm::look_at_lh(&self.cam_pos, &target, &up);
+        cvd.view = glm::look_at_lh(&cvd.cam_pos, &target, &up);
         let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
-        self.proj = glm::perspective(aspect_ratio, radians(&vec1(fov)).x, near, far);
+        cvd.proj = glm::perspective(aspect_ratio, radians(&vec1(fov)).x, near, far);
+        self.camera_view_data.push_back(cvd);
     }
     pub fn new(vk: Arc<VulkanManager>) -> Self {
         let render_pass = vulkano::ordered_passes_renderpass!(
@@ -183,16 +182,12 @@ impl CameraData {
         Self {
             // surface,
             rend,
-            particle_render_pipeline: ParticleRenderPipeline::new(&vk, render_pass.clone()),
+            particle_render_pipeline: ParticleRenderPipeline::new(vk.clone(), render_pass.clone()),
             _render_pass: render_pass,
             viewport,
             framebuffers,
             output,
-            // previous_frame_end: Some(()),
-            cam_pos: Vec3::new(0., 0., 0.),
-            cam_rot: Quat::new(1., 0., 0., 0.),
-            view: Mat4::identity(),
-            proj: Mat4::identity(),
+            camera_view_data: VecDeque::new()
             // swapchain,
         }
     }
@@ -227,28 +222,17 @@ impl CameraData {
         model_manager: &MutexGuard<ModelManager>,
         texture_manager: &Mutex<TextureManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData)>>,
-    ) -> Arc<AttachmentImage> {
-        // let a = Mutex::new(());
-        // let b = a.lock();
-        // let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1]; // *editor_ui::EDITOR_ASPECT_RATIO.lock();
-        //                                                                               // vk.swapchain.lock().image_extent()[0] as f32 / vk.swapchain.lock().image_extent()[1] as f32;
-        // self.proj = glm::perspective(
-        //     aspect_ratio,
-        //     std::f32::consts::FRAC_PI_2 as f32,
-        //     0.01,
-        //     10000.0,
-        // );
-
-        // let rot = glm::quat_to_mat3(&self.cam_rot);
-        // let target = self.cam_pos + rot * Vec3::z();
-        // let up = rot * Vec3::y();
-        // self.view = glm::look_at_lh(&self.cam_pos, &target, &up);
-
+    ) {
+        let cvd = self.camera_view_data.front();
+        if cvd.is_none() {
+            return;
+        }
+        let cvd = cvd.unwrap();
         transform_compute.update_mvp(
             builder,
             vk.device.clone(),
-            self.view.clone(),
-            self.proj.clone(),
+            cvd.view.clone(),
+            cvd.proj.clone(),
             &transform_uniforms,
             compute_pipeline.clone(),
             transform_data.0 as i32,
@@ -274,7 +258,7 @@ impl CameraData {
                         .from_data(ur::ty::Data {
                             num_jobs: rd.transforms_len as i32,
                             stage: 1,
-                            view: self.view.into(),
+                            view: cvd.view.into(),
                             _dummy0: Default::default(),
                         })
                         .unwrap()
@@ -318,8 +302,8 @@ impl CameraData {
         }
         particles.sort.sort(
             // per camera
-            self.view.into(),
-            self.proj.into(),
+            cvd.view.into(),
+            cvd.proj.into(),
             transform_compute.transform.clone(),
             &particles.particle_buffers,
             vk.device.clone(),
@@ -332,7 +316,6 @@ impl CameraData {
                 RenderPassBeginInfo {
                     clear_values: vec![
                         Some([0.2, 0.25, 1., 1.].into()),
-                        // Some([0., 0., 0., 1.].into()),
                         Some(1f32.into()),
                     ],
                     ..RenderPassBeginInfo::framebuffer(
@@ -389,8 +372,8 @@ impl CameraData {
             builder,
             transforms: transform_compute.transform.clone(),
             mvp: transform_compute.mvp.clone(),
-            view: &self.view,
-            proj: &self.proj,
+            view: &cvd.view,
+            proj: &cvd.proj,
             pipeline: &self.rend,
             viewport: &self.viewport,
             texture_manager: &texture_manager,
@@ -402,17 +385,18 @@ impl CameraData {
         particles.render_particles(
             &self.particle_render_pipeline,
             builder,
-            self.view.clone(),
-            self.proj.clone(),
-            self.cam_rot.coords.into(),
-            self.cam_pos.into(),
+            cvd.view.clone(),
+            cvd.proj.clone(),
+            cvd.cam_rot.coords.into(),
+            cvd.cam_pos.into(),
             transform_compute.transform.clone(),
             vk.mem_alloc.clone(),
             &vk.comm_alloc,
             vk.desc_alloc.clone(),
         );
         builder.end_render_pass().unwrap();
-        self.output[image_num as usize].clone()
+        self.camera_view_data.pop_front();
+        // self.output[image_num as usize].clone()
     }
 }
 

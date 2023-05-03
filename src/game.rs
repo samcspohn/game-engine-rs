@@ -291,11 +291,15 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
                     }
                     phys_time += input.time.dt;
                     world.update(&defer, &input);
+                    world.late_update(&defer, &input);
+                    world.update_cameras();
+
                 }
                 {
                     puffin::profile_scope!("defered");
                     defer.do_defered(&mut world);
                 }
+
 
                 perf.update("world".into(), Instant::now() - inst);
             } else {

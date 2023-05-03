@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use crate::{particles::{MAX_PARTICLES, ParticleBuffers}, renderer_component2::buffer_usage_all, transform_compute::cs::ty::transform, renderer::vs::ty::tr};
+use crate::{
+    particles::{ParticleBuffers, MAX_PARTICLES},
+    renderer::vs::ty::tr,
+    renderer_component2::buffer_usage_all,
+    transform_compute::cs::ty::transform,
+};
 
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer},
@@ -32,9 +37,9 @@ pub mod cs {
 
 pub struct ParticleSort {
     pub a1: Arc<DeviceLocalBuffer<[cs::ty::_a]>>,
-    pub a2: Arc<DeviceLocalBuffer<[i32]>>,
+    pub a2: Arc<DeviceLocalBuffer<[u32]>>,
     pub buckets: Arc<DeviceLocalBuffer<[u32]>>,
-    pub avail_count: Arc<DeviceLocalBuffer<[i32]>>,
+    pub avail_count: Arc<DeviceLocalBuffer<i32>>,
     // pub sort_jobs: Arc<DeviceLocalBuffer<i32>>,
     pub indirect: Vec<Arc<DeviceLocalBuffer<[DispatchIndirectCommand]>>>,
     pub draw: Arc<DeviceLocalBuffer<[DrawIndirectCommand]>>,
@@ -61,14 +66,13 @@ impl ParticleSort {
         .unwrap();
 
         let a1 = DeviceLocalBuffer::<[cs::ty::_a]>::array(
-            // device.clone(),
             &mem,
             MAX_PARTICLES as vulkano::DeviceSize,
             buffer_usage_all(),
             device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
-        let a2 = DeviceLocalBuffer::<[i32]>::array(
+        let a2 = DeviceLocalBuffer::<[u32]>::array(
             &mem,
             MAX_PARTICLES as vulkano::DeviceSize,
             buffer_usage_all(),
@@ -82,31 +86,19 @@ impl ParticleSort {
             device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
+
         // avail_count
-        let copy_buffer =
-            CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, [0i32, 0i32]).unwrap();
-        let avail_count = DeviceLocalBuffer::<[i32]>::array(
+        // let copy_buffer =
+        //     CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, [0i32, 0i32]).unwrap();
+        let avail_count = DeviceLocalBuffer::<i32>::new(
             &mem,
-            2 as DeviceSize,
             buffer_usage_all(),
             device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
-        builder
-            .copy_buffer(CopyBufferInfo::buffers(copy_buffer, avail_count.clone()))
-            .unwrap();
-
-        // // sort_jobs
-        // let copy_buffer =
-        //     CpuAccessibleBuffer::from_data(device.clone(), BufferUsage::all(), false, 0i32)
-        //         .unwrap();
-        // let sort_jobs = DeviceLocalBuffer::<i32>::new(
-        //     device.clone(),
-        //     BufferUsage::all(),
-        //     device.active_queue_families(),
-        // )
-        // .unwrap();
-        // builder.copy_buffer(copy_buffer, sort_jobs.clone()).unwrap();
+        // builder
+        //     .copy_buffer(CopyBufferInfo::buffers(copy_buffer, avail_count.clone()))
+        //     .unwrap();
 
         // indirect
         let indirect = (0..2)
@@ -216,8 +208,6 @@ impl ParticleSort {
         proj: [[f32; 4]; 4],
         transform: Arc<DeviceLocalBuffer<[transform]>>,
         pb: &ParticleBuffers,
-        // particles: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::particle]>>,
-        // particle_positions_lifes: Arc<DeviceLocalBuffer<[crate::particles::cs::ty::pos_lif]>>,
         _device: Arc<Device>,
         _queue: Arc<Queue>,
         builder: &mut AutoCommandBufferBuilder<
@@ -226,7 +216,6 @@ impl ParticleSort {
         >,
         desc_allocator: &StandardDescriptorSetAllocator,
     ) {
-
         let mut uniform_data = cs::ty::Data {
             num_jobs: MAX_PARTICLES,
             stage: 0,
@@ -234,7 +223,6 @@ impl ParticleSort {
             proj,
             _dummy0: Default::default(),
         };
-        // let uniform_sub_buffer = { self.uniforms.next(uniform_data).unwrap() };
 
         let layout = self
             .compute_pipeline
@@ -252,7 +240,7 @@ impl ParticleSort {
                                num_jobs: i32| {
             let indirect = match stage {
                 // dispatch
-                // 0 => self.indirect[0].clone(),
+                1 => pb.indirect.clone(),
                 3 => self.indirect[0].clone(),
                 5 => self.indirect[0].clone(),
                 _ => self.indirect[1].clone(),
@@ -286,14 +274,14 @@ impl ParticleSort {
                     WriteDescriptorSet::buffer(10, pb.particle_template.lock().clone()),
                     WriteDescriptorSet::buffer(11, pb.emitters.lock().clone()),
                     WriteDescriptorSet::buffer(12, transform.clone()),
-
+                    WriteDescriptorSet::buffer(13, pb.alive.clone()),
+                    WriteDescriptorSet::buffer(14, pb.alive_count.clone()),
                 ],
             )
             .unwrap();
 
             if num_jobs < 0 {
                 builder
-                    // .bind_pipeline_compute(self.compute_pipeline.clone())
                     .bind_descriptor_sets(
                         PipelineBindPoint::Compute,
                         self.compute_pipeline.layout().clone(),
@@ -304,7 +292,6 @@ impl ParticleSort {
                     .unwrap();
             } else {
                 builder
-                    // .bind_pipeline_compute(self.compute_pipeline.clone())
                     .bind_descriptor_sets(
                         PipelineBindPoint::Compute,
                         self.compute_pipeline.layout().clone(),
@@ -316,12 +303,18 @@ impl ParticleSort {
             }
         };
         builder.bind_pipeline_compute(self.compute_pipeline.clone());
+        builder
+            .copy_buffer(CopyBufferInfo::buffers(
+                pb.buffer_0.clone(),
+                self.avail_count.clone(),
+            ))
+            .unwrap();
 
         // stage 0
-        build_stage(builder, 0, 1);
+        // build_stage(builder, 0, 1);
 
         // stage 1
-        build_stage(builder, 1, MAX_PARTICLES);
+        build_stage(builder, 1, -1);
 
         // stage 2
         build_stage(builder, 2, 65536);

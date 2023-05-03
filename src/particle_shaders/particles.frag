@@ -9,4 +9,5 @@ void main()
 {
     // particle_template templ = templates[templ_id];
     FragColor = templates[templ_id].color_life[int((life) * 199)];//color;//vec4(color.xyz,1.0);
+    // FragColor = vec4(1,0,0,1);
 }  

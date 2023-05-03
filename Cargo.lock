@@ -1002,6 +1002,7 @@ dependencies = [
  "libc",
  "libloading",
  "nalgebra-glm",
+ "nohash-hasher",
  "noise",
  "notify",
  "num-integer",

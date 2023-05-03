@@ -30,7 +30,7 @@ t_c:
     - 1.0
   c:
   - - Renderer
-    - (model_id:(id:7),id:7)
+    - (model_id:(id:7),id:14)
   t_c:
   - t:
       position:
@@ -48,7 +48,7 @@ t_c:
       - 1.0
     c:
     - - Renderer
-      - (model_id:(id:6),id:8)
+      - (model_id:(id:6),id:15)
     t_c:
     - t:
         position:
@@ -66,7 +66,7 @@ t_c:
         - 1.0
       c:
       - - Renderer
-        - (model_id:(id:5),id:9)
+        - (model_id:(id:5),id:16)
       t_c: []
   - t:
       position:
@@ -84,7 +84,7 @@ t_c:
       - 1.0
     c:
     - - Renderer
-      - (model_id:(id:6),id:10)
+      - (model_id:(id:6),id:17)
     t_c:
     - t:
         position:
@@ -102,7 +102,7 @@ t_c:
         - 1.0
       c:
       - - Renderer
-        - (model_id:(id:5),id:11)
+        - (model_id:(id:5),id:18)
       t_c: []
 - t:
     position:
@@ -137,10 +137,10 @@ t_c:
     - 1.0
     - 1.0
   c:
+  - - Renderer
+    - (model_id:(id:0),id:19)
   - - ParticleEmitter
     - (template:1)
-  - - Renderer
-    - (model_id:(id:0),id:12)
   t_c: []
 - t:
     position:
@@ -161,22 +161,22 @@ t_c:
 - t:
     position:
     - -18.1
-    - 14.3
+    - 247.0
     - 0.0
     rotation:
-    - 0.89414316
-    - 0.0
-    - 0.4477811
-    - 0.0
+    - -0.4985942
+    - 0.2610389
+    - 0.8108629
+    - 0.16051105
     scale:
     - 1.0
     - 1.0
     - 1.0
   c:
-  - - Camera
-    - (fov:60.0,near:0.01,far:1000.0)
   - - Renderer
-    - (model_id:(id:0),id:13)
+    - (model_id:(id:0),id:20)
   - - Player
     - (rof:1000000.0,speed:30.0)
+  - - Camera
+    - (fov:60.0,near:0.01,far:1000.0)
   t_c: []

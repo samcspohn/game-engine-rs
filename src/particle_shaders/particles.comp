@@ -8,10 +8,12 @@ struct transform {
     vec4 rotation;
     vec3 scale;
 };
-
 // struct particle_emitter_prototype {
 
 // };
+struct b {
+    bool b;
+};
 
 layout(set = 0, binding = 0) buffer t { transform transforms[]; };
 layout(set = 0, binding = 1) buffer p { particle particles[]; };
@@ -22,8 +24,11 @@ layout(set = 0, binding = 4) buffer a { uint avail[]; };
 layout(set = 0, binding = 5) buffer e { emitter emitters[]; };
 layout(set = 0, binding = 6) buffer a_c { int avail_count; };
 layout(set = 0, binding = 7) buffer p_t { particle_template templates[]; };
-
 layout(set = 0, binding = 10) buffer e_i { emitter_init emitter_inits[]; };
+layout(set = 0, binding = 11) buffer al { uint alive[]; };
+layout(set = 0, binding = 12) buffer al_c { int alive_count; };
+layout(set = 0, binding = 13) buffer i { DispatchIndirectCommand indirect[]; };
+layout(set = 0, binding = 14) buffer al_b { b alive_b[]; };
 
 // const int MAX_PARTICLES = 8 * 1024 * 1024;
 
@@ -46,11 +51,11 @@ vec4 look_at =
 
 float rand(float i) {
     return sin(float(i) * 8.96 + time * 5.5) +
-           cos(float(i) * 8.96 + time * 5.5);
+           cos(float(i) * 13.45 + time * 9.5);
 }
 
 void update_particle(uint id) {
-    if (p_l[id].life > 0.0) {
+    // if (p_l[id].life > 0.0) {
         p_l[id].pos += particles[id].vel * dt;
         // particles[id].rot = lookAt(vec3(rotate(cam_rot) *
         // vec4(0,0,-1,1)).xyz, vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
@@ -60,8 +65,9 @@ void update_particle(uint id) {
             int avail_id = atomicAdd(avail_count, -1);
             avail[avail_id - 1] = id;
             next[id] = -1;
+            alive_b[id].b = false;
         }
-    }
+    // }
 }
 
 void update_emitter(uint id) {
@@ -83,6 +89,7 @@ void update_emitter(uint id) {
             template_ids[i] = emitters[id].template_id;
             p_l[i].pos = transforms[emitters[id].transform_id].position;
             p_l[i].life = 1.0;
+            alive_b[i].b = true;
             if (templ.trail == 1) {
                 int last = emitters[id].last;
                 if (last >= 0) {
@@ -114,13 +121,17 @@ void init_emitters(uint id) {
     emitters[init.e_id] = e;
 }
 
+void alive_particles(uint id) {
+    if (alive_b[id].b) {
+        int _id = atomicAdd(alive_count, 1);
+        alive[_id] = id;
+    }
+}
+
 void main() {
-    uint id =
-        gl_GlobalInvocationID
-            .x;   // * 128 + gl_GlobalInvocationID.y;// * (8 * 8) +
-                  // gl_GlobalInvocationID.y * (8) + gl_GlobalInvocationID.z;
-    // transforms[0].position = vec3(0,0,0);
-    if (id < num_jobs) {
+    uint id = gl_GlobalInvocationID.x;
+    uint jobs = stage != 4 ? num_jobs : alive_count;
+    if (id < jobs) {
         switch (stage) {
         case 0:
             init_emitters(id);
@@ -128,11 +139,19 @@ void main() {
         case 1:
             update_emitter(id);
             break;
+        // reset alive_count
         case 2:
+            alive_particles(id);
+            break;
+        case 3:
+            indirect[0].y = indirect[0].z = 1;
+            indirect[0].x = alive_count / 1024 + 1;
+            break;
+        case 4:
             if (id == 0) {
                 atomicMin(avail_count, MAX_PARTICLES);
             }
-            update_particle(id);
+            update_particle(alive[id]);
             break;
         }
     }

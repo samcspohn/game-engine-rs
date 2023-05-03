@@ -1,20 +1,37 @@
-use std::sync::{Arc};
+use std::{
+    collections::{hash_map, HashMap},
+    hash::BuildHasherDefault,
+    sync::{
+        atomic::{AtomicI32, Ordering},
+        Arc,
+    },
+};
 
+use nohash_hasher::NoHashHasher;
 use parking_lot::Mutex;
 use vulkano::{
-    command_buffer::allocator::StandardCommandBufferAllocator,
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
+        PrimaryAutoCommandBuffer,
+    },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
         QueueCreateInfo,
     },
+    image::{ImageUsage, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
     memory::allocator::StandardMemoryAllocator,
+    query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
-    VulkanLibrary, image::{ImageUsage, SwapchainImage},
+    VulkanLibrary,
 };
 use vulkano_win::VkSurfaceBuild;
-use winit::{dpi::LogicalSize, event_loop::EventLoop, window::{WindowBuilder, Window}};
+use winit::{
+    dpi::LogicalSize,
+    event_loop::EventLoop,
+    window::{Window, WindowBuilder},
+};
 
 pub struct VulkanManager {
     pub device: Arc<Device>,
@@ -27,6 +44,8 @@ pub struct VulkanManager {
     pub mem_alloc: Arc<StandardMemoryAllocator>,
     pub desc_alloc: Arc<StandardDescriptorSetAllocator>,
     pub comm_alloc: Arc<StandardCommandBufferAllocator>,
+    pub query_pool: Mutex<HashMap<i32, Arc<QueryPool>, nohash_hasher::BuildNoHashHasher<i32>>>,
+    query_counter: AtomicI32,
 }
 
 impl VulkanManager {
@@ -124,14 +143,13 @@ impl VulkanManager {
         let queue = queues.next().unwrap();
 
         // let img_count = swapchain.image_count();
-        let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-        let descriptor_set_allocator =
-            Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
-        let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
+        let mem_alloc = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+        let desc_alloc = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
+        let comm_alloc = Arc::new(StandardCommandBufferAllocator::new(
             device.clone(),
             Default::default(),
         ));
-          let (mut swapchain, images) = {
+        let (mut swapchain, images) = {
             // Querying the capabilities of the surface. When we create the swapchain we can only
             // pass values that are allowed by the capabilities.
             let surface_capabilities = device
@@ -173,6 +191,14 @@ impl VulkanManager {
             .unwrap()
         };
         // self.swapchain = swapchain.clone();
+        // let query_pool = QueryPool::new(
+        //     device.clone(),
+        //     QueryPoolCreateInfo {
+        //         query_count: 3,
+        //         ..QueryPoolCreateInfo::query_type(QueryType::Timestamp)
+        //     },
+        // )
+        // .unwrap();
 
         Arc::new(Self {
             device,
@@ -181,9 +207,100 @@ impl VulkanManager {
             surface,
             swapchain: Mutex::new(swapchain),
             images,
-            mem_alloc: memory_allocator,
-            desc_alloc: descriptor_set_allocator,
-            comm_alloc: command_buffer_allocator,
+            mem_alloc,
+            desc_alloc,
+            comm_alloc,
+            query_pool: Mutex::new(HashMap::<
+                i32,
+                Arc<QueryPool>,
+                BuildHasherDefault<NoHashHasher<i32>>,
+            >::default()),
+            query_counter: AtomicI32::new(0),
         })
+    }
+    pub fn new_query(&self) -> i32 {
+        let id = self.query_counter.fetch_add(1, Ordering::Relaxed);
+        let query_pool = QueryPool::new(
+            self.device.clone(),
+            QueryPoolCreateInfo {
+                query_count: 1,
+                ..QueryPoolCreateInfo::query_type(QueryType::Timestamp)
+            },
+        )
+        .unwrap();
+        self.query_pool.lock().insert(id, query_pool);
+        id
+    }
+    pub fn query(
+        &self,
+        id: &i32,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
+    ) {
+        todo!();
+        let b = self.query_pool.lock();
+        let a = b.get(id).unwrap();
+        unsafe {
+            builder
+                .reset_query_pool(a.clone(), 0..1)
+                .unwrap()
+                .begin_query(
+                    a.clone(),
+                    0,
+                    QueryControlFlags {
+                        precise: false,
+                        ..QueryControlFlags::empty()
+                    },
+                )
+                .unwrap();
+        }
+    }
+    pub fn end_query(
+        &self,
+        id: &i32,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
+    ) {
+        todo!();
+        let b = self.query_pool.lock();
+        let a = b.get(id).unwrap();
+        builder.end_query(a.clone(), 0).unwrap();
+    }
+    pub fn get_query(&self, id: &i32) -> u64 {
+        todo!();
+        let mut query_results = [0u64];
+        let b = self.query_pool.lock();
+        let query_pool = b.get(id).unwrap();
+        if let Some(res) = query_pool.queries_range(0..1) {
+            res.get_results(
+                &mut query_results,
+                QueryResultFlags {
+                    // Block the function call until the results are available.
+                    // Note: if not all the queries have actually been executed, then this
+                    // will wait forever for something that never happens!
+                    wait: true,
+
+                    // Blocking and waiting will never give partial results.
+                    partial: false,
+
+                    // Blocking and waiting will ensure the results are always available after
+                    // the function returns.
+                    //
+                    // If you disable waiting, then this can be used to include the
+                    // availability of each query's results. You need one extra element per
+                    // query in your `query_results` buffer for this. This element will
+                    // be filled with a zero/nonzero value indicating availability.
+                    with_availability: false,
+                    ..QueryResultFlags::empty()
+                },
+            )
+            .unwrap();
+        }
+        
+        query_results[0]
     }
 }

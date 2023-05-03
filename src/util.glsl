@@ -1,4 +1,16 @@
 
+struct DispatchIndirectCommand {
+    uint x;
+    uint y;
+    uint z;
+};
+struct VkDrawIndirectCommand {
+    uint vertexCount;
+    uint instanceCount;
+    uint firstVertex;
+    uint firstInstance;
+};
+
 mat4 translate(mat4 m, vec3 translation){
 		mat4 t = {{1,0,0,translation.x},
 		{0,1,0,translation.y,},

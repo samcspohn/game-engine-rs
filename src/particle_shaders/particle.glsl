@@ -23,6 +23,7 @@ struct particle_template {
     float speed;
     float emission_rate;
     float life_time;
+    float size;
     vec4 color_life[200];
     int trail;
 };
@@ -38,5 +39,5 @@ struct _a {
     uint key;
     // int proto_id;
     // float life;
-    int p_id;
+    uint p_id;
 };

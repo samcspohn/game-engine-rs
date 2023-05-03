@@ -53,7 +53,7 @@ use vulkano::{
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
     device::{
         physical::{PhysicalDevice, PhysicalDeviceType},
-        Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo,
+        DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo,
     },
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
@@ -76,7 +76,7 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use glm::{quat_axis, vec3, vec4, Mat4, Quat, Vec3, quat_euler_angles, quat_rotation};
+use glm::{quat_axis, quat_euler_angles, quat_rotation, vec3, vec4, Mat4, Quat, Vec3};
 
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -120,7 +120,6 @@ use crate::engine::{GameObject, RenderJobData, Sys, World};
 use crate::game::{game_thread_fn, Bomb, Player};
 use crate::inspectable::{Inpsect, Ins};
 use crate::model::{ModelManager, ModelRenderer};
-use crate::particles::cs::ty::t;
 use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
 
@@ -150,11 +149,8 @@ fn main() {
     }
     let event_loop = EventLoop::new();
     let vk = VulkanManager::new(&event_loop);
-    let device = vk.device.clone();
-    let queue = vk.queue.clone();
-    let surface = vk.surface.clone();
-    let render_pass = vulkano::ordered_passes_renderpass!(
-        device.clone(),
+    let render_pass = vulkano::single_pass_renderpass!(
+        vk.device.clone(),
         attachments: {
             final_color: {
                 load: Clear,
@@ -163,32 +159,29 @@ fn main() {
                 samples: 1,
             }
         },
-        passes: [
-            // { color: [color], depth_stencil: {depth}, input: [] },
-            { color: [final_color], depth_stencil: {}, input: [] } // Create a second renderpass to draw egui
-        ]
+        pass: { color: [final_color], depth_stencil: {}} // Create a second renderpass to draw egui
     )
     .unwrap();
 
-    // let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
+    // let window = vk.surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
     let texture_manager = Arc::new(Mutex::new(TextureManager::new((
-        device.clone(),
-        queue.clone(),
+        vk.device.clone(),
+        vk.queue.clone(),
         vk.mem_alloc.clone(),
     ))));
 
     let model_manager = ModelManager::new((
-        device.clone(),
+        vk.device.clone(),
         texture_manager.clone(),
         vk.mem_alloc.clone(),
     ));
 
     let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
-        device.clone(),
+        vk.device.clone(),
         vk.mem_alloc.clone(),
     )));
-    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", device.clone(), texture_manager.clone());
+    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", vk.device.clone(), texture_manager.clone());
 
     let model_manager = Arc::new(Mutex::new(model_manager));
     {
@@ -196,12 +189,8 @@ fn main() {
     }
 
     let particles = Arc::new(particles::ParticleCompute::new(
-        device.clone(),
-        render_pass.clone(),
-        queue.clone(),
-        vk.mem_alloc.clone(),
-        &vk.comm_alloc,
-        vk.desc_alloc.clone(),
+        vk.device.clone(),
+        vk.clone(),
     ));
 
     let assets_manager = Arc::new(Mutex::new(AssetsManager::new()));
@@ -216,7 +205,7 @@ fn main() {
         );
     }
     // let uniform_buffer =
-    //     CpuBufferPool::<renderer::vs::ty::Data>::new(device.clone(), BufferUsage::all());
+    //     CpuBufferPool::<renderer::vs::ty::Data>::new(vk.device.clone(), BufferUsage::all());
 
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
@@ -228,7 +217,7 @@ fn main() {
         window_size_dependent_setup(&vk.images, render_pass.clone(), &mut viewport);
     let mut recreate_swapchain = false;
 
-    let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+    let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
 
     let mut modifiers = ModifiersState::default();
 
@@ -246,9 +235,9 @@ fn main() {
 
     let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
         &event_loop,
-        surface.clone(),
+        vk.surface.clone(),
         Some(vk.swapchain.lock().image_format()),
-        queue.clone(),
+        vk.queue.clone(),
         Subpass::from(render_pass.clone(), 0).unwrap(),
     );
 
@@ -258,8 +247,8 @@ fn main() {
     // let mut fps_time: f32 = 0.0;
 
     let mut transform_compute = transform_compute::transform_buffer_init(
-        device.clone(),
-        // queue.clone(),
+        vk.device.clone(),
+        // vk.queue.clone(),
         vec![
             transform {
                 position: Default::default(),
@@ -275,11 +264,11 @@ fn main() {
         vk.desc_alloc.clone(),
     );
 
-    let cs = cs::load(device.clone()).unwrap();
+    let cs = cs::load(vk.device.clone()).unwrap();
 
     // Create compute-pipeline for applying compute shader to vertices.
     let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
-        device.clone(),
+        vk.device.clone(),
         cs.entry_point("main").unwrap(),
         &(),
         None,
@@ -322,13 +311,13 @@ fn main() {
     )));
     {
         let mut world = world.lock();
-        world.register::<Renderer>(false, false);
-        world.register::<ParticleEmitter>(false, false);
+        world.register::<Renderer>(false, false, false);
+        world.register::<ParticleEmitter>(false, false, false);
         // world.register::<Maker>(true);
-        world.register::<Terrain>(true, true);
-        world.register::<Bomb>(true, false);
-        world.register::<Player>(true, false);
-        world.register::<Camera>(true, false);
+        world.register::<Terrain>(true, false, true);
+        world.register::<Bomb>(true, false, false);
+        world.register::<Player>(true, false, false);
+        world.register::<Camera>(false, false, false);
     }
     let rm = {
         let w = world.lock();
@@ -479,7 +468,8 @@ fn main() {
                 static mut GRAB_MODE: bool = true;
                 if input.get_key_press(&VirtualKeyCode::G) {
                     unsafe {
-                        let _er = surface
+                        let _er = vk
+                            .surface
                             .object()
                             .unwrap()
                             .downcast_ref::<Window>()
@@ -497,7 +487,7 @@ fn main() {
                 }
 
                 if input.get_key(&VirtualKeyCode::H) {
-                    surface
+                    vk.surface
                         .object()
                         .unwrap()
                         .downcast_ref::<Window>()
@@ -567,7 +557,8 @@ fn main() {
 
                 file_watcher.get_updates(assets_manager.clone());
 
-                let dimensions = surface
+                let dimensions = vk
+                    .surface
                     .object()
                     .unwrap()
                     .downcast_ref::<Window>()
@@ -581,7 +572,8 @@ fn main() {
                 if recreate_swapchain {
                     println!("recreate swapchain");
                     println!("dimensions {}: {}", dimensions.width, dimensions.height);
-                    let dimensions: [u32; 2] = surface
+                    let dimensions: [u32; 2] = vk
+                        .surface
                         .object()
                         .unwrap()
                         .downcast_ref::<Window>()
@@ -604,7 +596,7 @@ fn main() {
 
                     framebuffers = window_size_dependent_setup(
                         &new_images,
-                        // device.clone(),
+                        // vk.device.clone(),
                         render_pass.clone(),
                         &mut viewport,
                     );
@@ -699,19 +691,19 @@ fn main() {
                 let (position_update_data, rotation_update_data, scale_update_data) = {
                     puffin::profile_scope!("buffer transform data");
                     let position_update_data = transform_compute.get_position_update_data(
-                        device.clone(),
+                        vk.device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
                     );
 
                     let rotation_update_data = transform_compute.get_rotation_update_data(
-                        device.clone(),
+                        vk.device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
                     );
 
                     let scale_update_data = transform_compute.get_scale_update_data(
-                        device.clone(),
+                        vk.device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
                     );
@@ -728,7 +720,7 @@ fn main() {
 
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &vk.comm_alloc,
-                    queue.queue_family_index(),
+                    vk.queue.queue_family_index(),
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
@@ -738,7 +730,7 @@ fn main() {
 
                     // compute shader transforms
                     transform_compute.update(
-                        device.clone(),
+                        vk.device.clone(),
                         &mut builder,
                         transform_data.0,
                         vk.mem_alloc.clone(),
@@ -780,46 +772,15 @@ fn main() {
                     );
                 }
                 {
-                    // update particles
-                    // let particles = particles.read();
-                    particles.emitter_init(
-                        device.clone(),
+
+                    particles.update(
                         &mut builder,
-                        transform_compute.transform.clone(),
-                        emitter_inits.1.clone(),
-                        emitter_inits.0,
-                        input.time.dt,
-                        input.time.time,
-                        cam_pos.into(),
-                        cam_rot.coords.into(),
-                        vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
-                        vk.desc_alloc.clone(),
-                    );
-                    particles.emitter_update(
-                        device.clone(),
-                        &mut builder,
-                        transform_compute.transform.clone(),
-                        emitter_inits.0,
-                        input.time.dt,
-                        input.time.time,
-                        cam_pos.into(),
-                        cam_rot.coords.into(),
-                        vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
-                        vk.desc_alloc.clone(),
-                    );
-                    particles.particle_update(
-                        device.clone(),
-                        &mut builder,
+                        emitter_inits,
                         transform_compute.transform.clone(),
                         input.time.dt,
                         input.time.time,
                         cam_pos.into(),
                         cam_rot.coords.into(),
-                        vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
-                        vk.desc_alloc.clone(),
                     );
                 }
                 // compute shader renderers
@@ -844,7 +805,7 @@ fn main() {
 
                 if !unsafe { PLAYING_GAME } {
                     cam_data.update(cam_pos, cam_rot, 0.01f32, 10_000f32, 70f32);
-                    let _image = cam_data.render(
+                    cam_data.render(
                         vk.clone(),
                         &mut builder,
                         &mut transform_compute,
@@ -863,7 +824,7 @@ fn main() {
                     );
                 } else {
                     for cam in cam_datas {
-                        let _image = cam.lock().render(
+                        cam.lock().render(
                             vk.clone(),
                             &mut builder,
                             &mut transform_compute,
@@ -916,7 +877,8 @@ fn main() {
                 }
 
                 // Automatically start the next render subpass and draw the gui
-                let size = surface
+                let size = vk
+                    .surface
                     .object()
                     .unwrap()
                     .downcast_ref::<Window>()
@@ -944,13 +906,13 @@ fn main() {
                     .take()
                     .unwrap()
                     .join(acquire_future)
-                    .then_execute(queue.clone(), command_buffer);
+                    .then_execute(vk.queue.clone(), command_buffer);
 
                 match execute {
                     Ok(execute) => {
                         let future = execute
                             .then_swapchain_present(
-                                queue.clone(),
+                                vk.queue.clone(),
                                 SwapchainPresentInfo::swapchain_image_index(
                                     vk.swapchain.lock().clone(),
                                     image_num,
@@ -963,18 +925,20 @@ fn main() {
                             }
                             Err(FlushError::OutOfDate) => {
                                 recreate_swapchain = true;
-                                previous_frame_end = Some(sync::now(device.clone()).boxed());
+                                previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                             }
                             Err(e) => {
                                 println!("Failed to flush future: {:?}", e);
-                                previous_frame_end = Some(sync::now(device.clone()).boxed());
+                                previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                             }
                         }
+                        // let c = vk.get_query(&particles.performance.init_emitters);
+                        // println!("init emitters: {}",c);
                     }
                     Err(e) => {
                         println!("Failed to flush future: {:?}", e);
                         recreate_swapchain = true;
-                        previous_frame_end = Some(sync::now(device.clone()).boxed());
+                        previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                     }
                 };
 

@@ -38,8 +38,9 @@ use vulkano::{
 };
 
 use crate::{
-    input::Input, inspectable::Inspectable, model::ModelManager, particles::ParticleCompute,
-    renderer::RenderPipeline, renderer_component2::RendererManager, vulkan_manager::VulkanManager,
+    camera::Camera, input::Input, inspectable::Inspectable, model::ModelManager,
+    particles::ParticleCompute, renderer::RenderPipeline, renderer_component2::RendererManager,
+    vulkan_manager::VulkanManager,
 };
 
 use self::{physics::Physics, transform::_Transform};
@@ -105,7 +106,7 @@ pub struct System<'a> {
     pub input: &'a crate::input::Input,
     pub model_manager: &'a parking_lot::Mutex<crate::ModelManager>,
     pub rendering: &'a RwLock<crate::RendererManager>,
-    pub vk: Arc<VulkanManager>
+    pub vk: Arc<VulkanManager>,
 }
 
 pub trait Component {
@@ -173,7 +174,17 @@ pub trait StorageBase {
         input: &Input,
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
-        vk: Arc<VulkanManager>
+        vk: Arc<VulkanManager>,
+    );
+    fn late_update(
+        &mut self,
+        transforms: &Transforms,
+        phys: &physics::Physics,
+        lazy_maker: &Defer,
+        input: &Input,
+        modeling: &parking_lot::Mutex<crate::ModelManager>,
+        rendering: &RwLock<crate::RendererManager>,
+        vk: Arc<VulkanManager>,
     );
     fn editor_update(
         &mut self,
@@ -183,7 +194,7 @@ pub trait StorageBase {
         input: &Input,
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
-        vk: Arc<VulkanManager>
+        vk: Arc<VulkanManager>,
     );
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) -> ()>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
@@ -207,6 +218,7 @@ pub struct Storage<T> {
     extent: i32,
     has_update: bool,
     has_render: bool,
+    has_late_update: bool,
 }
 impl<T: 'static> Storage<T> {
     pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
@@ -233,13 +245,14 @@ impl<T: 'static> Storage<T> {
     // pub fn get(&self, i: &i32) -> &Mutex<T> {
     //     &self.data[*i as usize]
     // }
-    pub fn new(has_update: bool, has_render: bool) -> Storage<T> {
+    pub fn new(has_update: bool, has_late_update: bool, has_render: bool) -> Storage<T> {
         Storage::<T> {
             data: Vec::new(),
             valid: Vec::new(),
             avail: pqueue::Queue::new(),
             extent: 0,
             has_update,
+            has_late_update,
             has_render,
         }
     }
@@ -271,7 +284,7 @@ impl<
         input: &Input,
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
-        vk: Arc<VulkanManager>
+        vk: Arc<VulkanManager>,
     ) {
         if !self.has_update {
             return;
@@ -349,6 +362,49 @@ impl<
         //     }
         // });
     }
+    fn late_update(
+        &mut self,
+        transforms: &Transforms,
+        physics: &physics::Physics,
+        lazy_maker: &Defer,
+        input: &Input,
+        modeling: &parking_lot::Mutex<crate::ModelManager>,
+        rendering: &RwLock<crate::RendererManager>,
+        vk: Arc<VulkanManager>,
+    ) {
+        if !self.has_late_update {
+            return;
+        }
+        let chunk_size = (self.data.len() / (64 * 64)).max(1);
+
+        let sys = System {
+            trans: &transforms,
+            physics,
+            defer: &lazy_maker,
+            input,
+            model_manager: modeling,
+            rendering,
+            vk,
+        };
+
+        self.data
+            .par_iter()
+            .zip_eq(self.valid.par_iter())
+            .enumerate()
+            .chunks(chunk_size)
+            .for_each(|slice| {
+                for (_i, (d, v)) in slice {
+                    if v.load(Ordering::Relaxed) {
+                        let mut d = d.lock();
+                        let trans = Transform {
+                            id: d.0,
+                            transforms: &transforms,
+                        };
+                        d.1.late_update(trans, &sys);
+                    }
+                }
+            });
+    }
     fn erase(&mut self, i: i32) {
         self.erase(i);
     }
@@ -424,7 +480,7 @@ impl<
         input: &Input,
         modeling: &parking_lot::Mutex<crate::ModelManager>,
         rendering: &RwLock<crate::RendererManager>,
-        vk: Arc<VulkanManager>
+        vk: Arc<VulkanManager>,
     ) {
         if !self.has_update {
             return;
@@ -512,7 +568,7 @@ impl World {
                 renderer_manager,
                 physics,
                 particles,
-                vk: vk.clone()
+                vk: vk.clone(),
             })),
         }
     }
@@ -739,12 +795,13 @@ impl World {
     >(
         &mut self,
         has_update: bool,
+        has_late_update: bool,
         has_render: bool,
     ) {
         let key: TypeId = TypeId::of::<T>();
         // let c = T::default();
         // let has_render = T::on_render != &Component::on_render;
-        let data = Storage::<T>::new(has_update, has_render);
+        let data = Storage::<T>::new(has_update, has_late_update, has_render);
         let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
             Arc::new(RwLock::new(Box::new(data)));
         self.components
@@ -823,13 +880,53 @@ impl World {
             );
         }
     }
-    pub fn editor_update(
+
+    pub(crate) fn late_update(
         &mut self,
         // phys: &physics::Physics,
         lazy_maker: &Defer,
         input: &Input,
         // modeling: &Mutex<crate::ModelManager>,
         // rendering: &Mutex<crate::RendererManager>,
+    ) {
+        let transforms = self.transforms.read();
+        let sys = self.sys.lock();
+        for (_, stor) in &self.components {
+            stor.write().late_update(
+                &transforms,
+                &sys.physics,
+                &lazy_maker,
+                &input,
+                &sys.model_manager,
+                &sys.renderer_manager,
+                sys.vk.clone(),
+            );
+        }
+    }
+    pub(crate) fn update_cameras(&mut self) {
+        let transforms = self.transforms.read();
+        // let sys = self.sys.lock();
+        let camera_components = self.get_components::<Camera>().unwrap().read();
+        let camera_storage = camera_components
+            .as_any()
+            .downcast_ref::<Storage<Camera>>()
+            .unwrap();
+        camera_storage
+            .valid
+            .iter()
+            .zip(camera_storage.data.iter())
+            .for_each(|(v, d)| {
+                if v.load(Ordering::Relaxed) {
+                    let mut d = d.lock();
+                    let id: i32 = d.0;
+                    d.1._update(transforms.get_transform(id));
+                }
+            });
+    }
+    pub(crate) fn editor_update(
+        &mut self,
+        lazy_maker: &Defer,
+        input: &Input,
     ) {
         let transforms = self.transforms.read();
         let sys = self.sys.lock();
