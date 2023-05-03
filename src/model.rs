@@ -1,7 +1,6 @@
 // extern crate assimp;
 
 use std::{
-    collections::{BTreeMap, HashMap},
     ops::Sub,
     sync::Arc,
 };
@@ -10,7 +9,7 @@ use std::{
 // use assimp as ai;
 use bytemuck::{Pod, Zeroable};
 use parking_lot::Mutex;
-use tobj;
+
 // use std::mem::size_of;
 use nalgebra_glm as glm;
 // use rapier3d::na::Norm;
@@ -18,11 +17,11 @@ use crate::{
     asset_manager::{self, Asset, AssetManagerBase},
     inspectable::Inspectable_,
     renderer_component2::buffer_usage_all,
-    texture::{Texture, TextureManager},
+    texture::{TextureManager},
 };
 use vulkano::memory::allocator::{MemoryAllocator, StandardMemoryAllocator};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer},
+    buffer::{CpuAccessibleBuffer},
     device::Device,
     impl_vertex,
 };
@@ -92,7 +91,7 @@ impl Mesh {
         normals: Vec<Normal>,
         indeces: Vec<u16>,
         uvs: Vec<UV>,
-        device: Arc<Device>,
+        _device: Arc<Device>,
         allocator: &(impl MemoryAllocator + ?Sized),
     ) -> Mesh {
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
@@ -144,12 +143,12 @@ impl Mesh {
 
     pub fn load_model(
         path: &str,
-        device: Arc<Device>,
+        _device: Arc<Device>,
         texture_manager: Arc<Mutex<TextureManager>>,
         allocator: &(impl MemoryAllocator + ?Sized),
     ) -> Mesh {
         // let sub_path = path.split("/");
-        let _path = std::path::Path::new(path.into());
+        let _path = std::path::Path::new(path);
         let model = tobj::load_obj(path, &(tobj::GPU_LOAD_OPTIONS));
         let (models, materials) = model.expect("Failed to load OBJ file");
         let mut vertices = Vec::new();
@@ -157,7 +156,7 @@ impl Mesh {
         let mut normals = Vec::new();
         let mut uvs = Vec::new();
 
-        for (i, m) in models.iter().enumerate() {
+        for (_i, m) in models.iter().enumerate() {
             let mesh = &m.mesh;
 
             // println!("model[{}].name = \'{}\'", i, m.name);
@@ -239,7 +238,7 @@ impl Mesh {
         for mat in materials.iter() {
             for m in mat {
                 // m.diffuse_texture;
-                if m.diffuse_texture == "" {
+                if m.diffuse_texture.is_empty() {
                     continue;
                 }
                 let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string()
@@ -308,12 +307,12 @@ impl
             Arc<StandardMemoryAllocator>,
         ),
     ) {
-        let mesh = Mesh::load_model(file, params.0.clone(), params.1.clone(), &params.2);
+        let _mesh = Mesh::load_model(file, params.0.clone(), params.1.clone(), &params.2);
     }
 }
 
 impl Inspectable_ for ModelRenderer {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &parking_lot::Mutex<crate::engine::World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &parking_lot::Mutex<crate::engine::World>) {
         ui.add(egui::Label::new(self.file.as_str()));
     }
 }

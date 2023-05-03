@@ -1,4 +1,4 @@
-use std::any::TypeId;
+
 
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +36,7 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
     // set children
     let t = transforms.get_transform(t);
     for c in t.get_meta().lock().children.iter() {
-        g_o.t_c.push(serialize_c(*c, &world, &transforms));
+        g_o.t_c.push(serialize_c(*c, world, transforms));
     }
     g_o
 }
@@ -55,7 +55,7 @@ pub fn serialize(world: &World) {
     };
 
     for c in t_r.get_meta().lock().children.iter() {
-        root.t_c.push(serialize_c(*c, &world, &transforms));
+        root.t_c.push(serialize_c(*c, world, &transforms));
     }
     std::fs::write("test.yaml", serde_yaml::to_string(&root).unwrap()).unwrap();
 }

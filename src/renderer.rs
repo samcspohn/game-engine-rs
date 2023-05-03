@@ -111,7 +111,7 @@ impl RenderPipeline {
             .fragment_shader(fs.entry_point("main").unwrap(), ())
             .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
             .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .render_pass(Subpass::from(render_pass.clone(), sub_pass_index).unwrap())
+            .render_pass(Subpass::from(render_pass, sub_pass_index).unwrap())
             .build(device.clone())
             .unwrap();
 
@@ -128,7 +128,7 @@ impl RenderPipeline {
                 height: 1,
                 array_layers: 1,
             };
-            let image_data = vec![255 as u8, 255, 255, 255];
+            let image_data = vec![255_u8, 255, 255, 255];
             let image = ImmutableImage::from_iter(
                 &mem,
                 image_data,
@@ -140,10 +140,10 @@ impl RenderPipeline {
             .unwrap();
             ImageView::new_default(image).unwrap()
         };
-        let _ = builder.build().unwrap().execute(queue.clone()).unwrap();
+        let _ = builder.build().unwrap().execute(queue).unwrap();
 
         let def_sampler = Sampler::new(
-            device.clone(),
+            device,
             SamplerCreateInfo {
                 mag_filter: Filter::Linear,
                 min_filter: Filter::Linear,
@@ -187,8 +187,8 @@ impl RenderPipeline {
             .fragment_shader(self._fs.entry_point("main").unwrap(), ())
             .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
             .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            .build(device.clone())
+            .render_pass(Subpass::from(render_pass, 0).unwrap())
+            .build(device)
             .unwrap();
     }
 
@@ -227,7 +227,7 @@ impl RenderPipeline {
 
         let mut descriptors = Vec::new();
 
-        descriptors.push(WriteDescriptorSet::buffer(0, mvp_buffer.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(0, mvp_buffer));
 
         if let Some(texture) = mesh.texture.as_ref() {
             let texture = texture_manager.get_id(texture).unwrap().lock();
@@ -243,7 +243,7 @@ impl RenderPipeline {
                 self.def_sampler.clone(),
             ));
         }
-        descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
         {
             builder
@@ -251,7 +251,7 @@ impl RenderPipeline {
                     PipelineBindPoint::Graphics,
                     self.pipeline.layout().clone(),
                     0,
-                    set.clone(),
+                    set,
                 )
                 .bind_vertex_buffers(
                     0,

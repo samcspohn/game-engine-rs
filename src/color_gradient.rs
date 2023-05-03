@@ -1,6 +1,6 @@
 use nalgebra_glm as glm;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap};
 
 #[derive(Serialize, Deserialize)]
 pub struct ColorGradient {
@@ -29,13 +29,11 @@ impl ColorGradient {
     pub fn to_color_array(&self) -> [[f32; 4]; 200] {
         let mut a = [[0.0; 4]; 200];
         let mut sorted = self
-            .nodes
-            .iter()
-            .map(|(_, n)| (n.0, n.1))
+            .nodes.values().map(|n| (n.0, n.1))
             .collect::<Vec<(f32, [f32; 4])>>();
         sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
-        if sorted.len() == 0 {
+        if sorted.is_empty() {
             return a;
         }
         if sorted.len() == 1 {
@@ -53,7 +51,7 @@ impl ColorGradient {
         }
         let last = sorted.last().unwrap();
         let b = (last.0 * 200.) as usize;
-        let e = 200 as usize;
+        let e = 200_usize;
         let start = glm::make_vec4(&last.1);
         // let step = glm::make_vec4(&x[1].1) - start;
         for i in b..e {
@@ -197,7 +195,7 @@ impl ColorGradient {
             if color_picker {
                 // ui.memory().toggle_popup(popup_id);
                 unsafe {
-                    if let Some(_) = self.nodes.remove(&key) {}
+                    if self.nodes.remove(&key).is_some() {}
                     if ui.memory().is_popup_open(popup_id) {
                         key = -1;
                     }

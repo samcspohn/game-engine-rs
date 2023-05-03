@@ -41,7 +41,7 @@ impl Physics {
     pub fn step(&mut self, gravity: &Vector<Real>, perf: &mut Perf) {
         let inst = Instant::now();
         self.physics_pipeline.step(
-            &gravity,
+            gravity,
             &self.integration_parameters,
             &mut self.island_manager,
             &mut self.broad_phase,

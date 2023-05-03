@@ -1,13 +1,13 @@
-use glm::{vec3, vec4, Mat4, Quat, Vec3};
+use glm::{vec3, Vec3};
 use nalgebra_glm as glm;
 use num_integer::Roots;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex};
 use puffin_egui::puffin;
 use rapier3d::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, Sender},
@@ -15,7 +15,7 @@ use std::{
     },
     time::Instant,
 };
-use vulkano::device::Device;
+
 use winit::event::VirtualKeyCode;
 // use rapier3d::{na::point, prelude::InteractionGroups};
 
@@ -23,17 +23,14 @@ use crate::{
     camera::{Camera, CameraData},
     editor_ui::PLAYING_GAME,
     engine::{
-        physics::Physics,
-        transform::{self, Transform, _Transform},
-        Component, Defer, GameObject, Storage, Sys, System, World,
+        transform::{Transform, _Transform},
+        Component, Defer, Storage, Sys, System, World,
     },
     input::Input,
-    inspectable::{self, Inpsect, Ins, Inspectable},
-    model::ModelManager,
-    particles::{cs::ty::emitter_init, ParticleCompute, ParticleEmitter},
+    inspectable::{Inpsect, Ins, Inspectable},
+    particles::{cs::ty::emitter_init, ParticleEmitter},
     perf::Perf,
-    renderer_component2::{Renderer, RendererData, RendererManager},
-    terrain::Terrain,
+    renderer_component2::{RendererData},
 };
 
 // #[component]
@@ -57,7 +54,7 @@ impl Component for Bomb {
         };
         if let Some((_handle, _hit)) = sys.physics.query_pipeline.cast_ray_and_get_normal(
             &sys.physics.rigid_body_set,
-            &&sys.physics.collider_set,
+            &sys.physics.collider_set,
             &ray,
             dt,
             true,
@@ -67,7 +64,7 @@ impl Component for Bomb {
             // sys.defer.append(move |world| {
             //     world.delete(g);
             // });
-            self.vel = glm::reflect_vec(&vel, &&_hit.normal);
+            self.vel = glm::reflect_vec(&vel, &_hit.normal);
         }
         // if pos.y <= 0. {
         //     self.vel = glm::reflect_vec(&vel, &glm::vec3(0.,1.,0.));
@@ -105,11 +102,11 @@ impl Component for Player {
         if !input.get_key(&VirtualKeyCode::LControl) {
             // forward/backward
             if input.get_key(&VirtualKeyCode::W) {
-                transform.translate((vec3(0., 0., 1.) * -speed));
+                transform.translate(vec3(0., 0., 1.) * -speed);
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
             }
             if input.get_key(&VirtualKeyCode::S) {
-                transform.translate((vec3(0., 0., 1.) * speed));
+                transform.translate(vec3(0., 0., 1.) * speed);
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
             }
             //left/right
@@ -160,7 +157,6 @@ impl Component for Player {
                     // let len =
                     // let chunk_size =  (len / (64 * 64)).max(1);
                     (0..len)
-                        .into_iter()
                         // .chunks(chunk_size)
                         .for_each(|_| {
                             let g = world.instantiate_with_transform(_Transform {
@@ -324,19 +320,19 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
                         .model_indirect
                         .read()
                         .iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .map(|(k, v)| (*k, *v))
                         .collect(),
                     indirect_model: rm
                         .indirect_model
                         .read()
                         .iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .map(|(k, v)| (*k, *v))
                         .collect(),
                     updates: rm
                         .updates
                         .iter()
                         .flat_map(|(id, t)| {
-                            vec![id.clone(), t.indirect_id.clone(), t.transform_id.clone()]
+                            vec![*id, t.indirect_id, t.transform_id]
                                 .into_iter()
                         })
                         .collect(),
@@ -383,8 +379,7 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
                         None
                     }
                 })
-                .filter(|a| a.is_some())
-                .map(|a| a.unwrap())
+                .flatten()
                 .collect();
             perf.update("get renderer data".into(), Instant::now() - inst);
             (

@@ -1,9 +1,8 @@
 use std::{
-    f32::consts::{FRAC_PI_2, FRAC_PI_4, PI},
     sync::Arc, collections::VecDeque,
 };
 
-use glm::{radians, vec1, Mat4, Quat, Vec1, Vec3};
+use glm::{radians, vec1, Mat4, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
@@ -15,22 +14,16 @@ use vulkano::{
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    device::Device,
     format::Format,
-    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
-    memory::allocator::StandardMemoryAllocator,
+    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage},
     pipeline::{graphics::viewport::Viewport, ComputePipeline, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
-    swapchain::{
-        acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
-        SwapchainCreationError,
-    },
     sync::GpuFuture,
 };
-use winit::window::Window;
+
 
 use crate::{
-    engine::{transform::Transform, Component, RenderJobData, System},
+    engine::{transform::Transform, Component, RenderJobData},
     inspectable::{Inpsect, Ins, Inspectable},
     model::ModelManager,
     particles::{ParticleCompute, ParticleRenderPipeline},
@@ -39,7 +32,6 @@ use crate::{
     texture::TextureManager,
     transform_compute::{cs::ty::Data, TransformCompute},
     vulkan_manager::VulkanManager,
-    FrameImage,
 };
 
 // #[derive(Clone)]
@@ -86,8 +78,8 @@ impl Default for Camera {
 impl Inspectable for Camera {
     fn inspect(
         &mut self,
-        transform: Transform,
-        id: i32,
+        _transform: Transform,
+        _id: i32,
         ui: &mut egui::Ui,
         sys: &mut crate::engine::Sys,
     ) {
@@ -97,17 +89,13 @@ impl Inspectable for Camera {
     }
 }
 impl Component for Camera {
-    fn init(&mut self, transform: Transform, id: i32, sys: &mut crate::engine::Sys) {
+    fn init(&mut self, _transform: Transform, _id: i32, sys: &mut crate::engine::Sys) {
         self.data = Some(Arc::new(Mutex::new(CameraData::new(sys.vk.clone()))));
     }
 }
 impl Camera {
     pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
-        if let Some(data) = &self.data {
-            Some(data.clone())
-        } else {
-            None
-        }
+        self.data.as_ref().map(|data| data.clone())
     }
     pub fn _update(&mut self, transform: Transform) {
         if let Some(cam_data) = &self.data {
@@ -182,7 +170,7 @@ impl CameraData {
         Self {
             // surface,
             rend,
-            particle_render_pipeline: ParticleRenderPipeline::new(vk.clone(), render_pass.clone()),
+            particle_render_pipeline: ParticleRenderPipeline::new(vk, render_pass.clone()),
             _render_pass: render_pass,
             viewport,
             framebuffers,
@@ -231,16 +219,16 @@ impl CameraData {
         transform_compute.update_mvp(
             builder,
             vk.device.clone(),
-            cvd.view.clone(),
-            cvd.proj.clone(),
-            &transform_uniforms,
-            compute_pipeline.clone(),
+            cvd.view,
+            cvd.proj,
+            transform_uniforms,
+            compute_pipeline,
             transform_data.0 as i32,
             vk.mem_alloc.clone(),
             &vk.comm_alloc,
             vk.desc_alloc.clone(),
         );
-        if offset_vec.len() > 0 {
+        if !offset_vec.is_empty() {
             let offsets_buffer = CpuAccessibleBuffer::from_iter(
                 &vk.mem_alloc,
                 buffer_usage_all(),
@@ -256,7 +244,7 @@ impl CameraData {
                     puffin::profile_scope!("update renderers: stage 1: uniform data");
                     rm.uniform
                         .from_data(ur::ty::Data {
-                            num_jobs: rd.transforms_len as i32,
+                            num_jobs: rd.transforms_len,
                             stage: 1,
                             view: cvd.view.into(),
                             _dummy0: Default::default(),
@@ -279,8 +267,8 @@ impl CameraData {
                             WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
                             WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
                             WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
-                            WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
-                            WriteDescriptorSet::buffer(6, uniforms.clone()),
+                            WriteDescriptorSet::buffer(5, offsets_buffer),
+                            WriteDescriptorSet::buffer(6, uniforms),
                         ],
                     )
                     .unwrap()
@@ -293,7 +281,7 @@ impl CameraData {
                             PipelineBindPoint::Compute,
                             renderer_pipeline.layout().clone(),
                             0, // Bind this descriptor set to index 0.
-                            update_renderers_set.clone(),
+                            update_renderers_set,
                         )
                         .dispatch([rd.transforms_len as u32 / 128 + 1, 1, 1])
                         .unwrap();
@@ -336,8 +324,8 @@ impl CameraData {
             let mut offset = 0;
 
             for (_ind_id, m_id) in rd.indirect_model.iter() {
-                if let Some(ind) = rd.model_indirect.get(&m_id) {
-                    if let Some(mr) = mm.assets_id.get(&m_id) {
+                if let Some(ind) = rd.model_indirect.get(m_id) {
+                    if let Some(mr) = mm.assets_id.get(m_id) {
                         let mr = mr.lock();
                         if ind.count == 0 {
                             continue;
@@ -349,7 +337,7 @@ impl CameraData {
                             // println!("{}",indirect_buffer.len());
                             if let Some(renderer_buffer) =
                                 BufferSlice::from_typed_buffer_access(rm.renderers_gpu.clone())
-                                    .slice(offset..(offset + ind.count as u64) as u64)
+                                    .slice(offset..(offset + ind.count as u64))
                             {
                                 // println!("{}",renderer_buffer.len());
                                 self.rend.bind_mesh(
@@ -376,7 +364,7 @@ impl CameraData {
             proj: &cvd.proj,
             pipeline: &self.rend,
             viewport: &self.viewport,
-            texture_manager: &texture_manager,
+            texture_manager: texture_manager,
             vk: vk.clone(),
         };
         for job in render_jobs {
@@ -385,8 +373,8 @@ impl CameraData {
         particles.render_particles(
             &self.particle_render_pipeline,
             builder,
-            cvd.view.clone(),
-            cvd.proj.clone(),
+            cvd.view,
+            cvd.proj,
             cvd.cam_rot.coords.into(),
             cvd.cam_pos.into(),
             transform_compute.transform.clone(),

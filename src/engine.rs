@@ -31,9 +31,6 @@ use vulkano::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         PrimaryAutoCommandBuffer,
     },
-    descriptor_set::allocator::StandardDescriptorSetAllocator,
-    device::{Device, Queue},
-    memory::allocator::StandardMemoryAllocator,
     pipeline::graphics::viewport::Viewport,
 };
 
@@ -111,15 +108,15 @@ pub struct System<'a> {
 
 pub trait Component {
     // fn assign_transform(&mut self, t: Transform);
-    fn init(&mut self, transform: Transform, id: i32, sys: &mut Sys) {}
-    fn deinit(&mut self, transform: Transform, id: i32, _sys: &mut Sys) {}
-    fn on_start(&mut self, transform: Transform, sys: &System) {} // TODO implement call
-    fn on_destroy(&mut self, transform: Transform, sys: &System) {} // TODO implement call
-    fn update(&mut self, transform: Transform, sys: &System) {}
-    fn late_update(&mut self, transform: Transform, sys: &System) {}
-    fn editor_update(&mut self, transform: Transform, sys: &System) {}
-    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) -> ()> {
-        Box::new(|rd: &mut RenderJobData| {})
+    fn init(&mut self, _transform: Transform, _id: i32, _sys: &mut Sys) {}
+    fn deinit(&mut self, _transform: Transform, _id: i32, _sys: &mut Sys) {}
+    fn on_start(&mut self, _transform: Transform, _sys: &System) {} // TODO implement call
+    fn on_destroy(&mut self, _transform: Transform, _sys: &System) {} // TODO implement call
+    fn update(&mut self, _transform: Transform, _sys: &System) {}
+    fn late_update(&mut self, _transform: Transform, _sys: &System) {}
+    fn editor_update(&mut self, _transform: Transform, _sys: &System) {}
+    fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData)> {
+        Box::new(|_rd: &mut RenderJobData| {})
     }
 }
 
@@ -145,7 +142,7 @@ impl<T: 'static> _Storage<T> {
             None => {
                 self.data.push(d);
                 self.extent += 1;
-                self.extent as i32 - 1
+                self.extent - 1
             }
         }
     }
@@ -202,7 +199,7 @@ pub trait StorageBase {
         rendering: &RwLock<crate::RendererManager>,
         vk: Arc<VulkanManager>,
     );
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) -> ()>>);
+    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData)>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn erase(&mut self, i: i32);
     fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
@@ -238,7 +235,7 @@ impl<T: 'static> Storage<T> {
                 self.data.push(Mutex::new((transform, d)));
                 self.valid.push(AtomicBool::new(true));
                 self.extent += 1;
-                self.extent as i32 - 1
+                self.extent - 1
             }
         }
     }
@@ -298,9 +295,9 @@ impl<
         let chunk_size = (self.data.len() / (64 * 64)).max(1);
 
         let sys = System {
-            trans: &transforms,
+            trans: transforms,
             physics,
-            defer: &lazy_maker,
+            defer: lazy_maker,
             input,
             model_manager: modeling,
             rendering,
@@ -346,7 +343,7 @@ impl<
                         let mut d = d.lock();
                         let trans = Transform {
                             id: d.0,
-                            transforms: &transforms,
+                            transforms: transforms,
                         };
                         d.1.update(trans, &sys);
                     }
@@ -384,9 +381,9 @@ impl<
         let chunk_size = (self.data.len() / (64 * 64)).max(1);
 
         let sys = System {
-            trans: &transforms,
+            trans: transforms,
             physics,
-            defer: &lazy_maker,
+            defer: lazy_maker,
             input,
             model_manager: modeling,
             rendering,
@@ -404,7 +401,7 @@ impl<
                         let mut d = d.lock();
                         let trans = Transform {
                             id: d.0,
-                            transforms: &transforms,
+                            transforms: transforms,
                         };
                         d.1.late_update(trans, &sys);
                     }
@@ -461,7 +458,7 @@ impl<
         self.emplace(transform, d)
     }
 
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) -> ()>>) {
+    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData)>>) {
         if !self.has_render {
             return;
         }
@@ -494,9 +491,9 @@ impl<
         let chunk_size = (self.data.len() / (64 * 64)).max(1);
 
         let sys = System {
-            trans: &transforms,
+            trans: transforms,
             physics: phys,
-            defer: &lazy_maker,
+            defer: lazy_maker,
             input,
             model_manager: modeling,
             rendering,
@@ -513,7 +510,7 @@ impl<
                         let mut d = d.lock();
                         let trans = Transform {
                             id: d.0,
-                            transforms: &transforms,
+                            transforms: transforms,
                         };
                         d.1.editor_update(trans, &sys);
                     }
@@ -574,7 +571,7 @@ impl World {
                 renderer_manager,
                 physics,
                 particles,
-                vk: vk.clone(),
+                vk: vk,
             })),
         }
     }
@@ -632,8 +629,7 @@ impl World {
                 let x = transforms.meta[t as usize]
                     .lock()
                     .children
-                    .iter()
-                    .map(|e| *e)
+                    .iter().copied()
                     .collect();
                 x
             };
@@ -662,8 +658,7 @@ impl World {
                 let x = transforms.meta[t as usize]
                     .lock()
                     .children
-                    .iter()
-                    .map(|e| *e)
+                    .iter().copied()
                     .collect();
                 x
             };
@@ -681,7 +676,7 @@ impl World {
             let mut stor = stor.write();
             let c = stor.copy(t.id, c_id);
             stor.init(t, c, &mut self.sys.lock());
-            return c;
+            c
         } else {
             panic!("no component storage for key");
         }
@@ -811,7 +806,7 @@ impl World {
         let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
             Arc::new(RwLock::new(Box::new(data)));
         self.components
-            .insert(key.clone(), component_storage.clone());
+            .insert(key, component_storage.clone());
         self.components_names.insert(
             component_storage.read().get_name().to_string(),
             component_storage.clone(),
@@ -826,7 +821,7 @@ impl World {
         let ent = &mut self.entities.write();
         if let Some(g_components) = &ent[g.t as usize] {
             for (t, id) in &*g_components.write() {
-                let stor = &mut self.components.get(&t).unwrap().write();
+                let stor = &mut self.components.get(t).unwrap().write();
                 let trans = Transform {
                     id: g.t,
                     transforms: &self.transforms.read(),
@@ -878,8 +873,8 @@ impl World {
             stor.write().update(
                 &transforms,
                 &sys.physics,
-                &lazy_maker,
-                &input,
+                lazy_maker,
+                input,
                 &sys.model_manager,
                 &sys.renderer_manager,
                 sys.vk.clone(),
@@ -901,8 +896,8 @@ impl World {
             stor.write().late_update(
                 &transforms,
                 &sys.physics,
-                &lazy_maker,
-                &input,
+                lazy_maker,
+                input,
                 &sys.model_manager,
                 &sys.renderer_manager,
                 sys.vk.clone(),
@@ -940,15 +935,15 @@ impl World {
             stor.write().editor_update(
                 &transforms,
                 &sys.physics,
-                &lazy_maker,
-                &input,
+                lazy_maker,
+                input,
                 &sys.model_manager,
                 &sys.renderer_manager,
                 sys.vk.clone(),
             );
         }
     }
-    pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) -> ()>> {
+    pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData)>> {
         // let transforms = self.transforms.read();
         // let sys = self.sys.lock();
         let mut render_jobs = vec![];

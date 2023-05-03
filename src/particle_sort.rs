@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 use crate::{
     particles::{ParticleBuffers, MAX_PARTICLES},
-    renderer::vs::ty::tr,
     renderer_component2::buffer_usage_all,
     transform_compute::cs::ty::transform,
 };
 
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer},
+    buffer::{CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         CopyBufferInfo, DispatchIndirectCommand, DrawIndirectCommand, PrimaryAutoCommandBuffer,
@@ -56,7 +55,7 @@ impl ParticleSort {
         queue: Arc<Queue>,
         mem: Arc<StandardMemoryAllocator>,
         command_allocator: &StandardCommandBufferAllocator,
-        desc_allocator: Arc<StandardDescriptorSetAllocator>,
+        _desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) -> ParticleSort {
         let mut builder = AutoCommandBufferBuilder::primary(
             command_allocator,
@@ -102,7 +101,6 @@ impl ParticleSort {
 
         // indirect
         let indirect = (0..2)
-            .into_iter()
             .map(|_| {
                 let copy_buffer = CpuAccessibleBuffer::from_iter(
                     &mem,
@@ -150,7 +148,7 @@ impl ParticleSort {
             .unwrap();
 
         let uniforms = CpuBufferPool::<cs::ty::Data>::new(
-            mem.clone(),
+            mem,
             buffer_usage_all(),
             MemoryUsage::Upload,
         );
@@ -161,7 +159,7 @@ impl ParticleSort {
         let execute = Some(sync::now(device.clone()).boxed())
             .take()
             .unwrap()
-            .then_execute(queue.clone(), command_buffer);
+            .then_execute(queue, command_buffer);
 
         match execute {
             Ok(execute) => {
@@ -179,7 +177,7 @@ impl ParticleSort {
 
         let cs = cs::load(device.clone()).unwrap();
         let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
-            device.clone(),
+            device,
             cs.entry_point("main").unwrap(),
             &(),
             None,
@@ -255,7 +253,7 @@ impl ParticleSort {
 
             uniform_data.num_jobs = num_jobs;
             uniform_data.stage = stage;
-            let uniform_sub_buffer = { self.uniforms.from_data(uniform_data.clone()).unwrap() };
+            let uniform_sub_buffer = { self.uniforms.from_data(uniform_data).unwrap() };
             // write_descriptors[6] = (6, uniform_sub_buffer.clone());
             let descriptor_set = PersistentDescriptorSet::new(
                 desc_allocator,
@@ -265,9 +263,9 @@ impl ParticleSort {
                     WriteDescriptorSet::buffer(1, self.a2.clone()),
                     WriteDescriptorSet::buffer(2, pb.particles.clone()),
                     WriteDescriptorSet::buffer(3, pb.particle_positions_lifes.clone()),
-                    WriteDescriptorSet::buffer(4, bound_indirect.clone()),
+                    WriteDescriptorSet::buffer(4, bound_indirect),
                     WriteDescriptorSet::buffer(5, self.avail_count.clone()),
-                    WriteDescriptorSet::buffer(6, uniform_sub_buffer.clone()),
+                    WriteDescriptorSet::buffer(6, uniform_sub_buffer),
                     WriteDescriptorSet::buffer(7, self.buckets.clone()),
                     WriteDescriptorSet::buffer(8, self.draw.clone()),
                     WriteDescriptorSet::buffer(9, pb.particle_next.clone()),
@@ -286,9 +284,9 @@ impl ParticleSort {
                         PipelineBindPoint::Compute,
                         self.compute_pipeline.layout().clone(),
                         0, // Bind this descriptor set to index 0.
-                        descriptor_set.clone(),
+                        descriptor_set,
                     )
-                    .dispatch_indirect(indirect.clone())
+                    .dispatch_indirect(indirect)
                     .unwrap();
             } else {
                 builder
@@ -296,7 +294,7 @@ impl ParticleSort {
                         PipelineBindPoint::Compute,
                         self.compute_pipeline.layout().clone(),
                         0, // Bind this descriptor set to index 0.
-                        descriptor_set.clone(),
+                        descriptor_set,
                     )
                     .dispatch([num_jobs as u32 / 1024 + 1, 1, 1])
                     .unwrap();

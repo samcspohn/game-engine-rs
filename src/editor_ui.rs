@@ -1,4 +1,4 @@
-use egui::{Color32, Context, LayerId, Rounding, Ui};
+use egui::{Color32, Context, Rounding, Ui};
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -8,9 +8,9 @@ use std::{
     collections::{HashMap, VecDeque},
     fs,
     path::PathBuf,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc},
 };
-use vulkano::image::{view::ImageView, AttachmentImage};
+
 
 use crate::{
     drag_drop::drag_source,
@@ -45,7 +45,7 @@ struct TabViewer<'a> {
     // goi: &'a GameObjectInspector<'b>,
     inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
     assets_manager: Arc<Mutex<AssetsManager>>,
-    func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<Mutex<AssetsManager>>) -> ()>,
+    func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<Mutex<AssetsManager>>)>,
 }
 pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_> {
@@ -67,11 +67,9 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                             crate::serialize::deserialize(&mut world);
                         }
                     }    
-                } else {
-                    if ui.button("Play").clicked() {
-                        println!("play game");
-                        unsafe { PLAYING_GAME = true; }
-                    }
+                } else if ui.button("Play").clicked() {
+                    println!("play game");
+                    unsafe { PLAYING_GAME = true; }
                 }
             });
             let a = ui.available_size();
@@ -108,7 +106,7 @@ impl Inspectable_ for GameObjectInspector {
                             .default_open(true)
                             .show(ui, |ui| {
                                 let mut pos = *t.positions[t_id as usize].lock();
-                                let prev_pos = pos.clone();
+                                let prev_pos = pos;
                                 // Ins(&mut pos).inspect("Postition", ui);
                                 ui.horizontal(|ui| {
                                     ui.add(egui::Label::new("Position"));
@@ -119,7 +117,7 @@ impl Inspectable_ for GameObjectInspector {
                                 if pos != prev_pos {
                                     t.move_child(t_id, pos - prev_pos);
                                 }
-                                let mut rot = *t.rotations[t_id as usize].lock();
+                                let rot = *t.rotations[t_id as usize].lock();
                                 let mut rot = glm::quat_euler_angles(&rot);
                                 ui.vertical(|ui| {
                                     ui.horizontal(|ui| {
@@ -206,7 +204,7 @@ impl Inspectable_ for GameObjectInspector {
                                 //     }
                                 // }
                                 let mut scl = *t.scales[t_id as usize].lock();
-                                let prev_scl = scl.clone();
+                                let prev_scl = scl;
                                 // Ins(&mut scl).inspect("Scale", ui);
                                 ui.horizontal(|ui| {
                                     ui.add(egui::Label::new("Scale"));
@@ -220,8 +218,8 @@ impl Inspectable_ for GameObjectInspector {
                             });
                         let mut components = ent.write();
                         for (c_type, id) in components.iter_mut() {
-                            if let Some(c) = world.components.get(&c_type) {
-                                let mut c = c.write();
+                            if let Some(c) = world.components.get(c_type) {
+                                let c = c.write();
                                 // let name: String = c.get_name().into();
                                 ui.separator();
                                 let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
@@ -263,8 +261,8 @@ impl Inspectable_ for GameObjectInspector {
 
                 let mut compoenent_init: Option<(TypeId, i32)> = None;
                 resp.response.context_menu(|ui: &mut Ui| {
-                let resp = ui.menu_button("Add Component", |ui| {
-                    for (k, c) in &world.components {
+                let _resp = ui.menu_button("Add Component", |ui| {
+                    for (_k, c) in &world.components {
                         let mut c = c.write();
                         let resp = ui.add(egui::Button::new(c.get_name()));
                         if resp.clicked() {
@@ -291,7 +289,7 @@ struct ModelInspector {
 }
 
 impl Inspectable_ for ModelInspector {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &Mutex<World>) {
         ui.add(egui::Label::new(self.file.as_str()));
     }
 }
@@ -305,7 +303,7 @@ pub fn editor_ui(
 ) {
     {
         static mut _selected_transforms: Lazy<HashMap<i32, bool>> =
-            Lazy::new(|| HashMap::<i32, bool>::new());
+            Lazy::new(HashMap::<i32, bool>::new);
 
         static mut context_menu: Option<GameObjectContextMenu> = None;
         unsafe { context_menu = None };
@@ -335,21 +333,21 @@ pub fn editor_ui(
             // }
             DockArea::new(&mut dock)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
-                .show(egui_ctx, &mut TabViewer {image: frame_color.clone(), world, fps: fps_queue, inspectable: &mut inspectable, assets_manager, func:
-                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<Mutex<AssetsManager>>| {
-                        let assets_manager = assets_manager.clone();
+                .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut inspectable, assets_manager, func:
+                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<Mutex<AssetsManager>>| {
+                        let assets_manager = assets_manager;
                         match tab {
                             "Hierarchy" => {
 
                                 // let resp = {
-                                    let w = &world;
+                                    let _w = &world;
                                     let mut world = world.lock();
                                     let resp = ui.scope(|ui| {
 
                                     let mut transforms = world.transforms.write();
 
                                     let hierarchy_ui = |ui: &mut egui::Ui| {
-                                        if fps_queue.len() > 0 {
+                                        if !fps_queue.is_empty() {
                                             let fps: f32 = fps_queue.iter().sum::<f32>() / fps_queue.len() as f32;
                                             ui.label(format!("fps: {}", 1.0 / fps));
                                         }
@@ -404,7 +402,7 @@ pub fn editor_ui(
                                                         egui::pos2(resp.rect.left(), resp.rect.bottom() + offset - height),
                                                         egui::vec2(width, height),
                                                     );
-                                                    let between = ui.rect_contains_pointer(between_rect.clone());
+                                                    let between = ui.rect_contains_pointer(between_rect);
                                                     let a = egui::Shape::Rect(egui::epaint::RectShape::filled(
                                                         between_rect,
                                                         Rounding::same(1.0),
@@ -476,7 +474,7 @@ pub fn editor_ui(
 
                                                     resp.context_menu(|ui: &mut Ui| {
                                                         // let resp = ui.menu_button("Add Child", |ui| {});
-                                                        if ui.menu_button("Add Child", |ui| {}).response.clicked() {
+                                                        if ui.menu_button("Add Child", |_ui| {}).response.clicked() {
                                                             unsafe {
                                                                 context_menu =
                                                                     Some(GameObjectContextMenu::NewGameObject(t.id))
@@ -495,7 +493,7 @@ pub fn editor_ui(
                                                             ui.close_menu();
                                                         }
                                                         if ui
-                                                            .menu_button("Delete Game Object", |ui| {})
+                                                            .menu_button("Delete Game Object", |_ui| {})
                                                             .response
                                                             .clicked()
                                                         {
@@ -526,7 +524,7 @@ pub fn editor_ui(
                                                 for child_id in t.get_meta().lock().children.iter() {
                                                     let child = Transform {
                                                         id: *child_id,
-                                                        transforms: &&transforms,
+                                                        transforms: transforms,
                                                     };
                                                     transform_hierarchy_ui(
                                                         transforms,
@@ -547,7 +545,7 @@ pub fn editor_ui(
 
                                         let root = Transform {
                                             id: 0,
-                                            transforms: &&transforms,
+                                            transforms: &transforms,
                                         };
                                         let mut count = 0;
 
@@ -628,7 +626,7 @@ pub fn editor_ui(
                                 }
                                 // else if let Some(resp) = resp {
                                     resp.response.context_menu(|ui: &mut Ui| {
-                                        let resp = ui.menu_button("Add Game Object", |ui| {});
+                                        let resp = ui.menu_button("Add Game Object", |_ui| {});
                                         if resp.response.clicked() {
                                             let g = world.instantiate();
                                             unsafe {
@@ -639,11 +637,11 @@ pub fn editor_ui(
                                             println!("add game object");
                                             ui.close_menu();
                                         }
-                                        if ui.menu_button("Save", |ui| {}).response.clicked() {
+                                        if ui.menu_button("Save", |_ui| {}).response.clicked() {
                                             crate::serialize::serialize(&world);
                                             ui.close_menu();
                                         }
-                                        if ui.menu_button("Load", |ui| {}).response.clicked() {
+                                        if ui.menu_button("Load", |_ui| {}).response.clicked() {
                                             crate::serialize::deserialize(&mut world);
                                             ui.close_menu();
                                         }
@@ -673,7 +671,7 @@ pub fn editor_ui(
                                             false,
                                         )
                                         .show_header(ui, |ui| {
-                                            if let Some(last_slash) = label.rfind("/") {
+                                            if let Some(last_slash) = label.rfind('/') {
                                                 let _label = label.substring(last_slash + 1, label.len());
                                                 let resp = ui.label(_label);//.sense(Sense::click());
                                                 resp.context_menu(|ui| {
@@ -699,7 +697,7 @@ pub fn editor_ui(
                                                 .collect();
                                             let mut files: Vec<_> = paths
                                                 .iter()
-                                                .filter(|x| !fs::read_dir(x.path()).is_ok())
+                                                .filter(|x| fs::read_dir(x.path()).is_err())
                                                 .collect();
                                             dirs.sort_by_key(|dir| dir.path());
                                             files.sort_by_key(|dir| dir.path());
@@ -713,7 +711,7 @@ pub fn editor_ui(
                                             // ui.label("The body is always custom");
                                         });
                                     } else {
-                                        if let Some(last_slash) = label.rfind("/") {
+                                        if let Some(last_slash) = label.rfind('/') {
                                             let _label: String = label.substring(last_slash + 1, label.len()).into();
                                             // if let Some(last_dot) = label.rfind(".") {
                                             //     let file_ext = label.substring(last_dot, label.len());

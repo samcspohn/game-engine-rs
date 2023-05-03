@@ -1,16 +1,16 @@
 use core::panic;
 use deepmesa::lists::{linkedlist::Node, LinkedList};
 use force_send_sync::SendSync;
-use glm::{Mat3, Quat, Vec3};
+use glm::{Quat, Vec3};
 use nalgebra_glm as glm;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex};
 use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+    IndexedParallelIterator,
     IntoParallelRefMutIterator, ParallelIterator,
 };
 // use spin::{Mutex,RwLock};
 use num_integer::Roots;
-use puffin_egui::puffin;
+
 use serde::{Deserialize, Serialize};
 
 use std::{
@@ -190,7 +190,7 @@ impl Transforms {
     pub fn get_transform<'a>(&self, t: i32) -> Transform {
         Transform {
             id: t,
-            transforms: &self,
+            transforms: self,
         }
     }
     pub fn clear(&mut self) {
@@ -237,7 +237,7 @@ impl Transforms {
                     AtomicBool::new(true),
                 ]);
                 self.extent += 1;
-                self.extent as i32 - 1
+                self.extent - 1
             }
         }
     }
@@ -271,7 +271,7 @@ impl Transforms {
                     AtomicBool::new(true),
                 ]);
                 self.extent += 1;
-                self.extent as i32 - 1
+                self.extent - 1
             }
         };
         let mut meta = self.meta[ret as usize].lock();
@@ -438,7 +438,7 @@ impl Transforms {
         self.u_pos(tc);
         self.u_rot(tc);
         for child in self.meta[tc as usize].lock().children.iter() {
-            self.set_rotation_child(*child, &rot, &pos)
+            self.set_rotation_child(*child, rot, pos)
         }
     }
     pub fn get_scale(&self, t: i32) -> Vec3 {
@@ -452,7 +452,7 @@ impl Transforms {
     }
     pub fn scale(&self, t: i32, s: Vec3) {
         let mut scl = self.scales[t as usize].lock();
-        *scl = mul_vec3(&s, &*scl);
+        *scl = mul_vec3(&s, &scl);
         self.u_scl(t);
         let pos = self.get_position(t);
         for child in self.meta[t as usize].lock().children.iter() {
@@ -465,7 +465,7 @@ impl Transforms {
 
         *posi = mul_vec3(&(*posi - p), s) + p;
         self.u_pos(t);
-        *scl = mul_vec3(s, &*scl);
+        *scl = mul_vec3(s, &scl);
         self.u_scl(t);
         for child in self.meta[t as usize].lock().children.iter() {
             self.scale_child(*child, p, s);
@@ -498,7 +498,7 @@ impl Transforms {
         let mut rot = self.rotations[t as usize].lock();
         let mut p = self.positions[t as usize].lock();
 
-        *p = pos + glm::rotate_vec3(&(*p - pos), radians, &axis);
+        *p = pos + glm::rotate_vec3(&(*p - pos), radians, axis);
         *rot = glm::quat_rotate(
             &*rot,
             radians,

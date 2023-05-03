@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     drag_drop::{self, drop_target},
-    engine::{transform::Transform, Component, Storage, Sys, World, _Storage},
+    engine::{transform::Transform, Component, Sys, _Storage},
     inspectable::{Inpsect, Ins, Inspectable},
     vulkan_manager::VulkanManager, transform_compute::TransformCompute,
 };
@@ -73,7 +73,7 @@ pub struct Renderer {
 
 
 impl Inspectable for Renderer {
-    fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, transform: Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         // ui.add(egui::Label::new("Renderer"));
         // egui::CollapsingHeader::new(std::any::type_name::<Self>())
         //     .default_open(true)
@@ -221,7 +221,7 @@ impl SharedRendererData {
         if rm.transform_ids_gpu.len() < rd.transforms_len as u64 {
             let len = rd.transforms_len;
             let max_len = (len as f32 + 1.).log2().ceil();
-            let max_len = (2 as u32).pow(max_len as u32);
+            let max_len = 2_u32.pow(max_len as u32);
 
             let copy_buffer = rm.transform_ids_gpu.clone();
             unsafe {
@@ -249,7 +249,7 @@ impl SharedRendererData {
                 ))
                 .unwrap();
         }
-        if rm.indirect.data.len() > 0 {
+        if !rm.indirect.data.is_empty() {
             rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
                 &vk.mem_alloc,
                 buffer_usage_all(),
@@ -263,11 +263,11 @@ impl SharedRendererData {
         let mut offset = 0;
         for (_, m_id) in rd.indirect_model.iter() {
             offset_vec.push(offset);
-            if let Some(ind) = rd.model_indirect.get(&m_id) {
+            if let Some(ind) = rd.model_indirect.get(m_id) {
                 offset += ind.count;
             }
         }
-        if offset_vec.len() > 0 {
+        if !offset_vec.is_empty() {
             let offsets_buffer = CpuAccessibleBuffer::from_iter(
                 &vk.mem_alloc,
                 buffer_usage_all(),
@@ -317,8 +317,8 @@ impl SharedRendererData {
                         WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
                         WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
                         WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
-                        WriteDescriptorSet::buffer(5, offsets_buffer.clone()),
-                        WriteDescriptorSet::buffer(6, uniforms.clone()),
+                        WriteDescriptorSet::buffer(5, offsets_buffer),
+                        WriteDescriptorSet::buffer(6, uniforms),
                     ],
                 )
                 .unwrap();
@@ -328,7 +328,7 @@ impl SharedRendererData {
                         PipelineBindPoint::Compute,
                         renderer_pipeline.layout().clone(),
                         0, // Bind this descriptor set to index 0.
-                        update_renderers_set.clone(),
+                        update_renderers_set,
                     )
                     .dispatch([update_num as u32 / 128 + 1, 1, 1])
                     .unwrap();
@@ -429,7 +429,7 @@ impl RendererManager {
                     }],
                 )
                 .unwrap(),
-                device: device.clone(),
+                device: device,
                 shader,
                 pipeline,
                 mem: mem.clone(),
@@ -487,7 +487,7 @@ impl Component for Renderer {
         let rm = &mut sys.renderer_manager.write();
         let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
             ind.count += 1;
-            ind.id.clone()
+            ind.id
         } else {
             -1
         };

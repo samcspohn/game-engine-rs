@@ -1,23 +1,22 @@
 use std::{
-    collections::{BTreeMap, HashMap, hash_map::RandomState},
+    collections::{BTreeMap, HashMap},
     sync::Arc,
 };
 
 use egui::Ui;
 use parking_lot::Mutex;
 use serde::{
-    ser::{SerializeMap, SerializeStruct},
     Deserialize, Serialize,
 };
-use substring::Substring;
+
 
 use crate::{engine::World, inspectable::Inspectable_};
 
 pub trait Asset<T, P> {
     fn from_file(file: &str, params: &P) -> T;
     fn reload(&mut self, file: &str, params: &P);
-    fn save(&mut self, file: &str, params: &P) {}
-    fn new(file: &str, params: &P) -> Option<T> {None}
+    fn save(&mut self, _file: &str, _params: &P) {}
+    fn new(_file: &str, _params: &P) -> Option<T> {None}
     // fn from_file_id(file: &str, id: i32) -> T;
 }
 
@@ -164,24 +163,22 @@ impl<P, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for AssetManag
     fn new_asset(&mut self, file: &str) -> i32 {
         if let Some(id) = self.assets.get(file) {
             *id
-        } else {
-            if let Some(mut asset) = <T as Asset<T, P>>::new(
-                file,
-                &self.const_params,
-            ) {
-                let id = self.id_gen;
-                self.id_gen += 1;
-                asset.save(file, &self.const_params);
+        } else if let Some(mut asset) = <T as Asset<T, P>>::new(
+            file,
+            &self.const_params,
+        ) {
+            let id = self.id_gen;
+            self.id_gen += 1;
+            asset.save(file, &self.const_params);
 
-                self.assets.insert(file.into(), id);
-                self.assets_id.insert(
-                    id,
-                    Arc::new(Mutex::new(asset)),
-                );
-                id
-            } else {
-                -1
-            }
+            self.assets.insert(file.into(), id);
+            self.assets_id.insert(
+                id,
+                Arc::new(Mutex::new(asset)),
+            );
+            id
+        } else {
+            -1
         }
     }
 
@@ -192,7 +189,7 @@ impl<P, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for AssetManag
     fn save(&self) {
         for (n, i) in &self.assets {
             if let Some(a) = self.assets_id.get(i) {
-                a.lock().save(&n, &self.const_params);
+                a.lock().save(n, &self.const_params);
             }
         }
     }

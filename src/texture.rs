@@ -1,10 +1,9 @@
-use image::GenericImage;
+
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
-use parking_lot::RwLock;
+
 use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
@@ -59,7 +58,7 @@ pub struct Texture {
     pub sampler: Arc<Sampler>,
 }
 impl Inspectable_ for Texture {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &parking_lot::Mutex<crate::engine::World>) {
+    fn inspect(&mut self, _ui: &mut egui::Ui, _world: &parking_lot::Mutex<crate::engine::World>) {
         
     }
 }
@@ -95,7 +94,7 @@ impl Asset<Texture, (Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)> for T
                             .flat_map(|p| [p[0], p[1], p[2], 1u8])
                             .collect()
                     } else {
-                        img.as_bytes().into_iter().map(|u| *u).collect()
+                        img.as_bytes().iter().map(|u| *u).collect()
                     };
                     let command_buffer_allocator =
                         StandardCommandBufferAllocator::new(device.clone(), Default::default());

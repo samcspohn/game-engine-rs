@@ -38,7 +38,7 @@ impl Perf {
             println!(
                 "{}: {:?}",
                 k,
-                (x.into_iter().map(|a| a).sum::<Duration>() / len as u32)
+                (x.into_iter().sum::<Duration>() / len as u32)
             );
         }
     }

@@ -4,7 +4,7 @@ use crate::{
     engine::transform::{POS_U, ROT_U, SCL_U},
     renderer_component2::buffer_usage_all,
 };
-use bytemuck::{Pod, Zeroable};
+
 use nalgebra_glm as glm;
 use puffin_egui::puffin;
 use rayon::prelude::*;
@@ -21,7 +21,6 @@ use vulkano::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::Device,
-    impl_vertex,
     memory::allocator::StandardMemoryAllocator,
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     DeviceSize,
@@ -63,12 +62,12 @@ impl TransformCompute {
         >,
         positions_len: usize,
         mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
+        _command_allocator: &StandardCommandBufferAllocator,
     ) {
         let len = positions_len;
         // let mut max_len = ((len as f32).log2() + 1.).ceil();
         let max_len = (len as f32 + 1.).log2().ceil();
-        let max_len = (2 as u32).pow(max_len as u32);
+        let max_len = 2_u32.pow(max_len as u32);
 
         let transform_data = self;
 
@@ -90,7 +89,7 @@ impl TransformCompute {
             .unwrap();
             let copy_buffer = transform_data.transform.clone();
 
-            transform_data.transform = device_local_buffer.clone();
+            transform_data.transform = device_local_buffer;
             builder
                 .copy_buffer(CopyBufferInfo::buffers(
                     copy_buffer,
@@ -116,7 +115,7 @@ impl TransformCompute {
 
             let copy_buffer = transform_data.mvp.clone();
 
-            transform_data.mvp = device_local_buffer.clone();
+            transform_data.mvp = device_local_buffer;
             builder
                 .copy_buffer(CopyBufferInfo::buffers(
                     copy_buffer,
@@ -128,7 +127,7 @@ impl TransformCompute {
     pub fn get_position_update_data(
         // tc: &TransformCompute,
         &self,
-        device: Arc<Device>,
+        _device: Arc<Device>,
         transform_data: Arc<(
             usize,
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
@@ -187,7 +186,7 @@ impl TransformCompute {
                                             > = std::mem::transmute(mapping.as_ref());
                                             // let mapping: &mut vulkano::buffer::cpu_access::WriteLock<[i32]> = std::mem::transmute(&mapping);
                                             let m_iter = mapping.into_inner()
-                                                [*offset..*&(offset + j.len())]
+                                                [*offset..(offset + j.len())]
                                                 .iter_mut();
                                             j_iter.zip(m_iter).for_each(|(j, m)| {
                                                 // for  in slice {
@@ -240,7 +239,7 @@ impl TransformCompute {
                                             > = std::mem::transmute(mapping.as_ref());
 
                                             let m_iter = mapping.into_inner()
-                                                [*offset..*&(offset + j.len())]
+                                                [*offset..(offset + j.len())]
                                                 .iter_mut();
 
                                             j_iter.zip(m_iter).for_each(|(j, m)| {
@@ -265,7 +264,7 @@ impl TransformCompute {
     pub fn get_rotation_update_data(
         // tc: &TransformCompute,
         &self,
-        device: Arc<Device>,
+        _device: Arc<Device>,
         transform_data: Arc<(
             usize,
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
@@ -347,7 +346,7 @@ impl TransformCompute {
     pub fn get_scale_update_data(
         // tc: &TransformCompute,
         &self,
-        device: Arc<Device>,
+        _device: Arc<Device>,
         transform_data: Arc<(
             usize,
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
@@ -441,8 +440,8 @@ impl TransformCompute {
             Arc<CpuAccessibleBuffer<[i32]>>,
             Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
         )>,
-        mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
+        _mem: Arc<StandardMemoryAllocator>,
+        _command_allocator: &StandardCommandBufferAllocator,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         // stage 0
@@ -469,11 +468,11 @@ impl TransformCompute {
                     .unwrap()
                     .clone(),
                 [
-                    WriteDescriptorSet::buffer(0, updates_buffer.clone()),
+                    WriteDescriptorSet::buffer(0, updates_buffer),
                     WriteDescriptorSet::buffer(1, self.transform.clone()),
                     WriteDescriptorSet::buffer(2, self.mvp.clone()),
                     WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
-                    WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+                    WriteDescriptorSet::buffer(4, transforms_sub_buffer),
                 ],
             )
             .unwrap();
@@ -484,7 +483,7 @@ impl TransformCompute {
                     PipelineBindPoint::Compute,
                     compute_pipeline.layout().clone(),
                     0, // Bind this descriptor set to index 0.
-                    descriptor_set.clone(),
+                    descriptor_set,
                 )
                 .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
                 .unwrap();
@@ -502,8 +501,8 @@ impl TransformCompute {
             Arc<CpuAccessibleBuffer<[i32]>>,
             Arc<CpuAccessibleBuffer<[[f32; 4]]>>,
         )>,
-        mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
+        _mem: Arc<StandardMemoryAllocator>,
+        _command_allocator: &StandardCommandBufferAllocator,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         puffin::profile_scope!("update rotations");
@@ -529,11 +528,11 @@ impl TransformCompute {
                     .unwrap()
                     .clone(),
                 [
-                    WriteDescriptorSet::buffer(0, updates_buffer.clone()),
+                    WriteDescriptorSet::buffer(0, updates_buffer),
                     WriteDescriptorSet::buffer(1, self.transform.clone()),
                     WriteDescriptorSet::buffer(2, self.mvp.clone()),
                     WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
-                    WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+                    WriteDescriptorSet::buffer(4, transforms_sub_buffer),
                 ],
             )
             .unwrap();
@@ -544,7 +543,7 @@ impl TransformCompute {
                     PipelineBindPoint::Compute,
                     compute_pipeline.layout().clone(),
                     0, // Bind this descriptor set to index 0.
-                    descriptor_set.clone(),
+                    descriptor_set,
                 )
                 .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
                 .unwrap();
@@ -562,8 +561,8 @@ impl TransformCompute {
             Arc<CpuAccessibleBuffer<[i32]>>,
             Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
         )>,
-        mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
+        _mem: Arc<StandardMemoryAllocator>,
+        _command_allocator: &StandardCommandBufferAllocator,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         puffin::profile_scope!("update scales");
@@ -589,11 +588,11 @@ impl TransformCompute {
                     .unwrap()
                     .clone(),
                 [
-                    WriteDescriptorSet::buffer(0, updates_buffer.clone()),
+                    WriteDescriptorSet::buffer(0, updates_buffer),
                     WriteDescriptorSet::buffer(1, self.transform.clone()),
                     WriteDescriptorSet::buffer(2, self.mvp.clone()),
                     WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
-                    WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+                    WriteDescriptorSet::buffer(4, transforms_sub_buffer),
                 ],
             )
             .unwrap();
@@ -604,7 +603,7 @@ impl TransformCompute {
                     PipelineBindPoint::Compute,
                     compute_pipeline.layout().clone(),
                     0, // Bind this descriptor set to index 0.
-                    descriptor_set.clone(),
+                    descriptor_set,
                 )
                 .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
                 .unwrap();
@@ -616,14 +615,14 @@ impl TransformCompute {
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
-        device: Arc<Device>,
+        _device: Arc<Device>,
         view: glm::Mat4,
         proj: glm::Mat4,
         transform_uniforms: &CpuBufferPool<Data>,
         compute_pipeline: Arc<ComputePipeline>,
         transforms_len: i32,
         mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
+        _command_allocator: &StandardCommandBufferAllocator,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         puffin::profile_scope!("update mvp");
@@ -660,7 +659,7 @@ impl TransformCompute {
                     CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, vec![0])
                         .unwrap(),
                 ),
-                WriteDescriptorSet::buffer(4, transforms_sub_buffer.clone()),
+                WriteDescriptorSet::buffer(4, transforms_sub_buffer),
             ],
         )
         .unwrap();
@@ -671,7 +670,7 @@ impl TransformCompute {
                 PipelineBindPoint::Compute,
                 compute_pipeline.layout().clone(),
                 0, // Bind this descriptor set to index 0.
-                descriptor_set.clone(),
+                descriptor_set,
             )
             .dispatch([transforms_len as u32 / 128 + 1, 1, 1])
             .unwrap();
@@ -684,15 +683,15 @@ pub fn transform_buffer_init(
     // queue: Arc<Queue>,
     positions: Vec<transform>,
     mem: Arc<StandardMemoryAllocator>,
-    command_allocator: &StandardCommandBufferAllocator,
-    desc_allocator: Arc<StandardDescriptorSetAllocator>,
+    _command_allocator: &StandardCommandBufferAllocator,
+    _desc_allocator: Arc<StandardDescriptorSetAllocator>,
 ) -> TransformCompute {
     // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
     // let len = 2_000_000;
     let len = positions.len();
     // let mut max_len = (len as f32).log2().ceil();
     let max_len = (len as f32 + 1.).log2().ceil();
-    let max_len = (2 as u32).pow(max_len as u32);
+    let max_len = 2_u32.pow(max_len as u32);
 
     // Create a buffer array on the GPU with enough space for `PARTICLE_COUNT` number of `Vertex`.
     let device_local_buffer = DeviceLocalBuffer::<[transform]>::array(
@@ -725,6 +724,6 @@ pub fn transform_buffer_init(
 
     TransformCompute {
         transform: pos,
-        mvp: mvp,
+        mvp,
     }
 }

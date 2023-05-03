@@ -4,22 +4,19 @@ use notify::{
 };
 use parking_lot::Mutex;
 use std::{
-    collections::{BTreeMap, HashMap},
-    fs,
+    collections::{BTreeMap},
     path::Path,
     sync::{
-        mpsc::{Receiver, Sender},
+        mpsc::{Receiver},
         Arc,
     },
-    time::Duration,
 };
 use substring::Substring;
 use walkdir::WalkDir;
 // use relative_path;
 
 use crate::{
-    asset_manager::{self, AssetManagerBase, AssetsManager},
-    engine::World,
+    asset_manager::{AssetManagerBase, AssetsManager},
 };
 
 pub struct FileWatcher {
@@ -55,7 +52,7 @@ impl FileWatcher {
         watcher
             .watch(Path::new(path), RecursiveMode::Recursive)
             .unwrap();
-        let mut files = BTreeMap::new();
+        let files = BTreeMap::new();
         FileWatcher {
             files,
             path: path.into(),
@@ -79,7 +76,7 @@ impl FileWatcher {
             //         mm.from_file(f_name.as_str());
             //     }
             // }
-            self.files.entry(f_name).and_modify(|e| {}).or_insert(
+            self.files.entry(f_name).and_modify(|_e| {}).or_insert(
                 entry
                     .metadata()
                     .unwrap()

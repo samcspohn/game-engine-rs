@@ -1,7 +1,7 @@
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap},
     sync::Arc,
 };
 
@@ -26,7 +26,7 @@ pub fn save_project(
     world: &World,
     assets_manager: Arc<Mutex<AssetsManager>>,
 ) {
-    let sys = world.sys.lock();
+    let _sys = world.sys.lock();
     let files = file_watcher.files.clone();
     // let model_manager = serde_yaml::to_value(&*sys.model_manager.lock()).unwrap();
 

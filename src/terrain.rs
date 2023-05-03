@@ -6,8 +6,8 @@ use std::{
     },
 };
 
-use crossbeam::epoch::Atomic;
-use egui::DragValue;
+
+
 use noise::{NoiseFn, Perlin};
 
 use nalgebra_glm as glm;
@@ -20,46 +20,30 @@ use serde::{Deserialize, Serialize};
 // use vulkano::descriptor_set::WriteDescriptorSet;
 // use vulkano::device::Device;
 use vulkano::{
-    buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer, TypedBufferAccess},
+    buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, DrawIndexedIndirectCommand,
-        PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, SecondaryAutoCommandBuffer,
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, PrimaryCommandBufferAbstract,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    device::{Device, Queue},
-    format::Format,
-    image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
-    impl_vertex,
+    device::{Device},
     pipeline::{
-        graphics::{
-            depth_stencil::DepthStencilState,
-            input_assembly::InputAssemblyState,
-            rasterization::{CullMode, RasterizationState},
-            vertex_input::BuffersDefinition,
-            viewport::ViewportState,
-        },
-        GraphicsPipeline, Pipeline, PipelineBindPoint,
+        Pipeline, PipelineBindPoint,
     },
-    render_pass::{RenderPass, Subpass},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
-    shader::ShaderModule,
-    sync::{self, FlushError, GpuFuture},
+    sync::{GpuFuture},
 };
 
 use crate::{
     asset_manager::AssetManagerBase,
     engine::{RenderJobData, System},
-    transform_compute,
 };
-use crate::{model, renderer::RenderPipeline, texture::Texture};
+use crate::{model};
 use crate::{renderer_component2::buffer_usage_all, terrain::transform::Transform};
 // use crate::transform_compute::MVP;
-use crate::transform_compute::cs::ty::MVP;
+
 use crate::{
-    engine::{transform, Component, Sys, World},
+    engine::{transform, Component, Sys},
     inspectable::{Inpsect, Ins, Inspectable},
-    model::{Mesh, ModelManager, Normal, Vertex, UV},
-    renderer_component2::Renderer,
+    model::{Normal, Vertex, UV},
 };
 
 // struct Chunk {
@@ -95,7 +79,7 @@ pub struct Terrain {
 }
 
 impl Inspectable for Terrain {
-    fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, _transform: Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         // egui::CollapsingHeader::new("Terrain")
         //     .default_open(true)
         //     .show(ui, |ui| {
@@ -208,7 +192,7 @@ impl Terrain {
                             let ter_indeces: Vec<[u32; 3]> = m
                                 .3
                                 .chunks(3)
-                                .map(|slice| [slice[0] as u32, slice[1] as u32, slice[2] as u32])
+                                .map(|slice| [slice[0], slice[1], slice[2]])
                                 .collect();
 
                             let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces)
@@ -323,7 +307,7 @@ impl Terrain {
                                 m.3.iter()
                                     .map(|i| i + start_index)
                                     .collect::<Vec<u32>>()
-                                    .clone(),
+                                    ,
                             )
                             .unwrap();
                             builder
@@ -356,7 +340,7 @@ impl Terrain {
         _x: i32,
         _z: i32,
         terrain_size: i32,
-        device: Arc<Device>,
+        _device: Arc<Device>,
     ) -> (Vec<model::Vertex>, Vec<model::Normal>, Vec<UV>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut uvs = Vec::new();
@@ -402,10 +386,10 @@ impl Terrain {
         unsafe {
             normals.set_len((terrain_size * terrain_size) as usize);
         }
-        for x in 0..terrain_size as i32 {
-            for z in 0..terrain_size as i32 {
+        for x in 0..terrain_size {
+            for z in 0..terrain_size {
                 if x == 0 || x == terrain_size - 1 || z == 0 || z == terrain_size - 1 {
-                    let p = vertices[xz(x, z) as usize];
+                    let p = vertices[xz(x, z)];
                     let a1: glm::Vec3 = glm::cross(
                         &(p - make_vert(x, z - 1)).to_vec3(),
                         &(p - make_vert(x - 1, z - 1)).to_vec3(),
@@ -431,7 +415,7 @@ impl Terrain {
                         &(p - make_vert(x + 1, z + 1)).to_vec3(),
                     );
                     let n = glm::normalize(&(a1 + a2 + a3 + a4 + a5 + a6));
-                    normals[xz(x, z) as usize] = Normal {
+                    normals[xz(x, z)] = Normal {
                         normal: [n.x, n.y, n.z],
                     };
                 } else {
@@ -461,7 +445,7 @@ impl Terrain {
                         &(p - vertices[xz(x + 1, z + 1)]).to_vec3(),
                     );
                     let n = glm::normalize(&(a1 + a2 + a3 + a4 + a5 + a6));
-                    normals[xz(x, z) as usize] = Normal {
+                    normals[xz(x, z)] = Normal {
                         normal: [n.x, n.y, n.z],
                     };
                 }
@@ -488,11 +472,11 @@ impl Terrain {
 }
 
 impl Component for Terrain {
-    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) -> ()> {
-        let chunks = self.chunks.clone();
+    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData)> {
+        let _chunks = self.chunks.clone();
         // static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
-        let cur_chunks = self.cur_chunks.load(Ordering::Relaxed);
-        let prev_chunks = self.prev_chunks;
+        let _cur_chunks = self.cur_chunks.load(Ordering::Relaxed);
+        let _prev_chunks = self.prev_chunks;
 
         // Box::new(move |_rd: &mut RenderJobData| {})
 
@@ -501,16 +485,16 @@ impl Component for Terrain {
             let normals_buffer = tcrd.normals_buffer.clone();
             let uvs_buffer = tcrd.uvs_buffer.clone();
             let index_buffer = tcrd.index_buffer.clone();
-            let texture = tcrd.texture.clone();
+            let texture = tcrd.texture;
             Box::new(move |rd: &mut RenderJobData| {
                 let RenderJobData {
                     builder,
-                    transforms,
+                    transforms: _,
                     mvp,
-                    view,
-                    proj,
+                    view: _,
+                    proj: _,
                     pipeline,
-                    viewport,
+                    viewport: _,
                     texture_manager,
                     vk,
                 } = rd;
@@ -574,7 +558,7 @@ impl Component for Terrain {
                         PipelineBindPoint::Graphics,
                         pipeline.pipeline.layout().clone(),
                         0,
-                        set.clone(),
+                        set,
                     )
                     .bind_vertex_buffers(
                         0,
@@ -601,10 +585,10 @@ impl Component for Terrain {
         self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
         self.generate(&transform, sys);
     }
-    fn deinit(&mut self, transform: Transform, id: i32, sys: &mut Sys) {
+    fn deinit(&mut self, _transform: Transform, _id: i32, sys: &mut Sys) {
         let chunks = self.chunks.lock();
         for x in chunks.iter() {
-            for (z, col) in x.1 {
+            for (_z, col) in x.1 {
                 sys.physics.remove_collider(*col);
             }
         }

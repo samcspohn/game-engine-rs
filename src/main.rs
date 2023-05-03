@@ -1,46 +1,44 @@
 use camera::{Camera, CameraData};
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
-use egui::{Color32, Rounding, TextureId, Ui, WidgetText};
-use glium::memory_object;
-use rapier3d::na::dimension;
-use std::collections::hash_map::Entry;
-use std::{env, fs};
+use egui::{TextureId};
+
+
+
+use std::{env};
 use vulkan_manager::VulkanManager;
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+
 use vulkano::command_buffer::{
-    BlitImageInfo, CopyBufferInfo, CopyImageInfo, ImageBlit, PrimaryCommandBufferAbstract,
     RenderPassBeginInfo,
 };
-use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
-use vulkano::image::sys::RawImage;
-use vulkano::image::view::ImageViewCreateInfo;
-use vulkano::image::{ImageDimensions, ImageLayout, StorageImage};
-use vulkano::memory::allocator::{MemoryUsage, StandardMemoryAllocator};
+
+
+
+
+use vulkano::memory::allocator::{MemoryUsage};
 use vulkano::swapchain::SwapchainPresentInfo;
-use vulkano::VulkanLibrary;
+
 use winit::window::CursorGrabMode;
 // use egui_dock::Tree;
 use puffin_egui::*;
 
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
-use vulkano::buffer::{BufferContents, BufferSlice, TypedBufferAccess};
+use vulkano::buffer::{TypedBufferAccess};
 
-use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::{Features, QueueFlags};
-use vulkano::pipeline::{Pipeline, PipelineBindPoint};
-use winit::dpi::LogicalSize;
+
+
+
+
 
 use winit::event::MouseButton;
 
-use std::any::TypeId;
-use std::collections::{BTreeMap, VecDeque};
 
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap};
+
+use std::path::{Path};
 use std::{
     collections::HashMap,
-    ptr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -49,40 +47,33 @@ use std::{
     time::{Duration, Instant},
 };
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool},
+    buffer::{CpuBufferPool},
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
-    device::{
-        physical::{PhysicalDevice, PhysicalDeviceType},
-        DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo,
-    },
-    format::Format,
-    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
-    instance::{Instance, InstanceCreateInfo},
+    image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
     pipeline::graphics::viewport::Viewport,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     swapchain::{
-        acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
+        acquire_next_image, AcquireError, SwapchainCreateInfo, SwapchainCreationError,
     },
     sync::{self, FlushError, GpuFuture},
-    DeviceSize,
 };
-use vulkano_win::VkSurfaceBuild;
+
 use winit::{
     event::{
         DeviceEvent, ElementState, Event, KeyboardInput, ModifiersState, VirtualKeyCode,
         WindowEvent,
     },
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::{Window},
 };
 
-use glm::{quat_axis, quat_euler_angles, quat_rotation, vec3, vec4, Mat4, Quat, Vec3};
+use glm::{vec4, Vec3};
 
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 // use rust_test::{INDICES, NORMALS, VERTICES};
-use notify::{RecommendedWatcher, RecursiveMode, Result, Watcher};
-use walkdir::WalkDir;
+use notify::{RecursiveMode, Watcher};
+
 
 mod engine;
 mod input;
@@ -115,22 +106,22 @@ mod vulkan_manager;
 use crate::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::editor_ui::{EDITOR_ASPECT_RATIO, PLAYING_GAME};
 use crate::engine::physics::Physics;
-use crate::engine::transform::{Transform, Transforms};
-use crate::engine::{GameObject, RenderJobData, Sys, World};
+
+use crate::engine::{World};
 use crate::game::{game_thread_fn, Bomb, Player};
-use crate::inspectable::{Inpsect, Ins};
-use crate::model::{ModelManager, ModelRenderer};
+
+use crate::model::{ModelManager};
 use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
 
 use crate::project::{load_project, save_project};
-use crate::renderer_component2::{buffer_usage_all, ur, Renderer, RendererData, RendererManager};
+use crate::renderer_component2::{buffer_usage_all, Renderer, RendererManager};
 use crate::terrain::Terrain;
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
 use crate::transform_compute::cs::ty::transform;
-use crate::{drag_drop::drag_source, drag_drop::drop_target};
-use crate::{input::Input, renderer::RenderPipeline};
+
+use crate::{input::Input};
 
 struct FrameImage {
     arc: Arc<AttachmentImage>,
@@ -288,7 +279,7 @@ fn main() {
 
     // puffin::set_scopes_on(true);
 
-    let mut cull_view = glm::Mat4::identity();
+    let _cull_view = glm::Mat4::identity();
     let mut lock_cull = false;
     let mut first_frame = true;
 
@@ -323,8 +314,8 @@ fn main() {
         let w = world.lock();
         let s = w.sys.lock();
         let rm = s.renderer_manager.read();
-        let rm = rm.shr_data.clone();
-        rm
+        
+        rm.shr_data.clone()
     };
 
     let game_thread = {
@@ -421,16 +412,16 @@ fn main() {
                                 virtual_keycode: Some(key),
                                 ..
                             } => {
-                                input.key_downs.insert(key.clone(), false);
-                                input.key_ups.insert(key.clone(), true);
+                                input.key_downs.insert(key, false);
+                                input.key_ups.insert(key, true);
                             }
                             KeyboardInput {
                                 state: ElementState::Pressed,
                                 virtual_keycode: Some(key),
                                 ..
                             } => {
-                                input.key_presses.insert(key.clone(), true);
-                                input.key_downs.insert(key.clone(), true);
+                                input.key_presses.insert(key, true);
+                                input.key_downs.insert(key, true);
                             }
                             _ => {}
                         };
@@ -584,7 +575,7 @@ fn main() {
                     let mut swapchain = vk.swapchain.lock();
                     let (new_swapchain, new_images) =
                         match swapchain.recreate(SwapchainCreateInfo {
-                            image_extent: dimensions.into(),
+                            image_extent: dimensions,
                             ..swapchain.create_info()
                         }) {
                             Ok(r) => r,
@@ -630,8 +621,8 @@ fn main() {
                             cam_data.output[image_num as usize].clone()
                         })
                         .unwrap();
-                        let fc = gui.register_user_image_view(frame_image_view.clone());
-                        fc
+                        
+                        gui.register_user_image_view(frame_image_view.clone())
                     });
 
                 if suboptimal {
@@ -646,7 +637,7 @@ fn main() {
                         &world,
                         &mut fps_queue,
                         &ctx,
-                        fc.clone(),
+                        *fc,
                         assets_manager.clone(),
                     );
                 });
@@ -659,8 +650,8 @@ fn main() {
                 }
 
                 if playing_game != unsafe { PLAYING_GAME } {
-                    for (k, v) in &fc_map {
-                        for (k, v) in v.iter() {
+                    for (_k, v) in &fc_map {
+                        for (_k, v) in v.iter() {
                             gui.unregister_user_image(*v);
                         }
                     }
@@ -793,14 +784,14 @@ fn main() {
                     // if !lock_cull {
                     //     cull_view = view.clone();
                     // }
-                    let offset_vec = rm.update(
+                    
+                    rm.update(
                         &mut rd,
                         vk.clone(),
                         &mut builder,
                         renderer_pipeline.clone(),
                         &transform_compute,
-                    );
-                    offset_vec
+                    )
                 };
 
                 if !unsafe { PLAYING_GAME } {

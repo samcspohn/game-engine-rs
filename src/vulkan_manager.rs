@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map, HashMap},
+    collections::{HashMap},
     hash::BuildHasherDefault,
     sync::{
         atomic::{AtomicI32, Ordering},
@@ -73,7 +73,7 @@ impl VulkanManager {
                 width: 1920,
                 height: 1080,
             })
-            .build_vk_surface(&event_loop, instance.clone())
+            .build_vk_surface(event_loop, instance.clone())
             .unwrap();
 
         let device_extensions = DeviceExtensions {
@@ -149,7 +149,7 @@ impl VulkanManager {
             device.clone(),
             Default::default(),
         ));
-        let (mut swapchain, images) = {
+        let (swapchain, images) = {
             // Querying the capabilities of the surface. When we create the swapchain we can only
             // pass values that are allowed by the capabilities.
             let surface_capabilities = device
@@ -233,8 +233,8 @@ impl VulkanManager {
     }
     pub fn query(
         &self,
-        id: &i32,
-        builder: &mut AutoCommandBufferBuilder<
+        _id: &i32,
+        _builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
@@ -259,8 +259,8 @@ impl VulkanManager {
     }
     pub fn end_query(
         &self,
-        id: &i32,
-        builder: &mut AutoCommandBufferBuilder<
+        _id: &i32,
+        _builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
@@ -270,7 +270,7 @@ impl VulkanManager {
         let a = b.get(id).unwrap();
         builder.end_query(a.clone(), 0).unwrap();
     }
-    pub fn get_query(&self, id: &i32) -> u64 {
+    pub fn get_query(&self, _id: &i32) -> u64 {
         todo!();
         let mut query_results = [0u64];
         let b = self.query_pool.lock();
