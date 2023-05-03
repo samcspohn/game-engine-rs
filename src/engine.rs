@@ -116,7 +116,7 @@ pub trait Component {
     fn on_start(&mut self, transform: Transform, sys: &System) {} // TODO implement call
     fn on_destroy(&mut self, transform: Transform, sys: &System) {} // TODO implement call
     fn update(&mut self, transform: Transform, sys: &System) {}
-    fn late_update(&mut self, transform: Transform, sys: &System) {} // TODO implement call
+    fn late_update(&mut self, transform: Transform, sys: &System) {}
     fn editor_update(&mut self, transform: Transform, sys: &System) {}
     fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) -> ()> {
         Box::new(|rd: &mut RenderJobData| {})
@@ -130,6 +130,12 @@ pub struct _Storage<T> {
     extent: i32,
 }
 impl<T: 'static> _Storage<T> {
+    pub fn clear(&mut self) {
+        self.data.clear();
+        self.avail = pqueue::Queue::new();
+        self.extent = 0;
+        self.valid.clear();
+    }
     pub fn emplace(&mut self, d: T) -> i32 {
         match self.avail.pop() {
             Some(Reverse(i)) => {
@@ -953,6 +959,9 @@ impl World {
     }
 
     pub fn clear(&mut self) {
+        let mut sys = self.sys.lock();
+        sys.renderer_manager.write().clear();
+        sys.physics.clear();
         self.entities.write().clear();
         for a in &self.components {
             a.1.write().clear();

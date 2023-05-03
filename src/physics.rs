@@ -73,4 +73,7 @@ impl Physics {
         if let Some(_) = self.collider_set.remove(handle, &mut self.island_manager, &mut self.rigid_body_set, true) {}
 
     }
+    pub fn clear(&mut self) {
+        *self = Physics::new();
+    }
 }

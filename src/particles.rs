@@ -460,15 +460,6 @@ impl ParticleCompute {
         builder
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, alive_b.clone()))
             .unwrap();
-
-        // alive
-        // let copy_buffer = CpuAccessibleBuffer::from_iter(
-        //     &vk.mem_alloc,
-        //     buffer_usage_all(),
-        //     false,
-        //     (0..MAX_PARTICLES).map(|_| 0),
-        // )
-        // .unwrap(); // TODO: remove, used for debug
         let alive = DeviceLocalBuffer::<[u32]>::array(
             &vk.mem_alloc,
             MAX_PARTICLES as vulkano::DeviceSize,
@@ -476,10 +467,7 @@ impl ParticleCompute {
             device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
-        // builder
-        // .copy_buffer(CopyBufferInfo::buffers(copy_buffer, alive.clone()))
-        // .unwrap();
-
+    
         // avail_count
         let copy_buffer =
             CpuAccessibleBuffer::from_data(&vk.mem_alloc, buffer_usage_all(), false, 0i32).unwrap();

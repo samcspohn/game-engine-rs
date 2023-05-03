@@ -62,14 +62,15 @@ impl<'a> Inpsect for Ins<'a, ModelId> {
     }
 }
 
+
 // #[component]
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Renderer {
     model_id: ModelId,
-    // #[serde(skip_serializing, skip_deserializing)]
-    // TODO fix incrementing id when toggling play/stop
+    #[serde(skip_serializing, skip_deserializing)]
     id: i32,
 }
+
 
 impl Inspectable for Renderer {
     fn inspect(&mut self, transform: Transform, id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
@@ -346,17 +347,6 @@ pub struct RendererManager {
     pub transforms: _Storage<TransformId>,
     pub updates: HashMap<i32, TransformId>,
     pub shr_data: Arc<RwLock<SharedRendererData>>,
-    // pub transform_ids_gpu: Arc<CpuAccessibleBuffer<[TransformId]>>,
-    // pub transforms_gpu_len: i32,
-    // pub renderers_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
-    // pub updates_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
-    // pub indirect: Storage<DrawIndexedIndirectCommand>,
-    // pub indirect_buffer: Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>,
-
-    // pub device: Arc<Device>,
-    // pub shader: Arc<ShaderModule>,
-    // pub pipeline: Arc<ComputePipeline>,
-    // pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
 }
 
 pub fn buffer_usage_all() -> BufferUsage {
@@ -451,6 +441,16 @@ impl RendererManager {
                 )),
             })),
         }
+    }
+    pub(crate) fn clear(&mut self) {
+        self.transforms.clear();
+        let mut m = self.model_indirect.write();
+        for (_,m) in m.iter_mut() {
+            m.count = 0;
+        }
+        // self.model_indirect.write().clear();
+        // self.indirect_model.write().clear();
+
     }
 }
 
