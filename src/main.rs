@@ -253,6 +253,7 @@ fn main() {
         vk.mem_alloc.clone(),
         &vk.comm_alloc,
         vk.desc_alloc.clone(),
+        vk.images.len() as u32,
     );
 
     let cs = cs::load(vk.device.clone()).unwrap();
@@ -685,18 +686,21 @@ fn main() {
                         vk.device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
+                        image_num,
                     );
 
                     let rotation_update_data = transform_compute.get_rotation_update_data(
                         vk.device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
+                        image_num
                     );
 
                     let scale_update_data = transform_compute.get_scale_update_data(
                         vk.device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
+                        image_num
                     );
                     (
                         position_update_data,
@@ -738,6 +742,7 @@ fn main() {
                         vk.mem_alloc.clone(),
                         &vk.comm_alloc,
                         vk.desc_alloc.clone(),
+                        image_num,
                     );
 
                     // stage 1
@@ -746,9 +751,8 @@ fn main() {
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         rotation_update_data,
-                        vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
                         vk.desc_alloc.clone(),
+                        image_num
                     );
 
                     // stage 2
@@ -757,9 +761,8 @@ fn main() {
                         &transform_uniforms,
                         compute_pipeline.clone(),
                         scale_update_data,
-                        vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
                         vk.desc_alloc.clone(),
+                        image_num
                     );
                 }
                 {

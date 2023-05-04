@@ -233,13 +233,12 @@ impl VulkanManager {
     }
     pub fn query(
         &self,
-        _id: &i32,
-        _builder: &mut AutoCommandBufferBuilder<
+        id: &i32,
+        builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
     ) {
-        todo!();
         let b = self.query_pool.lock();
         let a = b.get(id).unwrap();
         unsafe {
@@ -256,22 +255,22 @@ impl VulkanManager {
                 )
                 .unwrap();
         }
+        todo!();
     }
     pub fn end_query(
         &self,
-        _id: &i32,
-        _builder: &mut AutoCommandBufferBuilder<
+        id: &i32,
+        builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
     ) {
-        todo!();
         let b = self.query_pool.lock();
         let a = b.get(id).unwrap();
         builder.end_query(a.clone(), 0).unwrap();
-    }
-    pub fn get_query(&self, _id: &i32) -> u64 {
         todo!();
+    }
+    pub fn get_query(&self, id: &i32) -> u64 {
         let mut query_results = [0u64];
         let b = self.query_pool.lock();
         let query_pool = b.get(id).unwrap();
@@ -301,6 +300,7 @@ impl VulkanManager {
             .unwrap();
         }
         
+        todo!();
         query_results[0]
     }
 }

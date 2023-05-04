@@ -37,6 +37,12 @@ use self::cs::ty::{transform, Data, MVP};
 
 pub struct TransformCompute {
     pub transform: Arc<DeviceLocalBuffer<[transform]>>,
+    pub position_cache: Vec<Arc<CpuAccessibleBuffer<[[f32; 3]]>>>,
+    pub position_id_cache: Vec<Arc<CpuAccessibleBuffer<[i32]>>>,
+    pub rotation_cache: Vec<Arc<CpuAccessibleBuffer<[[f32; 4]]>>>,
+    pub rotation_id_cache: Vec<Arc<CpuAccessibleBuffer<[i32]>>>,
+    pub scale_cache: Vec<Arc<CpuAccessibleBuffer<[[f32; 3]]>>>,
+    pub scale_id_cache: Vec<Arc<CpuAccessibleBuffer<[i32]>>>,
     pub mvp: Arc<DeviceLocalBuffer<[MVP]>>,
 }
 
@@ -126,17 +132,15 @@ impl TransformCompute {
     }
     pub fn get_position_update_data(
         // tc: &TransformCompute,
-        &self,
+        &mut self,
         _device: Arc<Device>,
         transform_data: Arc<(
             usize,
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
         )>,
         mem: Arc<StandardMemoryAllocator>,
-    ) -> Option<(
-        Arc<CpuAccessibleBuffer<[i32]>>,
-        Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
-    )> {
+        image_num: u32,
+    ) -> Option<u32> {
         let transform_ids_len_pos: u64 = transform_data
             .1
             .iter()
@@ -144,285 +148,314 @@ impl TransformCompute {
             .sum();
 
         if transform_ids_len_pos > 0 {
-            let mut offset = 0;
-            let offset = transform_data
-                .1
-                .iter()
-                .map(|i| {
-                    let o = offset;
-                    offset += i.0[POS_U].len();
-                    o
-                })
-                .collect::<Vec<usize>>();
-
-            let transform_ids_buffer_pos = unsafe {
-                puffin::profile_scope!("transform_ids_buffer");
-                // let inst = Instant::now();
-                let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                    &mem,
-                    transform_ids_len_pos as DeviceSize,
-                    buffer_usage_all(),
-                    false,
-                )
-                .unwrap();
-                {
-                    let mapping = uninitialized.write().unwrap();
-                    let mapping = Arc::new(SyncUnsafeCell::new(mapping));
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(8)
-                        .build_scoped(
-                            |thread| thread.run(),
-                            |pool| {
-                                pool.install(|| {
-                                    transform_data
-                                        .1
-                                        .par_iter()
-                                        .zip_eq(offset.par_iter())
-                                        .for_each(|(i, offset)| {
-                                            let j = &i.0[POS_U];
-                                            let j_iter = j.iter();
-                                            let mapping: UnsafeCell<
-                                                &mut vulkano::buffer::cpu_access::WriteLock<[i32]>,
-                                            > = std::mem::transmute(mapping.as_ref());
-                                            // let mapping: &mut vulkano::buffer::cpu_access::WriteLock<[i32]> = std::mem::transmute(&mapping);
-                                            let m_iter = mapping.into_inner()
-                                                [*offset..(offset + j.len())]
-                                                .iter_mut();
-                                            j_iter.zip(m_iter).for_each(|(j, m)| {
-                                                // for  in slice {
-                                                ptr::write(m, *j);
-                                                // }
-                                            });
-                                        });
-                                })
-                            },
-                        )
-                        .unwrap();
-                }
-                uninitialized
-            };
-            let position_updates_buffer = unsafe {
-                puffin::profile_scope!("position_updates_buffer");
-                // let inst = Instant::now();
-                let uninitialized = {
-                    puffin::profile_scope!("position_updates_buffer: alloc");
-                    CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+            puffin::profile_scope!("transform_ids_buffer");
+            if self.position_id_cache[image_num as usize].len()
+                < transform_ids_len_pos.next_power_of_two()
+            {
+                // let num_images = self.position_id_cache.len();
+                self.position_id_cache[image_num as usize] = unsafe {
+                    CpuAccessibleBuffer::<[i32]>::uninitialized_array(
                         &mem,
-                        transform_ids_len_pos as DeviceSize,
+                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
                         buffer_usage_all(),
                         false,
                     )
                     .unwrap()
                 };
-                {
-                    let mapping = uninitialized.write().unwrap();
-                    let mapping = Arc::new(SyncUnsafeCell::new(mapping));
-
-                    // let mut offset = 0;
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(8)
-                        .build_scoped(
-                            |thread| thread.run(),
-                            |pool| {
-                                pool.install(|| {
-                                    transform_data
-                                        .1
-                                        .par_iter()
-                                        .zip_eq(offset.par_iter())
-                                        .for_each(|(i, offset)| {
-                                            let j = &i.1;
-                                            let j_iter = j.iter();
-                                            let mapping: UnsafeCell<
-                                                &mut vulkano::buffer::cpu_access::WriteLock<
-                                                    [[f32; 3]],
-                                                >,
-                                            > = std::mem::transmute(mapping.as_ref());
-
-                                            let m_iter = mapping.into_inner()
-                                                [*offset..(offset + j.len())]
-                                                .iter_mut();
-
-                                            j_iter.zip(m_iter).for_each(|(j, m)| {
-                                                // for  in slice {
-                                                ptr::write(m, *j);
-                                                // }
-                                            });
-                                            // offset += j.len()
-                                        });
-                                })
-                            },
-                        )
-                        .unwrap();
+                self.position_cache[image_num as usize] = unsafe {
+                    CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                        &mem,
+                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+            }
+            unsafe {
+                loop {
+                    let uninitialized = self.position_id_cache[image_num as usize].clone();
+                    let mut offset = 0;
+                    let u_w = uninitialized.write();
+                    if let Ok(mut mapping) = u_w {
+                        for i in &transform_data.1 {
+                            let j = &i.0[POS_U];
+                            let j_iter = j.iter();
+                            let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                            j_iter.zip(m_iter).for_each(|(j, m)| {
+                                // for  in slice {
+                                ptr::write(m, *j);
+                                // }
+                            });
+                            offset += j.len();
+                        }
+                        break;
+                    } else {
+                        self.position_id_cache[image_num as usize] =
+                            CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                                &mem,
+                                transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                                buffer_usage_all(),
+                                false,
+                            )
+                            .unwrap();
+                    }
                 }
-                uninitialized
-            };
-            Some((transform_ids_buffer_pos, position_updates_buffer))
+            }
+            // };
+            // let position_updates_buffer = unsafe {
+            puffin::profile_scope!("position_updates_buffer");
+            unsafe {
+                loop {
+                    let uninitialized = self.position_cache[image_num as usize].clone();
+                    let mut offset = 0;
+                    let u_w = uninitialized.write();
+                    if let Ok(mut mapping) = u_w {
+                        for i in &transform_data.1 {
+                            let j = &i.1;
+                            let j_iter = j.iter();
+                            let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                            j_iter.zip(m_iter).for_each(|(j, m)| {
+                                // for  in slice {
+                                ptr::write(m, *j);
+                                // }
+                            });
+                            offset += j.len();
+                        }
+                        break;
+                    } else {
+                        self.position_cache[image_num as usize] =
+                            CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                                &mem,
+                                transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                                buffer_usage_all(),
+                                false,
+                            )
+                            .unwrap();
+                    }
+                }
+            }
+            Some(transform_ids_len_pos.try_into().unwrap())
         } else {
             None
         }
     }
     pub fn get_rotation_update_data(
         // tc: &TransformCompute,
-        &self,
+        &mut self,
         _device: Arc<Device>,
         transform_data: Arc<(
             usize,
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
         )>,
         mem: Arc<StandardMemoryAllocator>,
+        image_num: u32,
         // command_allocator: &StandardCommandBufferAllocator,
-    ) -> Option<(
-        Arc<CpuAccessibleBuffer<[i32]>>,
-        Arc<CpuAccessibleBuffer<[[f32; 4]]>>,
-    )> {
-        let transform_ids_len_rot: u64 = transform_data
+    ) -> Option<u32> {
+        let transform_ids_len_pos: u64 = transform_data
             .1
             .iter()
             .map(|x| x.0[ROT_U].len() as u64)
             .sum();
-        if transform_ids_len_rot > 0 {
-            let transform_ids_buffer_rot = unsafe {
-                puffin::profile_scope!("transform_ids_buffer");
-                // let inst = Instant::now();
-                let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                    &mem,
-                    transform_ids_len_rot as DeviceSize,
-                    buffer_usage_all(),
-                    false,
-                )
-                .unwrap();
-                {
-                    let mut mapping = uninitialized.write().unwrap();
-                    let mut offset = 0;
-                    for i in &transform_data.1 {
-                        let j = &i.0[ROT_U];
-                        let j_iter = j.iter();
-                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                        j_iter.zip(m_iter).for_each(|(j, m)| {
-                            // for  in slice {
-                            ptr::write(m, *j);
-                            // }
-                        });
-                        offset += j.len();
-                    }
-                }
-                uninitialized
-            };
-            let rotation_updates_buffer = unsafe {
-                puffin::profile_scope!("position_updates_buffer");
-                // let inst = Instant::now();
-                let uninitialized = {
-                    puffin::profile_scope!("position_updates_buffer: alloc");
-                    CpuAccessibleBuffer::<[[f32; 4]]>::uninitialized_array(
+
+        if transform_ids_len_pos > 0 {
+            puffin::profile_scope!("transform_ids_buffer");
+            if self.rotation_id_cache[image_num as usize].len()
+                < transform_ids_len_pos.next_power_of_two()
+            {
+                // let num_images = self.rotation_id_cache.len();
+                self.rotation_id_cache[image_num as usize] = unsafe {
+                    CpuAccessibleBuffer::<[i32]>::uninitialized_array(
                         &mem,
-                        transform_ids_len_rot as DeviceSize,
+                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
                         buffer_usage_all(),
                         false,
                     )
                     .unwrap()
                 };
-                {
-                    let mut mapping = uninitialized.write().unwrap();
+                self.rotation_cache[image_num as usize] = unsafe {
+                    CpuAccessibleBuffer::<[[f32; 4]]>::uninitialized_array(
+                        &mem,
+                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+            }
+            unsafe {
+                loop {
                     let mut offset = 0;
-                    for i in &transform_data.1 {
-                        let j = &i.2;
-                        let j_iter = j.iter();
-                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                        j_iter.zip(m_iter).for_each(|(j, m)| {
-                            // for  in slice {
-                            ptr::write(m, *j);
-                            // }
-                        });
-                        offset += j.len()
+                    let uninitialized = self.rotation_id_cache[image_num as usize].clone();
+                    let u_w = uninitialized.write();
+                    if let Ok(mut mapping) = u_w {
+                        for i in &transform_data.1 {
+                            let j = &i.0[ROT_U];
+                            let j_iter = j.iter();
+                            let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                            j_iter.zip(m_iter).for_each(|(j, m)| {
+                                // for  in slice {
+                                ptr::write(m, *j);
+                                // }
+                            });
+                            offset += j.len();
+                        }
+                        break;
+                    } else {
+                        let u = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                            &mem,
+                            transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                            buffer_usage_all(),
+                            false,
+                        )
+                        .unwrap();
+                        self.rotation_id_cache[image_num as usize] = u.clone();
                     }
                 }
-                uninitialized
-            };
-            Some((transform_ids_buffer_rot, rotation_updates_buffer))
+            }
+            // };
+            // let position_updates_buffer = unsafe {
+            puffin::profile_scope!("rotation_updates_buffer");
+            unsafe {
+                loop {
+                    let mut offset = 0;
+                    let uninitialized = self.rotation_cache[image_num as usize].clone();
+                    let u_w = uninitialized.write();
+                    if let Ok(mut mapping) = u_w {
+                        for i in &transform_data.1 {
+                            let j = &i.2;
+                            let j_iter = j.iter();
+                            let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                            j_iter.zip(m_iter).for_each(|(j, m)| {
+                                // for  in slice {
+                                ptr::write(m, *j);
+                                // }
+                            });
+                            offset += j.len();
+                        }
+                        break;
+                    } else {
+                        let u = CpuAccessibleBuffer::<[[f32; 4]]>::uninitialized_array(
+                            &mem,
+                            transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                            buffer_usage_all(),
+                            false,
+                        )
+                        .unwrap();
+                        self.rotation_cache[image_num as usize] = u.clone();
+                    }
+                }
+            }
+            Some(transform_ids_len_pos.try_into().unwrap())
         } else {
             None
         }
     }
     pub fn get_scale_update_data(
         // tc: &TransformCompute,
-        &self,
+        &mut self,
         _device: Arc<Device>,
         transform_data: Arc<(
             usize,
             Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
         )>,
         mem: Arc<StandardMemoryAllocator>,
-        // command_allocator: &StandardCommandBufferAllocator,
-    ) -> Option<(
-        Arc<CpuAccessibleBuffer<[i32]>>,
-        Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
-    )> {
-        let transform_ids_len_scl: u64 = transform_data
+        image_num: u32,
+    ) -> Option<u32> {
+        let transform_ids_len_pos: u64 = transform_data
             .1
             .iter()
             .map(|x| x.0[SCL_U].len() as u64)
             .sum();
-        if transform_ids_len_scl > 0 {
-            let transform_ids_buffer_scale = unsafe {
-                puffin::profile_scope!("transform_ids_buffer");
-                // let inst = Instant::now();
-                let uninitialized = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                    &mem,
-                    transform_ids_len_scl as DeviceSize,
-                    buffer_usage_all(),
-                    false,
-                )
-                .unwrap();
-                {
-                    let mut mapping = uninitialized.write().unwrap();
-                    let mut offset = 0;
-                    for i in &transform_data.1 {
-                        let j = &i.0[SCL_U];
-                        let j_iter = j.iter();
-                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                        j_iter.zip(m_iter).for_each(|(j, m)| {
-                            // for  in slice {
-                            ptr::write(m, *j);
-                            // }
-                        });
-                        offset += j.len();
-                    }
-                }
-                uninitialized
-            };
 
-            let scale_updates_buffer = unsafe {
-                puffin::profile_scope!("position_updates_buffer");
-
-                // let inst = Instant::now();
-                let uninitialized = {
-                    puffin::profile_scope!("position_updates_buffer: alloc");
-                    CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+        if transform_ids_len_pos > 0 {
+            puffin::profile_scope!("transform_ids_buffer");
+            if self.scale_id_cache[image_num as usize].len()
+                < transform_ids_len_pos.next_power_of_two()
+            {
+                self.scale_id_cache[image_num as usize] = unsafe {
+                    CpuAccessibleBuffer::<[i32]>::uninitialized_array(
                         &mem,
-                        transform_ids_len_scl as DeviceSize,
+                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
                         buffer_usage_all(),
                         false,
                     )
                     .unwrap()
                 };
-                {
-                    let mut mapping = uninitialized.write().unwrap();
+                self.scale_cache[image_num as usize] = unsafe {
+                    CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                        &mem,
+                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+            }
+            unsafe {
+                loop {
                     let mut offset = 0;
-                    for i in &transform_data.1 {
-                        let j = &i.3;
-                        let j_iter = j.iter();
-                        let m_iter = mapping[offset..offset + j.len()].iter_mut();
-                        j_iter.zip(m_iter).for_each(|(j, m)| {
-                            // for  in slice {
-                            ptr::write(m, *j);
-                            // }
-                        });
-                        offset += j.len()
+                    let uninitialized = self.scale_id_cache[image_num as usize].clone();
+                    let u_w = uninitialized.write();
+                    if let Ok(mut mapping) = u_w {
+                        for i in &transform_data.1 {
+                            let j = &i.0[SCL_U];
+                            let j_iter = j.iter();
+                            let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                            j_iter.zip(m_iter).for_each(|(j, m)| {
+                                // for  in slice {
+                                ptr::write(m, *j);
+                                // }
+                            });
+                            offset += j.len();
+                        }
+                        break;
+                    } else {
+                        self.scale_id_cache[image_num as usize] =
+                            CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                                &mem,
+                                transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                                buffer_usage_all(),
+                                false,
+                            )
+                            .unwrap();
                     }
                 }
-                uninitialized
-            };
-            Some((transform_ids_buffer_scale, scale_updates_buffer))
+            }
+            // };
+            // let position_updates_buffer = unsafe {
+            puffin::profile_scope!("scale_updates_buffer");
+            unsafe {
+                loop {
+                    let mut offset = 0;
+                    let uninitialized = self.scale_cache[image_num as usize].clone();
+                    let u_w = uninitialized.write();
+                    if let Ok(mut mapping) = u_w {
+                        for i in &transform_data.1 {
+                            let j = &i.3;
+                            let j_iter = j.iter();
+                            let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                            j_iter.zip(m_iter).for_each(|(j, m)| {
+                                // for  in slice {
+                                ptr::write(m, *j);
+                                // }
+                            });
+                            offset += j.len();
+                        }
+                        break;
+                    } else {
+                        self.scale_cache[image_num as usize] =
+                        CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                            &mem,
+                            transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                            buffer_usage_all(),
+                            false,
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+            Some(transform_ids_len_pos.try_into().unwrap())
         } else {
             None
         }
@@ -436,21 +469,19 @@ impl TransformCompute {
         >,
         transform_uniforms: &CpuBufferPool<Data>,
         compute_pipeline: Arc<ComputePipeline>,
-        position_update_data: Option<(
-            Arc<CpuAccessibleBuffer<[i32]>>,
-            Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
-        )>,
+        position_update_data: Option<u32>,
         _mem: Arc<StandardMemoryAllocator>,
         _command_allocator: &StandardCommandBufferAllocator,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
+        image_num: u32,
     ) {
         // stage 0
         puffin::profile_scope!("update positions");
 
-        if let Some((transform_ids_buffer, updates_buffer)) = position_update_data {
+        if let Some(num_jobs) = position_update_data {
             let transforms_sub_buffer = {
                 let uniform_data = cs::ty::Data {
-                    num_jobs: transform_ids_buffer.len() as i32,
+                    num_jobs: num_jobs as i32,
                     stage: 0,
                     view: Default::default(),
                     proj: Default::default(),
@@ -468,10 +499,13 @@ impl TransformCompute {
                     .unwrap()
                     .clone(),
                 [
-                    WriteDescriptorSet::buffer(0, updates_buffer),
+                    WriteDescriptorSet::buffer(0, self.position_cache[image_num as usize].clone()),
                     WriteDescriptorSet::buffer(1, self.transform.clone()),
                     WriteDescriptorSet::buffer(2, self.mvp.clone()),
-                    WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
+                    WriteDescriptorSet::buffer(
+                        3,
+                        self.position_id_cache[image_num as usize].clone(),
+                    ),
                     WriteDescriptorSet::buffer(4, transforms_sub_buffer),
                 ],
             )
@@ -485,7 +519,7 @@ impl TransformCompute {
                     0, // Bind this descriptor set to index 0.
                     descriptor_set,
                 )
-                .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
+                .dispatch([num_jobs as u32 / 128 + 1, 1, 1])
                 .unwrap();
         }
     }
@@ -497,20 +531,16 @@ impl TransformCompute {
         >,
         transform_uniforms: &CpuBufferPool<Data>,
         compute_pipeline: Arc<ComputePipeline>,
-        rotation_update_data: Option<(
-            Arc<CpuAccessibleBuffer<[i32]>>,
-            Arc<CpuAccessibleBuffer<[[f32; 4]]>>,
-        )>,
-        _mem: Arc<StandardMemoryAllocator>,
-        _command_allocator: &StandardCommandBufferAllocator,
+        rotation_update_data: Option<u32>,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
+        image_num: u32,
     ) {
         puffin::profile_scope!("update rotations");
         // stage 1
-        if let Some((transform_ids_buffer, updates_buffer)) = rotation_update_data {
+        if let Some(num_jobs) = rotation_update_data {
             let transforms_sub_buffer = {
                 let uniform_data = cs::ty::Data {
-                    num_jobs: transform_ids_buffer.len() as i32,
+                    num_jobs: num_jobs as i32,
                     stage: 1,
                     view: Default::default(),
                     proj: Default::default(),
@@ -528,10 +558,13 @@ impl TransformCompute {
                     .unwrap()
                     .clone(),
                 [
-                    WriteDescriptorSet::buffer(0, updates_buffer),
+                    WriteDescriptorSet::buffer(0, self.rotation_cache[image_num as usize].clone()),
                     WriteDescriptorSet::buffer(1, self.transform.clone()),
                     WriteDescriptorSet::buffer(2, self.mvp.clone()),
-                    WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
+                    WriteDescriptorSet::buffer(
+                        3,
+                        self.rotation_id_cache[image_num as usize].clone(),
+                    ),
                     WriteDescriptorSet::buffer(4, transforms_sub_buffer),
                 ],
             )
@@ -545,7 +578,7 @@ impl TransformCompute {
                     0, // Bind this descriptor set to index 0.
                     descriptor_set,
                 )
-                .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
+                .dispatch([num_jobs as u32 / 128 + 1, 1, 1])
                 .unwrap();
         }
     }
@@ -557,20 +590,16 @@ impl TransformCompute {
         >,
         transform_uniforms: &CpuBufferPool<Data>,
         compute_pipeline: Arc<ComputePipeline>,
-        scale_update_data: Option<(
-            Arc<CpuAccessibleBuffer<[i32]>>,
-            Arc<CpuAccessibleBuffer<[[f32; 3]]>>,
-        )>,
-        _mem: Arc<StandardMemoryAllocator>,
-        _command_allocator: &StandardCommandBufferAllocator,
+        scale_update_data: Option<u32>,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
+        image_num: u32,
     ) {
         puffin::profile_scope!("update scales");
         // stage 2
-        if let Some((transform_ids_buffer, updates_buffer)) = scale_update_data {
+        if let Some(num_jobs) = scale_update_data {
             let transforms_sub_buffer = {
                 let uniform_data = cs::ty::Data {
-                    num_jobs: transform_ids_buffer.len() as i32,
+                    num_jobs: num_jobs as i32,
                     stage: 2,
                     view: Default::default(),
                     proj: Default::default(),
@@ -588,10 +617,10 @@ impl TransformCompute {
                     .unwrap()
                     .clone(),
                 [
-                    WriteDescriptorSet::buffer(0, updates_buffer),
+                    WriteDescriptorSet::buffer(0, self.scale_cache[image_num as usize].clone()),
                     WriteDescriptorSet::buffer(1, self.transform.clone()),
                     WriteDescriptorSet::buffer(2, self.mvp.clone()),
-                    WriteDescriptorSet::buffer(3, transform_ids_buffer.clone()),
+                    WriteDescriptorSet::buffer(3, self.scale_id_cache[image_num as usize].clone()),
                     WriteDescriptorSet::buffer(4, transforms_sub_buffer),
                 ],
             )
@@ -605,7 +634,7 @@ impl TransformCompute {
                     0, // Bind this descriptor set to index 0.
                     descriptor_set,
                 )
-                .dispatch([transform_ids_buffer.len() as u32 / 128 + 1, 1, 1])
+                .dispatch([num_jobs as u32 / 128 + 1, 1, 1])
                 .unwrap();
         }
     }
@@ -685,6 +714,7 @@ pub fn transform_buffer_init(
     mem: Arc<StandardMemoryAllocator>,
     _command_allocator: &StandardCommandBufferAllocator,
     _desc_allocator: Arc<StandardDescriptorSetAllocator>,
+    num_images: u32,
 ) -> TransformCompute {
     // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
     // let len = 2_000_000;
@@ -725,5 +755,91 @@ pub fn transform_buffer_init(
     TransformCompute {
         transform: pos,
         mvp,
+        position_cache: (0..num_images)
+            .map(|_| {
+                let uninitialized = unsafe {
+                    CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                        &mem,
+                        1 as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                uninitialized
+            })
+            .collect(),
+        position_id_cache: (0..num_images)
+            .map(|_| {
+                let uninitialized = unsafe {
+                    CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                        &mem,
+                        1 as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                uninitialized
+            })
+            .collect(),
+        // rotation
+        rotation_cache: (0..num_images)
+            .map(|_| {
+                let uninitialized = unsafe {
+                    CpuAccessibleBuffer::<[[f32; 4]]>::uninitialized_array(
+                        &mem,
+                        1 as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                uninitialized
+            })
+            .collect(),
+        rotation_id_cache: (0..num_images)
+            .map(|_| {
+                let uninitialized = unsafe {
+                    CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                        &mem,
+                        1 as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                uninitialized
+            })
+            .collect(),
+        // scale
+        scale_cache: (0..num_images)
+            .map(|_| {
+                let uninitialized = unsafe {
+                    CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                        &mem,
+                        1 as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                uninitialized
+            })
+            .collect(),
+        scale_id_cache: (0..num_images)
+            .map(|_| {
+                let uninitialized = unsafe {
+                    CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                        &mem,
+                        1 as DeviceSize,
+                        buffer_usage_all(),
+                        false,
+                    )
+                    .unwrap()
+                };
+                uninitialized
+            })
+            .collect(),
     }
 }

@@ -3,11 +3,8 @@ use deepmesa::lists::{linkedlist::Node, LinkedList};
 use force_send_sync::SendSync;
 use glm::{Quat, Vec3};
 use nalgebra_glm as glm;
-use parking_lot::{Mutex};
-use rayon::prelude::{
-    IndexedParallelIterator,
-    IntoParallelRefMutIterator, ParallelIterator,
-};
+use parking_lot::Mutex;
+use rayon::prelude::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 // use spin::{Mutex,RwLock};
 use num_integer::Roots;
 
@@ -519,63 +516,112 @@ impl Transforms {
         usize,
         Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
     )> {
-        // let pos_iter = self.positions.par_iter_mut();
-        // let rot_iter = self.rotations.par_iter_mut();
-        // let scl_iter = self.scales.par_iter_mut();
         let len = self.updates.len();
-        // let u_iter = self.updates.par_iter_mut();
-
-        let transform_data = Mutex::new(Vec::<
+        let transform_data = Arc::new(Mutex::new(Vec::<
             Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>,
-        >::new());
-        self.updates
-            .par_iter_mut()
-            .enumerate()
-            .chunks(
-                num_cpus::get()
-                    .sqrt()
-                    .max((len as f64 / num_cpus::get() as f64).ceil() as usize),
-            )
-            .for_each(|slice| {
-                let len = slice.len();
-                let mut transform_ids = vec![
-                    Vec::<i32>::with_capacity(len),
-                    Vec::<i32>::with_capacity(len),
-                    Vec::<i32>::with_capacity(len),
-                ];
-                let mut pos = Vec::<[f32; 3]>::with_capacity(len);
-                let mut rot = Vec::<[f32; 4]>::with_capacity(len);
-                let mut scl = Vec::<[f32; 3]>::with_capacity(len);
-
-                let p = &self.positions;
-                let r = &self.rotations;
-                let s = &self.scales;
-
-                for (i, u) in slice {
-                    if u[POS_U].load(Ordering::Relaxed) {
-                        transform_ids[POS_U].push(i as i32);
-                        let p = p[i].lock();
-                        // p.data
-                        pos.push([p.x, p.y, p.z]);
-                        u[POS_U].store(false, Ordering::Relaxed);
-                    }
-                    if u[ROT_U].load(Ordering::Relaxed) {
-                        transform_ids[ROT_U].push(i as i32);
-                        let r = r[i].lock();
-                        // let a: [f32;4] = r.coords.into();
-                        rot.push([r.w, r.k, r.j, r.i]);
-                        u[ROT_U].store(false, Ordering::Relaxed);
-                    }
-                    if u[SCL_U].load(Ordering::Relaxed) {
-                        transform_ids[SCL_U].push(i as i32);
-                        let s = s[i].lock();
-                        scl.push([s.x, s.y, s.z]);
-                        u[SCL_U].store(false, Ordering::Relaxed);
-                    }
+        >::new()));
+        let self_ = Arc::new(&self);
+        rayon::scope(|s| {
+            let num_jobs = num_cpus::get().min(len / 64).max(1); // TODO: find best number dependent on cpu
+            for id in 0..num_jobs {
+                let start = len / num_jobs * id;
+                let mut end = start + len / num_jobs;
+                if id == num_jobs - 1 {
+                    end = len;
                 }
-                let ret = Arc::new((transform_ids, pos, rot, scl));
-                transform_data.lock().push(ret);
-            });
+                let end = end;
+                let transform_data = transform_data.clone();
+                let self_ = self_.clone();
+                s.spawn(move |_| {
+                    let len = end - start;
+                    let mut transform_ids = vec![
+                        Vec::<i32>::with_capacity(len),
+                        Vec::<i32>::with_capacity(len),
+                        Vec::<i32>::with_capacity(len),
+                    ];
+                    let mut pos = Vec::<[f32; 3]>::with_capacity(len);
+                    let mut rot = Vec::<[f32; 4]>::with_capacity(len);
+                    let mut scl = Vec::<[f32; 3]>::with_capacity(len);
+    
+                    let p = &self_.positions;
+                    let r = &self_.rotations;
+                    let s = &self_.scales;
+
+                    for i in start..end {
+                        let u = &self_.updates[i];
+                        if u[POS_U].load(Ordering::Relaxed) {
+                            transform_ids[POS_U].push(i as i32);
+                            let p = p[i].lock();
+                            pos.push([p.x, p.y, p.z]);
+                            u[POS_U].store(false, Ordering::Relaxed);
+                        }
+                        if u[ROT_U].load(Ordering::Relaxed) {
+                            transform_ids[ROT_U].push(i as i32);
+                            let r = r[i].lock();
+                            rot.push([r.w, r.k, r.j, r.i]);
+                            u[ROT_U].store(false, Ordering::Relaxed);
+                        }
+                        if u[SCL_U].load(Ordering::Relaxed) {
+                            transform_ids[SCL_U].push(i as i32);
+                            let s = s[i].lock();
+                            scl.push([s.x, s.y, s.z]);
+                            u[SCL_U].store(false, Ordering::Relaxed);
+                        }
+                    }
+                    let ret = Arc::new((transform_ids, pos, rot, scl));
+                    transform_data.lock().push(ret);
+                });
+            }
+        });
+        // self.updates
+        //     .par_iter_mut()
+        //     .enumerate()
+        //     .chunks(
+        //         num_cpus::get()
+        //             .sqrt()
+        //             .max((len as f64 / num_cpus::get() as f64).ceil() as usize),
+        //     )
+        //     .for_each(|slice| {
+        //         let len = slice.len();
+        //         let mut transform_ids = vec![
+        //             Vec::<i32>::with_capacity(len),
+        //             Vec::<i32>::with_capacity(len),
+        //             Vec::<i32>::with_capacity(len),
+        //         ];
+        //         let mut pos = Vec::<[f32; 3]>::with_capacity(len);
+        //         let mut rot = Vec::<[f32; 4]>::with_capacity(len);
+        //         let mut scl = Vec::<[f32; 3]>::with_capacity(len);
+
+        //         let p = &self.positions;
+        //         let r = &self.rotations;
+        //         let s = &self.scales;
+
+        //         for (i, u) in slice {
+        //             if u[POS_U].load(Ordering::Relaxed) {
+        //                 transform_ids[POS_U].push(i as i32);
+        //                 let p = p[i].lock();
+        //                 // p.data
+        //                 pos.push([p.x, p.y, p.z]);
+        //                 u[POS_U].store(false, Ordering::Relaxed);
+        //             }
+        //             if u[ROT_U].load(Ordering::Relaxed) {
+        //                 transform_ids[ROT_U].push(i as i32);
+        //                 let r = r[i].lock();
+        //                 // let a: [f32;4] = r.coords.into();
+        //                 rot.push([r.w, r.k, r.j, r.i]);
+        //                 u[ROT_U].store(false, Ordering::Relaxed);
+        //             }
+        //             if u[SCL_U].load(Ordering::Relaxed) {
+        //                 transform_ids[SCL_U].push(i as i32);
+        //                 let s = s[i].lock();
+        //                 scl.push([s.x, s.y, s.z]);
+        //                 u[SCL_U].store(false, Ordering::Relaxed);
+        //             }
+        //         }
+        //         let ret = Arc::new((transform_ids, pos, rot, scl));
+        //         transform_data.lock().push(ret);
+        //     });
+        /////////////////////////////////////////////////////////////////////////////////////////////////
         // (0..num_cpus::get()).into_par_iter().for_each(|id| {
         //     let mut transform_ids = vec![
         //         Vec::<i32>::with_capacity(len),
@@ -627,7 +673,7 @@ impl Transforms {
         //         transform_data.lock().push(ret);
         //     }
         // });
-        Arc::new((self.extent as usize, transform_data.into_inner()))
+        Arc::new((self.extent as usize, Arc::try_unwrap(transform_data).unwrap().into_inner()))
     }
 }
 
