@@ -78,7 +78,7 @@ impl Default for Camera {
 impl Inspectable for Camera {
     fn inspect(
         &mut self,
-        _transform: Transform,
+        _transform: &Transform,
         _id: i32,
         ui: &mut egui::Ui,
         sys: &mut crate::engine::Sys,
@@ -89,7 +89,7 @@ impl Inspectable for Camera {
     }
 }
 impl Component for Camera {
-    fn init(&mut self, _transform: Transform, _id: i32, sys: &mut crate::engine::Sys) {
+    fn init(&mut self, _transform: &Transform, _id: i32, sys: &mut crate::engine::Sys) {
         self.data = Some(Arc::new(Mutex::new(CameraData::new(sys.vk.clone()))));
     }
 }
@@ -97,7 +97,7 @@ impl Camera {
     pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
         self.data.as_ref().map(|data| data.clone())
     }
-    pub fn _update(&mut self, transform: Transform) {
+    pub fn _update(&mut self, transform: &Transform) {
         if let Some(cam_data) = &self.data {
             cam_data.lock().update(
                 transform.get_position(),

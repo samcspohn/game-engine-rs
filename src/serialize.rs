@@ -35,7 +35,7 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
 
     // set children
     let t = transforms.get_transform(t);
-    for c in t.get_meta().lock().children.iter() {
+    for c in t.get_meta().children.iter() {
         g_o.t_c.push(serialize_c(*c, world, transforms));
     }
     g_o
@@ -43,18 +43,19 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
 
 pub fn serialize(world: &World) {
     let root = world.root;
-    let transforms = world.transforms.read();
-    let t_r = Transform {
-        id: root,
-        transforms: &transforms,
-    };
+    let transforms = &world.transforms;
+    // let t_r = Transform {
+    //     id: root,
+    //     transforms: &transforms,
+    // };
+    let t_r = transforms.get_transform(root);
     let mut root = SerGameObject {
         t: _Transform::default(),
         c: vec![],
         t_c: vec![],
     };
 
-    for c in t_r.get_meta().lock().children.iter() {
+    for c in t_r.get_meta().children.iter() {
         root.t_c.push(serialize_c(*c, world, &transforms));
     }
     std::fs::write("test.yaml", serde_yaml::to_string(&root).unwrap()).unwrap();

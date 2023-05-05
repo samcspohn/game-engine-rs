@@ -108,13 +108,13 @@ pub struct System<'a> {
 
 pub trait Component {
     // fn assign_transform(&mut self, t: Transform);
-    fn init(&mut self, _transform: Transform, _id: i32, _sys: &mut Sys) {}
-    fn deinit(&mut self, _transform: Transform, _id: i32, _sys: &mut Sys) {}
-    fn on_start(&mut self, _transform: Transform, _sys: &System) {} // TODO implement call
-    fn on_destroy(&mut self, _transform: Transform, _sys: &System) {} // TODO implement call
-    fn update(&mut self, _transform: Transform, _sys: &System) {}
-    fn late_update(&mut self, _transform: Transform, _sys: &System) {}
-    fn editor_update(&mut self, _transform: Transform, _sys: &System) {}
+    fn init(&mut self, _transform: &Transform, _id: i32, _sys: &mut Sys) {}
+    fn deinit(&mut self, _transform: &Transform, _id: i32, _sys: &mut Sys) {}
+    fn on_start(&mut self, _transform: &Transform, _sys: &System) {} // TODO implement call
+    fn on_destroy(&mut self, _transform: &Transform, _sys: &System) {} // TODO implement call
+    fn update(&mut self, _transform: &Transform, _sys: &System) {}
+    fn late_update(&mut self, _transform: &Transform, _sys: &System) {}
+    fn editor_update(&mut self, _transform: &Transform, _sys: &System) {}
     fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData)> {
         Box::new(|_rd: &mut RenderJobData| {})
     }
@@ -202,9 +202,9 @@ pub trait StorageBase {
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData)>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn erase(&mut self, i: i32);
-    fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys);
-    fn init(&self, transform: Transform, i: i32, sys: &mut Sys);
-    fn inspect(&self, transform: Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys);
+    fn deinit(&self, transform: &Transform, i: i32, sys: &mut Sys);
+    fn init(&self, transform: &Transform, i: i32, sys: &mut Sys);
+    fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys);
     fn get_name(&self) -> &'static str;
     fn get_type(&self) -> TypeId;
     fn new_default(&mut self, t: i32) -> i32;
@@ -341,11 +341,8 @@ impl<
                 for (_i, (d, v)) in slice {
                     if v.load(Ordering::Relaxed) {
                         let mut d = d.lock();
-                        let trans = Transform {
-                            id: d.0,
-                            transforms: transforms,
-                        };
-                        d.1.update(trans, &sys);
+                        let trans = transforms.get_transform(d.0);
+                        d.1.update(&trans, &sys);
                     }
                 }
             });
@@ -399,11 +396,8 @@ impl<
                 for (_i, (d, v)) in slice {
                     if v.load(Ordering::Relaxed) {
                         let mut d = d.lock();
-                        let trans = Transform {
-                            id: d.0,
-                            transforms: transforms,
-                        };
-                        d.1.late_update(trans, &sys);
+                        let trans = transforms.get_transform(d.0);
+                        d.1.late_update(&trans, &sys);
                     }
                 }
             });
@@ -411,13 +405,13 @@ impl<
     fn erase(&mut self, i: i32) {
         self.erase(i);
     }
-    fn deinit(&self, transform: Transform, i: i32, sys: &mut Sys) {
+    fn deinit(&self, transform: &Transform, i: i32, sys: &mut Sys) {
         self.data[i as usize].lock().1.deinit(transform, i, sys);
     }
-    fn init(&self, transform: Transform, i: i32, sys: &mut Sys) {
+    fn init(&self, transform: &Transform, i: i32, sys: &mut Sys) {
         self.data[i as usize].lock().1.init(transform, i, sys);
     }
-    fn inspect(&self, transform: Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         self.data[i as usize]
             .lock()
             .1
@@ -502,19 +496,17 @@ impl<
         self.data
             .par_iter()
             .zip_eq(self.valid.par_iter())
-            .enumerate()
-            .chunks(chunk_size)
-            .for_each(|slice| {
-                for (_i, (d, v)) in slice {
+            // .enumerate()
+            // .chunks(chunk_size)
+            .for_each(|(d, v)| {
+                // for  (d, v) in slice {
                     if v.load(Ordering::Relaxed) {
+                        
                         let mut d = d.lock();
-                        let trans = Transform {
-                            id: d.0,
-                            transforms: transforms,
-                        };
-                        d.1.editor_update(trans, &sys);
+                        let trans = transforms.get_transform(d.0);
+                        d.1.editor_update(&trans, &sys);
                     }
-                }
+                // }
             });
     }
 }
@@ -540,7 +532,7 @@ pub struct Sys {
 pub struct World {
     // pub(crate) device: Arc<Device>,
     pub(crate) entities: RwLock<Vec<Option<RwLock<HashMap<TypeId, i32>>>>>,
-    pub(crate) transforms: RwLock<Transforms>,
+    pub(crate) transforms: Transforms,
     pub(crate) components:
         HashMap<TypeId, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) components_names:
@@ -558,8 +550,8 @@ impl World {
         particles: Arc<ParticleCompute>,
         vk: Arc<VulkanManager>,
     ) -> World {
-        let trans = RwLock::new(Transforms::new());
-        let root = trans.write().new_root();
+        let mut trans = Transforms::new();
+        let root = trans.new_root();
         World {
             entities: RwLock::new(vec![None]),
             transforms: trans,
@@ -575,10 +567,9 @@ impl World {
             })),
         }
     }
-    pub fn instantiate(&self) -> GameObject {
-        let mut trans = self.transforms.write();
+    pub fn instantiate(&mut self) -> GameObject {
         let ret = GameObject {
-            t: trans.new_transform(self.root),
+            t: self.transforms.new_transform(self.root),
         };
         {
             let entities = &mut self.entities.write();
@@ -590,10 +581,9 @@ impl World {
         }
         ret
     }
-    pub fn instantiate_with_transform(&self, transform: transform::_Transform) -> GameObject {
-        let mut trans = self.transforms.write();
+    pub fn instantiate_with_transform(&mut self, transform: transform::_Transform) -> GameObject {
         let ret = GameObject {
-            t: trans.new_transform_with(self.root, transform),
+            t: self.transforms.new_transform_with(self.root, transform),
         };
         {
             let entities = &mut self.entities.write();
@@ -606,28 +596,27 @@ impl World {
         ret
     }
     pub fn get_transform(&self, t: i32) -> _Transform {
-        let transforms = self.transforms.read();
+        let transforms = &self.transforms;
         _Transform {
             position: transforms.get_position(t),
             rotation: transforms.get_rotation(t),
             scale: transforms.get_scale(t),
         }
     }
-    fn copy_game_object_child(&self, t: i32, new_parent: i32) {
+    fn copy_game_object_child(&mut self, t: i32, new_parent: i32) {
         let g = self.instantiate_with_transform_with_parent(new_parent, self.get_transform(t));
         let entities = self.entities.read();
         if let (Some(src_obj), Some(dest_obj)) = (&entities[t as usize], &entities[g.t as usize]) {
             let children: Vec<i32> = {
                 let mut dest_obj = dest_obj.write();
-                let transforms = self.transforms.read();
                 for c in src_obj.read().iter() {
                     dest_obj.insert(
                         *c.0,
-                        self.copy_component_id(transforms.get_transform(g.t), *c.0, *c.1),
+                        self.copy_component_id(&self.transforms.get_transform(g.t), *c.0, *c.1),
                     );
                 }
-                let x = transforms.meta[t as usize]
-                    .lock()
+                let x = self.transforms.meta[t as usize]
+                    .get_mut()
                     .children
                     .iter().copied()
                     .collect();
@@ -641,22 +630,21 @@ impl World {
             panic!("copy object not valid");
         }
     }
-    pub fn copy_game_object(&self, t: i32) -> GameObject {
-        let parent = { self.transforms.read().get_parent(t) };
+    pub fn copy_game_object(&mut self, t: i32) -> GameObject {
+        let parent = { self.transforms.get_parent(t) };
         let g = self.instantiate_with_transform_with_parent(parent, self.get_transform(t));
         let entities = self.entities.read();
         if let (Some(src_obj), Some(dest_obj)) = (&entities[t as usize], &entities[g.t as usize]) {
             let children: Vec<i32> = {
                 let mut dest_obj = dest_obj.write();
-                let transforms = self.transforms.read();
                 for c in src_obj.read().iter() {
                     dest_obj.insert(
                         *c.0,
-                        self.copy_component_id(transforms.get_transform(g.t), *c.0, *c.1),
+                        self.copy_component_id(&self.transforms.get_transform(g.t), *c.0, *c.1),
                     );
                 }
-                let x = transforms.meta[t as usize]
-                    .lock()
+                let x = self.transforms.meta[t as usize]
+                    .get_mut()
                     .children
                     .iter().copied()
                     .collect();
@@ -671,24 +659,24 @@ impl World {
         }
         g
     }
-    fn copy_component_id(&self, t: Transform, key: TypeId, c_id: i32) -> i32 {
+    fn copy_component_id(&self, t: &Transform, key: TypeId, c_id: i32) -> i32 {
         if let Some(stor) = self.components.get(&key) {
             let mut stor = stor.write();
             let c = stor.copy(t.id, c_id);
-            stor.init(t, c, &mut self.sys.lock());
+            stor.init(&t, c, &mut self.sys.lock());
             c
         } else {
             panic!("no component storage for key");
         }
     }
     pub fn instantiate_with_transform_with_parent(
-        &self,
+        &mut self,
         parent: i32,
         transform: transform::_Transform,
     ) -> GameObject {
-        let mut trans = self.transforms.write();
+        // let mut trans = self.transforms.;
         let ret = GameObject {
-            t: trans.new_transform_with(parent, transform),
+            t: self.transforms.new_transform_with(parent, transform),
         };
         {
             let entities = &mut self.entities.write();
@@ -726,11 +714,8 @@ impl World {
             .downcast_mut::<Storage<T>>()
         {
             let c_id = stor.emplace(g.t, d);
-            let trans = Transform {
-                id: g.t,
-                transforms: &self.transforms.read(),
-            };
-            stor.init(trans, c_id, &mut self.sys.lock());
+            let trans = self.transforms.get_transform(g.t);
+            stor.init(&trans, c_id, &mut self.sys.lock());
             if let Some(ent_components) = &self.entities.read()[g.t as usize] {
                 ent_components.write().insert(key, c_id);
             }
@@ -744,11 +729,8 @@ impl World {
         if let Some(ent_components) = &self.entities.read()[g.t as usize] {
             ent_components.write().insert(key, c_id);
             if let Some(stor) = self.components.get(&key) {
-                let trans = Transform {
-                    id: g.t,
-                    transforms: &self.transforms.read(),
-                };
-                stor.write().init(trans, c_id, &mut self.sys.lock());
+                let trans = self.transforms.get_transform(g.t);
+                stor.write().init(&trans, c_id, &mut self.sys.lock());
             }
         }
     }
@@ -758,11 +740,8 @@ impl World {
         if let Some(stor) = self.components_names.get(&key) {
             let mut stor = stor.write();
             let c_id = stor.deserialize(g.t, s);
-            let trans = Transform {
-                id: g.t,
-                transforms: &self.transforms.read(),
-            };
-            stor.init(trans, c_id, &mut self.sys.lock());
+            let trans = self.transforms.get_transform(g.t);
+            stor.init(&trans, c_id, &mut self.sys.lock());
             if let Some(ent_components) = &self.entities.read()[g.t as usize] {
                 ent_components.write().insert(stor.get_type(), c_id);
             }
@@ -773,11 +752,8 @@ impl World {
     pub fn remove_component(&mut self, g: GameObject, key: TypeId, c_id: i32) {
         if let Some(ent_components) = &self.entities.read()[g.t as usize] {
             if let Some(stor) = self.components.get(&key) {
-                let trans = Transform {
-                    id: g.t,
-                    transforms: &self.transforms.read(),
-                };
-                stor.write().deinit(trans, c_id, &mut self.sys.lock());
+                let trans = self.transforms.get_transform(g.t);
+                stor.write().deinit(&trans, c_id, &mut self.sys.lock());
                 stor.write().erase(c_id);
             }
             ent_components.write().remove(&key);
@@ -822,11 +798,9 @@ impl World {
         if let Some(g_components) = &ent[g.t as usize] {
             for (t, id) in &*g_components.write() {
                 let stor = &mut self.components.get(t).unwrap().write();
-                let trans = Transform {
-                    id: g.t,
-                    transforms: &self.transforms.read(),
-                };
-                stor.deinit(trans, *id, &mut self.sys.lock());
+
+                let trans = self.transforms.get_transform(g.t);
+                stor.deinit(&trans, *id, &mut self.sys.lock());
                 stor.erase(*id);
             }
         }
@@ -834,7 +808,7 @@ impl World {
         ent[g.t as usize] = None; // todo make read()
 
         // remove transform
-        self.transforms.write().remove(g.t);
+        self.transforms.remove(g.t);
     }
     // pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: GameObject, f: F)
     // where
@@ -867,11 +841,10 @@ impl World {
         // modeling: &Mutex<crate::ModelManager>,
         // rendering: &Mutex<crate::RendererManager>,
     ) {
-        let transforms = self.transforms.read();
         let sys = self.sys.lock();
         for (_, stor) in &self.components {
             stor.write().update(
-                &transforms,
+                &self.transforms,
                 &sys.physics,
                 lazy_maker,
                 input,
@@ -890,11 +863,10 @@ impl World {
         // modeling: &Mutex<crate::ModelManager>,
         // rendering: &Mutex<crate::RendererManager>,
     ) {
-        let transforms = self.transforms.read();
         let sys = self.sys.lock();
         for (_, stor) in &self.components {
             stor.write().late_update(
-                &transforms,
+                &self.transforms,
                 &sys.physics,
                 lazy_maker,
                 input,
@@ -905,8 +877,6 @@ impl World {
         }
     }
     pub(crate) fn update_cameras(&mut self) {
-        let transforms = self.transforms.read();
-        // let sys = self.sys.lock();
         let camera_components = self.get_components::<Camera>().unwrap().read();
         let camera_storage = camera_components
             .as_any()
@@ -920,7 +890,7 @@ impl World {
                 if v.load(Ordering::Relaxed) {
                     let mut d = d.lock();
                     let id: i32 = d.0;
-                    d.1._update(transforms.get_transform(id));
+                    d.1._update(&self.transforms.get_transform(id));
                 }
             });
     }
@@ -929,11 +899,11 @@ impl World {
         lazy_maker: &Defer,
         input: &Input,
     ) {
-        let transforms = self.transforms.read();
+        
         let sys = self.sys.lock();
         for (_, stor) in &self.components {
             stor.write().editor_update(
-                &transforms,
+                &self.transforms,
                 &sys.physics,
                 lazy_maker,
                 input,
@@ -961,8 +931,8 @@ impl World {
         for a in &self.components {
             a.1.write().clear();
         }
-        self.transforms.write().clear();
-        self.root = self.transforms.write().new_root();
+        self.transforms.clear();
+        self.root = self.transforms.new_root();
         self.entities.write().push(None);
     }
 }

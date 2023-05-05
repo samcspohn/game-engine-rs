@@ -101,11 +101,13 @@ impl Inspectable_ for GameObjectInspector {
                 if let Some(t_id) = unsafe { _selected } {
                     let entities = world.entities.write();
                     if let Some(ent) = &entities[t_id as usize] {
-                        let t = &*world.transforms.read();
+                        let t = &world.transforms;
+                        let _t = t.get_transform(t_id);
                         egui::CollapsingHeader::new("Transform")
                             .default_open(true)
                             .show(ui, |ui| {
-                                let mut pos = *t.positions[t_id as usize].lock();
+                                // let mut pos = *t.positions[t_id as usize].lock();
+                                let mut pos = _t.get_position();
                                 let prev_pos = pos;
                                 // Ins(&mut pos).inspect("Postition", ui);
                                 ui.horizontal(|ui| {
@@ -117,7 +119,7 @@ impl Inspectable_ for GameObjectInspector {
                                 if pos != prev_pos {
                                     t.move_child(t_id, pos - prev_pos);
                                 }
-                                let rot = *t.rotations[t_id as usize].lock();
+                                let rot = _t.get_rotation();
                                 let mut rot = glm::quat_euler_angles(&rot);
                                 ui.vertical(|ui| {
                                     ui.horizontal(|ui| {
@@ -203,7 +205,7 @@ impl Inspectable_ for GameObjectInspector {
                                 //         t.set_rotation(t_id, q);
                                 //     }
                                 // }
-                                let mut scl = *t.scales[t_id as usize].lock();
+                                let mut scl = _t.get_scale();
                                 let prev_scl = scl;
                                 // Ins(&mut scl).inspect("Scale", ui);
                                 ui.horizontal(|ui| {
@@ -240,11 +242,7 @@ impl Inspectable_ for GameObjectInspector {
                                     });
                                 })
                                 .body(|ui| {
-                                    let transform = Transform {
-                                        id: t_id,
-                                        transforms: &world.transforms.read(),
-                                    };
-                                    c.inspect(transform, *id, ui, &mut world.sys.lock());
+                                    c.inspect(&_t, *id, ui, &mut world.sys.lock());
                                 });
                             }
                         }
@@ -344,7 +342,7 @@ pub fn editor_ui(
                                     let mut world = world.lock();
                                     let resp = ui.scope(|ui| {
 
-                                    let mut transforms = world.transforms.write();
+                                    let transforms = &mut world.transforms;
 
                                     let hierarchy_ui = |ui: &mut egui::Ui| {
                                         if !fps_queue.is_empty() {
@@ -512,7 +510,7 @@ pub fn editor_ui(
                                                     match d {
                                                         TransformDrag::DragBetweenTransform(_, t_id, header_open) => {
                                                             if *t_id == t.id
-                                                                && transforms.meta[t.id as usize].lock().children.len() > 0
+                                                                && t.get_meta().children.len() > 0
                                                             {
                                                                 *header_open = true;
                                                             }
@@ -521,11 +519,8 @@ pub fn editor_ui(
                                                     }
                                                 }
 
-                                                for child_id in t.get_meta().lock().children.iter() {
-                                                    let child = Transform {
-                                                        id: *child_id,
-                                                        transforms: transforms,
-                                                    };
+                                                for child_id in t.get_meta().children.iter() {
+                                                    let child = transforms.get_transform(*child_id);
                                                     transform_hierarchy_ui(
                                                         transforms,
                                                         selected_transforms,
@@ -543,10 +538,7 @@ pub fn editor_ui(
                                             });
                                         }
 
-                                        let root = Transform {
-                                            id: 0,
-                                            transforms: &transforms,
-                                        };
+                                        let root = transforms.get_transform(0);
                                         let mut count = 0;
 
                                         // unsafe {
@@ -554,7 +546,7 @@ pub fn editor_ui(
                                                 .auto_shrink([false, false])
                                                 .show(ui, |ui| {
                                                     transform_hierarchy_ui(
-                                                        &transforms,
+                                                        transforms,
                                                         &mut _selected_transforms,
                                                         root,
                                                         ui,
@@ -596,8 +588,9 @@ pub fn editor_ui(
                                 if let Some(cm) = &context_menu {
                                     let g = match cm {
                                         GameObjectContextMenu::NewGameObject(t_id) => {
+                                            let _t = world.get_transform(*t_id);
                                             let g = world
-                                                .instantiate_with_transform_with_parent(*t_id, world.get_transform(*t_id));
+                                                .instantiate_with_transform_with_parent(*t_id, _t);
                                             println!("add game object");
                                             g
                                         }

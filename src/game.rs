@@ -42,7 +42,7 @@ impl Component for Bomb {
     // fn assign_transform(&mut self, t: Transform) {
     //     self.t = t;
     // }
-    fn update(&mut self, transform: Transform, sys: &System) {
+    fn update(&mut self, transform: &Transform, sys: &System) {
         let pos = transform.get_position();
         let vel = self.vel;
         let dt = sys.input.time.dt.min(1. / 20.);
@@ -80,7 +80,7 @@ impl Component for Bomb {
 }
 
 impl Inspectable for Bomb {
-    fn inspect(&mut self, _transform: Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         // ui.add(egui::Label::new("Bomb"));
         // egui::CollapsingHeader::new("Bomb")
         //     .default_open(true)
@@ -96,7 +96,7 @@ pub struct Player {
     speed: f32,
 }
 impl Component for Player {
-    fn update(&mut self, transform: Transform, sys: &System) {
+    fn update(&mut self, transform: &Transform, sys: &System) {
         let input = &sys.input;
         let speed = self.speed * input.time.dt;
         if !input.get_key(&VirtualKeyCode::LControl) {
@@ -196,7 +196,7 @@ impl Component for Player {
 }
 
 impl Inspectable for Player {
-    fn inspect(&mut self, _transform: Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         Ins(&mut self.rof).inspect("rof", ui, sys);
         Ins(&mut self.speed).inspect("speed", ui, sys);
     }
@@ -304,7 +304,7 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
             let inst = Instant::now();
             let transform_data = {
                 puffin::profile_scope!("get transform data");
-                world.transforms.write().get_transform_data_updates()
+                world.transforms.get_transform_data_updates()
             };
             perf.update("get transform data".into(), Instant::now() - inst);
 

@@ -79,7 +79,7 @@ pub struct Terrain {
 }
 
 impl Inspectable for Terrain {
-    fn inspect(&mut self, _transform: Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
         // egui::CollapsingHeader::new("Terrain")
         //     .default_open(true)
         //     .show(ui, |ui| {
@@ -577,15 +577,15 @@ impl Component for Terrain {
             Box::new(move |_rd: &mut RenderJobData| {})
         }
     }
-    fn update(&mut self, transform: Transform, sys: &crate::engine::System) {
+    fn update(&mut self, transform: &Transform, sys: &crate::engine::System) {
         self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
         self.generate(&transform, sys);
     }
-    fn editor_update(&mut self, transform: Transform, sys: &System) {
+    fn editor_update(&mut self, transform: &Transform, sys: &System) {
         self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
         self.generate(&transform, sys);
     }
-    fn deinit(&mut self, _transform: Transform, _id: i32, sys: &mut Sys) {
+    fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &mut Sys) {
         let chunks = self.chunks.lock();
         for x in chunks.iter() {
             for (_z, col) in x.1 {
