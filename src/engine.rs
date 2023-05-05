@@ -615,8 +615,7 @@ impl World {
                         self.copy_component_id(&self.transforms.get_transform(g.t), *c.0, *c.1),
                     );
                 }
-                let x = self.transforms.meta[t as usize]
-                    .get_mut()
+                let x = self.transforms.get_transform(t).get_meta()
                     .children
                     .iter().copied()
                     .collect();
@@ -643,8 +642,7 @@ impl World {
                         self.copy_component_id(&self.transforms.get_transform(g.t), *c.0, *c.1),
                     );
                 }
-                let x = self.transforms.meta[t as usize]
-                    .get_mut()
+                let x = self.transforms.get_transform(t).get_meta()
                     .children
                     .iter().copied()
                     .collect();
