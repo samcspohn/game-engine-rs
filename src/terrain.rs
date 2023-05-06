@@ -6,8 +6,7 @@ use std::{
     },
 };
 
-
-
+use force_send_sync::SendSync;
 use noise::{NoiseFn, Perlin};
 
 use nalgebra_glm as glm;
@@ -22,21 +21,21 @@ use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, PrimaryCommandBufferAbstract,
+        AutoCommandBufferBuilder, CommandBufferInheritanceInfo,
+        CommandBufferInheritanceRenderingInfo, CommandBufferUsage, CopyBufferInfo,
+        PrimaryCommandBufferAbstract,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    device::{Device},
-    pipeline::{
-        Pipeline, PipelineBindPoint,
-    },
-    sync::{GpuFuture},
+    device::Device,
+    pipeline::{Pipeline, PipelineBindPoint},
+    sync::GpuFuture,
 };
 
+use crate::model;
 use crate::{
     asset_manager::AssetManagerBase,
     engine::{RenderJobData, System},
 };
-use crate::{model};
 use crate::{renderer_component2::buffer_usage_all, terrain::transform::Transform};
 // use crate::transform_compute::MVP;
 
@@ -155,10 +154,18 @@ impl Terrain {
         }
         // let mut skip = 0;
         // let mut index_skip = 0;
-        let command_buffers = Arc::new(Mutex::new(Vec::new()));
+        // let command_buffers = Arc::new(Mutex::new(Vec::new()));
         // if self.cur_chunks.load(Ordering::Relaxed) == self.prev_chunks {
         //     return;
         // }
+        let builder = AutoCommandBufferBuilder::primary(
+            &sys.vk.comm_alloc,
+            sys.vk.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+            // CommandBufferInheritanceInfo::default(),
+        )
+        .unwrap();
+        let builder = unsafe { Arc::new(Mutex::new(SendSync::new(builder))) };
 
         rayon::scope(|s| {
             for x in -chunk_range..chunk_range {
@@ -172,7 +179,8 @@ impl Terrain {
                     let z = z;
                     if let Some(tcrd) = &self.tcrd {
                         let tcrd = tcrd.clone();
-                        let command_buffers = command_buffers.clone();
+                        // let command_buffers = command_buffers.clone();
+                        let builder = builder.clone();
                         let chunks = self.chunks.clone();
                         let cur_chunks = self.cur_chunks.clone();
 
@@ -189,11 +197,10 @@ impl Terrain {
                                 m.0.iter()
                                     .map(|v| point![v.position[0], v.position[1], v.position[2]])
                                     .collect();
-                            let ter_indeces: Vec<[u32; 3]> = m
-                                .3
-                                .chunks(3)
-                                .map(|slice| [slice[0], slice[1], slice[2]])
-                                .collect();
+                            let ter_indeces: Vec<[u32; 3]> =
+                                m.3.chunks(3)
+                                    .map(|slice| [slice[0], slice[1], slice[2]])
+                                    .collect();
 
                             let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces)
                                 .collision_groups(InteractionGroups::none())
@@ -212,20 +219,13 @@ impl Terrain {
                             let x_ = x;
                             let z_ = z;
 
-                            let mut builder = AutoCommandBufferBuilder::primary(
-                                &sys.vk.comm_alloc,
-                                sys.vk.queue.queue_family_index(),
-                                CommandBufferUsage::OneTimeSubmit,
-                            )
-                            .unwrap();
-
                             let z_skip = terrain_size * terrain_size;
                             let x_skip = (chunk_range * 2) * z_skip;
 
                             let x = x + chunk_range;
                             let z = z + chunk_range;
 
-                            let vertex_slice =
+                            let vertex_slice_vertex =
                                 BufferSlice::from_typed_buffer_access(tcrd.vertex_buffer.clone())
                                     .slice(
                                         (x * x_skip + z * z_skip) as u64
@@ -242,10 +242,8 @@ impl Terrain {
                                 m.0.clone(),
                             )
                             .unwrap();
-                            builder
-                                .copy_buffer(CopyBufferInfo::buffers(vertecies, vertex_slice))
-                                .unwrap();
-                            let vertex_slice =
+
+                            let vertex_slice_normals =
                                 BufferSlice::from_typed_buffer_access(tcrd.normals_buffer.clone())
                                     .slice(
                                         (x * x_skip + z * z_skip) as u64
@@ -262,11 +260,8 @@ impl Terrain {
                                 m.1.clone(),
                             )
                             .unwrap();
-                            builder
-                                .copy_buffer(CopyBufferInfo::buffers(normals, vertex_slice))
-                                .unwrap();
 
-                            let vertex_slice =
+                            let vertex_slice_uvs =
                                 BufferSlice::from_typed_buffer_access(tcrd.uvs_buffer.clone())
                                     .slice(
                                         (x * x_skip + z * z_skip) as u64
@@ -283,9 +278,6 @@ impl Terrain {
                                 m.2.clone(),
                             )
                             .unwrap();
-                            builder
-                                .copy_buffer(CopyBufferInfo::buffers(uvs, vertex_slice))
-                                .unwrap();
 
                             let start_index = (x * x_skip + z * z_skip) as u32;
                             let z_skip = (terrain_size - 1) * (terrain_size - 1) * 6;
@@ -304,17 +296,31 @@ impl Terrain {
                                     ..Default::default()
                                 },
                                 false,
-                                m.3.iter()
-                                    .map(|i| i + start_index)
-                                    .collect::<Vec<u32>>()
-                                    ,
+                                m.3.iter().map(|i| i + start_index).collect::<Vec<u32>>(),
                             )
                             .unwrap();
+                        // lock builder/ copy buffers
+                            let mut builder = builder.lock();
+                            builder
+                                .copy_buffer(CopyBufferInfo::buffers(
+                                    vertecies,
+                                    vertex_slice_vertex,
+                                ))
+                                .unwrap();
+                            builder
+                                .copy_buffer(CopyBufferInfo::buffers(normals, vertex_slice_normals))
+                                .unwrap();
+
+                            builder
+                                .copy_buffer(CopyBufferInfo::buffers(uvs, vertex_slice_uvs))
+                                .unwrap();
+
                             builder
                                 .copy_buffer(CopyBufferInfo::buffers(indexs, index_slice))
                                 .unwrap();
-                            let command_buffer = builder.build().unwrap();
-                            command_buffers.lock().push(Arc::new(command_buffer));
+                            drop(builder);
+                            // let command_buffer = builder.build().unwrap();
+                            // command_buffers.lock().push(Arc::new(command_buffer));
 
                             let _chunks = chunks.clone();
                             sys.defer.append(move |world| {
@@ -328,10 +334,27 @@ impl Terrain {
             }
         });
         {
-            // let command_buffers_g = command_buffers.lock();
-            for command_buffer in (*command_buffers.lock()).clone() {
-                let _ = command_buffer.execute(sys.vk.queue.clone()).unwrap();
-            }
+            let builder = Arc::try_unwrap(builder).ok().unwrap();
+            let builder = builder.into_inner().unwrap();
+            let _ = builder.build().unwrap().execute(sys.vk.queue.clone()).unwrap();
+            // let mut builder = AutoCommandBufferBuilder::primary(
+            //     &sys.vk.comm_alloc,
+            //     sys.vk.queue.queue_family_index(),
+            //     CommandBufferUsage::OneTimeSubmit,
+            // )
+            // .unwrap();
+            // // let command_buffers_g = command_buffers.lock();
+            // // for command_buffer in (*command_buffers.lock()).clone() {
+            // let command_buffers = Arc::try_unwrap(command_buffers).ok().unwrap();
+            // let command_buffers = command_buffers.into_inner();
+            // builder.execute_commands_from_vec(command_buffers).unwrap();
+            // let _ = builder
+            //     .build()
+            //     .unwrap()
+            //     .execute(sys.vk.queue.clone())
+            //     .unwrap();
+            // let _ = command_buffer.execute(sys.vk.queue.clone()).unwrap();
+            // }
         }
     }
 
@@ -545,12 +568,8 @@ impl Component for Terrain {
                 if let Some(i) = unsafe { &INSTANCE_BUFFER } {
                     descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
                 }
-                let set = PersistentDescriptorSet::new(
-                    &vk.desc_alloc,
-                    layout.clone(),
-                    descriptors,
-                )
-                .unwrap();
+                let set = PersistentDescriptorSet::new(&vk.desc_alloc, layout.clone(), descriptors)
+                    .unwrap();
                 builder
                     // .set_viewport(0, [viewport.clone()])
                     // .bind_pipeline_graphics(pipeline.pipeline.clone())

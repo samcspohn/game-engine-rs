@@ -240,7 +240,7 @@ type GameComm = (
         RendererData,
         (usize, Vec<crate::particles::cs::ty::emitter_init>),
     )>,
-    Receiver<Input>,
+    Receiver<(Input,bool)>,
     // Sender<Terrain>,
 );
 
@@ -257,11 +257,11 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
 
     while running.load(Ordering::SeqCst) {
         // println!("waiting for input");
-        let input = coms.1.recv().unwrap();
+        let (input, playing_game) = coms.1.recv().unwrap();
         // println!("input recvd");
         let (transform_data, renderer_data, emitter_len, v, cam_datas, main_cam_id) = {
             let mut world = world.lock();
-            if unsafe { PLAYING_GAME } {
+            if playing_game {
                 puffin::profile_scope!("game loop");
                 let inst = Instant::now();
                 {

@@ -1,21 +1,14 @@
 use camera::{Camera, CameraData};
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
-use egui::{TextureId};
+use egui::TextureId;
 
-
-
-use std::{env};
+use std::env;
 use vulkan_manager::VulkanManager;
 
-use vulkano::command_buffer::{
-    RenderPassBeginInfo,
-};
+use vulkano::command_buffer::RenderPassBeginInfo;
 
-
-
-
-use vulkano::memory::allocator::{MemoryUsage};
+use vulkano::memory::allocator::MemoryUsage;
 use vulkano::swapchain::SwapchainPresentInfo;
 
 use winit::window::CursorGrabMode;
@@ -24,19 +17,13 @@ use puffin_egui::*;
 
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
-use vulkano::buffer::{TypedBufferAccess};
-
-
-
-
-
+use vulkano::buffer::TypedBufferAccess;
 
 use winit::event::MouseButton;
 
+use std::collections::BTreeMap;
 
-use std::collections::{BTreeMap};
-
-use std::path::{Path};
+use std::path::Path;
 use std::{
     collections::HashMap,
     sync::{
@@ -47,14 +34,12 @@ use std::{
     time::{Duration, Instant},
 };
 use vulkano::{
-    buffer::{CpuBufferPool},
+    buffer::CpuBufferPool,
     command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
     image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
     pipeline::graphics::viewport::Viewport,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    swapchain::{
-        acquire_next_image, AcquireError, SwapchainCreateInfo, SwapchainCreationError,
-    },
+    swapchain::{acquire_next_image, AcquireError, SwapchainCreateInfo, SwapchainCreationError},
     sync::{self, FlushError, GpuFuture},
 };
 
@@ -64,7 +49,7 @@ use winit::{
         WindowEvent,
     },
     event_loop::{ControlFlow, EventLoop},
-    window::{Window},
+    window::Window,
 };
 
 use glm::{vec4, Vec3};
@@ -73,7 +58,6 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 // use rust_test::{INDICES, NORMALS, VERTICES};
 use notify::{RecursiveMode, Watcher};
-
 
 mod engine;
 mod input;
@@ -104,13 +88,13 @@ mod vulkan_manager;
 // use rapier3d::prelude::*;
 
 use crate::asset_manager::{AssetManagerBase, AssetsManager};
-use crate::editor_ui::{EDITOR_ASPECT_RATIO, PLAYING_GAME};
+use crate::editor_ui::{EDITOR_ASPECT_RATIO};
 use crate::engine::physics::Physics;
 
-use crate::engine::{World};
+use crate::engine::World;
 use crate::game::{game_thread_fn, Bomb, Player};
 
-use crate::model::{ModelManager};
+use crate::model::ModelManager;
 use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
 
@@ -121,7 +105,7 @@ use crate::texture::TextureManager;
 use crate::transform_compute::cs;
 use crate::transform_compute::cs::ty::transform;
 
-use crate::{input::Input};
+use crate::input::Input;
 
 struct FrameImage {
     arc: Arc<AttachmentImage>,
@@ -285,7 +269,7 @@ fn main() {
     let mut first_frame = true;
 
     /////////////////////////////////////////////////////////////////////////////////////////
-    let (tx, rx): (Sender<Input>, Receiver<Input>) = mpsc::channel();
+    let (tx, rx): (Sender<_>, Receiver<_>) = mpsc::channel();
     let (rtx, rrx): (Sender<_>, Receiver<_>) = mpsc::channel();
     // let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
     let running = Arc::new(AtomicBool::new(true));
@@ -315,7 +299,7 @@ fn main() {
         let w = world.lock();
         let s = w.sys.lock();
         let rm = s.renderer_manager.read();
-        
+
         rm.shr_data.clone()
     };
 
@@ -329,7 +313,7 @@ fn main() {
 
     // let ter = trx.recv().unwrap();
     // println!("sending input");
-    let _res = coms.1.send(input.clone());
+    let _res = coms.1.send((input.clone(), false));
     let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
     {
         let mut world = world.lock();
@@ -339,7 +323,7 @@ fn main() {
     }
 
     let mut cam_data = CameraData::new(vk.clone());
-    let mut playing_game = unsafe { PLAYING_GAME };
+    let mut playing_game = false;
 
     let (mut cam_pos, mut cam_rot) = (Vec3::default(), glm::quat(-1., 0., 0., 0.));
     event_loop.run(move |event, _, control_flow| {
@@ -364,7 +348,7 @@ fn main() {
                         *control_flow = ControlFlow::Exit;
                         running.store(false, Ordering::SeqCst);
                         let game_thread = game_thread.remove(0);
-                        let _res = coms.1.send(input.clone());
+                        let _res = coms.1.send((input.clone(), playing_game));
 
                         game_thread.join().unwrap();
 
@@ -504,7 +488,7 @@ fn main() {
                 };
 
                 let speed = 30f32 * input.time.dt;
-                if !input.get_key(&VirtualKeyCode::LControl) && !unsafe { PLAYING_GAME } {
+                if !input.get_key(&VirtualKeyCode::LControl) && !playing_game {
                     // forward/backward
                     if input.get_key(&VirtualKeyCode::W) {
                         cam_pos +=
@@ -606,7 +590,7 @@ fn main() {
                         }
                         Err(e) => panic!("Failed to acquire next image: {:?}", e),
                     };
-                let cam_num = if unsafe { PLAYING_GAME } {
+                let cam_num = if playing_game {
                     main_cam_id
                 } else {
                     -1
@@ -616,13 +600,13 @@ fn main() {
                     .or_insert(HashMap::<u32, TextureId>::new())
                     .entry(image_num)
                     .or_insert_with(|| {
-                        let frame_image_view = ImageView::new_default(if unsafe { PLAYING_GAME } {
+                        let frame_image_view = ImageView::new_default(if playing_game {
                             cam_datas[0].lock().output[image_num as usize].clone()
                         } else {
                             cam_data.output[image_num as usize].clone()
                         })
                         .unwrap();
-                        
+
                         gui.register_user_image_view(frame_image_view.clone())
                     });
 
@@ -632,15 +616,10 @@ fn main() {
 
                 let inst = Instant::now();
                 let dimensions = *EDITOR_ASPECT_RATIO.lock();
+                let mut _playing_game = false;
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    editor_ui::editor_ui(
-                        &world,
-                        &mut fps_queue,
-                        &ctx,
-                        *fc,
-                        assets_manager.clone(),
-                    );
+                    _playing_game = editor_ui::editor_ui(&world, &mut fps_queue, &ctx, *fc, assets_manager.clone());
                 });
                 {
                     let ear = EDITOR_ASPECT_RATIO.lock();
@@ -650,14 +629,7 @@ fn main() {
                     }
                 }
 
-                if playing_game != unsafe { PLAYING_GAME } {
-                    for (_k, v) in &fc_map {
-                        for (_k, v) in v.iter() {
-                            gui.unregister_user_image(*v);
-                        }
-                    }
-                    fc_map.clear();
-                }
+
 
                 perf.update("gui".into(), Instant::now() - inst);
 
@@ -667,7 +639,7 @@ fn main() {
                 let mut rm = rm.write();
 
                 // start new game frame
-                let res = coms.1.send(input.clone());
+                let res = coms.1.send((input.clone(), _playing_game));
                 if res.is_err() {
                     return;
                 }
@@ -693,14 +665,14 @@ fn main() {
                         vk.device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
-                        image_num
+                        image_num,
                     );
 
                     let scale_update_data = transform_compute.get_scale_update_data(
                         vk.device.clone(),
                         transform_data.clone(),
                         vk.mem_alloc.clone(),
-                        image_num
+                        image_num,
                     );
                     (
                         position_update_data,
@@ -752,7 +724,7 @@ fn main() {
                         compute_pipeline.clone(),
                         rotation_update_data,
                         vk.desc_alloc.clone(),
-                        image_num
+                        image_num,
                     );
 
                     // stage 2
@@ -762,11 +734,10 @@ fn main() {
                         compute_pipeline.clone(),
                         scale_update_data,
                         vk.desc_alloc.clone(),
-                        image_num
+                        image_num,
                     );
                 }
                 {
-
                     particles.update(
                         &mut builder,
                         emitter_inits,
@@ -787,7 +758,7 @@ fn main() {
                     // if !lock_cull {
                     //     cull_view = view.clone();
                     // }
-                    
+
                     rm.update(
                         &mut rd,
                         vk.clone(),
@@ -797,7 +768,7 @@ fn main() {
                     )
                 };
 
-                if !unsafe { PLAYING_GAME } {
+                if !playing_game {
                     cam_data.update(cam_pos, cam_rot, 0.01f32, 10_000f32, 70f32);
                     cam_data.render(
                         vk.clone(),
@@ -837,7 +808,7 @@ fn main() {
                         );
                     }
                 }
-                playing_game = unsafe { PLAYING_GAME };
+
                 // builder
                 // .copy_image(CopyImageInfo::images(
                 //     image.clone(),
@@ -935,6 +906,32 @@ fn main() {
                         previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                     }
                 };
+                // was playing != next frame playing?
+                if playing_game != _playing_game {
+                    if !playing_game {
+                        // for (k, v) in &fc_map {
+                        //     if *k == -1 {
+                        //         for (_k, v) in v.iter() {
+                        //             gui.unregister_user_image(*v);
+                        //         }
+                        //     }
+                        // }
+                        // let a = fc_map.get(&-1).unwrap();
+                    } else {
+                        for (k, v) in &fc_map {
+                            if *k != -1 {
+                                for (_k, v) in v.iter() {
+                                    gui.unregister_user_image(*v);
+                                }
+                            }
+                        }
+                        let a = fc_map.remove(&-1).unwrap(); // get 
+                        fc_map.clear();
+                        fc_map.insert(-1, a); // replace
+                    }
+                    // fc_map.clear();
+                }
+                playing_game = _playing_game;
 
                 // }
                 perf.update("render".into(), Instant::now() - inst);

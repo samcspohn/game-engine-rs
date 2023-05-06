@@ -298,7 +298,7 @@ pub fn editor_ui(
     egui_ctx: &Context,
     frame_color: egui::TextureId,
     assets_manager: Arc<Mutex<AssetsManager>>
-) {
+) -> bool {
     {
         static mut _selected_transforms: Lazy<HashMap<i32, bool>> =
             Lazy::new(HashMap::<i32, bool>::new);
@@ -763,6 +763,7 @@ pub fn editor_ui(
                     })
                 });
         }
+        unsafe { PLAYING_GAME }
 
         // egui::Window::new("Project")
         //     .default_size([200.0, 600.0])
