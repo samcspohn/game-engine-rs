@@ -16,7 +16,7 @@ struct SerGameObject {
 
 fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject {
     let mut g_o = SerGameObject {
-        t: world.get_transform(t), // set t
+        t: world.transforms.get(t).get_transform(), // set t
         c: vec![],
         t_c: vec![],
     };
@@ -34,7 +34,7 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
     }
 
     // set children
-    let t = transforms.get_transform(t);
+    let t = transforms.get(t);
     for c in t.get_meta().children.iter() {
         g_o.t_c.push(serialize_c(*c, world, transforms));
     }
@@ -48,7 +48,7 @@ pub fn serialize(world: &World) {
     //     id: root,
     //     transforms: &transforms,
     // };
-    let t_r = transforms.get_transform(root);
+    let t_r = transforms.get(root);
     let mut root = SerGameObject {
         t: _Transform::default(),
         c: vec![],

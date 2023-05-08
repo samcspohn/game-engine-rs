@@ -216,7 +216,7 @@ pub trait StorageBase {
 // use pqueue::Queue;
 pub struct Storage<T> {
     pub data: Vec<Mutex<(i32, T)>>,
-    pub valid: Vec<AtomicBool>,
+    pub valid: Vec<bool>,
     avail: pqueue::Queue<Reverse<i32>>,
     extent: i32,
     has_update: bool,
@@ -228,12 +228,12 @@ impl<T: 'static> Storage<T> {
         match self.avail.pop() {
             Some(Reverse(i)) => {
                 *self.data[i as usize].lock() = (transform, d);
-                self.valid[i as usize].store(true, Ordering::Relaxed);
+                self.valid[i as usize] = true;
                 i
             }
             None => {
                 self.data.push(Mutex::new((transform, d)));
-                self.valid.push(AtomicBool::new(true));
+                self.valid.push(true);
                 self.extent += 1;
                 self.extent - 1
             }
@@ -242,7 +242,7 @@ impl<T: 'static> Storage<T> {
     pub fn erase(&mut self, id: i32) {
         // self.data[id as usize] = None;
         drop(self.data[id as usize].lock());
-        self.valid[id as usize].store(false, Ordering::Relaxed);
+        self.valid[id as usize] = false;
         self.avail.push(Reverse(id));
     }
     // pub fn get(&self, i: &i32) -> &Mutex<T> {
@@ -335,13 +335,13 @@ impl<
         self.data
             .par_iter()
             .zip_eq(self.valid.par_iter())
-            .enumerate()
+            // .enumerate()
             .chunks(chunk_size)
             .for_each(|slice| {
-                for (_i, (d, v)) in slice {
-                    if v.load(Ordering::Relaxed) {
+                for (d, v) in slice {
+                    if *v {
                         let mut d = d.lock();
-                        let trans = transforms.get_transform(d.0);
+                        let trans = transforms.get(d.0);
                         d.1.update(&trans, &sys);
                     }
                 }
@@ -394,9 +394,9 @@ impl<
             .chunks(chunk_size)
             .for_each(|slice| {
                 for (_i, (d, v)) in slice {
-                    if v.load(Ordering::Relaxed) {
+                    if *v {
                         let mut d = d.lock();
-                        let trans = transforms.get_transform(d.0);
+                        let trans = transforms.get(d.0);
                         d.1.late_update(&trans, &sys);
                     }
                 }
@@ -461,7 +461,7 @@ impl<
             .zip(self.valid.iter())
             .enumerate()
             .for_each(|(_i, (d, v))| {
-                if v.load(Ordering::Relaxed) {
+                if *v {
                     let mut d = d.lock();
                     let t_id = d.0;
                     render_jobs.push(d.1.on_render(t_id));
@@ -500,10 +500,10 @@ impl<
             // .chunks(chunk_size)
             .for_each(|(d, v)| {
                 // for  (d, v) in slice {
-                    if v.load(Ordering::Relaxed) {
+                    if *v {
                         
                         let mut d = d.lock();
-                        let trans = transforms.get_transform(d.0);
+                        let trans = transforms.get(d.0);
                         d.1.editor_update(&trans, &sys);
                     }
                 // }
@@ -595,16 +595,17 @@ impl World {
         }
         ret
     }
-    pub fn get_transform(&self, t: i32) -> _Transform {
-        let transforms = &self.transforms;
-        _Transform {
-            position: transforms.get_position(t),
-            rotation: transforms.get_rotation(t),
-            scale: transforms.get_scale(t),
-        }
-    }
+    // pub fn get_transform(&self, t: i32) -> _Transform {
+    //     let transforms = &self.transforms;
+    //     _Transform {
+    //         position: transforms.get_position(t),
+    //         rotation: transforms.get_rotation(t),
+    //         scale: transforms.get_scale(t),
+    //     }
+    // }
     fn copy_game_object_child(&mut self, t: i32, new_parent: i32) {
-        let g = self.instantiate_with_transform_with_parent(new_parent, self.get_transform(t));
+        let tr = self.transforms.get(t).get_transform();
+        let g = self.instantiate_with_transform_with_parent(new_parent, tr);
         let entities = self.entities.read();
         if let (Some(src_obj), Some(dest_obj)) = (&entities[t as usize], &entities[g.t as usize]) {
             let children: Vec<i32> = {
@@ -612,10 +613,10 @@ impl World {
                 for c in src_obj.read().iter() {
                     dest_obj.insert(
                         *c.0,
-                        self.copy_component_id(&self.transforms.get_transform(g.t), *c.0, *c.1),
+                        self.copy_component_id(&self.transforms.get(g.t), *c.0, *c.1),
                     );
                 }
-                let x = self.transforms.get_transform(t).get_meta()
+                let x = self.transforms.get(t).get_meta()
                     .children
                     .iter().copied()
                     .collect();
@@ -630,8 +631,11 @@ impl World {
         }
     }
     pub fn copy_game_object(&mut self, t: i32) -> GameObject {
-        let parent = { self.transforms.get_parent(t) };
-        let g = self.instantiate_with_transform_with_parent(parent, self.get_transform(t));
+        let trans = self.transforms.get(t);
+        let parent = { trans.get_parent().id };
+        let tr = trans.get_transform();
+        drop(trans);
+        let g = self.instantiate_with_transform_with_parent(parent, tr);
         let entities = self.entities.read();
         if let (Some(src_obj), Some(dest_obj)) = (&entities[t as usize], &entities[g.t as usize]) {
             let children: Vec<i32> = {
@@ -639,10 +643,10 @@ impl World {
                 for c in src_obj.read().iter() {
                     dest_obj.insert(
                         *c.0,
-                        self.copy_component_id(&self.transforms.get_transform(g.t), *c.0, *c.1),
+                        self.copy_component_id(&self.transforms.get(g.t), *c.0, *c.1),
                     );
                 }
-                let x = self.transforms.get_transform(t).get_meta()
+                let x = self.transforms.get(t).get_meta()
                     .children
                     .iter().copied()
                     .collect();
@@ -712,7 +716,7 @@ impl World {
             .downcast_mut::<Storage<T>>()
         {
             let c_id = stor.emplace(g.t, d);
-            let trans = self.transforms.get_transform(g.t);
+            let trans = self.transforms.get(g.t);
             stor.init(&trans, c_id, &mut self.sys.lock());
             if let Some(ent_components) = &self.entities.read()[g.t as usize] {
                 ent_components.write().insert(key, c_id);
@@ -727,7 +731,7 @@ impl World {
         if let Some(ent_components) = &self.entities.read()[g.t as usize] {
             ent_components.write().insert(key, c_id);
             if let Some(stor) = self.components.get(&key) {
-                let trans = self.transforms.get_transform(g.t);
+                let trans = self.transforms.get(g.t);
                 stor.write().init(&trans, c_id, &mut self.sys.lock());
             }
         }
@@ -738,7 +742,7 @@ impl World {
         if let Some(stor) = self.components_names.get(&key) {
             let mut stor = stor.write();
             let c_id = stor.deserialize(g.t, s);
-            let trans = self.transforms.get_transform(g.t);
+            let trans = self.transforms.get(g.t);
             stor.init(&trans, c_id, &mut self.sys.lock());
             if let Some(ent_components) = &self.entities.read()[g.t as usize] {
                 ent_components.write().insert(stor.get_type(), c_id);
@@ -750,7 +754,7 @@ impl World {
     pub fn remove_component(&mut self, g: GameObject, key: TypeId, c_id: i32) {
         if let Some(ent_components) = &self.entities.read()[g.t as usize] {
             if let Some(stor) = self.components.get(&key) {
-                let trans = self.transforms.get_transform(g.t);
+                let trans = self.transforms.get(g.t);
                 stor.write().deinit(&trans, c_id, &mut self.sys.lock());
                 stor.write().erase(c_id);
             }
@@ -797,7 +801,7 @@ impl World {
             for (t, id) in &*g_components.write() {
                 let stor = &mut self.components.get(t).unwrap().write();
 
-                let trans = self.transforms.get_transform(g.t);
+                let trans = self.transforms.get(g.t);
                 stor.deinit(&trans, *id, &mut self.sys.lock());
                 stor.erase(*id);
             }
@@ -885,10 +889,10 @@ impl World {
             .iter()
             .zip(camera_storage.data.iter())
             .for_each(|(v, d)| {
-                if v.load(Ordering::Relaxed) {
+                if *v {
                     let mut d = d.lock();
                     let id: i32 = d.0;
-                    d.1._update(&self.transforms.get_transform(id));
+                    d.1._update(&self.transforms.get(id));
                 }
             });
     }

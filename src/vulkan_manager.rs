@@ -184,7 +184,7 @@ impl VulkanManager {
                         .iter()
                         .next()
                         .unwrap(),
-                    present_mode: vulkano::swapchain::PresentMode::Immediate,
+                    present_mode: vulkano::swapchain::PresentMode::Mailbox,
                     ..Default::default()
                 },
             )

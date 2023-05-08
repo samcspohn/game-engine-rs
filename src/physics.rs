@@ -56,7 +56,7 @@ impl Physics {
             &self.event_handler,
         );
         perf.update("physics step".into(), Instant::now() - inst);
-        
+
         // TODO: investigate if necessary
         let inst = Instant::now();
         self.query_pipeline.update(
@@ -66,12 +66,27 @@ impl Physics {
         );
         perf.update("physics update".into(), Instant::now() - inst);
     }
-    pub fn get_counters() {
-        
-    }
+    pub fn get_counters() {}
     pub fn remove_collider(&mut self, handle: ColliderHandle) {
-        if let Some(_) = self.collider_set.remove(handle, &mut self.island_manager, &mut self.rigid_body_set, true) {}
-
+        if let Some(_) = self.collider_set.remove(
+            handle,
+            &mut self.island_manager,
+            &mut self.rigid_body_set,
+            true,
+        ) {}
+    }
+    pub fn remove_rigid_body(&mut self, handle: RigidBodyHandle) {
+        if let Some(_) = self.rigid_body_set.remove(
+            handle,
+            &mut self.island_manager,
+            &mut self.collider_set,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            true,
+        ) {}
+    }
+    pub fn add_collider_to_rigid_body(&mut self, collider: Collider, handle: RigidBodyHandle) {
+        self.collider_set.insert_with_parent(collider, handle, &mut self.rigid_body_set);
     }
     pub fn clear(&mut self) {
         *self = Physics::new();

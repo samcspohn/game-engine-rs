@@ -69,6 +69,7 @@ mod asset_manager;
 mod camera;
 mod color_gradient;
 mod drag_drop;
+mod editor_cam;
 mod editor_ui;
 mod file_watcher;
 mod game;
@@ -88,7 +89,7 @@ mod vulkan_manager;
 // use rapier3d::prelude::*;
 
 use crate::asset_manager::{AssetManagerBase, AssetsManager};
-use crate::editor_ui::{EDITOR_ASPECT_RATIO};
+use crate::editor_ui::EDITOR_ASPECT_RATIO;
 use crate::engine::physics::Physics;
 
 use crate::engine::World;
@@ -325,7 +326,12 @@ fn main() {
     let mut cam_data = CameraData::new(vk.clone());
     let mut playing_game = false;
 
-    let (mut cam_pos, mut cam_rot) = (Vec3::default(), glm::quat(-1., 0., 0., 0.));
+    // let (mut cam_pos, mut cam_rot) = (Vec3::default(), glm::quat(-1., 0., 0., 0.));
+    let mut editor_cam = editor_cam::EditorCam {
+        rot: glm::quat(-1., 0., 0., 0.),
+        pos: Vec3::default(),
+        speed: 30f32,
+    };
     event_loop.run(move |event, _, control_flow| {
         // let game_thread = game_thread.clone();
         *control_flow = ControlFlow::Poll;
@@ -349,14 +355,10 @@ fn main() {
                         running.store(false, Ordering::SeqCst);
                         let game_thread = game_thread.remove(0);
                         let _res = coms.1.send((input.clone(), playing_game));
-
                         game_thread.join().unwrap();
-
                         save_project(&file_watcher, &world.lock(), assets_manager.clone());
-
                         perf.print();
 
-                        // world.lock().sys.lock().physics.
                     }
                     WindowEvent::MouseInput {
                         device_id: _,
@@ -387,9 +389,6 @@ fn main() {
                             );
                         }
                     },
-                    // WindowEvent::AxisMotion { device_id, axis, value } => {
-                    //     println!("axis {:#?}: {}", axis, value);
-                    // },
                     WindowEvent::KeyboardInput { input: x, .. } => {
                         let _ = match x {
                             KeyboardInput {
@@ -415,22 +414,12 @@ fn main() {
                     WindowEvent::Resized(_size) => {
                         recreate_swapchain = true;
 
-                        // if size.width == 0 || size.height == 0 {
-                        //     minimized = true;
-                        // } else {
-                        //     minimized = false;
-                        //     app.resized = true;
-                        // }
                     }
                     _ => (),
                 }
 
                 if !input.get_key(&VirtualKeyCode::Space) {
-                    // let egui_consumed_event = egui_winit.on_event(&egui_ctx, &event);
                     gui.update(&event);
-                    // if !egui_consumed_event {
-                    //     // do your own event handling here
-                    // };
                 }
             }
             Event::RedrawEventsCleared => {
@@ -487,50 +476,10 @@ fn main() {
                     )
                 };
 
-                let speed = 30f32 * input.time.dt;
-                if !input.get_key(&VirtualKeyCode::LControl) && !playing_game {
-                    // forward/backward
-                    if input.get_key(&VirtualKeyCode::W) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
-                    }
-                    if input.get_key(&VirtualKeyCode::S) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
-                    }
-                    //left/right
-                    if input.get_key(&VirtualKeyCode::A) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
-                    }
-                    if input.get_key(&VirtualKeyCode::D) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
-                    }
-                    // up/down
-                    if input.get_key(&VirtualKeyCode::Space) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
-                    }
-                    if input.get_key(&VirtualKeyCode::LShift) {
-                        cam_pos +=
-                            (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
-                    }
-
-                    if input.get_mouse_button(&2) {
-                        cam_rot = glm::quat_rotate(
-                            &cam_rot,
-                            input.get_mouse_delta().0 as f32 * 0.01,
-                            &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
-                        );
-                        cam_rot = glm::quat_rotate(
-                            &cam_rot,
-                            input.get_mouse_delta().1 as f32 * 0.01,
-                            &Vec3::x(),
-                        );
-                    }
+                if !playing_game {
+                    editor_cam.update(&input);
                 }
-
+                
                 file_watcher.get_updates(assets_manager.clone());
 
                 let dimensions = vk
@@ -572,7 +521,6 @@ fn main() {
 
                     framebuffers = window_size_dependent_setup(
                         &new_images,
-                        // vk.device.clone(),
                         render_pass.clone(),
                         &mut viewport,
                     );
@@ -590,11 +538,7 @@ fn main() {
                         }
                         Err(e) => panic!("Failed to acquire next image: {:?}", e),
                     };
-                let cam_num = if playing_game {
-                    main_cam_id
-                } else {
-                    -1
-                };
+                let cam_num = if playing_game { main_cam_id } else { -1 };
                 let fc = fc_map
                     .entry(cam_num)
                     .or_insert(HashMap::<u32, TextureId>::new())
@@ -619,7 +563,13 @@ fn main() {
                 let mut _playing_game = false;
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    _playing_game = editor_ui::editor_ui(&world, &mut fps_queue, &ctx, *fc, assets_manager.clone());
+                    _playing_game = editor_ui::editor_ui(
+                        &world,
+                        &mut fps_queue,
+                        &ctx,
+                        *fc,
+                        assets_manager.clone(),
+                    );
                 });
                 {
                     let ear = EDITOR_ASPECT_RATIO.lock();
@@ -628,8 +578,6 @@ fn main() {
                         fc_map.clear();
                     }
                 }
-
-
 
                 perf.update("gui".into(), Instant::now() - inst);
 
@@ -744,8 +692,8 @@ fn main() {
                         transform_compute.transform.clone(),
                         input.time.dt,
                         input.time.time,
-                        cam_pos.into(),
-                        cam_rot.coords.into(),
+                        editor_cam.pos.into(),
+                        editor_cam.rot.coords.into(),
                     );
                 }
                 // compute shader renderers
@@ -769,7 +717,13 @@ fn main() {
                 };
 
                 if !playing_game {
-                    cam_data.update(cam_pos, cam_rot, 0.01f32, 10_000f32, 70f32);
+                    cam_data.update(
+                        editor_cam.pos,
+                        editor_cam.rot,
+                        0.01f32,
+                        10_000f32,
+                        70f32,
+                    );
                     cam_data.render(
                         vk.clone(),
                         &mut builder,
@@ -808,17 +762,6 @@ fn main() {
                         );
                     }
                 }
-
-                // builder
-                // .copy_image(CopyImageInfo::images(
-                //     image.clone(),
-                //     frame_img.clone(),
-                // ))
-                // .blit_image(BlitImageInfo::images(
-                //     frame_color.arc.clone(),
-                //     frame_img.clone(),
-                // ))
-                // .unwrap();
 
                 {
                     puffin::profile_scope!("render meshes");
@@ -908,16 +851,7 @@ fn main() {
                 };
                 // was playing != next frame playing?
                 if playing_game != _playing_game {
-                    if !playing_game {
-                        // for (k, v) in &fc_map {
-                        //     if *k == -1 {
-                        //         for (_k, v) in v.iter() {
-                        //             gui.unregister_user_image(*v);
-                        //         }
-                        //     }
-                        // }
-                        // let a = fc_map.get(&-1).unwrap();
-                    } else {
+                    if playing_game {
                         for (k, v) in &fc_map {
                             if *k != -1 {
                                 for (_k, v) in v.iter() {
@@ -925,11 +859,10 @@ fn main() {
                                 }
                             }
                         }
-                        let a = fc_map.remove(&-1).unwrap(); // get 
+                        let a = fc_map.remove(&-1).unwrap(); // get
                         fc_map.clear();
                         fc_map.insert(-1, a); // replace
                     }
-                    // fc_map.clear();
                 }
                 playing_game = _playing_game;
 

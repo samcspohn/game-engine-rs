@@ -202,14 +202,37 @@ impl Terrain {
                                     .map(|slice| [slice[0], slice[1], slice[2]])
                                     .collect();
 
+                            // let mut h = DMatrix::from_column_slice(
+                            //     terrain_size as usize,
+                            //     terrain_size as usize,
+                            //     m.0.iter()
+                            //         .map(|v| v.position[1])
+                            //         .collect::<Vec<f32>>()
+                            //         .as_slice(),
+                            // );
+                            // h = h.transpose();
+                            // // let heights = m.0.chunks(terrain_size as usize).map(|row| {
+                            // //     row.iter().map(|v| {v.position[1]}).collect::<Vec<f32>>()
+                            // // });
+                            // let collider = ColliderBuilder::heightfield(h, [1., 10., 10.].into())
+                            //     .translation(
+                            //         [
+                            //             10. * (x * terrain_size) as f32,
+                            //             0.,
+                            //             10. * (z * terrain_size) as f32,
+                            //         ]
+                            //         .into(),
+                            //     )
+                            //     .build();
+
                             let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces)
                                 .collision_groups(InteractionGroups::none())
                                 .solver_groups(InteractionGroups::none())
-                                // .collision_groups(InteractionGroups::new(
-                                //     0b10.into(),
-                                //     (!0b10).into(),
-                                // ))
-                                .build();
+                            // .collision_groups(InteractionGroups::new(
+                            //     0b10.into(),
+                            //     (!0b10).into(),
+                            // ))
+                            .build();
                             // .solver_groups(InteractionGroups::new(0b0011.into(), 0b1011.into()));
                             chunks
                                 .lock()
@@ -299,7 +322,7 @@ impl Terrain {
                                 m.3.iter().map(|i| i + start_index).collect::<Vec<u32>>(),
                             )
                             .unwrap();
-                        // lock builder/ copy buffers
+                            // lock builder/ copy buffers
                             let mut builder = builder.lock();
                             builder
                                 .copy_buffer(CopyBufferInfo::buffers(
@@ -336,7 +359,11 @@ impl Terrain {
         {
             let builder = Arc::try_unwrap(builder).ok().unwrap();
             let builder = builder.into_inner().unwrap();
-            let _ = builder.build().unwrap().execute(sys.vk.queue.clone()).unwrap();
+            let _ = builder
+                .build()
+                .unwrap()
+                .execute(sys.vk.queue.clone())
+                .unwrap();
             // let mut builder = AutoCommandBufferBuilder::primary(
             //     &sys.vk.comm_alloc,
             //     sys.vk.queue.queue_family_index(),
