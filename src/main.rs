@@ -2,6 +2,7 @@ use camera::{Camera, CameraData};
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::TextureId;
+use engine::Defer;
 
 use std::env;
 use vulkan_manager::VulkanManager;
@@ -107,10 +108,6 @@ use crate::transform_compute::cs;
 use crate::transform_compute::cs::ty::transform;
 
 use crate::input::Input;
-
-struct FrameImage {
-    arc: Arc<AttachmentImage>,
-}
 
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
@@ -278,13 +275,15 @@ fn main() {
     let coms = (rrx, tx);
 
     let physics = Physics::new();
+    let defer = Defer::new();
 
     let world = Arc::new(Mutex::new(World::new(
         model_manager.clone(),
         renderer_manager,
-        physics,
+        Arc::new(Mutex::new(physics)),
         particles.clone(),
         vk.clone(),
+        defer
     )));
     {
         let mut world = world.lock();
@@ -298,8 +297,8 @@ fn main() {
     }
     let rm = {
         let w = world.lock();
-        let s = w.sys.lock();
-        let rm = s.renderer_manager.read();
+        // let s = w.sys);
+        let rm = w.sys.renderer_manager.read();
 
         rm.shr_data.clone()
     };

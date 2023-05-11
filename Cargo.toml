@@ -77,3 +77,5 @@ notify = { version = "*", features = ["serde"] }
 relative-path = "*"
 sync-unsafe-cell = "0.1.0"
 nohash-hasher = "*"
+rudac = "0.8.3"
+cpq = "0.2.0"

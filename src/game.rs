@@ -42,7 +42,7 @@ impl Component for Bomb {
     // fn assign_transform(&mut self, t: Transform) {
     //     self.t = t;
     // }
-    fn update(&mut self, transform: &Transform, sys: &System) {
+    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
         let pos = transform.get_position();
         let vel = self.vel;
         let dt = sys.input.time.dt.min(1. / 20.);
@@ -60,11 +60,13 @@ impl Component for Bomb {
             true,
             QueryFilter::new(),
         ) {
+            // println!("impact");
+            world.destroy(transform.id);
             // let g = GameObject { t: transform.id };
             // sys.defer.append(move |world| {
             //     world.delete(g);
             // });
-            self.vel = glm::reflect_vec(&vel, &_hit.normal);
+            // self.vel = glm::reflect_vec(&vel, &_hit.normal);
         }
         // if pos.y <= 0. {
         //     self.vel = glm::reflect_vec(&vel, &glm::vec3(0.,1.,0.));
@@ -80,7 +82,7 @@ impl Component for Bomb {
 }
 
 impl Inspectable for Bomb {
-    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         // ui.add(egui::Label::new("Bomb"));
         // egui::CollapsingHeader::new("Bomb")
         //     .default_open(true)
@@ -96,7 +98,7 @@ pub struct Player {
     speed: f32,
 }
 impl Component for Player {
-    fn update(&mut self, transform: &Transform, sys: &System) {
+    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
         let input = &sys.input;
         let speed = self.speed * input.time.dt;
 
@@ -162,50 +164,80 @@ impl Component for Player {
         const ALOT: f32 = 10_000_000. / 60.;
         if input.get_mouse_button(&0) && input.get_mouse_button(&2) {
             let len = (ALOT * input.time.dt.min(1.0 / 30.0)) as usize;
-            sys.defer.append(move |world| {
-                // let len =
-                // let chunk_size =  (len / (64 * 64)).max(1);
-                (0..len)
-                    // .chunks(chunk_size)
-                    .for_each(|_| {
-                        let g = world.instantiate_with_transform(_Transform {
-                            // position: _cam_pos
-                            //     + glm::quat_to_mat3(&_cam_rot)
-                            //         * (glm::Vec3::y() * 10. - glm::Vec3::z() * 25.)
-                            //     + glm::vec3(
-                            //         rand::random::<f32>() - 0.5,
-                            //         rand::random::<f32>() - 0.5,
-                            //         rand::random::<f32>() - 0.5,
-                            //     ) * 18.,
-                            position: glm::vec3(
-                                (rand::random::<f32>() - 0.5) * 1000f32,
-                                100f32,
-                                (rand::random::<f32>() - 0.5) * 1000f32,
-                            ),
-                            ..Default::default()
-                        });
-                        world.add_component(
-                            g,
-                            Bomb {
-                                vel: glm::Vec3::y() * 50.
-                                    + glm::vec3(
-                                        rand::random::<f32>() - 0.5,
-                                        rand::random::<f32>() - 0.5,
-                                        rand::random::<f32>() - 0.5,
-                                    ) * 40.,
-                            },
-                        );
-                        // world.add_component(g, Renderer::new(0));
-                        world.add_component(g, ParticleEmitter::new(1));
-                    });
-            });
+            world
+                .instantiate_many(len as i32, 0, &world.transforms.get(0))
+                .with_transform(|| {
+                    _Transform {
+                        // position: _cam_pos
+                        //     + glm::quat_to_mat3(&_cam_rot)
+                        //         * (glm::Vec3::y() * 10. - glm::Vec3::z() * 25.)
+                        //     + glm::vec3(
+                        //         rand::random::<f32>() - 0.5,
+                        //         rand::random::<f32>() - 0.5,
+                        //         rand::random::<f32>() - 0.5,
+                        //     ) * 18.,
+                        position: glm::vec3(
+                            (rand::random::<f32>() - 0.5) * 1500f32,
+                            100f32,
+                            (rand::random::<f32>() - 0.5) * 1500f32,
+                        ),
+                        ..Default::default()
+                    }
+                })
+                .with_com(&|| Bomb {
+                    vel: glm::Vec3::y() * 100.
+                        + glm::vec3(
+                            rand::random::<f32>() - 0.5,
+                            rand::random::<f32>() - 0.5,
+                            rand::random::<f32>() - 0.5,
+                        ) * 70.,
+                })
+                .with_com::<ParticleEmitter>(&|| ParticleEmitter::new(1))
+                .build();
+            // sys.defer.append(move |world| {
+            //     // let len =
+            //     // let chunk_size =  (len / (64 * 64)).max(1);
+            //     (0..len)
+            //         // .chunks(chunk_size)
+            //         .for_each(|_| {
+            //             let g = world.instantiate_with_transform(_Transform {
+            //                 // position: _cam_pos
+            //                 //     + glm::quat_to_mat3(&_cam_rot)
+            //                 //         * (glm::Vec3::y() * 10. - glm::Vec3::z() * 25.)
+            //                 //     + glm::vec3(
+            //                 //         rand::random::<f32>() - 0.5,
+            //                 //         rand::random::<f32>() - 0.5,
+            //                 //         rand::random::<f32>() - 0.5,
+            //                 //     ) * 18.,
+            //                 position: glm::vec3(
+            //                     (rand::random::<f32>() - 0.5) * 1500f32,
+            //                     100f32,
+            //                     (rand::random::<f32>() - 0.5) * 1500f32,
+            //                 ),
+            //                 ..Default::default()
+            //             });
+            //             world.add_component(
+            //                 g,
+            //                 Bomb {
+            //                     vel: glm::Vec3::y() * 100.
+            //                         + glm::vec3(
+            //                             rand::random::<f32>() - 0.5,
+            //                             rand::random::<f32>() - 0.5,
+            //                             rand::random::<f32>() - 0.5,
+            //                         ) * 70.,
+            //                 },
+            //             );
+            //             // world.add_component(g, Renderer::new(0));
+            //             world.add_component(g, ParticleEmitter::new(1));
+            //         });
+            // });
         }
         // }
     }
 }
 
 impl Inspectable for Player {
-    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         Ins(&mut self.rof).inspect("rof", ui, sys);
         Ins(&mut self.speed).inspect("speed", ui, sys);
     }
@@ -255,7 +287,7 @@ type GameComm = (
 
 pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBool>) {
     let gravity = vector![0.0, -9.81, 0.0];
-    let defer = Defer::new();
+    // let defer = Defer::new();
 
     ////////////////////////////////////////////////
 
@@ -276,18 +308,19 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
                 {
                     puffin::profile_scope!("world update");
                     if phys_time >= phys_step {
-                        let sys = world.sys.lock();
-                        let len = sys.physics.rigid_body_set.len();
+                        // let sys = world.sys.lock();
+                        let mut physics = world.sys.physics.lock();
+                        let len = physics.rigid_body_set.len();
                         let num_threads =
                             (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
-                        drop(sys);
+                        // drop(sys);
                         rayon::ThreadPoolBuilder::new()
                             .num_threads(num_threads)
                             .build_scoped(
                                 |thread| thread.run(),
                                 |pool| {
                                     pool.install(|| {
-                                        world.sys.lock().physics.step(&gravity, &mut perf);
+                                        physics.step(&gravity, &mut perf);
                                     })
                                 },
                             )
@@ -295,18 +328,21 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
                         phys_time -= phys_step;
                     }
                     phys_time += input.time.dt;
-                    world.update(&defer, &input);
-                    world.late_update(&defer, &input);
+                    world.update(&input);
+                    world.late_update(&input);
                     world.update_cameras();
                 }
                 {
                     puffin::profile_scope!("defered");
-                    defer.do_defered(&mut world);
+                    world.do_defered();
+                    // world.sys.defer.do_defered(&mut world);
+                    world._destroy();
+                    world.defer_instantiate();
                 }
 
                 perf.update("world sim".into(), Instant::now() - inst);
             } else {
-                world.editor_update(&defer, &input);
+                world.editor_update(&input);
             }
             let inst = Instant::now();
             let transform_data = {
@@ -316,9 +352,10 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
             perf.update("get transform data".into(), Instant::now() - inst);
 
             let inst = Instant::now();
-            let _sys = world.sys.clone();
-            let sys = _sys.lock();
-            let mut rm = sys.renderer_manager.write();
+            // let _sys = world.sys.clone();
+            // let sys = _sys.lock();
+            
+            let mut rm = world.sys.renderer_manager.write();
             let renderer_data = {
                 // let a = rm.model_indirect.read();
                 // let b = a.deref();
@@ -357,7 +394,7 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
                 .len();
             let v = {
                 // let sys = world.sys.lock();
-                let mut emitter_inits = sys.particles.emitter_inits.lock();
+                let mut emitter_inits = world.sys.particles.emitter_inits.lock();
                 let mut v = Vec::<emitter_init>::new();
                 std::mem::swap(&mut v, &mut emitter_inits);
                 v
@@ -375,7 +412,7 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
                 .iter()
                 .zip(camera_storage.data.iter())
                 .map(|(v, d)| {
-                    if *v {
+                    if unsafe { *v.get() } {
                         let d = d.lock();
                         main_cam_id = d.0;
                         d.1.get_data()

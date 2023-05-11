@@ -137,7 +137,8 @@ impl Inspectable_ for GameObjectInspector {
 
                 if let Some(t_id) = unsafe { _selected } {
                     let entities = world.entities.write();
-                    if let Some(ent) = &entities[t_id as usize] {
+                    let mut _ent = entities[t_id as usize].lock();
+                    if let Some(ent) = _ent.as_mut() {
                         // let t = &world.transforms;
                         let _t = world.transforms.get(t_id);
                         egui::CollapsingHeader::new("Transform")
@@ -252,8 +253,9 @@ impl Inspectable_ for GameObjectInspector {
                                     _t.set_scale(scl);
                                 }
                             });
-                        let mut components = ent.write();
-                        for (c_type, id) in components.iter_mut() {
+                        // let mut components = ent.;
+                        // let components = &mut ent;
+                        for (c_type, id) in ent.iter_mut() {
                             if let Some(c) = world.components.get(c_type) {
                                 let c = c.write();
                                 // let name: String = c.get_name().into();
@@ -276,7 +278,7 @@ impl Inspectable_ for GameObjectInspector {
                                     });
                                 })
                                 .body(|ui| {
-                                    c.inspect(&_t, *id, ui, &mut world.sys.lock());
+                                    c.inspect(&_t, *id, ui, &world.sys);
                                 });
                             }
                         }
@@ -721,7 +723,7 @@ pub fn editor_ui(
                                             g
                                         }
                                         GameObjectContextMenu::DeleteGameObject(t_id) => {
-                                            world.delete(GameObject { t: *t_id });
+                                            world.destroy(*t_id);
                                             GameObject { t: -1 }
                                         }
                                     };
@@ -839,7 +841,7 @@ pub fn editor_ui(
                                         }
                                     }
                                 }
-                                render_dir(ui, cur_dir, &world.sys.lock(), &assets_manager);
+                                render_dir(ui, cur_dir, &world.sys, &assets_manager);
                             }
                             _ => {}
                         }

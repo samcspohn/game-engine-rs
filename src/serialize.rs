@@ -22,8 +22,8 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
     };
     // set components
     let entities = world.entities.read();
-    if let Some(ent) = &entities[t as usize] {
-        for c in ent.read().iter() {
+    if let Some(ent) = entities[t as usize].lock().as_ref() {
+        for c in ent.iter() {
             if let Some(stor) = &world.components.get(c.0) {
                 let t_id: String = stor.read().get_name().to_string();
                 // let t_id: String = format!("{:?}",c.0);

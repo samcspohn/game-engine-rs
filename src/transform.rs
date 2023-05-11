@@ -1,5 +1,8 @@
 use core::panic;
-use deepmesa::lists::{linkedlist::{Node, Iter}, LinkedList};
+use deepmesa::lists::{
+    linkedlist::{Iter, Node},
+    LinkedList,
+};
 use force_send_sync::SendSync;
 use glm::{Quat, Vec3};
 use nalgebra_glm as glm;
@@ -15,7 +18,7 @@ use std::{
     cmp::Reverse,
     collections::BinaryHeap,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicI32, Ordering},
         Arc,
     },
 };
@@ -38,12 +41,15 @@ impl TransformMeta {
     }
 }
 pub struct Transforms {
-    mutex: Vec<Mutex<()>>,
+    self_lock: Mutex<()>,
+    mutex: Vec<SyncUnsafeCell<Mutex<()>>>,
     positions: Vec<SyncUnsafeCell<glm::Vec3>>,
     rotations: Vec<SyncUnsafeCell<glm::Quat>>,
     scales: Vec<SyncUnsafeCell<glm::Vec3>>,
+    valid: Vec<SyncUnsafeCell<bool>>,
     meta: Vec<SyncUnsafeCell<TransformMeta>>,
-    avail: BinaryHeap<Reverse<i32>>,
+    avail: AtomicI32,
+    count: AtomicI32,
     updates: Vec<SyncUnsafeCell<[bool; 3]>>,
     extent: i32,
 }
@@ -116,11 +122,13 @@ impl<'a> Transform<'a> {
     }
     pub fn get_children(&self) -> TransformIter {
         let meta = unsafe { &*self.transforms.meta[self.id as usize].get() };
-        TransformIter { iter: meta.children.iter(), transforms: self.transforms }
+        TransformIter {
+            iter: meta.children.iter(),
+            transforms: self.transforms,
+        }
     }
     pub fn adopt(&self, child: &Transform) {
         self.transforms.adopt(self.id, child.id);
-
     }
     pub fn get_transform(&self) -> _Transform {
         // let transforms = &self.transforms;
@@ -134,8 +142,8 @@ impl<'a> Transform<'a> {
         self.transforms.get(self.transforms.get_parent(self.id))
     }
 
-    pub(crate) fn get_meta(&self) -> &TransformMeta {
-        unsafe { &*self.transforms.meta[self.id as usize].get() }
+    pub(crate) fn get_meta(&self) -> &mut TransformMeta {
+        unsafe { &mut *self.transforms.meta[self.id as usize].get() }
     }
 }
 
@@ -149,7 +157,7 @@ impl<'a> Iterator for TransformIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(it) = self.iter.next() {
             Some(self.transforms.get(*it))
-        }else {
+        } else {
             None
         }
     }
@@ -175,66 +183,96 @@ fn mul_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
 #[allow(dead_code)]
 impl Transforms {
     pub fn active(&self) -> usize {
-        self.extent as usize - self.avail.len()
+        self.count.load(Ordering::Relaxed) as usize
     }
     pub fn get<'a>(&self, t: i32) -> Transform {
+        // TODO: make option
         Transform {
-            _lock: self.mutex[t as usize].lock(),
+            _lock: unsafe { (*self.mutex[t as usize].get()).lock() },
             id: t,
             transforms: self,
         }
     }
     pub fn clear(&mut self) {
-        self.positions.clear();
-        self.rotations.clear();
-        self.scales.clear();
-        self.meta.clear();
-        self.updates.clear();
-        self.avail.clear();
-        self.extent = 0;
+        *self = Self::new();
+        // self.positions.clear();
+        // self.rotations.clear();
+        // self.scales.clear();
+        // self.meta.clear();
+        // self.updates.clear();
+        // self.avail = AtomicI32::new(0);
+        // self.count = AtomicI32::new(0);
+        // self.extent = 0;
     }
     pub fn new() -> Transforms {
         Transforms {
+            self_lock: Mutex::new(()),
             mutex: Vec::new(),
             positions: Vec::new(),
             rotations: Vec::new(),
             scales: Vec::new(),
             meta: Vec::new(),
             updates: Vec::new(),
-            avail: BinaryHeap::new(),
+            valid: Vec::new(),
+            avail: AtomicI32::new(0),
+            count: AtomicI32::new(0),
             extent: 0,
         }
     }
-    pub fn new_root(&mut self) -> i32 {
-        match self.avail.pop() {
-            Some(Reverse(i)) => {
-                unsafe {
-                    self.mutex[i as usize] = Mutex::new(());
-                    *self.positions[i as usize].get() = glm::vec3(0.0, 0.0, 0.0);
-                    *self.rotations[i as usize].get() = glm::quat(1.0, 0.0, 0.0, 0.0);
-                    *self.scales[i as usize].get() = glm::vec3(1.0, 1.0, 1.0);
-                    *self.meta[i as usize].get() = TransformMeta::new();
-                    let u = &mut *self.updates[i as usize].get();
-                    u[POS_U] = true;
-                    u[ROT_U] = true;
-                    u[SCL_U] = true;
-                }
-                i
-            }
-            None => {
-                self.mutex.push(Mutex::new(()));
-                self.positions
-                    .push(SyncUnsafeCell::new(glm::vec3(0.0, 0.0, 0.0)));
-                self.rotations
-                    .push(SyncUnsafeCell::new(glm::quat(1.0, 0.0, 0.0, 0.0)));
-                self.scales
-                    .push(SyncUnsafeCell::new(glm::vec3(1.0, 1.0, 1.0)));
-                self.meta.push(SyncUnsafeCell::new(TransformMeta::new()));
-                self.updates.push(SyncUnsafeCell::new([true, true, true]));
-                self.extent += 1;
-                self.extent - 1
-            }
+
+    fn write_transform(&self, i: i32, t: _Transform) {
+        unsafe {
+            *self.mutex[i as usize].get() = Mutex::new(());
+            *self.positions[i as usize].get() = t.position;
+            *self.rotations[i as usize].get() = t.rotation;
+            *self.scales[i as usize].get() = t.scale;
+            *self.meta[i as usize].get() = TransformMeta::new();
+            *self.valid[i as usize].get() = true;
+            let u = &mut *self.updates[i as usize].get();
+            u[POS_U] = true;
+            u[ROT_U] = true;
+            u[SCL_U] = true;
         }
+    }
+    fn push_transform(&mut self, t: _Transform) {
+        self.mutex.push(SyncUnsafeCell::new(Mutex::new(())));
+        self.positions.push(SyncUnsafeCell::new(t.position));
+        self.rotations.push(SyncUnsafeCell::new(t.rotation));
+        self.scales.push(SyncUnsafeCell::new(t.scale));
+        self.meta.push(SyncUnsafeCell::new(TransformMeta::new()));
+        self.valid.push(SyncUnsafeCell::new(true));
+        self.updates.push(SyncUnsafeCell::new([true, true, true]));
+    }
+    fn get_next_id(&mut self) -> (bool,i32) {
+        let i = self.avail.load(Ordering::Relaxed);
+        self.count.fetch_add(1, Ordering::Relaxed);
+
+        if i < self.extent {
+            unsafe {
+                *self.valid[i as usize].get() = true;
+            }
+            let mut _i = i;
+            while _i < self.extent && unsafe { *self.valid[_i as usize].get() } {
+                // find next open slot
+                _i += 1;
+            }
+            self.avail.store(_i, Ordering::Relaxed);
+            return (true, i) ;
+        } else {
+            // self.valid.push(true);
+            self.extent += 1;
+            self.avail.store(self.extent, Ordering::Relaxed);
+            return (false,self.extent - 1);
+        }
+    }
+    pub fn new_root(&mut self) -> i32 {
+        let (write, id) = self.get_next_id();
+        if write {
+            self.write_transform(id, _Transform::default());
+        } else {
+            self.push_transform(_Transform::default());
+        }
+        id
     }
 
     pub fn new_transform(&mut self, parent: i32) -> i32 {
@@ -244,54 +282,114 @@ impl Transforms {
         if parent == -1 {
             panic!("no")
         }
-        let ret = match self.avail.pop() {
-            Some(Reverse(i)) => {
-                unsafe {
-                    self.mutex[i as usize] = Mutex::new(());
-                    *self.positions[i as usize].get() = transform.position;
-                    *self.rotations[i as usize].get() = transform.rotation;
-                    *self.scales[i as usize].get() = transform.scale;
-                    *self.meta[i as usize].get() = TransformMeta::new();
-                    let u = &mut *self.updates[i as usize].get();
-                    u[POS_U] = true;
-                    u[ROT_U] = true;
-                    u[SCL_U] = true;
-                }
-                i
-            }
-            None => {
-                self.mutex.push(Mutex::new(()));
-                self.positions.push(SyncUnsafeCell::new(transform.position));
-                self.rotations.push(SyncUnsafeCell::new(transform.rotation));
-                self.scales.push(SyncUnsafeCell::new(transform.scale));
-                self.meta.push(SyncUnsafeCell::new(TransformMeta::new()));
-                self.updates.push(SyncUnsafeCell::new([true, true, true]));
-                self.extent += 1;
-                self.extent - 1
-            }
-        };
+        let (write, id) = self.get_next_id();
+        if write {
+            self.write_transform(id, transform);
+        } else {
+            self.push_transform(transform);
+        }
         unsafe {
-            let mut meta = &mut *self.meta[ret as usize].get();
+            let meta = &mut *self.meta[id as usize].get();
             meta.parent = parent;
             meta.child_id =
-                SendSync::new((*self.meta[parent as usize].get()).children.push_tail(ret));
+                SendSync::new((*self.meta[parent as usize].get()).children.push_tail(id));
         }
-        ret
+        id
     }
-    pub fn remove(&mut self, t: i32) {
-        {
-            unsafe {
-                let meta = &*self.meta[t as usize].get();
-                if meta.parent < 0 {
-                    panic!("wat?")
-                }
-                (*self.meta[meta.parent as usize].get())
-                    .children
-                    .pop_node(&meta.child_id);
 
-                *self.meta[t as usize].get() = TransformMeta::new();
-                self.avail.push(Reverse(t));
+    // pub fn multi_transform_with_avail<T>(&mut self, count: i32, t_func: T) ->
+    //     where
+    //         T: Fn() -> _Transform + Send + Sync, {
+
+    //         }
+    pub fn multi_transform_with<T>(&mut self, parent: i32, count: i32, t_func: T) -> Vec<i32>
+    where
+        T: Fn() -> _Transform + Send + Sync,
+    {
+        let mut c = 1;
+        let mut r = Vec::new();
+        let t_func = Arc::new(&t_func);
+        let _self = Arc::new(&self);
+
+        for _ in 0..count {
+            let i = self.new_transform_with(parent, t_func());
+            r.push(i);
+        }
+        r
+        // rayon::scope(|s| {
+        //     let _self = _self.clone();
+        // let mut avail = _self.avail.lock();
+        //     while let Some(i) = avail.pop() {
+        //         let t_func = t_func.clone();
+        //         let _self = _self.clone();
+        //         r.push(i);
+        //         // let i = i.clone();
+        //         // s.spawn(move |_| {
+        //         let i = i.clone();
+        //         let t_func = t_func.clone();
+        //         let _self = _self.clone();
+
+        //         let transform = t_func();
+        //         unsafe {
+        //             *_self.mutex[i as usize].get() = Mutex::new(());
+        //             *_self.positions[i as usize].get() = transform.position;
+        //             *_self.rotations[i as usize].get() = transform.rotation;
+        //             *_self.scales[i as usize].get() = transform.scale;
+        //             *_self.meta[i as usize].get() = TransformMeta::new();
+        //             let u = &mut *_self.updates[i as usize].get();
+        //             u[POS_U] = true;
+        //             u[ROT_U] = true;
+        //             u[SCL_U] = true;
+        //             let parent = _self.get(parent);
+        //             // parent.adopt(&self.get(i));
+        //             let meta = &mut *_self.meta[i as usize].get();
+        //             meta.parent = parent.id;
+        //             (*_self.meta[i as usize].get()).child_id =
+        //                 SendSync::new(parent.get_meta().children.push_tail(i));
+        //         }
+        //         // });
+
+        //         c += 1;
+        //         if c == count {
+        //             break;
+        //         }
+        //     }
+        //     // }
+        // });
+        // // drop(_self);
+        // for _ in c..count {
+        //     r.push(self.extent);
+        //     let transform = t_func();
+        //     self.mutex.push(SyncUnsafeCell::new(Mutex::new(())));
+        //     self.positions.push(SyncUnsafeCell::new(transform.position));
+        //     self.rotations.push(SyncUnsafeCell::new(transform.rotation));
+        //     self.scales.push(SyncUnsafeCell::new(transform.scale));
+        //     self.meta.push(SyncUnsafeCell::new(TransformMeta::new()));
+        //     self.updates.push(SyncUnsafeCell::new([true, true, true]));
+        //     unsafe {
+        //         let meta = &mut *self.meta[self.extent as usize].get();
+        //         meta.parent = parent;
+        //         meta.child_id = SendSync::new(
+        //             (*self.meta[parent as usize].get())
+        //                 .children
+        //                 .push_tail(self.extent),
+        //         );
+        //     }
+        //     self.extent += 1;
+        // }
+        // r
+    }
+    pub fn remove(&self, t: Transform) {
+        self.avail.fetch_min(t.id, Ordering::Acquire);
+        self.count.fetch_add(-1, Ordering::Acquire);
+        unsafe {
+            let meta = &*self.meta[t.id as usize].get();
+            if meta.parent < 0 {
+                panic!("wat? - child:{} parent: {}", t.id, meta.parent);
             }
+            t.get_parent().get_meta().children.pop_node(&meta.child_id);
+            *self.meta[t.id as usize].get() = TransformMeta::new();
+            *self.valid[t.id as usize].get() = false;
         }
     }
     pub fn adopt(&self, p: i32, t: i32) {
@@ -332,8 +430,7 @@ impl Transforms {
                 return;
             }
 
-            unsafe{ &mut *self.meta[t_meta.parent as usize]
-                .get() }
+            unsafe { &mut *self.meta[t_meta.parent as usize].get() }
                 .children
                 .pop_node(&t_meta.child_id);
 
@@ -349,15 +446,13 @@ impl Transforms {
         }
 
         unsafe {
-        (*self.meta[t_meta.parent as usize]
-            .get())
-            .children
-            .pop_node(&t_meta.child_id);
+            (*self.meta[t_meta.parent as usize].get())
+                .children
+                .pop_node(&t_meta.child_id);
 
-        t_meta.parent = c_meta.parent;
+            t_meta.parent = c_meta.parent;
             t_meta.child_id = SendSync::new(
-                (*self.meta[c_meta.parent as usize]
-                    .get())
+                (*self.meta[c_meta.parent as usize].get())
                     .children
                     .push_next(&c_meta.child_id, t)
                     .unwrap(),

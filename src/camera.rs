@@ -81,7 +81,7 @@ impl Inspectable for Camera {
         _transform: &Transform,
         _id: i32,
         ui: &mut egui::Ui,
-        sys: &mut crate::engine::Sys,
+        sys: &crate::engine::Sys,
     ) {
         Ins(&mut self.fov).inspect("fov", ui, sys);
         Ins(&mut self.near).inspect("near", ui, sys);
@@ -89,7 +89,7 @@ impl Inspectable for Camera {
     }
 }
 impl Component for Camera {
-    fn init(&mut self, _transform: &Transform, _id: i32, sys: &mut crate::engine::Sys) {
+    fn init(&mut self, _transform: &Transform, _id: i32, sys: &crate::engine::Sys) {
         self.data = Some(Arc::new(Mutex::new(CameraData::new(sys.vk.clone()))));
     }
 }

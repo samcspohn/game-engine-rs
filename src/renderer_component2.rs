@@ -33,7 +33,7 @@ struct ModelId {
     id: i32,
 }
 impl<'a> Inpsect for Ins<'a, ModelId> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) {
         let drop_data = drag_drop::DRAG_DROP_DATA.lock();
 
         let model: String = match sys.model_manager.lock().assets_id.get(&self.0.id) {
@@ -73,7 +73,7 @@ pub struct Renderer {
 
 
 impl Inspectable for Renderer {
-    fn inspect(&mut self, transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         // ui.add(egui::Label::new("Renderer"));
         // egui::CollapsingHeader::new(std::any::type_name::<Self>())
         //     .default_open(true)
@@ -483,7 +483,7 @@ impl Renderer {
 }
 
 impl Component for Renderer {
-    fn init(&mut self, transform: &Transform, _id: i32, sys: &mut Sys) {
+    fn init(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
         let rm = &mut sys.renderer_manager.write();
         let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
             ind.count += 1;
@@ -534,7 +534,7 @@ impl Component for Renderer {
             },
         );
     }
-    fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &mut Sys) {
+    fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
         sys.renderer_manager
             .write()
             .model_indirect

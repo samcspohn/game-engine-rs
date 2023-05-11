@@ -31,7 +31,7 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use crate::model;
+use crate::{model, engine::World};
 use crate::{
     asset_manager::AssetManagerBase,
     engine::{RenderJobData, System},
@@ -78,7 +78,7 @@ pub struct Terrain {
 }
 
 impl Inspectable for Terrain {
-    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         // egui::CollapsingHeader::new("Terrain")
         //     .default_open(true)
         //     .show(ui, |ui| {
@@ -347,7 +347,7 @@ impl Terrain {
 
                             let _chunks = chunks.clone();
                             sys.defer.append(move |world| {
-                                let handle = world.sys.lock().physics.collider_set.insert(collider);
+                                let handle = world.sys.physics.lock().collider_set.insert(collider);
                                 _chunks.lock().get_mut(&x_).unwrap().insert(z_, handle);
                             });
                             cur_chunks.fetch_add(1, Ordering::Relaxed);
@@ -623,7 +623,7 @@ impl Component for Terrain {
             Box::new(move |_rd: &mut RenderJobData| {})
         }
     }
-    fn update(&mut self, transform: &Transform, sys: &crate::engine::System) {
+    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
         self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
         self.generate(&transform, sys);
     }
@@ -631,11 +631,11 @@ impl Component for Terrain {
         self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
         self.generate(&transform, sys);
     }
-    fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &mut Sys) {
+    fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
         let chunks = self.chunks.lock();
         for x in chunks.iter() {
             for (_z, col) in x.1 {
-                sys.physics.remove_collider(*col);
+                sys.physics.lock().remove_collider(*col);
             }
         }
     }

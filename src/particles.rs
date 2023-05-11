@@ -101,7 +101,7 @@ pub struct ParticleEmitter {
     template: i32,
 }
 impl Inspectable for ParticleEmitter {
-    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &mut Sys) {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         // ui.add(egui::DragValue::new(&mut self.template));
         // ui.add(egui::Label::new("Particle Emitter"));
         // egui::CollapsingHeader::new("Particle Emitter")
@@ -121,7 +121,7 @@ impl Component for ParticleEmitter {
     // fn assign_transform(&mut self, t: Transform) {
     //     self.t = t;
     // }
-    fn init(&mut self, transform: &Transform, id: i32, sys: &mut crate::engine::Sys) {
+    fn init(&mut self, transform: &Transform, id: i32, sys: &crate::engine::Sys) {
         // self.template = id % 2;
         sys.particles
             .emitter_inits
@@ -133,7 +133,7 @@ impl Component for ParticleEmitter {
                 e_id: id,
             });
     }
-    fn deinit(&mut self, transform: &Transform, id: i32, sys: &mut crate::engine::Sys) {
+    fn deinit(&mut self, transform: &Transform, id: i32, sys: &crate::engine::Sys) {
         sys.particles
             .emitter_inits
             .lock()
