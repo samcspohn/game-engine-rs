@@ -1,4 +1,7 @@
-use std::{sync::Arc};
+use std::sync::{
+    atomic::{AtomicI32, AtomicUsize, Ordering},
+    Arc,
+};
 
 use crate::{
     asset_manager::{self, Asset, AssetManagerBase},
@@ -12,14 +15,14 @@ use crate::{
 };
 // use lazy_static::lazy::Lazy;
 
-
 use nalgebra_glm as glm;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
+use sync_unsafe_cell::SyncUnsafeCell;
 use vulkano::{
     buffer::{
-        cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, CpuBufferPool,
-        DeviceLocalBuffer, TypedBufferAccess,
+        cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer,
+        TypedBufferAccess,
     },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
@@ -28,7 +31,7 @@ use vulkano::{
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
-    device::{Device},
+    device::Device,
     format::Format,
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
     memory::allocator::{MemoryUsage, StandardMemoryAllocator},
@@ -118,31 +121,34 @@ impl ParticleEmitter {
 }
 
 impl Component for ParticleEmitter {
-    // fn assign_transform(&mut self, t: Transform) {
-    //     self.t = t;
-    // }
     fn init(&mut self, transform: &Transform, id: i32, sys: &crate::engine::Sys) {
-        // self.template = id % 2;
-        sys.particles
-            .emitter_inits
-            .lock()
-            .push(cs::ty::emitter_init {
-                transform_id: transform.id,
-                alive: 1,
-                template_id: self.template,
-                e_id: id,
-            });
+        let d = cs::ty::emitter_init {
+            transform_id: transform.id,
+            alive: 1,
+            template_id: self.template,
+            e_id: id,
+        };
+        match sys.particles.emitter_inits.try_push(d) {
+            None => {}
+            Some(i) => {
+                sys.particles.emitter_inits.push(i, d);
+            }
+        }
     }
     fn deinit(&mut self, transform: &Transform, id: i32, sys: &crate::engine::Sys) {
-        sys.particles
-            .emitter_inits
-            .lock()
-            .push(cs::ty::emitter_init {
-                transform_id: transform.id,
-                alive: 0,
-                template_id: self.template,
-                e_id: id,
-            });
+        let d = cs::ty::emitter_init {
+            transform_id: transform.id,
+            alive: 0,
+            template_id: self.template,
+            e_id: id,
+        };
+
+        match sys.particles.emitter_inits.try_push(d) {
+            None => {}
+            Some(i) => {
+                sys.particles.emitter_inits.push(i, d);
+            }
+        }
     }
 }
 
@@ -153,9 +159,7 @@ pub struct ParticleTemplate {
     speed: f32,
     emission_rate: f32,
     life_time: f32,
-    // #[serde(default)]
     color_over_life: ColorGradient,
-    // #[serde(default)]
     trail: bool,
 }
 
@@ -225,9 +229,7 @@ impl Inspectable_ for ParticleTemplate {
     }
 }
 
-impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>>
-    for ParticleTemplate
-{
+impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>> for ParticleTemplate {
     fn from_file(file: &str, params: &Arc<Mutex<_Storage<particle_template>>>) -> ParticleTemplate {
         let mut t = ParticleTemplate::default();
         if let Ok(s) = std::fs::read_to_string(file) {
@@ -271,10 +273,8 @@ impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>>
     }
 }
 
-pub type ParticleTemplateManager = asset_manager::AssetManager<
-    Arc<Mutex<_Storage<cs::ty::particle_template>>>,
-    ParticleTemplate,
->;
+pub type ParticleTemplateManager =
+    asset_manager::AssetManager<Arc<Mutex<_Storage<cs::ty::particle_template>>>, ParticleTemplate>;
 
 pub struct PerformanceCounters {
     pub update_particles: i32,
@@ -298,9 +298,82 @@ pub struct ParticleBuffers {
     pub alive_b: Arc<DeviceLocalBuffer<[cs::ty::b]>>,
 }
 
+pub struct AtomicVec<T: Copy> {
+    lock: Mutex<()>,
+    data: SyncUnsafeCell<Vec<T>>,
+    index: AtomicUsize,
+}
+impl<T: Copy> AtomicVec<T> {
+    pub fn new() -> Self {
+        let mut data = Vec::with_capacity(4);
+        unsafe {
+            data.set_len(4);
+        }
+        Self {
+            lock: Mutex::new(()),
+            data: SyncUnsafeCell::new(data),
+            index: AtomicUsize::new(0),
+        }
+    }
+    pub fn push_multi<'a>(&mut self, count: usize) -> ( MutexGuard<()>, &'a [T]) {
+        let _l = self.lock.lock();
+        unsafe {
+            let index = self.index.load(Ordering::Relaxed);
+            (*self.data.get()).reserve(count);
+            (*self.data.get()).set_len(index + count);
+            self.index.fetch_add(count, Ordering::Relaxed);
+            (_l, &(*self.data.get())[index..(index+count)])
+        }
+        
+    }
+    pub fn try_push(&self, d: T) -> Option<usize> {
+        let index = self.index.fetch_add(1, Ordering::Relaxed);
+        if index >= unsafe { (*self.data.get()).len() } {
+            Some(index)
+        } else {
+            unsafe { (*self.data.get())[index] = d };
+            None
+        }
+    }
+    pub fn push(&self, i: usize, d: T) {
+        // let index = self.index.fetch_add(1, Ordering::Relaxed);
+        unsafe {
+            let _l = self.lock.lock();
+            if i >= (*self.data.get()).len() {
+                let data = &mut (*self.data.get());
+                let len = data.len() + 1;
+                let new_len = (data.len() + 1).next_power_of_two();
+                data.reserve_exact(new_len - len + 1);
+                data.set_len(new_len);
+            }
+            (*self.data.get())[i] = d;
+            // drop(l);
+        };
+    }
+    pub fn get_vec(&self) -> Vec<T> {
+        let _l = self.lock.lock();
+        // let mut v = Vec::new();
+        let len = self.index.load(Ordering::Relaxed);
+        // unsafe {
+        //     let cap = (*self.data.get()).capacity();
+        //     std::mem::swap(&mut v, &mut *self.data.get());
+        //     v.set_len(len);
+        //     *self.data.get() = Vec::with_capacity(cap);
+        //     (*self.data.get()).set_len(cap);
+        // }
+        // v
+        let mut v = Vec::with_capacity(len);
+        for i in (0..len).into_iter() {
+            unsafe { v.push((*self.data.get())[i]) };
+        }
+        self.index.store(0, Ordering::Relaxed);
+        v
+    }
+}
+
 pub struct ParticleCompute {
     pub sort: ParticleSort,
-    pub emitter_inits: Arc<Mutex<Vec<cs::ty::emitter_init>>>,
+    pub emitter_inits: AtomicVec<cs::ty::emitter_init>,
     pub particle_templates: Arc<Mutex<_Storage<cs::ty::particle_template>>>,
     pub particle_template_manager: Arc<Mutex<ParticleTemplateManager>>,
     pub particle_buffers: ParticleBuffers,
@@ -465,7 +538,7 @@ impl ParticleCompute {
             device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
-    
+
         // avail_count
         let copy_buffer =
             CpuAccessibleBuffer::from_data(&vk.mem_alloc, buffer_usage_all(), false, 0i32).unwrap();
@@ -638,7 +711,7 @@ impl ParticleCompute {
                 &vk.comm_alloc,
                 vk.desc_alloc.clone(),
             ),
-            emitter_inits: Arc::new(Mutex::new(Vec::new())),
+            emitter_inits: AtomicVec::new(),
             particle_templates,
             particle_template_manager,
             particle_buffers: ParticleBuffers {
@@ -698,14 +771,7 @@ impl ParticleCompute {
             cam_pos,
             cam_rot,
         );
-        self.particle_update(
-            builder,
-            transform,
-            dt,
-            time,
-            cam_pos,
-            cam_rot,
-        );
+        self.particle_update(builder, transform, dt, time, cam_pos, cam_rot);
     }
     pub fn emitter_init(
         &self,
@@ -955,16 +1021,16 @@ impl ParticleCompute {
             self.vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
-    let mut uniform_data = cs::ty::Data {
-        num_jobs: MAX_PARTICLES,
-        dt,
-        time,
-        stage: 2,
-        cam_pos,
-        cam_rot,
-        MAX_PARTICLES,
-        _dummy0: Default::default(),
-    };
+        let mut uniform_data = cs::ty::Data {
+            num_jobs: MAX_PARTICLES,
+            dt,
+            time,
+            stage: 2,
+            cam_pos,
+            cam_rot,
+            MAX_PARTICLES,
+            _dummy0: Default::default(),
+        };
         let uniform_sub_buffer = self.compute_uniforms.from_data(uniform_data).unwrap();
         let get_descriptors = |ub: Arc<CpuBufferPoolSubbuffer<cs::ty::Data>>| {
             [

@@ -428,37 +428,6 @@ fn main() {
                 ////////////////////////////////////
 
                 let full = Instant::now();
-
-                static mut GRAB_MODE: bool = true;
-                if input.get_key_press(&VirtualKeyCode::G) {
-                    unsafe {
-                        let _er = vk
-                            .surface
-                            .object()
-                            .unwrap()
-                            .downcast_ref::<Window>()
-                            .unwrap()
-                            .set_cursor_grab(match GRAB_MODE {
-                                true => CursorGrabMode::Confined,
-                                false => CursorGrabMode::None,
-                            });
-                        GRAB_MODE = !GRAB_MODE;
-                    }
-                }
-                if input.get_key_press(&VirtualKeyCode::J) {
-                    lock_cull = !lock_cull;
-                    // lock_cull.
-                }
-
-                if input.get_key(&VirtualKeyCode::H) {
-                    vk.surface
-                        .object()
-                        .unwrap()
-                        .downcast_ref::<Window>()
-                        .unwrap()
-                        .set_cursor_visible(modifiers.shift());
-                }
-
                 let (transform_data, cam_datas, main_cam_id, mut rd, emitter_inits) = {
                     puffin::profile_scope!("wait for game");
                     let inst = Instant::now();
@@ -865,7 +834,6 @@ fn main() {
                 }
                 playing_game = _playing_game;
 
-                // }
                 perf.update("render".into(), Instant::now() - inst);
                 perf.update("full".into(), Instant::now() - full);
 
@@ -873,8 +841,6 @@ fn main() {
                     puffin::set_scopes_on(true);
                     first_frame = false;
                 }
-
-                // });
             }
             _ => (),
         }

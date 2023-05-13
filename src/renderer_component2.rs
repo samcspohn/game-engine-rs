@@ -442,6 +442,31 @@ impl RendererManager {
             })),
         }
     }
+    pub(crate) fn get_renderer_data(&mut self) -> RendererData{
+            let renderer_data = RendererData {
+                model_indirect: self
+                    .model_indirect
+                    .read()
+                    .iter()
+                    .map(|(k, v)| (*k, *v))
+                    .collect(),
+                indirect_model: self
+                    .indirect_model
+                    .read()
+                    .iter()
+                    .map(|(k, v)| (*k, *v))
+                    .collect(),
+                updates: self
+                    .updates
+                    .iter()
+                    .flat_map(|(id, t)| vec![*id, t.indirect_id, t.transform_id].into_iter())
+                    .collect(),
+                transforms_len: self.transforms.data.len() as i32,
+            };
+            self.updates.clear();
+            renderer_data
+
+    }
     pub(crate) fn clear(&mut self) {
         self.transforms.clear();
         let mut m = self.model_indirect.write();

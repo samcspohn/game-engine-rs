@@ -21,7 +21,7 @@ use transform::{Transform, Transforms};
 // use rapier3d::prelude::*;
 use rayon::prelude::*;
 
-use crossbeam::queue::SegQueue;
+use crossbeam::{atomic::AtomicConsume, queue::SegQueue};
 
 use parking_lot::Mutex;
 use parking_lot::RwLock;
@@ -36,8 +36,13 @@ use vulkano::{
 };
 
 use crate::{
-    camera::Camera, input::Input, inspectable::Inspectable, model::ModelManager,
-    particles::ParticleCompute, renderer::RenderPipeline, renderer_component2::RendererManager,
+    camera::{Camera, CameraData},
+    input::Input,
+    inspectable::Inspectable,
+    model::ModelManager,
+    particles::{ParticleCompute, ParticleEmitter},
+    renderer::RenderPipeline,
+    renderer_component2::RendererManager,
     vulkan_manager::VulkanManager,
 };
 
@@ -171,9 +176,9 @@ impl<T: 'static> _Storage<T> {
 pub trait StorageBase {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn update(&mut self, transforms: &Transforms, sys: &Sys, input: &Input, world: &World);
-    fn late_update(&mut self, transforms: &Transforms, sys: &Sys, input: &Input);
-    fn editor_update(&mut self, transforms: &Transforms, sys: &Sys, input: &Input);
+    fn update(&mut self, transforms: &Transforms, sys: &System, input: &Input, world: &World);
+    fn late_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
+    fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData)>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn erase(&self, i: i32);
@@ -198,35 +203,56 @@ pub struct Storage<T> {
     pub data: Vec<Mutex<(i32, T)>>,
     pub valid: Vec<SyncUnsafeCell<bool>>,
     avail: AtomicI32,
-    // avail: rudac::heap::FibonacciHeap<i32>,
-    // avail: pqueue::Queue<Reverse<i32>>,
-    extent: i32,
+    last: AtomicI32,
+    extent: AtomicI32,
     has_update: bool,
     has_render: bool,
     has_late_update: bool,
 }
 impl<T: 'static> Storage<T> {
-    pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
+    pub fn get_next_id(&self) -> (bool, i32) {
         let i = self.avail.load(Ordering::Relaxed);
-        if i < self.extent {
-            *self.data[i as usize].lock() = (transform, d);
+        // self.count.fetch_add(1, Ordering::Relaxed);
+        let extent = self.extent.load(Ordering::Relaxed);
+        if i < extent {
             unsafe {
                 *self.valid[i as usize].get() = true;
             }
             let mut _i = i;
-            // self.avail += 1;
-            while _i < self.extent && unsafe { *self.valid[_i as usize].get() } {
+            while _i < extent && unsafe { *self.valid[_i as usize].get() } {
                 // find next open slot
                 _i += 1;
             }
             self.avail.store(_i, Ordering::Relaxed);
-            return i;
+            self.last.fetch_max(_i, Ordering::Relaxed);
+            return (true, i);
+        } else {
+            let extent = extent + 1;
+            self.extent.store(extent, Ordering::Relaxed);
+            self.avail.store(extent, Ordering::Relaxed);
+            self.last.store(extent - 1, Ordering::Relaxed);
+            return (false, extent - 1);
+        }
+    }
+    pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
+        let (b, id) = self.get_next_id();
+        if b {
+            *self.data[id as usize].lock() = (transform, d);
         } else {
             self.data.push(Mutex::new((transform, d)));
             self.valid.push(SyncUnsafeCell::new(true));
-            self.extent += 1;
-            self.avail.store(self.extent, Ordering::Relaxed);
-            return self.extent - 1;
+        }
+        id
+    }
+    pub fn insert_multi<D: Fn() -> T>(&mut self, transforms: &[i32], d: D) {}
+    fn reduce_last(&self, id: i32) {
+        let mut id = id;
+        if id == self.last.load(Ordering::Relaxed) {
+            while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
+                // not thread safe!
+                id -= 1;
+            }
+            self.last.store(id, Ordering::Relaxed); // multi thread safe?
         }
     }
     pub fn erase(&self, id: i32) {
@@ -236,6 +262,7 @@ impl<T: 'static> Storage<T> {
         unsafe {
             *self.valid[id as usize].get() = false;
         }
+        self.reduce_last(id);
     }
     // pub fn get(&self, i: &i32) -> &Mutex<T> {
     //     &self.data[*i as usize]
@@ -245,7 +272,8 @@ impl<T: 'static> Storage<T> {
             data: Vec::new(),
             valid: Vec::new(),
             avail: AtomicI32::new(0),
-            extent: 0,
+            last: AtomicI32::new(-1),
+            extent: AtomicI32::new(0),
             has_update,
             has_late_update,
             has_render,
@@ -279,66 +307,35 @@ impl<
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
     }
-    fn update(&mut self, transforms: &Transforms, sys: &Sys, input: &Input, world: &World) {
+    fn update(&mut self, transforms: &Transforms, sys: &System, input: &Input, world: &World) {
         if !self.has_update {
             return;
         }
-        let chunk_size = (self.data.len() / (64 * 64)).max(1);
-
-        let sys = System {
-            // trans: transforms,
-            physics: &sys.physics.lock(),
-            defer: &sys.defer,
-            input,
-            model_manager: &sys.model_manager,
-            rendering: &sys.renderer_manager,
-            vk: sys.vk.clone(),
-        };
-
-        self.data
-            .par_iter()
-            .zip_eq(self.valid.par_iter())
-            // .enumerate()
-            .chunks(chunk_size)
-            .for_each(|slice| {
-                for (d, v) in slice {
-                    if unsafe { *v.get() } {
-                        let mut d = d.lock();
-                        let trans = transforms.get(d.0);
-                        d.1.update(&trans, &sys, world);
-                    }
-                }
-            });
+        let last = self.last.load(Ordering::Relaxed) as usize + 1;
+        let data = &self.data[0..last];
+        let valid = &self.valid[0..last];
+        data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
+            if unsafe { *v.get() } {
+                let mut d = d.lock();
+                let trans = transforms.get(d.0);
+                d.1.update(&trans, &sys, world);
+            }
+        });
     }
-    fn late_update(&mut self, transforms: &Transforms, sys: &Sys, input: &Input) {
+    fn late_update(&mut self, transforms: &Transforms, sys: &System, input: &Input) {
         if !self.has_late_update {
             return;
         }
-        let chunk_size = (self.data.len() / (64 * 64)).max(1);
-
-        let sys = System {
-            // trans: transforms,
-            physics: &sys.physics.lock(),
-            defer: &sys.defer,
-            input,
-            model_manager: &sys.model_manager,
-            rendering: &sys.renderer_manager,
-            vk: sys.vk.clone(),
-        };
-        self.data
-            .par_iter()
-            .zip_eq(self.valid.par_iter())
-            .enumerate()
-            .chunks(chunk_size)
-            .for_each(|slice| {
-                for (_i, (d, v)) in slice {
-                    if unsafe { *v.get() } {
-                        let mut d = d.lock();
-                        let trans = transforms.get(d.0);
-                        d.1.late_update(&trans, &sys);
-                    }
-                }
-            });
+        let last = self.last.load(Ordering::Relaxed) as usize + 1;
+        let data = &self.data[0..last];
+        let valid = &self.valid[0..last];
+        data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
+            if unsafe { *v.get() } {
+                let mut d = d.lock();
+                let trans = transforms.get(d.0);
+                d.1.late_update(&trans, &sys);
+            }
+        });
     }
     fn erase(&self, i: i32) {
         self.erase(i);
@@ -379,10 +376,7 @@ impl<
         ron::to_string(&self.data[i as usize].lock().1)
     }
     fn clear(&mut self) {
-        self.data.clear();
-        self.avail = AtomicI32::new(0);
-        self.extent = 0;
-        self.valid.clear();
+        *self = Self::new(self.has_update, self.has_late_update, self.has_render);
     }
 
     fn deserialize(&mut self, transform: i32, d: String) -> i32 {
@@ -394,48 +388,43 @@ impl<
         if !self.has_render {
             return;
         }
-        self.data
-            .iter_mut()
-            .zip(self.valid.iter())
-            .enumerate()
-            .for_each(|(_i, (d, v))| {
-                if unsafe { *v.get() } {
-                    let mut d = d.lock();
-                    let t_id = d.0;
-                    render_jobs.push(d.1.on_render(t_id));
-                }
-            });
+        let last = self.last.load(Ordering::Relaxed) as usize + 1;
+        let data = &self.data[0..last];
+        let valid = &self.valid[0..last];
+        data.iter().zip(valid.iter()).for_each(|(d, v)| {
+            if unsafe { *v.get() } {
+                let mut d = d.lock();
+                let t_id = d.0;
+                render_jobs.push(d.1.on_render(t_id));
+            }
+        });
     }
 
-    fn editor_update(&mut self, transforms: &Transforms, sys: &Sys, input: &Input) {
+    fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input) {
         if !self.has_update {
             return;
         }
-        let chunk_size = (self.data.len() / (64 * 64)).max(1);
 
-        let sys = System {
-            // trans: transforms,
-            physics: &sys.physics.lock(),
-            defer: &sys.defer,
-            input,
-            model_manager: &sys.model_manager,
-            rendering: &sys.renderer_manager,
-            vk: sys.vk.clone(),
-        };
-        self.data
-            .par_iter()
-            .zip_eq(self.valid.par_iter())
-            // .enumerate()
-            // .chunks(chunk_size)
-            .for_each(|(d, v)| {
-                // for  (d, v) in slice {
-                if unsafe { *v.get() } {
-                    let mut d = d.lock();
-                    let trans = transforms.get(d.0);
-                    d.1.editor_update(&trans, &sys);
-                }
-                // }
-            });
+        // let sys = System {
+        //     // trans: transforms,
+        //     physics: &sys.physics.lock(),
+        //     defer: &sys.defer,
+        //     input,
+        //     model_manager: &sys.model_manager,
+        //     rendering: &sys.renderer_manager,
+        //     vk: sys.vk.clone(),
+        // };
+        let last = self.last.load(Ordering::Relaxed) as usize + 1;
+        let data = &self.data[0..last];
+        let valid = &self.valid[0..last];
+        data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
+            if unsafe { *v.get() } {
+                let mut d = d.lock();
+                let trans = transforms.get(d.0);
+                d.1.editor_update(&trans, &sys);
+            }
+            // }
+        });
     }
 }
 
@@ -528,22 +517,6 @@ impl World {
 
                 for b in a.comp_funcs.iter() {
                     b(self, &t);
-                    // let key = b.0;
-                    // if let Some(c) = self.components.get(&key) {
-                    //     let mut stor = c.write();
-                    //     for t in &t {
-                    //         let t = *t;
-                    //         let c_id = b.1(stor.as_mut(), t);
-                    //         // let c_id = stor.new(t, &b.1);
-                    //         let trans = self.transforms.get(t);
-                    //         stor.init(&trans, c_id, &mut self.sys.lock());
-                    //         if let Some(ent_components) = ent[t as usize].lock().as_mut() {
-                    //             ent_components.insert(key, c_id);
-                    //         }
-                    //     }
-                    // } else {
-                    //     panic!("no type key?")
-                    // }
                 }
             }
         }
@@ -818,7 +791,7 @@ impl World {
                 }
                 // remove entity
                 *ent = None; // todo make read()
-                
+
                 // remove transform
                 self.transforms.remove(trans);
             }
@@ -855,25 +828,28 @@ impl World {
         }
         // self.sys.defer.do_defered(self);
     }
-    pub fn update(&self, input: &Input) {
-        // let sys = self.sys.lock();
-        for (_, stor) in &self.components {
-            stor.write().update(
-                &self.transforms,
-                &self.sys,
+    pub(crate) fn _update(&mut self, input: &Input) {
+        {
+            let sys = &self.sys;
+            let sys = System {
+                // trans: transforms,
+                physics: &sys.physics.lock(),
+                defer: &sys.defer,
                 input,
-                &self,
-            );
+                model_manager: &sys.model_manager,
+                rendering: &sys.renderer_manager,
+                vk: sys.vk.clone(),
+            };
+            for (_, stor) in &self.components {
+                stor.write().update(&self.transforms, &sys, input, &self);
+            }
+            for (_, stor) in &self.components {
+                stor.write().late_update(&self.transforms, &sys, input);
+            }
         }
+        self.update_cameras();
     }
-
-    pub(crate) fn late_update(&self, input: &Input) {
-        // let sys = self.sys.lock();
-        for (_, stor) in &self.components {
-            stor.write().late_update(&self.transforms, &self.sys, input);
-        }
-    }
-    pub(crate) fn update_cameras(&mut self) {
+    fn update_cameras(&mut self) {
         let camera_components = self.get_components::<Camera>().unwrap().read();
         let camera_storage = camera_components
             .as_any()
@@ -893,12 +869,18 @@ impl World {
     }
     pub(crate) fn editor_update(&mut self, input: &Input) {
         // let sys = self.sys.lock();
+        let sys = &self.sys;
+        let sys = System {
+            // trans: transforms,
+            physics: &sys.physics.lock(),
+            defer: &sys.defer,
+            input,
+            model_manager: &sys.model_manager,
+            rendering: &sys.renderer_manager,
+            vk: sys.vk.clone(),
+        };
         for (_, stor) in &self.components {
-            stor.write().editor_update(
-                &self.transforms,
-                &self.sys,
-                input,
-            );
+            stor.write().editor_update(&self.transforms, &sys, input);
         }
     }
     pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData)>> {
@@ -909,6 +891,40 @@ impl World {
             stor.write().on_render(&mut render_jobs);
         }
         render_jobs
+    }
+    pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
+        let camera_components = self.get_components::<Camera>().unwrap().read();
+        let camera_storage = camera_components
+            .as_any()
+            .downcast_ref::<Storage<Camera>>()
+            .unwrap();
+        let mut main_cam_id = -1;
+        let cam_datas = camera_storage
+            .valid
+            .iter()
+            .zip(camera_storage.data.iter())
+            .map(|(v, d)| {
+                if unsafe { *v.get() } {
+                    let d = d.lock();
+                    main_cam_id = d.0;
+                    d.1.get_data()
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+        (main_cam_id, cam_datas)
+    }
+    pub(crate) fn get_emitter_len(&self) -> usize {
+        self.get_components::<ParticleEmitter>()
+            .unwrap()
+            .read()
+            .as_any()
+            .downcast_ref::<Storage<ParticleEmitter>>()
+            .unwrap()
+            .data
+            .len()
     }
 
     pub fn clear(&mut self) {
@@ -1000,6 +1016,7 @@ impl<'a> GameObjectParBuilder<'a> {
                     .as_any_mut()
                     .downcast_mut::<Storage<T>>()
                 {
+                    if key == TypeId::of::<ParticleEmitter>() {}
                     for g in t_ {
                         let c_id = stor.emplace(*g, f());
                         let trans = world.transforms.get(*g);

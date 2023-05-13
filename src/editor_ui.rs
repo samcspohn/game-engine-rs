@@ -137,7 +137,7 @@ impl Inspectable_ for GameObjectInspector {
 
                 if let Some(t_id) = unsafe { _selected } {
                     let entities = world.entities.write();
-                    let mut _ent = entities[t_id as usize].lock();
+                    let mut _ent = entities[t_id as usize].lock(); // TODO: fix: if object is destroyed in play, fix panic on "stop"
                     if let Some(ent) = _ent.as_mut() {
                         // let t = &world.transforms;
                         let _t = world.transforms.get(t_id);

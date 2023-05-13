@@ -16,7 +16,7 @@ use std::{
     time::Instant,
 };
 
-use winit::event::VirtualKeyCode;
+use winit::{event::VirtualKeyCode, window::Window};
 // use rapier3d::{na::point, prelude::InteractionGroups};
 
 use crate::{
@@ -93,50 +93,75 @@ impl Inspectable for Bomb {
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Player {
     rof: f32,
     speed: f32,
+    grab_mode: bool,
+    cursor_vis: bool,
 }
 impl Component for Player {
     fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
         let input = &sys.input;
         let speed = self.speed * input.time.dt;
 
+        if input.get_key_press(&VirtualKeyCode::G) {
+            let _er = sys
+                .vk
+                .surface
+                .object()
+                .unwrap()
+                .downcast_ref::<Window>()
+                .unwrap()
+                .set_cursor_grab(match self.grab_mode {
+                    true => winit::window::CursorGrabMode::Confined,
+                    false => winit::window::CursorGrabMode::None,
+                });
+            self.grab_mode = !self.grab_mode;
+        }
+        // if input.get_key_press(&VirtualKeyCode::J) {
+        //     lock_cull = !lock_cull;
+        //     // lock_cull.
+        // }
+
+        if input.get_key(&VirtualKeyCode::H) {
+            sys.vk
+                .surface
+                .object()
+                .unwrap()
+                .downcast_ref::<Window>()
+                .unwrap()
+                .set_cursor_visible(self.cursor_vis);
+            self.cursor_vis = !self.cursor_vis;
+        }
+
         if input.get_key_press(&VirtualKeyCode::R) {
             self.speed *= 1.5;
-            // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
         }
         if input.get_key_press(&VirtualKeyCode::F) {
             self.speed /= 1.5;
-            // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
         }
 
         // forward/backward
         if input.get_key(&VirtualKeyCode::W) {
             transform.translate(vec3(0., 0., 1.) * -speed);
-            // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
         }
         if input.get_key(&VirtualKeyCode::S) {
             transform.translate(vec3(0., 0., 1.) * speed);
-            // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
         }
         //left/right
         if input.get_key(&VirtualKeyCode::A) {
             transform.translate(vec3(1., 0., 0.) * -speed);
-            // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
         }
         if input.get_key(&VirtualKeyCode::D) {
             transform.translate(vec3(1., 0., 0.) * speed);
-            // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
         }
         // up/down
         if input.get_key(&VirtualKeyCode::Space) {
             transform.translate(vec3(0., 1., 0.) * -speed);
-            // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
         }
         if input.get_key(&VirtualKeyCode::LShift) {
             transform.translate(vec3(0., 1., 0.) * speed);
-            // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
         }
 
         if input.get_mouse_button(&2) {
@@ -194,45 +219,7 @@ impl Component for Player {
                 })
                 .with_com::<ParticleEmitter>(&|| ParticleEmitter::new(1))
                 .build();
-            // sys.defer.append(move |world| {
-            //     // let len =
-            //     // let chunk_size =  (len / (64 * 64)).max(1);
-            //     (0..len)
-            //         // .chunks(chunk_size)
-            //         .for_each(|_| {
-            //             let g = world.instantiate_with_transform(_Transform {
-            //                 // position: _cam_pos
-            //                 //     + glm::quat_to_mat3(&_cam_rot)
-            //                 //         * (glm::Vec3::y() * 10. - glm::Vec3::z() * 25.)
-            //                 //     + glm::vec3(
-            //                 //         rand::random::<f32>() - 0.5,
-            //                 //         rand::random::<f32>() - 0.5,
-            //                 //         rand::random::<f32>() - 0.5,
-            //                 //     ) * 18.,
-            //                 position: glm::vec3(
-            //                     (rand::random::<f32>() - 0.5) * 1500f32,
-            //                     100f32,
-            //                     (rand::random::<f32>() - 0.5) * 1500f32,
-            //                 ),
-            //                 ..Default::default()
-            //             });
-            //             world.add_component(
-            //                 g,
-            //                 Bomb {
-            //                     vel: glm::Vec3::y() * 100.
-            //                         + glm::vec3(
-            //                             rand::random::<f32>() - 0.5,
-            //                             rand::random::<f32>() - 0.5,
-            //                             rand::random::<f32>() - 0.5,
-            //                         ) * 70.,
-            //                 },
-            //             );
-            //             // world.add_component(g, Renderer::new(0));
-            //             world.add_component(g, ParticleEmitter::new(1));
-            //         });
-            // });
         }
-        // }
     }
 }
 
@@ -287,153 +274,61 @@ type GameComm = (
 
 pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBool>) {
     let gravity = vector![0.0, -9.81, 0.0];
-    // let defer = Defer::new();
-
-    ////////////////////////////////////////////////
-
     let mut perf = Perf {
         data: BTreeMap::new(),
     };
     let mut phys_time = 0f32;
     let phys_step = 1. / 30.;
     while running.load(Ordering::SeqCst) {
-        // println!("waiting for input");
         let (input, playing_game) = coms.1.recv().unwrap();
-        // println!("input recvd");
-        let (transform_data, renderer_data, emitter_len, v, cam_datas, main_cam_id) = {
-            let mut world = world.lock();
-            if playing_game {
-                puffin::profile_scope!("game loop");
-                let inst = Instant::now();
-                {
-                    puffin::profile_scope!("world update");
-                    if phys_time >= phys_step {
-                        // let sys = world.sys.lock();
-                        let mut physics = world.sys.physics.lock();
-                        let len = physics.rigid_body_set.len();
-                        let num_threads =
-                            (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
-                        // drop(sys);
-                        rayon::ThreadPoolBuilder::new()
-                            .num_threads(num_threads)
-                            .build_scoped(
-                                |thread| thread.run(),
-                                |pool| {
-                                    pool.install(|| {
-                                        physics.step(&gravity, &mut perf);
-                                    })
-                                },
-                            )
-                            .unwrap();
-                        phys_time -= phys_step;
-                    }
-                    phys_time += input.time.dt;
-                    world.update(&input);
-                    world.late_update(&input);
-                    world.update_cameras();
+        let mut world = world.lock();
+        if playing_game {
+            puffin::profile_scope!("game loop");
+            let inst = Instant::now();
+            {
+                puffin::profile_scope!("world update");
+                if phys_time >= phys_step {
+                    let mut physics = world.sys.physics.lock();
+                    let len = physics.rigid_body_set.len();
+                    let num_threads = (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(num_threads)
+                        .build_scoped(
+                            |thread| thread.run(),
+                            |pool| {
+                                pool.install(|| {
+                                    physics.step(&gravity, &mut perf);
+                                })
+                            },
+                        )
+                        .unwrap();
+                    phys_time -= phys_step;
                 }
-                {
-                    puffin::profile_scope!("defered");
-                    world.do_defered();
-                    // world.sys.defer.do_defered(&mut world);
-                    world._destroy();
-                    world.defer_instantiate();
-                }
-
-                perf.update("world sim".into(), Instant::now() - inst);
-            } else {
-                world.editor_update(&input);
+                phys_time += input.time.dt;
+                world._update(&input);
             }
-            let inst = Instant::now();
-            let transform_data = {
-                puffin::profile_scope!("get transform data");
-                world.transforms.get_transform_data_updates()
-            };
-            perf.update("get transform data".into(), Instant::now() - inst);
+            {
+                puffin::profile_scope!("defered");
+                world.do_defered();
+                world._destroy();
+                world.defer_instantiate();
+            }
 
-            let inst = Instant::now();
-            // let _sys = world.sys.clone();
-            // let sys = _sys.lock();
-            
-            let mut rm = world.sys.renderer_manager.write();
-            let renderer_data = {
-                // let a = rm.model_indirect.read();
-                // let b = a.deref();
-                let renderer_data = RendererData {
-                    model_indirect: rm
-                        .model_indirect
-                        .read()
-                        .iter()
-                        .map(|(k, v)| (*k, *v))
-                        .collect(),
-                    indirect_model: rm
-                        .indirect_model
-                        .read()
-                        .iter()
-                        .map(|(k, v)| (*k, *v))
-                        .collect(),
-                    updates: rm
-                        .updates
-                        .iter()
-                        .flat_map(|(id, t)| vec![*id, t.indirect_id, t.transform_id].into_iter())
-                        .collect(),
-                    transforms_len: rm.transforms.data.len() as i32,
-                };
-                rm.updates.clear();
-                renderer_data
-            };
+            perf.update("world sim".into(), Instant::now() - inst);
+        } else {
+            world.editor_update(&input);
+        }
+        let inst = Instant::now();
+        let transform_data = world.transforms.get_transform_data_updates();
+        perf.update("get transform data".into(), Instant::now() - inst);
 
-            let emitter_len = world
-                .get_components::<ParticleEmitter>()
-                .unwrap()
-                .read()
-                .as_any()
-                .downcast_ref::<Storage<ParticleEmitter>>()
-                .unwrap()
-                .data
-                .len();
-            let v = {
-                // let sys = world.sys.lock();
-                let mut emitter_inits = world.sys.particles.emitter_inits.lock();
-                let mut v = Vec::<emitter_init>::new();
-                std::mem::swap(&mut v, &mut emitter_inits);
-                v
-            };
-            // *lock = Arc::new(Mutex::new(Vec::new()));
-
-            let camera_components = world.get_components::<Camera>().unwrap().read();
-            let camera_storage = camera_components
-                .as_any()
-                .downcast_ref::<Storage<Camera>>()
-                .unwrap();
-            let mut main_cam_id = -1;
-            let cam_datas = camera_storage
-                .valid
-                .iter()
-                .zip(camera_storage.data.iter())
-                .map(|(v, d)| {
-                    if unsafe { *v.get() } {
-                        let d = d.lock();
-                        main_cam_id = d.0;
-                        d.1.get_data()
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-                .collect();
-            perf.update("get renderer data".into(), Instant::now() - inst);
-            (
-                transform_data,
-                renderer_data,
-                emitter_len,
-                v,
-                cam_datas,
-                main_cam_id,
-            )
-        };
-
-        // std::thread::sleep(Duration::from_millis(5));
+        let inst = Instant::now();
+        let renderer_data = world.sys.renderer_manager.write().get_renderer_data();
+        perf.update("get renderer data".into(), Instant::now() - inst);
+        let emitter_len = world.get_emitter_len();
+        let v = world.sys.particles.emitter_inits.get_vec();
+        let (main_cam_id, cam_datas) = world.get_cam_datas();
+        drop(world);
         let inst = Instant::now();
 
         let res = coms.0.send((
@@ -442,8 +337,6 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
             main_cam_id,
             renderer_data,
             (emitter_len, v),
-            // render_data,
-            // terr_chunks,
         ));
         perf.update("send data".into(), Instant::now() - inst);
         if res.is_err() {
@@ -451,11 +344,4 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
         }
     }
     perf.print();
-    // let p = perf.iter();
-    // for (k, x) in p {
-    //     for (k, x) in p {
-    //         let len = x.len();
-    //         println!("{}: {:?}", k, (x.into_iter().map(|a| a).sum::<Duration>() / len as u32));
-    //     }
-    // }
 }

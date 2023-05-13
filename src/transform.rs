@@ -656,7 +656,11 @@ impl Transforms {
                     let s = &self_.scales;
 
                     for i in start..end {
+                        
                         unsafe {
+                            if !*self_.valid[i].get() {
+                                continue;
+                            }
                             let u = &mut *self_.updates[i].get();
                             if u[POS_U] {
                                 transform_ids[POS_U].push(i as i32);
