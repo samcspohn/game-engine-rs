@@ -2,7 +2,7 @@
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 
-use crate::engine::{transform::Transform, Sys, World};
+use crate::{engine::{Sys, World}, transform::Transform};
 pub trait Inspectable {
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
 }

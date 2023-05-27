@@ -238,12 +238,12 @@ impl Mesh {
         for mat in materials.iter() {
             for m in mat {
                 // m.diffuse_texture;
-                if m.diffuse_texture.is_empty() {
+                if m.diffuse_texture.is_none() {
                     continue;
                 }
                 let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string()
                     + "/"
-                    + &m.diffuse_texture);
+                    + m.diffuse_texture.as_ref().unwrap());
                 // println!("tex {}", diff_path);
                 texture = Some(texture_manager.lock().from_file(diff_path));
                 // texture = Some(Arc::new(Texture::from_file(diff_path, device.clone(), queue.clone())));

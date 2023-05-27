@@ -2,7 +2,7 @@ use nalgebra_glm as glm;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ColorGradient {
     pub nodes: BTreeMap<i32, (f32, [f32; 4])>,
     id_gen: i32,

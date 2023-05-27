@@ -4,9 +4,10 @@ use std::sync::{
 };
 
 use crate::{
-    asset_manager::{self, Asset, AssetManagerBase},
+    asset_manager::{self, Asset, AssetManagerBase, AssetInstance},
     color_gradient::ColorGradient,
-    engine::{transform::Transform, Component, Sys, _Storage},
+    engine::{Component, Sys, _Storage, self},
+    transform::Transform, 
     inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
     particle_sort::ParticleSort,
     renderer_component2::buffer_usage_all,
@@ -98,11 +99,28 @@ pub mod fs {
 pub const MAX_PARTICLES: i32 = 1024 * 1024 * 8 * 2;
 // pub const NUM_EMITTERS: i32 = 1_200_000;
 
+
+
 // #[component]
-#[derive(Default, Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(default)]
+#[repr(C)]
+
 pub struct ParticleEmitter {
-    template: i32,
+    template: AssetInstance<ParticleTemplate>,
 }
+impl Default for ParticleEmitter {
+    fn default() -> Self {
+        Self { template: AssetInstance::new(0) }
+    }
+}
+
+// impl Default for cs::ty::particle_template {
+//     fn default() -> Self {
+//         gen_particle_template(&ParticleTemplate::default())
+//     }
+// }
+
 impl Inspectable for ParticleEmitter {
     fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         // ui.add(egui::DragValue::new(&mut self.template));
@@ -116,16 +134,17 @@ impl Inspectable for ParticleEmitter {
 }
 impl ParticleEmitter {
     pub fn new(template: i32) -> ParticleEmitter {
-        ParticleEmitter { template }
+        let inst = AssetInstance::<ParticleTemplate>::new(template);
+        ParticleEmitter { template: inst }
     }
 }
 
 impl Component for ParticleEmitter {
-    fn init(&mut self, transform: &Transform, id: i32, sys: &crate::engine::Sys) {
+    fn init(&mut self, transform: &Transform, id: i32, sys: &engine::Sys) {
         let d = cs::ty::emitter_init {
             transform_id: transform.id,
             alive: 1,
-            template_id: self.template,
+            template_id: self.template.id,
             e_id: id,
         };
         match sys.particles.emitter_inits.try_push(d) {
@@ -135,11 +154,11 @@ impl Component for ParticleEmitter {
             }
         }
     }
-    fn deinit(&mut self, transform: &Transform, id: i32, sys: &crate::engine::Sys) {
+    fn deinit(&mut self, transform: &Transform, id: i32, sys: &engine::Sys) {
         let d = cs::ty::emitter_init {
             transform_id: transform.id,
             alive: 0,
-            template_id: self.template,
+            template_id: self.template.id,
             e_id: id,
         };
 
@@ -152,7 +171,7 @@ impl Component for ParticleEmitter {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ParticleTemplate {
     color: [f32; 4],
@@ -611,6 +630,7 @@ impl ParticleCompute {
         let particle_templates = Arc::new(Mutex::new(particle_templates));
         let particle_template_manager = Arc::new(Mutex::new(ParticleTemplateManager::new(
             particle_templates.clone(),
+            &["ptem"],
         )));
         particle_template_manager.lock().new_asset("default.ptem");
 

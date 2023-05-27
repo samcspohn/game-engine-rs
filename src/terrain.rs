@@ -31,16 +31,16 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use crate::{model, engine::World};
+use crate::{model, engine::World, transform::Transform};
 use crate::{
     asset_manager::AssetManagerBase,
     engine::{RenderJobData, System},
 };
-use crate::{renderer_component2::buffer_usage_all, terrain::transform::Transform};
+use crate::{renderer_component2::buffer_usage_all};
 // use crate::transform_compute::MVP;
 
 use crate::{
-    engine::{transform, Component, Sys},
+    engine::{Component, Sys},
     inspectable::{Inpsect, Ins, Inspectable},
     model::{Normal, Vertex, UV},
 };
@@ -103,8 +103,8 @@ impl Terrain {
             }
         }
         if self.tcrd.is_none() {
-            let num_chunks = (chunk_range * 2) * (chunk_range * 2);
-            let num_verts_chunk = terrain_size * terrain_size;
+            let num_chunks = ((chunk_range * 2) * (chunk_range * 2)).max(1);
+            let num_verts_chunk = (terrain_size * terrain_size).max(1);
             self.tcrd = Some(Arc::new(TerrainChunkRenderData {
                 texture: Some(
                     sys.model_manager

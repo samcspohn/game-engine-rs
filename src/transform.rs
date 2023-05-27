@@ -1,4 +1,5 @@
 use core::panic;
+use crossbeam::atomic::AtomicConsume;
 use deepmesa::lists::{
     linkedlist::{Iter, Node},
     LinkedList,
@@ -18,7 +19,7 @@ use std::{
     cmp::Reverse,
     collections::BinaryHeap,
     sync::{
-        atomic::{AtomicBool, AtomicI32, Ordering},
+        atomic::{AtomicBool, AtomicI32, Ordering, AtomicUsize},
         Arc,
     },
 };
@@ -48,10 +49,11 @@ pub struct Transforms {
     scales: Vec<SyncUnsafeCell<glm::Vec3>>,
     valid: Vec<SyncUnsafeCell<bool>>,
     meta: Vec<SyncUnsafeCell<TransformMeta>>,
+    last: AtomicI32,
     avail: AtomicI32,
     count: AtomicI32,
     updates: Vec<SyncUnsafeCell<[bool; 3]>>,
-    extent: i32,
+    extent: AtomicI32,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -180,6 +182,7 @@ fn mul_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
 //     v + ((uv * q.w) + uuv) * 2.
 // }
 
+
 #[allow(dead_code)]
 impl Transforms {
     pub fn active(&self) -> usize {
@@ -214,9 +217,10 @@ impl Transforms {
             meta: Vec::new(),
             updates: Vec::new(),
             valid: Vec::new(),
+            last: AtomicI32::new(-1),
             avail: AtomicI32::new(0),
             count: AtomicI32::new(0),
-            extent: 0,
+            extent: AtomicI32::new(0),
         }
     }
 
@@ -243,26 +247,40 @@ impl Transforms {
         self.valid.push(SyncUnsafeCell::new(true));
         self.updates.push(SyncUnsafeCell::new([true, true, true]));
     }
-    fn get_next_id(&mut self) -> (bool,i32) {
+    fn get_next_id(&mut self) -> (bool, i32) {
         let i = self.avail.load(Ordering::Relaxed);
         self.count.fetch_add(1, Ordering::Relaxed);
-
-        if i < self.extent {
+        let extent = self.extent.load(Ordering::Relaxed);
+        if i < extent {
             unsafe {
                 *self.valid[i as usize].get() = true;
             }
             let mut _i = i;
-            while _i < self.extent && unsafe { *self.valid[_i as usize].get() } {
+            while _i < extent && unsafe { *self.valid[_i as usize].get() } {
                 // find next open slot
                 _i += 1;
             }
             self.avail.store(_i, Ordering::Relaxed);
-            return (true, i) ;
+            self.last.fetch_max(_i, Ordering::Relaxed);
+            return (true, i);
         } else {
-            // self.valid.push(true);
-            self.extent += 1;
-            self.avail.store(self.extent, Ordering::Relaxed);
-            return (false,self.extent - 1);
+            let extent = extent + 1;
+            self.extent.store(extent, Ordering::Relaxed);
+            self.avail.store(extent, Ordering::Relaxed);
+            self.last.store(extent - 1, Ordering::Relaxed);
+            return (false, extent - 1);
+        }
+    }
+    pub(crate) fn reduce_last(&mut self, id: i32) {
+
+        // let i = self.last.fetch_add(-1, Ordering::Relaxed);
+        let mut id = id;
+        if id == self.last.load(Ordering::Relaxed) {
+            while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
+                // not thread safe!
+                id -= 1;
+            }
+            self.last.store(id, Ordering::Relaxed); // multi thread safe?
         }
     }
     pub fn new_root(&mut self) -> i32 {
@@ -382,6 +400,8 @@ impl Transforms {
     pub fn remove(&self, t: Transform) {
         self.avail.fetch_min(t.id, Ordering::Acquire);
         self.count.fetch_add(-1, Ordering::Acquire);
+        // self.reduce_last(id);
+
         unsafe {
             let meta = &*self.meta[t.id as usize].get();
             if meta.parent < 0 {
@@ -624,13 +644,22 @@ impl Transforms {
         usize,
         Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
     )> {
-        let len = self.updates.len();
+
+        let last = self.last.load(Ordering::Relaxed) as usize + 1;
+        let _positions = &self.positions[0..last];
+        let _rotations = &self.rotations[0..last];
+        let _scales = &self.scales[0..last];
+        let _updates = &self.updates[0..last];
+        let len = _updates.len();
         let transform_data = Arc::new(Mutex::new(Vec::<
             Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>,
         >::new()));
         let self_ = Arc::new(&self);
+
+
+
         rayon::scope(|s| {
-            let num_jobs = num_cpus::get().min(len / 64).max(1); // TODO: find best number dependent on cpu
+            let num_jobs = (len / 1024).max(1); // TODO: find best number dependent on cpu
             for id in 0..num_jobs {
                 let start = len / num_jobs * id;
                 let mut end = start + len / num_jobs;
@@ -651,17 +680,16 @@ impl Transforms {
                     let mut rot = Vec::<[f32; 4]>::with_capacity(len);
                     let mut scl = Vec::<[f32; 3]>::with_capacity(len);
 
-                    let p = &self_.positions;
-                    let r = &self_.rotations;
-                    let s = &self_.scales;
+                    let p = &_positions;
+                    let r = &_rotations;
+                    let s = &_scales;
 
                     for i in start..end {
-                        
                         unsafe {
                             if !*self_.valid[i].get() {
                                 continue;
                             }
-                            let u = &mut *self_.updates[i].get();
+                            let u = &mut *_updates[i].get();
                             if u[POS_U] {
                                 transform_ids[POS_U].push(i as i32);
                                 let p = &*p[i].get();
@@ -687,6 +715,7 @@ impl Transforms {
                 });
             }
         });
+        /////////////////////////////////////////////////////////////////////////////////////////////////
         // self.updates
         //     .par_iter_mut()
         //     .enumerate()
@@ -711,25 +740,29 @@ impl Transforms {
         //         let s = &self.scales;
 
         //         for (i, u) in slice {
-        //             if u[POS_U].load(Ordering::Relaxed) {
-        //                 transform_ids[POS_U].push(i as i32);
-        //                 let p = p[i].lock();
-        //                 // p.data
-        //                 pos.push([p.x, p.y, p.z]);
-        //                 u[POS_U].store(false, Ordering::Relaxed);
-        //             }
-        //             if u[ROT_U].load(Ordering::Relaxed) {
-        //                 transform_ids[ROT_U].push(i as i32);
-        //                 let r = r[i].lock();
-        //                 // let a: [f32;4] = r.coords.into();
-        //                 rot.push([r.w, r.k, r.j, r.i]);
-        //                 u[ROT_U].store(false, Ordering::Relaxed);
-        //             }
-        //             if u[SCL_U].load(Ordering::Relaxed) {
-        //                 transform_ids[SCL_U].push(i as i32);
-        //                 let s = s[i].lock();
-        //                 scl.push([s.x, s.y, s.z]);
-        //                 u[SCL_U].store(false, Ordering::Relaxed);
+        //             unsafe {
+        //                 if !*self_.valid[i].get() {
+        //                     continue;
+        //                 }
+        //                 let u = &mut *self_.updates[i].get();
+        //                 if u[POS_U] {
+        //                     transform_ids[POS_U].push(i as i32);
+        //                     let p = &*p[i].get();
+        //                     pos.push([p.x, p.y, p.z]);
+        //                     u[POS_U] = false;
+        //                 }
+        //                 if u[ROT_U] {
+        //                     transform_ids[ROT_U].push(i as i32);
+        //                     let r = &*r[i].get();
+        //                     rot.push([r.w, r.k, r.j, r.i]);
+        //                     u[ROT_U] = false;
+        //                 }
+        //                 if u[SCL_U] {
+        //                     transform_ids[SCL_U].push(i as i32);
+        //                     let s = &*s[i].get();
+        //                     scl.push([s.x, s.y, s.z]);
+        //                     u[SCL_U] = false;
+        //                 }
         //             }
         //         }
         //         let ret = Arc::new((transform_ids, pos, rot, scl));
@@ -788,7 +821,7 @@ impl Transforms {
         //     }
         // });
         Arc::new((
-            self.extent as usize,
+            self.extent.load(Ordering::Relaxed) as usize,
             Arc::try_unwrap(transform_data).unwrap().into_inner(),
         ))
     }
@@ -850,3 +883,4 @@ impl Transforms {
 // } else {
 //     (0..num_cpus::get()).into_par_iter().for_each(|i| f(i));
 // }
+

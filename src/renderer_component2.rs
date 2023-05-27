@@ -7,9 +7,10 @@ use std::{
 
 use crate::{
     drag_drop::{self, drop_target},
-    engine::{transform::Transform, Component, Sys, _Storage},
+    engine::{Component, Sys, _Storage},
+    transform::Transform, 
     inspectable::{Inpsect, Ins, Inspectable},
-    vulkan_manager::VulkanManager, transform_compute::TransformCompute,
+    vulkan_manager::VulkanManager, transform_compute::TransformCompute, asset_manager::AssetInstance, model::ModelRenderer,
 };
 use bytemuck::{Pod, Zeroable};
 // use parking_lot::RwLock;
@@ -65,8 +66,10 @@ impl<'a> Inpsect for Ins<'a, ModelId> {
 
 // #[component]
 #[derive(Default, Clone, Serialize, Deserialize)]
+#[repr(C)]
+
 pub struct Renderer {
-    model_id: ModelId,
+    model_id: AssetInstance<ModelRenderer>,
     #[serde(skip_serializing, skip_deserializing)]
     id: i32,
 }
@@ -501,7 +504,7 @@ impl Renderer {
     // }
     pub fn new(model_id: i32) -> Renderer {
         Renderer {
-            model_id: ModelId { id: model_id },
+            model_id: AssetInstance::<ModelRenderer>::new(model_id),
             id: 0,
         }
     }

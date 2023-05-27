@@ -23,7 +23,8 @@ use vulkano::{
 
 
 use crate::{
-    engine::{transform::Transform, Component, RenderJobData},
+    engine::{ Component, RenderJobData},
+    transform::Transform,
     inspectable::{Inpsect, Ins, Inspectable},
     model::ModelManager,
     particles::{ParticleCompute, ParticleRenderPipeline},
@@ -57,6 +58,8 @@ pub struct CameraViewData {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[repr(C)]
+
 pub struct Camera {
     #[serde(skip_serializing, skip_deserializing)]
     data: Option<Arc<Mutex<CameraData>>>,
