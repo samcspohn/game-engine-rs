@@ -1,8 +1,16 @@
 [package]
-name = "game-engine-rs"
+name = "game_engine"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+# crate-type = ["lib"]
+name = "game_engine"
+path = "src/main.rs"
+
+[[bin]]
+name = "game-engine-rs"
+path = "src/main.rs"
 # Add this to your Cargo.toml
 [profile.dev.package.rapier3d]
 opt-level = 3
@@ -68,7 +76,7 @@ egui_demo_lib = "0.20.0"
 puffin_egui = "0.19.1"
 egui_dock = "0.3.1"
 
-tobj = "*"
+tobj = "4.0.0"
 
 walkdir = "*"
 substring = "*"
@@ -77,5 +85,5 @@ notify = { version = "*", features = ["serde"] }
 relative-path = "*"
 sync-unsafe-cell = "0.1.0"
 nohash-hasher = "*"
-rudac = "0.8.3"
-cpq = "0.2.0"
+# rudac = "0.8.3"
+# cpq = "0.2.0"

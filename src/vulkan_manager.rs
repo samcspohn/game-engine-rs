@@ -33,6 +33,7 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+#[repr(C)]
 pub struct VulkanManager {
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,

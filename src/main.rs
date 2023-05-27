@@ -3,8 +3,11 @@ use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::TextureId;
 use engine::Defer;
+use game::RenderingData;
 
-use std::env;
+use std::any::TypeId;
+use std::process::Command;
+use std::{env, fs};
 use vulkan_manager::VulkanManager;
 
 use vulkano::command_buffer::RenderPassBeginInfo;
@@ -60,41 +63,44 @@ use std::sync::mpsc::{Receiver, Sender};
 // use rust_test::{INDICES, NORMALS, VERTICES};
 use notify::{RecursiveMode, Watcher};
 
-mod engine;
-mod input;
-mod model;
-mod perf;
-mod renderer;
-// mod renderer_component;
-mod asset_manager;
-mod camera;
-mod color_gradient;
-mod drag_drop;
-mod editor_cam;
-mod editor_ui;
-mod file_watcher;
-mod game;
-mod inspectable;
-mod particle_sort;
-mod particles;
-mod project;
-mod render_pipeline;
-mod renderer_component2;
-mod serialize;
-mod terrain;
-mod texture;
-mod time;
-mod transform_compute;
-mod vulkan_manager;
+// use game_engine;
+pub mod engine;
+pub mod input;
+pub mod model;
+pub mod perf;
+pub mod renderer;
+// pub mod renderer_component;
+pub mod asset_manager;
+pub mod camera;
+pub mod color_gradient;
+pub mod drag_drop;
+pub mod editor_cam;
+pub mod editor_ui;
+pub mod file_watcher;
+pub mod game;
+pub mod inspectable;
+pub mod particle_sort;
+pub mod particles;
+pub mod physics;
+pub mod project;
+pub mod render_pipeline;
+pub mod renderer_component2;
+pub mod serialize;
+pub mod terrain;
+pub mod texture;
+pub mod time;
+pub mod transform;
+pub mod transform_compute;
+pub mod vulkan_manager;
 // use rand::prelude::*;
 // use rapier3d::prelude::*;
 
 use crate::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::editor_ui::EDITOR_ASPECT_RATIO;
-use crate::engine::physics::Physics;
+use crate::physics::Physics;
 
 use crate::engine::World;
-use crate::game::{game_thread_fn, Bomb, Player};
+use crate::game::game_thread_fn;
 
 use crate::model::ModelManager;
 use crate::particles::ParticleEmitter;
@@ -105,12 +111,94 @@ use crate::renderer_component2::{buffer_usage_all, Renderer, RendererManager};
 use crate::terrain::Terrain;
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
-use crate::transform_compute::cs::ty::transform;
+// use crate::transform_compute::cs::ty::transform;
 
 use crate::input::Input;
 
+fn load_so(world: &mut World) {
+    Command::new("pwd").status().unwrap();
+    // Compile our dynamic library
+    Command::new("cargo")
+        .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
+        // .arg(&format!("test_project_rs/runtime/libhello.so"))
+        .status()
+        .unwrap();
+    unsafe {
+        use libc::{c_void, dlclose, dlopen, dlsym, RTLD_GLOBAL, RTLD_NOW};
+        use std::ffi::CString;
+
+        // Load the library
+        let filename =
+            CString::new("test_project_rs/target/release/libtest_project_rs.so").unwrap();
+        let handle = dlopen(filename.as_ptr(), RTLD_NOW | RTLD_GLOBAL);
+        if handle.is_null() {
+            panic!("Failed to resolve dlopen")
+        }
+
+        // // Look for the function in the library
+        // let fun_name = CString::new("lib_hello").unwrap();
+        // let fun = dlsym(handle, fun_name.as_ptr());
+        // if fun.is_null() {
+        //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
+        // }
+
+        // // dlsym returns a C 'void*', cast it to a function pointer
+        // let fun = std::mem::transmute::<*mut c_void, fn()>(fun);
+        // fun();
+
+        // Look for the function in the library
+        let fun_name = CString::new("register").unwrap();
+        let fun = dlsym(handle, fun_name.as_ptr());
+        if fun.is_null() {
+            panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
+        }
+
+        // dlsym returns a C 'void*', cast it to a function pointer
+        let fun = std::mem::transmute::<*mut c_void, fn(&mut World)>(fun);
+        fun(world);
+
+        // Look for the function in the library
+        // let fun_name = CString::new("game_loop").unwrap();
+        // let ret_fun = dlsym(handle, fun_name.as_ptr());
+        // if ret_fun.is_null() {
+        //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
+        // }
+
+        // // dlsym returns a C 'void*', cast it to a function pointer
+        // let ret_fun = std::mem::transmute::<*mut c_void, fn(
+        //     &mut World,
+        //     &mut Perf,
+        //     bool,
+        //     &Input,
+        // ) -> RenderingData>(ret_fun);
+        // // fun(world);
+
+        println!("main: {:?}", TypeId::of::<ParticleEmitter>());
+
+        // // Cleanup
+        // let ret = dlclose(handle);
+        // if ret != 0 {
+        //     panic!("Error while closing lib");
+        // }
+        // ret_fun
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn main_hello() {
+    println!("Hello, world from static lib");
+}
+
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
+
+    // // let out_dir = env::var("OUT_DIR").unwrap();
+    // if !Path::new("test_project_rs/runtime").is_dir() {
+    //     Command::new("mkdir")
+    //         .arg("test_project_rs/runtime")
+    //         .status()
+    //         .unwrap();
+    // }
 
     if let Ok(mut watcher) = notify::recommended_watcher(|res| match res {
         Ok(event) => println!("event: {:?}", event),
@@ -138,17 +226,19 @@ fn main() {
 
     // let window = vk.surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
-    let texture_manager = Arc::new(Mutex::new(TextureManager::new((
-        vk.device.clone(),
-        vk.queue.clone(),
-        vk.mem_alloc.clone(),
-    ))));
+    let texture_manager = Arc::new(Mutex::new(TextureManager::new(
+        (vk.device.clone(), vk.queue.clone(), vk.mem_alloc.clone()),
+        &["png", "jpeg"],
+    )));
 
-    let model_manager = ModelManager::new((
-        vk.device.clone(),
-        texture_manager.clone(),
-        vk.mem_alloc.clone(),
-    ));
+    let model_manager = ModelManager::new(
+        (
+            vk.device.clone(),
+            texture_manager.clone(),
+            vk.mem_alloc.clone(),
+        ),
+        &["obj"],
+    );
 
     let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
         vk.device.clone(),
@@ -169,11 +259,10 @@ fn main() {
     let assets_manager = Arc::new(Mutex::new(AssetsManager::new()));
     {
         let mut assets_manager = assets_manager.lock();
-        assets_manager.add_asset_manager("model", &["obj"], model_manager.clone());
-        assets_manager.add_asset_manager("texture", &["png", "jpeg"], texture_manager.clone());
+        assets_manager.add_asset_manager("model", model_manager.clone());
+        assets_manager.add_asset_manager("texture", texture_manager.clone());
         assets_manager.add_asset_manager(
             "particle_template",
-            &["ptem"],
             particles.particle_template_manager.clone(),
         );
     }
@@ -223,7 +312,7 @@ fn main() {
         vk.device.clone(),
         // vk.queue.clone(),
         vec![
-            transform {
+            crate::cs::ty::transform {
                 position: Default::default(),
                 _dummy0: Default::default(),
                 rotation: Default::default(),
@@ -283,18 +372,22 @@ fn main() {
         Arc::new(Mutex::new(physics)),
         particles.clone(),
         vk.clone(),
-        defer
+        defer,
+        assets_manager.clone(),
     )));
     {
         let mut world = world.lock();
         world.register::<Renderer>(false, false, false);
         world.register::<ParticleEmitter>(false, false, false);
-        // world.register::<Maker>(true);
         world.register::<Terrain>(true, false, true);
-        world.register::<Bomb>(true, false, false);
-        world.register::<Player>(true, false, false);
         world.register::<Camera>(false, false, false);
-    }
+
+        // world.register::<Maker>(true);
+        // world.register::<game::Bomb>(true, false, false);
+        // world.register::<game::Player>(true, false, false);
+        load_so(&mut world)
+    };
+
     let rm = {
         let w = world.lock();
         // let s = w.sys);
@@ -315,6 +408,7 @@ fn main() {
     // println!("sending input");
     let _res = coms.1.send((input.clone(), false));
     let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
+
     {
         let mut world = world.lock();
         load_project(&mut file_watcher, &mut world, assets_manager.clone());
@@ -357,7 +451,6 @@ fn main() {
                         game_thread.join().unwrap();
                         save_project(&file_watcher, &world.lock(), assets_manager.clone());
                         perf.print();
-
                     }
                     WindowEvent::MouseInput {
                         device_id: _,
@@ -412,7 +505,6 @@ fn main() {
                     WindowEvent::ModifiersChanged(m) => modifiers = m,
                     WindowEvent::Resized(_size) => {
                         recreate_swapchain = true;
-
                     }
                     _ => (),
                 }
@@ -431,8 +523,13 @@ fn main() {
                 let (transform_data, cam_datas, main_cam_id, mut rd, emitter_inits) = {
                     puffin::profile_scope!("wait for game");
                     let inst = Instant::now();
-                    let (transform_data, cam_datas, main_cam_id, renderer_data, emitter_inits) =
-                        coms.0.recv().unwrap();
+                    let RenderingData {
+                        transform_data,
+                        cam_datas,
+                        main_cam_id,
+                        renderer_data,
+                        emitter_inits,
+                    } = coms.0.recv().unwrap();
 
                     perf.update("wait for game".into(), Instant::now() - inst);
                     (
@@ -447,7 +544,7 @@ fn main() {
                 if !playing_game {
                     editor_cam.update(&input);
                 }
-                
+
                 file_watcher.get_updates(assets_manager.clone());
 
                 let dimensions = vk
@@ -685,13 +782,7 @@ fn main() {
                 };
 
                 if !playing_game {
-                    cam_data.update(
-                        editor_cam.pos,
-                        editor_cam.rot,
-                        0.01f32,
-                        10_000f32,
-                        70f32,
-                    );
+                    cam_data.update(editor_cam.pos, editor_cam.rot, 0.01f32, 10_000f32, 70f32);
                     cam_data.render(
                         vk.clone(),
                         &mut builder,

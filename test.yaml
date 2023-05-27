@@ -17,93 +17,19 @@ t_c:
 - t:
     position:
     - 0.0
-    - 19.1
+    - 0.0
     - 0.0
     rotation:
-    - 0.99945873
+    - 1.0
     - 0.0
-    - -0.032959558
+    - 0.0
     - 0.0
     scale:
     - 1.0
     - 1.0
     - 1.0
-  c:
-  - - Renderer
-    - (model_id:(id:7),id:0)
-  t_c:
-  - t:
-      position:
-      - -0.29647493
-      - 20.9
-      - 4.4902267
-      rotation:
-      - 0.96942085
-      - 0.0
-      - -0.24541855
-      - 0.0
-      scale:
-      - 1.0
-      - 1.0
-      - 1.0
-    c:
-    - - Renderer
-      - (model_id:(id:6),id:1)
-    t_c:
-    - t:
-        position:
-        - -0.53438747
-        - 20.9
-        - 4.929996
-        rotation:
-        - 0.9539941
-        - -0.0436082
-        - -0.2415131
-        - -0.17225552
-        scale:
-        - 1.0
-        - 1.0
-        - 1.0
-      c:
-      - - Renderer
-        - (model_id:(id:5),id:2)
-      t_c: []
-  - t:
-      position:
-      - -0.46118537
-      - 20.3
-      - 6.984795
-      rotation:
-      - 0.99945873
-      - 0.0
-      - -0.032959558
-      - 0.0
-      scale:
-      - 1.0
-      - 1.0
-      - 1.0
-    c:
-    - - Renderer
-      - (model_id:(id:6),id:3)
-    t_c:
-    - t:
-        position:
-        - -0.5007159
-        - 20.2
-        - 7.583497
-        rotation:
-        - 0.99945873
-        - 0.0
-        - -0.032959558
-        - 0.0
-        scale:
-        - 1.0
-        - 1.0
-        - 1.0
-      c:
-      - - Renderer
-        - (model_id:(id:5),id:4)
-      t_c: []
+  c: []
+  t_c: []
 - t:
     position:
     - 0.0
@@ -120,12 +46,13 @@ t_c:
     - 1.0
   c:
   - - Terrain
-    - (terrain_size:17,chunk_range:14)
+    - terrain_size: 17
+      chunk_range: 14
   t_c: []
 - t:
     position:
     - 0.0
-    - 25.7
+    - 60.0
     - 0.0
     rotation:
     - 1.0
@@ -138,26 +65,107 @@ t_c:
     - 1.0
   c:
   - - ParticleEmitter
-    - (template:1)
+    - template:
+        id: 2
   - - Renderer
-    - (model_id:(id:0),id:5)
+    - model_id:
+        id: 0
   t_c: []
 - t:
     position:
     - 0.0
-    - 0.0
+    - 50.1
     - 0.0
     rotation:
-    - 1.0
+    - 0.99945873
     - 0.0
-    - 0.0
+    - -0.032959558
     - 0.0
     scale:
     - 1.0
     - 1.0
     - 1.0
-  c: []
-  t_c: []
+  c:
+  - - Renderer
+    - model_id:
+        id: 7
+  t_c:
+  - t:
+      position:
+      - -0.29647493
+      - 51.899998
+      - 4.4902267
+      rotation:
+      - 0.96942085
+      - 0.0
+      - -0.24541855
+      - 0.0
+      scale:
+      - 1.0
+      - 1.0
+      - 1.0
+    c:
+    - - Renderer
+      - model_id:
+          id: 6
+    t_c:
+    - t:
+        position:
+        - -0.53438747
+        - 51.899998
+        - 4.929996
+        rotation:
+        - 0.9539941
+        - -0.0436082
+        - -0.2415131
+        - -0.17225552
+        scale:
+        - 1.0
+        - 1.0
+        - 1.0
+      c:
+      - - Renderer
+        - model_id:
+            id: 5
+      t_c: []
+  - t:
+      position:
+      - -0.46118537
+      - 51.29999
+      - 6.984795
+      rotation:
+      - 0.99945873
+      - 0.0
+      - -0.032959558
+      - 0.0
+      scale:
+      - 1.0
+      - 1.0
+      - 1.0
+    c:
+    - - Renderer
+      - model_id:
+          id: 6
+    t_c:
+    - t:
+        position:
+        - -0.5007159
+        - 51.199993
+        - 7.583497
+        rotation:
+        - 0.99945873
+        - 0.0
+        - -0.032959558
+        - 0.0
+        scale:
+        - 1.0
+        - 1.0
+        - 1.0
+      c:
+      - - Renderer
+        - model_id:
+            id: 5
+      t_c: []
 - t:
     position:
     - -18.1
@@ -174,9 +182,15 @@ t_c:
     - 1.0
   c:
   - - Camera
-    - (fov:60.0,near:0.01,far:10000.0)
+    - fov: 60.0
+      near: 0.10000000149011612
+      far: 10000.0
   - - Renderer
-    - (model_id:(id:0),id:6)
+    - model_id:
+        id: 0
   - - Player
-    - (rof:1000000.0,speed:30.0)
+    - rof: 0.0
+      speed: 10.0
+      grab_mode: false
+      cursor_vis: false
   t_c: []

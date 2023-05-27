@@ -3,14 +3,14 @@
 use serde::{Deserialize, Serialize};
 
 use crate::engine::{
-    transform::{Transform, Transforms, _Transform},
     World,
 };
+use crate::transform::{Transform, Transforms, _Transform};
 
 #[derive(Serialize, Deserialize)]
 struct SerGameObject {
     t: _Transform,
-    c: Vec<(String, String)>,
+    c: Vec<(String, serde_yaml::Value)>,
     t_c: Vec<SerGameObject>,
 }
 
@@ -24,11 +24,11 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
     let entities = world.entities.read();
     if let Some(ent) = entities[t as usize].lock().as_ref() {
         for c in ent.iter() {
-            if let Some(stor) = &world.components.get(c.0) {
+            if let Some(stor) = &world.components_names.get(c.0) {
                 let t_id: String = stor.read().get_name().to_string();
                 // let t_id: String = format!("{:?}",c.0);
                 g_o.c
-                    .push((t_id, stor.read().serialize(*c.1).ok().unwrap()));
+                    .push((t_id, stor.read().serialize(*c.1)));
             }
         }
     }

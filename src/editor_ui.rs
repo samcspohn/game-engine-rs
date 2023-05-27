@@ -14,8 +14,8 @@ use std::{
 
 use crate::{
     drag_drop::drag_source,
+    transform::{Transform, Transforms},
     engine::{
-        transform::{Transform, Transforms},
         GameObject, Sys, World,
     },
     inspectable::{Inspectable, Inspectable_}, asset_manager::AssetsManager,
@@ -36,7 +36,7 @@ enum GameObjectContextMenu {
     CopyGameObject(i32),
     DeleteGameObject(i32),
 }
-pub(crate) static EDITOR_ASPECT_RATIO: Lazy<Mutex<[u32;2]>> = Lazy::new(|| {Mutex::new([1920,1080])});
+pub static EDITOR_ASPECT_RATIO: Lazy<Mutex<[u32;2]>> = Lazy::new(|| {Mutex::new([1920,1080])});
 
 struct TabViewer<'a> {
     image: egui::TextureId,
@@ -129,7 +129,7 @@ static mut _selected: Option<i32> = None;
 impl Inspectable_ for GameObjectInspector {
     fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
         let mut world = world.lock();
-        let mut rmv: Option<(GameObject, std::any::TypeId, i32)> = None;
+        let mut rmv: Option<(GameObject, String, i32)> = None;
 
         let resp = ui.scope(|ui| {
 
@@ -256,7 +256,7 @@ impl Inspectable_ for GameObjectInspector {
                         // let mut components = ent.;
                         // let components = &mut ent;
                         for (c_type, id) in ent.iter_mut() {
-                            if let Some(c) = world.components.get(c_type) {
+                            if let Some(c) = world.components_names.get(c_type) {
                                 let c = c.write();
                                 // let name: String = c.get_name().into();
                                 ui.separator();
@@ -273,7 +273,7 @@ impl Inspectable_ for GameObjectInspector {
                                             println!("delete component");
                                             let g = GameObject { t: t_id };
                                             // world.remove_component(g, *c_type, *id)
-                                            rmv = Some((g, *c_type, *id));
+                                            rmv = Some((g, c_type.clone(), *id));
                                         }
                                     });
                                 })
@@ -293,7 +293,7 @@ impl Inspectable_ for GameObjectInspector {
         }
         // if let Some(resp) = resp {
             if unsafe {_selected.is_some() } {
-                let mut component_init: Option<(TypeId, i32)> = None;
+                let mut component_init: Option<(String, i32)> = None;
                 
                 ui.menu_button("add component",|ui| {
                     for (_k, c) in &world.components {
@@ -302,8 +302,8 @@ impl Inspectable_ for GameObjectInspector {
                         if resp.clicked() {
                             if let Some(t_id) = unsafe { _selected } {
                                 let c_id = c.new_default(t_id);
-                                let key = c.get_type();
-                                component_init = Some((key, c_id));
+                                let key = c.get_name();
+                                component_init = Some((key.into(), c_id));
                             }
                             ui.close_menu();
                         }

@@ -30,5 +30,10 @@ game-engine:
     ☐ menu bar
     ☐ drag/drop assets
     ☐ fix cross platform path serialization
+    ☐ 3d control widget
+    ☐ click on objects to select
+  audio:
+    ☐ audio manager
+    ☐ audio asset
   
   
