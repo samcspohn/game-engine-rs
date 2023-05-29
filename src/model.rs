@@ -150,7 +150,7 @@ impl Mesh {
         // let sub_path = path.split("/");
         let _path = std::path::Path::new(path);
         let model = tobj::load_obj(path, &(tobj::GPU_LOAD_OPTIONS));
-        let (models, materials) = model.expect("Failed to load OBJ file");
+        let (models, materials) = model.expect(format!("Failed to load OBJ file: {}",path).as_str());
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut normals = Vec::new();

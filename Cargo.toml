@@ -32,7 +32,7 @@ debug = true
 [dependencies]
 num_cpus = "*"
 num-integer = "*"
-libloading = "*"
+# libloading = "*"
 libc = "*"
 rayon = "*"
 crossbeam = "*"
@@ -87,3 +87,7 @@ sync-unsafe-cell = "0.1.0"
 nohash-hasher = "*"
 # rudac = "0.8.3"
 # cpq = "0.2.0"
+
+libloading = "0.8.0"
+# windows-dll = "*"
+# dylib = "*"

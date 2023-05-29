@@ -4,20 +4,15 @@ use notify::{
 };
 use parking_lot::Mutex;
 use std::{
-    collections::{BTreeMap},
+    collections::BTreeMap,
     path::Path,
-    sync::{
-        mpsc::{Receiver},
-        Arc,
-    },
+    sync::{mpsc::Receiver, Arc},
 };
 use substring::Substring;
 use walkdir::WalkDir;
 // use relative_path;
 
-use crate::{
-    asset_manager::{AssetManagerBase, AssetsManager},
-};
+use crate::asset_manager::{AssetManagerBase, AssetsManager};
 
 pub struct FileWatcher {
     pub(crate) files: BTreeMap<String, u64>,
@@ -67,31 +62,28 @@ impl FileWatcher {
             .filter(|e| !e.file_type().is_dir())
         {
             let f_name = String::from(entry.path().to_string_lossy());
-            // let ext = entry.path().extension();
-            assets_manager.lock().load(f_name.as_str());
-            // let sys = world.sys.lock();
-            // let mut mm = sys.model_manager.lock();
-            // if let Some(dot) = f_name.rfind(".") {
-            //     if f_name.substring(dot, f_name.len()) == ".obj" {
-            //         mm.from_file(f_name.as_str());
-            //     }
-            // }
-            self.files.entry(f_name).and_modify(|_e| {}).or_insert(
-                entry
-                    .metadata()
-                    .unwrap()
-                    .modified()
-                    .unwrap()
-                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            );
+            if !f_name.contains(format!("{0}target{0}", std::path::MAIN_SEPARATOR).as_str()) {
+                assets_manager.lock().load(f_name.as_str());
+                self.files.entry(f_name).and_modify(|_e| {}).or_insert(
+                    entry
+                        .metadata()
+                        .unwrap()
+                        .modified()
+                        .unwrap()
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                );
+            }
         }
     }
     pub fn get_updates(&self, assets_manager: Arc<Mutex<AssetsManager>>) {
         while let Ok(e) = self.rx.try_recv() {
             println!("{:?}", e);
             if let Ok(e) = e {
+                if e.paths[0].to_string_lossy().to_string().contains(format!("{0}target{0}", std::path::MAIN_SEPARATOR).as_str()) {
+                    continue;
+                }
                 match e.kind {
                     EventKind::Create(_) => {
                         // let ext = e.paths[0].extension();
@@ -138,9 +130,7 @@ impl FileWatcher {
                             let p = p.substring(p.find("/./").unwrap() + 1, p.len());
                             let p2: String = e.paths[1].as_path().to_str().unwrap().to_owned();
                             let p2 = p2.substring(p2.find("/./").unwrap() + 1, p2.len());
-                            assets_manager
-                                .lock()
-                                .move_file(p, p2);
+                            assets_manager.lock().move_file(p, p2);
                         }
                     }
                     EventKind::Any | EventKind::Modify(_) | EventKind::Other => {}

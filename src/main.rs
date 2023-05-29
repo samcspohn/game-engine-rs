@@ -6,7 +6,7 @@ use engine::Defer;
 use game::RenderingData;
 
 use std::any::TypeId;
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 use std::{env, fs};
 use vulkan_manager::VulkanManager;
 
@@ -115,74 +115,83 @@ use crate::transform_compute::cs;
 
 use crate::input::Input;
 
-fn load_so(world: &mut World) {
-    Command::new("pwd").status().unwrap();
-    // Compile our dynamic library
-    Command::new("cargo")
-        .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
-        // .arg(&format!("test_project_rs/runtime/libhello.so"))
-        .status()
-        .unwrap();
-    unsafe {
-        use libc::{c_void, dlclose, dlopen, dlsym, RTLD_GLOBAL, RTLD_NOW};
-        use std::ffi::CString;
+// fn load_so(world: &mut World) {
+//     // Command::new("pwd").status().unwrap();
+//     // Compile our dynamic library
+//     if let Ok(status) = Command::new("cargo")
+//         .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
+//         // .arg(&format!("test_project_rs/runtime/libhello.so"))
+//         .status() {
+//             if status.success() {
+//                 panic!("failed to compile");
+//             }
+//         }
+        
+//     unsafe {
+//         // use libloading;
+//         // use libc::{c_void, dlclose, dlopen, dlsym, RTLD_GLOBAL, RTLD_NOW};
+//         // use std::ffi::CString;
+//         let lib = Box::new(libloading::Library::new("test_project_rs/target/release/test_project_rs.dll").unwrap());
+//         let func: libloading::Symbol<unsafe extern fn(&mut World)> = lib.get(b"register").unwrap();
+//         func(world);
+//         Box::leak(lib);
+//         // Ok(func())
+//         // // Load the library
+//         // let filename =
+//         //     CString::new("test_project_rs/target/release/libtest_project_rs.so").unwrap();
+//         // let handle = dlopen(filename.as_ptr(), RTLD_NOW | RTLD_GLOBAL);
+//         // if handle.is_null() {
+//         //     panic!("Failed to resolve dlopen")
+//         // }
 
-        // Load the library
-        let filename =
-            CString::new("test_project_rs/target/release/libtest_project_rs.so").unwrap();
-        let handle = dlopen(filename.as_ptr(), RTLD_NOW | RTLD_GLOBAL);
-        if handle.is_null() {
-            panic!("Failed to resolve dlopen")
-        }
+//         // // // Look for the function in the library
+//         // // let fun_name = CString::new("lib_hello").unwrap();
+//         // // let fun = dlsym(handle, fun_name.as_ptr());
+//         // // if fun.is_null() {
+//         // //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
+//         // // }
 
-        // // Look for the function in the library
-        // let fun_name = CString::new("lib_hello").unwrap();
-        // let fun = dlsym(handle, fun_name.as_ptr());
-        // if fun.is_null() {
-        //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
-        // }
+//         // // // dlsym returns a C 'void*', cast it to a function pointer
+//         // // let fun = std::mem::transmute::<*mut c_void, fn()>(fun);
+//         // // fun();
 
-        // // dlsym returns a C 'void*', cast it to a function pointer
-        // let fun = std::mem::transmute::<*mut c_void, fn()>(fun);
-        // fun();
+//         // // Look for the function in the library
+//         // let fun_name = CString::new("register").unwrap();
+//         // let fun = dlsym(handle, fun_name.as_ptr());
+//         // if fun.is_null() {
+//         //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
+//         // }
 
-        // Look for the function in the library
-        let fun_name = CString::new("register").unwrap();
-        let fun = dlsym(handle, fun_name.as_ptr());
-        if fun.is_null() {
-            panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
-        }
+//         // // dlsym returns a C 'void*', cast it to a function pointer
+//         // let fun = std::mem::transmute::<*mut c_void, fn(&mut World)>(fun);
+//         // fun(world);
 
-        // dlsym returns a C 'void*', cast it to a function pointer
-        let fun = std::mem::transmute::<*mut c_void, fn(&mut World)>(fun);
-        fun(world);
+//         // Look for the function in the library
+//         // let fun_name = CString::new("game_loop").unwrap();
+//         // let ret_fun = dlsym(handle, fun_name.as_ptr());
+//         // if ret_fun.is_null() {
+//         //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
+//         // }
 
-        // Look for the function in the library
-        // let fun_name = CString::new("game_loop").unwrap();
-        // let ret_fun = dlsym(handle, fun_name.as_ptr());
-        // if ret_fun.is_null() {
-        //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
-        // }
+//         // // dlsym returns a C 'void*', cast it to a function pointer
+//         // let ret_fun = std::mem::transmute::<*mut c_void, fn(
+//         //     &mut World,
+//         //     &mut Perf,
+//         //     bool,
+//         //     &Input,
+//         // ) -> RenderingData>(ret_fun);
+//         // // fun(world);
 
-        // // dlsym returns a C 'void*', cast it to a function pointer
-        // let ret_fun = std::mem::transmute::<*mut c_void, fn(
-        //     &mut World,
-        //     &mut Perf,
-        //     bool,
-        //     &Input,
-        // ) -> RenderingData>(ret_fun);
-        // // fun(world);
+//         println!("main: {:?}", TypeId::of::<ParticleEmitter>());
 
-        println!("main: {:?}", TypeId::of::<ParticleEmitter>());
-
-        // // Cleanup
-        // let ret = dlclose(handle);
-        // if ret != 0 {
-        //     panic!("Error while closing lib");
-        // }
-        // ret_fun
-    }
-}
+//         // // Cleanup
+//         // let ret = dlclose(handle);
+//         // if ret != 0 {
+//         //     panic!("Error while closing lib");
+//         // }
+//         // ret_fun
+//     }
+// }
 
 #[no_mangle]
 pub extern "C" fn main_hello() {
@@ -375,17 +384,32 @@ fn main() {
         defer,
         assets_manager.clone(),
     )));
+    if let Ok(status) = Command::new("cargo")
+        .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
+        // .arg(&format!("test_project_rs/runtime/libhello.so"))
+        .status() {
+            if !status.success() {
+                panic!("failed to compile");
+            }
+        }
+        
+    let lib = unsafe{ libloading::Library::new("test_project_rs/target/release/test_project_rs.dll").unwrap() };
+    let func: libloading::Symbol<unsafe extern fn(&mut World)> = unsafe { lib.get(b"register").unwrap() };
     {
+
         let mut world = world.lock();
         world.register::<Renderer>(false, false, false);
         world.register::<ParticleEmitter>(false, false, false);
         world.register::<Terrain>(true, false, true);
         world.register::<Camera>(false, false, false);
 
+
+        unsafe{ func(&mut world); }
+
         // world.register::<Maker>(true);
         // world.register::<game::Bomb>(true, false, false);
         // world.register::<game::Player>(true, false, false);
-        load_so(&mut world)
+        // load_so(&mut world)
     };
 
     let rm = {

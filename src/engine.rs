@@ -206,6 +206,7 @@ pub trait StorageBase {
 }
 
 // use pqueue::Queue;
+#[repr(C)]
 pub struct Storage<T> {
     pub data: Vec<Mutex<(i32, T)>>,
     pub valid: Vec<SyncUnsafeCell<bool>>,
@@ -870,10 +871,10 @@ impl World {
                 rendering: &sys.renderer_manager,
                 vk: sys.vk.clone(),
             };
-            for (_, stor) in &self.components {
+            for (_, stor) in &self.components_names {
                 stor.write().update(&self.transforms, &sys, &self);
             }
-            for (_, stor) in &self.components {
+            for (_, stor) in &self.components_names {
                 stor.write().late_update(&self.transforms, &sys);
             }
         }
@@ -909,7 +910,8 @@ impl World {
             rendering: &sys.renderer_manager,
             vk: sys.vk.clone(),
         };
-        for (_, stor) in &self.components {
+        for (name, stor) in &self.components_names {
+            println!("{}", name);
             stor.write().editor_update(&self.transforms, &sys, input);
         }
     }
@@ -917,7 +919,7 @@ impl World {
         // let transforms = self.transforms.read();
         // let sys = self.sys.lock();
         let mut render_jobs = vec![];
-        for (_, stor) in &self.components {
+        for (_, stor) in &self.components_names {
             stor.write().on_render(&mut render_jobs);
         }
         render_jobs
