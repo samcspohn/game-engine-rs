@@ -31,7 +31,7 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use crate::{model, engine::World, transform::Transform};
+use crate::{model::{self, ModelManager}, engine::World, transform::Transform};
 use crate::{
     asset_manager::AssetManagerBase,
     engine::{RenderJobData, System},
@@ -107,8 +107,8 @@ impl Terrain {
             let num_verts_chunk = (terrain_size * terrain_size).max(1);
             self.tcrd = Some(Arc::new(TerrainChunkRenderData {
                 texture: Some(
-                    sys.model_manager
-                        .lock()
+                    sys.get_model_manager().lock().as_any().downcast_ref::<ModelManager>().unwrap()
+                        // .lock()
                         .const_params
                         .1
                         .lock()

@@ -6,7 +6,7 @@ edition = "2021"
 [lib]
 # crate-type = ["lib"]
 name = "game_engine"
-path = "src/main.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "game-engine-rs"
@@ -91,3 +91,4 @@ nohash-hasher = "*"
 libloading = "0.8.0"
 # windows-dll = "*"
 # dylib = "*"
+regex = "1.8.1"

@@ -4,6 +4,7 @@ use crossbeam::queue::SegQueue;
 use egui::TextureId;
 use engine::Defer;
 use game::RenderingData;
+use project::Project;
 
 use std::any::TypeId;
 use std::process::{Command, ExitStatus};
@@ -64,36 +65,35 @@ use std::sync::mpsc::{Receiver, Sender};
 use notify::{RecursiveMode, Watcher};
 
 // use game_engine;
-pub mod engine;
-pub mod input;
-pub mod model;
-pub mod perf;
-pub mod renderer;
-// pub mod renderer_component;
-pub mod asset_manager;
-pub mod camera;
-pub mod color_gradient;
-pub mod drag_drop;
-pub mod editor_cam;
-pub mod editor_ui;
-pub mod file_watcher;
-pub mod game;
-pub mod inspectable;
-pub mod particle_sort;
-pub mod particles;
-pub mod physics;
-pub mod project;
-pub mod render_pipeline;
-pub mod renderer_component2;
-pub mod serialize;
-pub mod terrain;
-pub mod texture;
-pub mod time;
-pub mod transform;
-pub mod transform_compute;
-pub mod vulkan_manager;
-// use rand::prelude::*;
-// use rapier3d::prelude::*;
+mod engine;
+mod input;
+mod model;
+mod perf;
+mod renderer;
+//  mod renderer_component;
+mod asset_manager;
+mod camera;
+mod color_gradient;
+mod drag_drop;
+mod editor_cam;
+mod editor_ui;
+mod file_watcher;
+mod game;
+mod inspectable;
+mod particle_sort;
+mod particles;
+mod physics;
+mod project;
+mod render_pipeline;
+mod renderer_component2;
+mod runtime_compilation;
+mod serialize;
+mod terrain;
+mod texture;
+mod time;
+mod transform;
+mod transform_compute;
+mod vulkan_manager;
 
 use crate::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::editor_ui::EDITOR_ASPECT_RATIO;
@@ -106,97 +106,12 @@ use crate::model::ModelManager;
 use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
 
+use crate::input::Input;
 use crate::project::{load_project, save_project};
 use crate::renderer_component2::{buffer_usage_all, Renderer, RendererManager};
 use crate::terrain::Terrain;
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
-// use crate::transform_compute::cs::ty::transform;
-
-use crate::input::Input;
-
-// fn load_so(world: &mut World) {
-//     // Command::new("pwd").status().unwrap();
-//     // Compile our dynamic library
-//     if let Ok(status) = Command::new("cargo")
-//         .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
-//         // .arg(&format!("test_project_rs/runtime/libhello.so"))
-//         .status() {
-//             if status.success() {
-//                 panic!("failed to compile");
-//             }
-//         }
-        
-//     unsafe {
-//         // use libloading;
-//         // use libc::{c_void, dlclose, dlopen, dlsym, RTLD_GLOBAL, RTLD_NOW};
-//         // use std::ffi::CString;
-//         let lib = Box::new(libloading::Library::new("test_project_rs/target/release/test_project_rs.dll").unwrap());
-//         let func: libloading::Symbol<unsafe extern fn(&mut World)> = lib.get(b"register").unwrap();
-//         func(world);
-//         Box::leak(lib);
-//         // Ok(func())
-//         // // Load the library
-//         // let filename =
-//         //     CString::new("test_project_rs/target/release/libtest_project_rs.so").unwrap();
-//         // let handle = dlopen(filename.as_ptr(), RTLD_NOW | RTLD_GLOBAL);
-//         // if handle.is_null() {
-//         //     panic!("Failed to resolve dlopen")
-//         // }
-
-//         // // // Look for the function in the library
-//         // // let fun_name = CString::new("lib_hello").unwrap();
-//         // // let fun = dlsym(handle, fun_name.as_ptr());
-//         // // if fun.is_null() {
-//         // //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
-//         // // }
-
-//         // // // dlsym returns a C 'void*', cast it to a function pointer
-//         // // let fun = std::mem::transmute::<*mut c_void, fn()>(fun);
-//         // // fun();
-
-//         // // Look for the function in the library
-//         // let fun_name = CString::new("register").unwrap();
-//         // let fun = dlsym(handle, fun_name.as_ptr());
-//         // if fun.is_null() {
-//         //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
-//         // }
-
-//         // // dlsym returns a C 'void*', cast it to a function pointer
-//         // let fun = std::mem::transmute::<*mut c_void, fn(&mut World)>(fun);
-//         // fun(world);
-
-//         // Look for the function in the library
-//         // let fun_name = CString::new("game_loop").unwrap();
-//         // let ret_fun = dlsym(handle, fun_name.as_ptr());
-//         // if ret_fun.is_null() {
-//         //     panic!("Failed to resolve '{}'", &fun_name.to_str().unwrap());
-//         // }
-
-//         // // dlsym returns a C 'void*', cast it to a function pointer
-//         // let ret_fun = std::mem::transmute::<*mut c_void, fn(
-//         //     &mut World,
-//         //     &mut Perf,
-//         //     bool,
-//         //     &Input,
-//         // ) -> RenderingData>(ret_fun);
-//         // // fun(world);
-
-//         println!("main: {:?}", TypeId::of::<ParticleEmitter>());
-
-//         // // Cleanup
-//         // let ret = dlclose(handle);
-//         // if ret != 0 {
-//         //     panic!("Error while closing lib");
-//         // }
-//         // ret_fun
-//     }
-// }
-
-#[no_mangle]
-pub extern "C" fn main_hello() {
-    println!("Hello, world from static lib");
-}
 
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
@@ -235,46 +150,6 @@ fn main() {
 
     // let window = vk.surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
-    let texture_manager = Arc::new(Mutex::new(TextureManager::new(
-        (vk.device.clone(), vk.queue.clone(), vk.mem_alloc.clone()),
-        &["png", "jpeg"],
-    )));
-
-    let model_manager = ModelManager::new(
-        (
-            vk.device.clone(),
-            texture_manager.clone(),
-            vk.mem_alloc.clone(),
-        ),
-        &["obj"],
-    );
-
-    let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
-        vk.device.clone(),
-        vk.mem_alloc.clone(),
-    )));
-    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", vk.device.clone(), texture_manager.clone());
-
-    let model_manager = Arc::new(Mutex::new(model_manager));
-    {
-        model_manager.lock().from_file("src/cube/cube.obj");
-    }
-
-    let particles = Arc::new(particles::ParticleCompute::new(
-        vk.device.clone(),
-        vk.clone(),
-    ));
-
-    let assets_manager = Arc::new(Mutex::new(AssetsManager::new()));
-    {
-        let mut assets_manager = assets_manager.lock();
-        assets_manager.add_asset_manager("model", model_manager.clone());
-        assets_manager.add_asset_manager("texture", texture_manager.clone());
-        assets_manager.add_asset_manager(
-            "particle_template",
-            particles.particle_template_manager.clone(),
-        );
-    }
     // let uniform_buffer =
     //     CpuBufferPool::<renderer::vs::ty::Data>::new(vk.device.clone(), BufferUsage::all());
 
@@ -375,8 +250,20 @@ fn main() {
     let physics = Physics::new();
     let defer = Defer::new();
 
+    let particles = Arc::new(particles::ParticleCompute::new(
+        vk.device.clone(),
+        vk.clone(),
+    ));
+
+    let assets_manager = Arc::new(AssetsManager::new());
+
+    let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
+        vk.device.clone(),
+        vk.mem_alloc.clone(),
+    )));
+
     let world = Arc::new(Mutex::new(World::new(
-        model_manager.clone(),
+        // model_manager.clone(),
         renderer_manager,
         Arc::new(Mutex::new(physics)),
         particles.clone(),
@@ -384,27 +271,17 @@ fn main() {
         defer,
         assets_manager.clone(),
     )));
-    if let Ok(status) = Command::new("cargo")
-        .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
-        // .arg(&format!("test_project_rs/runtime/libhello.so"))
-        .status() {
-            if !status.success() {
-                panic!("failed to compile");
-            }
-        }
-        
-    let lib = unsafe{ libloading::Library::new("test_project_rs/target/release/test_project_rs.dll").unwrap() };
-    let func: libloading::Symbol<unsafe extern fn(&mut World)> = unsafe { lib.get(b"register").unwrap() };
-    {
 
+    {
         let mut world = world.lock();
         world.register::<Renderer>(false, false, false);
         world.register::<ParticleEmitter>(false, false, false);
         world.register::<Terrain>(true, false, true);
         world.register::<Camera>(false, false, false);
 
-
-        unsafe{ func(&mut world); }
+        // unsafe {
+        //     func(&mut world);
+        // }
 
         // world.register::<Maker>(true);
         // world.register::<game::Bomb>(true, false, false);
@@ -412,13 +289,71 @@ fn main() {
         // load_so(&mut world)
     };
 
+    let texture_manager = Arc::new(Mutex::new(TextureManager::new(
+        (vk.device.clone(), vk.queue.clone(), vk.mem_alloc.clone()),
+        &["png", "jpeg"],
+    )));
+
+    let model_manager = ModelManager::new(
+        (
+            vk.device.clone(),
+            texture_manager.clone(),
+            vk.mem_alloc.clone(),
+        ),
+        &["obj"],
+    );
+
+    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", vk.device.clone(), texture_manager.clone());
+
+    let model_manager = Arc::new(Mutex::new(model_manager));
+    {
+        model_manager.lock().from_file("src/cube/cube.obj");
+    }
+
+    let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
+    let lib_manager = Arc::new(Mutex::new(runtime_compilation::LibManager::new(
+        world.clone(),
+        &["so", "dll"],
+    )));
+
+    unsafe {
+        // let &mut assets_manager = assets_manager.as_ref();
+        assets_manager.add_asset_manager("model", model_manager.clone());
+        assets_manager.add_asset_manager("texture", texture_manager.clone());
+        assets_manager.add_asset_manager(
+            "particle_template",
+            particles.particle_template_manager.clone(),
+        );
+        assets_manager.add_asset_manager("rs", rs_manager.clone());
+        assets_manager.add_asset_manager("lib", lib_manager.clone())
+    }
+
     let rm = {
         let w = world.lock();
-        // let s = w.sys);
         let rm = w.sys.renderer_manager.read();
-
         rm.shr_data.clone()
     };
+    let lib_me = unsafe {
+        libloading::Library::from(
+            libloading::os::unix::Library::open::<&str>(
+                None,
+                libloading::os::unix::RTLD_NOW | libloading::os::unix::RTLD_GLOBAL,
+            )
+            .unwrap(),
+        )
+    };
+
+    let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
+    // load_project(&mut file_watcher, world.clone(), assets_manager.clone());
+    if let Ok(s) = std::fs::read_to_string("project.yaml") {
+        {
+            let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
+            file_watcher.files = project.files;
+            assets_manager.deserialize(project.assets);
+            file_watcher.init(assets_manager.clone());
+        }
+        serialize::deserialize(&mut world.lock());
+    }
 
     let game_thread = {
         // let _perf = perf.clone();
@@ -431,14 +366,6 @@ fn main() {
     // let ter = trx.recv().unwrap();
     // println!("sending input");
     let _res = coms.1.send((input.clone(), false));
-    let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
-
-    {
-        let mut world = world.lock();
-        load_project(&mut file_watcher, &mut world, assets_manager.clone());
-        file_watcher.init(assets_manager.clone());
-        // save_project(&file_watcher, &mut world, assets_manager.clone());
-    }
 
     let mut cam_data = CameraData::new(vk.clone());
     let mut playing_game = false;

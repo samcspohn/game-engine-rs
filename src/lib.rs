@@ -27,4 +27,3 @@ pub mod vulkan_manager;
 pub mod engine;
 pub mod physics;
 pub mod transform;
-mod main;

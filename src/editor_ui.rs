@@ -44,8 +44,8 @@ struct TabViewer<'a> {
     fps: &'a mut VecDeque<f32>,
     // goi: &'a GameObjectInspector<'b>,
     inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
-    assets_manager: Arc<Mutex<AssetsManager>>,
-    func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<Mutex<AssetsManager>>)>,
+    assets_manager: Arc<AssetsManager>,
+    func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<AssetsManager>)>,
 }
 pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_> {
@@ -420,7 +420,7 @@ pub fn editor_ui(
     fps_queue: &mut VecDeque<f32>,
     egui_ctx: &Context,
     frame_color: egui::TextureId,
-    assets_manager: Arc<Mutex<AssetsManager>>
+    assets_manager: Arc<AssetsManager>
 ) -> bool {
     {
         static mut _selected_transforms: Lazy<HashMap<i32, bool>> =
@@ -455,7 +455,7 @@ pub fn editor_ui(
             DockArea::new(&mut dock)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
                 .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut inspectable, assets_manager, func:
-                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<Mutex<AssetsManager>>| {
+                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>| {
                         let assets_manager = assets_manager;
                         match tab {
                             "Hierarchy" => {
@@ -776,7 +776,7 @@ pub fn editor_ui(
                                 let world = world.lock();
                                 use substring::Substring;
                                 let cur_dir: PathBuf = "./test_project_rs".into();
-                                fn render_dir(ui: &mut egui::Ui, cur_dir: PathBuf, sys: &Sys, assets_manager: &Arc<Mutex<AssetsManager>>) {
+                                fn render_dir(ui: &mut egui::Ui, cur_dir: PathBuf, sys: &Sys, assets_manager: &Arc<AssetsManager>) {
                                     // let label = format!("{:?}", cur_dir);
                                     let label: String = cur_dir.clone().into_os_string().into_string().unwrap();
                                     let id = ui.make_persistent_id(label.clone());
@@ -797,7 +797,7 @@ pub fn editor_ui(
                                                         unsafe { let resp2 = ui.text_edit_singleline(&mut TEXT); 
                                                             if resp2.lost_focus() && ui.input().key_pressed(egui::Key::Enter) {
                                                                 ui.close_menu();
-                                                                assets_manager.lock().new_asset(format!("{label}/{TEXT}.ptem").as_str());
+                                                                assets_manager.new_asset(format!("{label}/{TEXT}.ptem").as_str());
                                                                 TEXT = "".into();
                                                             }
                                                         }
@@ -835,7 +835,7 @@ pub fn editor_ui(
                                                 });
                                                 if resp.clicked() {
                                                     
-                                                    unsafe { inspectable = assets_manager.lock().inspect(label.as_str()) };
+                                                    unsafe { inspectable = assets_manager.inspect(label.as_str()) };
                                                 }
                                             // }
                                         }

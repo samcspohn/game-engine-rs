@@ -13,9 +13,9 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize)]
-struct Project {
-    files: BTreeMap<String, u64>,
-    assets: BTreeMap<String, serde_yaml::Value>,
+pub struct Project {
+    pub files: BTreeMap<String, u64>,
+    pub assets: BTreeMap<String, serde_yaml::Value>,
     // model_manager: serde_yaml::Value,
     // texture_manager: serde_yaml::Value,
     working_file: String,
@@ -24,7 +24,7 @@ struct Project {
 pub fn save_project(
     file_watcher: &FileWatcher,
     world: &World,
-    assets_manager: Arc<Mutex<AssetsManager>>,
+    assets_manager: Arc<AssetsManager>,
 ) {
     // let _sys = world.sys.lock();
     let files = file_watcher.files.clone();
@@ -36,7 +36,7 @@ pub fn save_project(
     //     .const_params.1.lock()).unwrap();
     let working_file = "test.yaml".into();
     let assets = {
-        let a = assets_manager.lock();
+        let a = &assets_manager;
         a.save_assets();
         a.serialize()
     };
@@ -51,7 +51,7 @@ pub fn save_project(
 
 pub fn load_project(
     file_watcher: &mut FileWatcher,
-    world: &mut World,
+    world: Arc<Mutex<World>>,
     assets_manager: Arc<Mutex<AssetsManager>>,
 ) {
     if let Ok(s) = std::fs::read_to_string("project.yaml") {
@@ -71,6 +71,6 @@ pub fn load_project(
             // mm.regen(project.models);
             // mm.id_gen = project.model_id_gen;
         }
-        serialize::deserialize(world);
+        serialize::deserialize(&mut world.lock());
     }
 }

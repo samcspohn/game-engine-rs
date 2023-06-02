@@ -1,16 +1,20 @@
 use parking_lot::RwLock;
 use puffin_egui::puffin;
 use std::{
+    any::TypeId,
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
 
 use crate::{
+    asset_manager::AssetInstance,
     drag_drop::{self, drop_target},
     engine::{Component, Sys, _Storage},
-    transform::Transform, 
     inspectable::{Inpsect, Ins, Inspectable},
-    vulkan_manager::VulkanManager, transform_compute::TransformCompute, asset_manager::AssetInstance, model::ModelRenderer,
+    model::{ModelManager, ModelRenderer},
+    transform::Transform,
+    transform_compute::TransformCompute,
+    vulkan_manager::VulkanManager,
 };
 use bytemuck::{Pod, Zeroable};
 // use parking_lot::RwLock;
@@ -29,40 +33,39 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-#[derive(Default, Clone, Copy, Serialize, Deserialize)]
-struct ModelId {
-    id: i32,
-}
-impl<'a> Inpsect for Ins<'a, ModelId> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) {
-        let drop_data = drag_drop::DRAG_DROP_DATA.lock();
+// #[derive(Default, Clone, Copy, Serialize, Deserialize)]
+// struct ModelId {
+//     id: i32,
+// }
+// impl<'a> Inpsect for Ins<'a, ModelId> {
+//     fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) {
+//         let drop_data = drag_drop::DRAG_DROP_DATA.lock();
+//         sys.assets_manager.lock().asset_managers_type.get(&TypeId::of::<Model>()).unwrap().lock().assets_id.get(&self.0.id)
+//         let model: String = match sys.model_manager.lock().assets_id.get(&self.0.id) {
+//             Some(model) => model.lock().file.clone(),
+//             None => "".into(),
+//         };
+//         let can_accept_drop_data = match drop_data.rfind(".obj") {
+//             Some(_) => true,
+//             None => false,
+//         };
+//         // println!("can accept drop data:{}",can_accept_drop_data);
+//         ui.horizontal(|ui| {
+//             ui.add(egui::Label::new(name));
+//             drop_target(ui, can_accept_drop_data, |ui| {
+//                 // let model_name = sys.model_manager.lock().models.get(k)
+//                 let response = ui.add(egui::Label::new(model.as_str()));
+//                 if response.hovered() && ui.input().pointer.any_released() {
+//                     let model_file: String = drop_data.clone();
 
-        let model: String = match sys.model_manager.lock().assets_id.get(&self.0.id) {
-            Some(model) => model.lock().file.clone(),
-            None => "".into(),
-        };
-        let can_accept_drop_data = match drop_data.rfind(".obj") {
-            Some(_) => true,
-            None => false,
-        };
-        // println!("can accept drop data:{}",can_accept_drop_data);
-        ui.horizontal(|ui| {
-            ui.add(egui::Label::new(name));
-            drop_target(ui, can_accept_drop_data, |ui| {
-                // let model_name = sys.model_manager.lock().models.get(k)
-                let response = ui.add(egui::Label::new(model.as_str()));
-                if response.hovered() && ui.input().pointer.any_released() {
-                    let model_file: String = drop_data.clone();
-
-                    if let Some(id) = sys.model_manager.lock().assets.get(&model_file) {
-                        self.0.id = *id;
-                    }
-                }
-            });
-        });
-    }
-}
-
+//                     if let Some(id) = sys.model_manager.lock().assets.get(&model_file) {
+//                         self.0.id = *id;
+//                     }
+//                 }
+//             });
+//         });
+//     }
+// }
 
 // #[component]
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -73,7 +76,6 @@ pub struct Renderer {
     #[serde(skip_serializing, skip_deserializing)]
     id: i32,
 }
-
 
 impl Inspectable for Renderer {
     fn inspect(&mut self, transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
@@ -111,9 +113,11 @@ impl Inspectable for Renderer {
                     .write()
                     .indirect
                     .emplace(DrawIndexedIndirectCommand {
-                        index_count: sys
-                            .model_manager
+                        index_count: sys.get_model_manager()
                             .lock()
+                            .as_any()
+                            .downcast_ref::<ModelManager>()
+                            .unwrap()
                             .assets_id
                             .get(&self.model_id.id)
                             .unwrap()
@@ -216,7 +220,10 @@ impl SharedRendererData {
         // rm: &mut parking_lot::RwLockWriteGuard<SharedRendererData>,
         rd: &mut RendererData,
         vk: Arc<VulkanManager>,
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
         renderer_pipeline: Arc<ComputePipeline>,
         transform_compute: &TransformCompute,
     ) -> Vec<i32> {
@@ -445,40 +452,38 @@ impl RendererManager {
             })),
         }
     }
-    pub(crate) fn get_renderer_data(&mut self) -> RendererData{
-            let renderer_data = RendererData {
-                model_indirect: self
-                    .model_indirect
-                    .read()
-                    .iter()
-                    .map(|(k, v)| (*k, *v))
-                    .collect(),
-                indirect_model: self
-                    .indirect_model
-                    .read()
-                    .iter()
-                    .map(|(k, v)| (*k, *v))
-                    .collect(),
-                updates: self
-                    .updates
-                    .iter()
-                    .flat_map(|(id, t)| vec![*id, t.indirect_id, t.transform_id].into_iter())
-                    .collect(),
-                transforms_len: self.transforms.data.len() as i32,
-            };
-            self.updates.clear();
-            renderer_data
-
+    pub(crate) fn get_renderer_data(&mut self) -> RendererData {
+        let renderer_data = RendererData {
+            model_indirect: self
+                .model_indirect
+                .read()
+                .iter()
+                .map(|(k, v)| (*k, *v))
+                .collect(),
+            indirect_model: self
+                .indirect_model
+                .read()
+                .iter()
+                .map(|(k, v)| (*k, *v))
+                .collect(),
+            updates: self
+                .updates
+                .iter()
+                .flat_map(|(id, t)| vec![*id, t.indirect_id, t.transform_id].into_iter())
+                .collect(),
+            transforms_len: self.transforms.data.len() as i32,
+        };
+        self.updates.clear();
+        renderer_data
     }
     pub(crate) fn clear(&mut self) {
         self.transforms.clear();
         let mut m = self.model_indirect.write();
-        for (_,m) in m.iter_mut() {
+        for (_, m) in m.iter_mut() {
             m.count = 0;
         }
         // self.model_indirect.write().clear();
         // self.indirect_model.write().clear();
-
     }
 }
 
@@ -527,8 +532,11 @@ impl Component for Renderer {
                 .indirect
                 .emplace(DrawIndexedIndirectCommand {
                     index_count: sys
-                        .model_manager
+                        .get_model_manager()
                         .lock()
+                        .as_any()
+                        .downcast_ref::<ModelManager>()
+                        .unwrap()
                         .assets_id
                         .get(&self.model_id.id)
                         .unwrap()

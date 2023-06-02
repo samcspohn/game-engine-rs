@@ -1,19 +1,18 @@
-
+use egui::Ui;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::{
-    any::TypeId,
+    any::{Any, TypeId},
     collections::{BTreeMap, HashMap},
     marker::PhantomData,
     sync::Arc,
 };
-
-use egui::Ui;
-use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
+use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::{
     drag_drop::{self, drop_target},
     engine::World,
-    inspectable::{Inspectable, Inspectable_, Ins, Inpsect},
+    inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
 };
 
 #[derive(Deserialize, Serialize)]
@@ -25,18 +24,27 @@ pub struct AssetInstance<T> {
 }
 impl<T> AssetInstance<T> {
     pub fn new(id: i32) -> Self {
-        Self { id, _pd: PhantomData }
+        Self {
+            id,
+            _pd: PhantomData,
+        }
     }
 }
 
 impl<T> Default for AssetInstance<T> {
     fn default() -> Self {
-        Self { id: 0, _pd: PhantomData }
+        Self {
+            id: 0,
+            _pd: PhantomData,
+        }
     }
 }
 impl<T> Clone for AssetInstance<T> {
     fn clone(&self) -> Self {
-        Self { id: self.id, _pd: PhantomData }
+        Self {
+            id: self.id,
+            _pd: PhantomData,
+        }
     }
 }
 impl<T> Copy for AssetInstance<T> {}
@@ -44,7 +52,8 @@ impl<T> Copy for AssetInstance<T> {}
 impl<'a, T: 'static> Inpsect for Ins<'a, AssetInstance<T>> {
     fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &crate::engine::Sys) {
         let drop_data = drag_drop::DRAG_DROP_DATA.lock();
-        sys.assets_manager.lock().inspect_instance::<T>(name, &drop_data, &mut self.0.id, ui)
+        sys.assets_manager
+            .inspect_instance::<T>(name, &drop_data, &mut self.0.id, ui)
 
         // let asset_manager = sys.assets_manager.asset_managers_type.get(&TypeId::of::<T>()).unwrap();
 
@@ -147,6 +156,7 @@ impl<T> AssetInstance<T> {
 pub trait Asset<T, P> {
     fn from_file(file: &str, params: &P) -> T;
     fn reload(&mut self, file: &str, params: &P);
+    fn unload(&mut self, file: &str, params: &P) {}
     fn save(&mut self, _file: &str, _params: &P) {}
     fn new(_file: &str, _params: &P) -> Option<T> {
         None
@@ -200,7 +210,7 @@ pub struct AssetManager<P, T: Inspectable_ + Asset<T, P>> {
 //     }
 // }
 
-impl<P, T: Inspectable_ + Asset<T, P>> AssetManager<P, T> {
+impl<P: 'static, T: Inspectable_ + Asset<T, P>> AssetManager<P, T> {
     pub fn new(const_params: P, ext: &[&str]) -> Self {
         Self {
             assets: BTreeMap::new(),
@@ -217,7 +227,7 @@ impl<P, T: Inspectable_ + Asset<T, P>> AssetManager<P, T> {
     }
 }
 
-impl<P, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for AssetManager<P, T> {
+impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for AssetManager<P, T> {
     fn inspect(&mut self, file: &str, ui: &mut Ui, world: &Mutex<World>) {
         // let file = std::path::Path::new(file);
         if let Some(a) = self.assets.get(file) {
@@ -284,6 +294,7 @@ impl<P, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for AssetManag
         // let _file = std::path::Path::new(path);
         if let Some(id) = self.assets.get(path) {
             let id = *id;
+            self.assets_id.get(&id).unwrap().lock().unload(path, &self.const_params);
             self.assets_id.remove(&id);
             self.assets.remove(path);
             self.assets_r.remove(&id);
@@ -347,18 +358,20 @@ impl<P, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for AssetManag
         // let drop_data = drag_drop::DRAG_DROP_DATA.lock();
 
         // let asset_manager = sys.assets_manager.asset_managers_type.get(&TypeId::of::<T>()).unwrap();
-        
+
         // let label = id.to_string();
         let label: String = match self.assets_r.get(&id) {
             Some(file) => file.clone(),
             None => "".into(),
         };
-        let can_accept_drop_data = self.ext.iter().map(|e| {
-            match path.rfind(format!(".{}",e).as_str()) {
+        let can_accept_drop_data = self
+            .ext
+            .iter()
+            .map(|e| match path.rfind(format!(".{}", e).as_str()) {
                 Some(_) => true,
                 None => false,
-            }
-        } ).any(|b| b);
+            })
+            .any(|b| b);
         // println!("can accept drop data:{}",can_accept_drop_data);
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
@@ -377,6 +390,9 @@ impl<P, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for AssetManag
     fn get_ext(&self) -> &[String] {
         self.ext.as_slice()
     }
+    fn as_any(&self) -> &dyn Any {
+        self as &dyn Any
+    }
 }
 
 pub trait AssetManagerBase {
@@ -393,12 +409,16 @@ pub trait AssetManagerBase {
     fn get_type(&self) -> TypeId;
     fn inspect_instance(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui);
     fn get_ext(&self) -> &[String];
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 pub struct AssetsManager {
-    pub asset_managers_names: HashMap<String, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>,
-    pub asset_managers_ext: HashMap<String, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>,
-    pub asset_managers_type: HashMap<TypeId, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>,
+    pub asset_managers_names:
+        SyncUnsafeCell<HashMap<String, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>>,
+    pub asset_managers_ext:
+        SyncUnsafeCell<HashMap<String, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>>,
+    pub asset_managers_type:
+        SyncUnsafeCell<HashMap<TypeId, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>>,
 }
 
 impl AssetsManager {
@@ -409,37 +429,55 @@ impl AssetsManager {
     //         None
     //     }
     // }
-    pub fn inspect_instance<T: 'static >(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) {
-        let asset_manager = self.asset_managers_type.get(&TypeId::of::<T>()).unwrap();
+    pub fn get_manager<T: 'static>(
+        &self,
+    ) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
+        unsafe { &*self.asset_managers_type.get() }
+            .get(&TypeId::of::<T>())
+            .unwrap()
+            .clone()
+    }
+    // pub fn get_manager_type<T: 'static>(
+    //     &self,
+    //     id: &AssetInstance<T>,
+    // ) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
+    //     unsafe { &*self.asset_managers_type.get() }
+    //         .get(&TypeId::of::<T>())
+    //         .unwrap()
+    //         .clone()
+    // }
+    pub fn inspect_instance<T: 'static>(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) {
+        let asset_manager = unsafe { &*self.asset_managers_type.get() }
+            .get(&TypeId::of::<T>())
+            .unwrap();
         asset_manager.lock().inspect_instance(name, path, id, ui);
-
     }
     pub fn new() -> Self {
         Self {
-            asset_managers_names: HashMap::new(),
-            asset_managers_ext: HashMap::new(),
-            asset_managers_type: HashMap::new(),
+            asset_managers_names: SyncUnsafeCell::new(HashMap::new()),
+            asset_managers_ext: SyncUnsafeCell::new(HashMap::new()),
+            asset_managers_type: SyncUnsafeCell::new(HashMap::new()),
         }
     }
-    pub fn add_asset_manager(
-        &mut self,
+    pub unsafe fn add_asset_manager(
+        &self,
         name: &str,
         // ext: &[&str],
         am: Arc<Mutex<dyn AssetManagerBase + Send + Sync>>,
     ) {
-        self.asset_managers_names.insert(name.into(), am.clone());
+        (*self.asset_managers_names.get()).insert(name.into(), am.clone());
         for ext in am.lock().get_ext() {
-            self.asset_managers_ext.insert(ext.clone(), am.clone());
+            (*self.asset_managers_ext.get()).insert(ext.clone(), am.clone());
         }
         let t = am.lock().get_type();
-        self.asset_managers_type.insert(t, am);
+        (*self.asset_managers_type.get()).insert(t, am);
     }
-    pub fn inspect(&mut self, file: &str) -> Option<Arc<Mutex<dyn Inspectable_>>> {
+    pub fn inspect(&self, file: &str) -> Option<Arc<Mutex<dyn Inspectable_>>> {
         let path = std::path::Path::new(file);
         // if let Some(dot) = file.rfind(".") {
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
-            if let Some(o) = self.asset_managers_ext.get_mut(ext) {
+            if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
                 o.lock().inspectable(file)
             } else {
                 None
@@ -448,22 +486,22 @@ impl AssetsManager {
             None
         }
     }
-    pub fn load(&mut self, file: &str) {
+    pub fn load(&self, file: &str) {
         let path = std::path::Path::new(file);
         // if let Some(dot) = file.rfind(".") {
         if let Some(ext) = path.extension() {
-            if let Some(o) = self.asset_managers_ext.get_mut(ext.to_str().unwrap()) {
+            if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext.to_str().unwrap()) {
                 o.lock().from_file(file);
             } else {
             }
         }
     }
-    pub fn new_asset(&mut self, file: &str) -> i32 {
+    pub fn new_asset(&self, file: &str) -> i32 {
         println!("new asset {file}");
         let path = std::path::Path::new(file);
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
-            if let Some(o) = self.asset_managers_ext.get_mut(ext) {
+            if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
                 o.lock().new_asset(file)
             } else {
                 -1
@@ -472,51 +510,56 @@ impl AssetsManager {
             -1
         }
     }
-    pub fn remove(&mut self, file: &str) {
+    pub fn remove(&self, file: &str) {
         // println!("remove asset {file}");
         let path = std::path::Path::new(file);
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
-            if let Some(o) = self.asset_managers_ext.get_mut(ext) {
+            if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
                 o.lock().remove(file);
             }
         }
     }
-    pub fn reload(&mut self, file: &str) {
+    pub fn reload(&self, file: &str) {
         // println!("remove asset {file}");
         let path = std::path::Path::new(file);
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
-            if let Some(o) = self.asset_managers_ext.get_mut(ext) {
+            if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
                 o.lock().reload(file);
             }
         }
     }
-    pub fn move_file(&mut self, from: &str, to: &str) {
+    pub fn move_file(&self, from: &str, to: &str) {
         // println!("remove asset {file}");
         let path = std::path::Path::new(from);
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
-            if let Some(o) = self.asset_managers_ext.get_mut(ext) {
+            if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
                 o.lock().move_file(from, to);
             }
         }
     }
     pub fn serialize(&self) -> BTreeMap<String, serde_yaml::Value> {
         let mut r = BTreeMap::new();
-        for (n, am) in &self.asset_managers_names {
+        for (n, am) in unsafe { &*self.asset_managers_names.get() } {
             r.insert(n.to_owned(), am.lock().serialize());
         }
         r
     }
-    pub fn deserialize(&mut self, val: BTreeMap<String, serde_yaml::Value>) {
-        for (n, v) in val {
-            let a = self.asset_managers_names.get(&n).unwrap();
-            a.lock().regen(v);
+    pub fn deserialize(&self, val: BTreeMap<String, serde_yaml::Value>) {
+        for (n, v) in &val {
+            if n == "lib" {
+                continue;
+            }
+            let a = unsafe { &*self.asset_managers_names.get() }.get(n).unwrap();
+            a.lock().regen(v.clone());
         }
+        let a = unsafe { &*self.asset_managers_names.get() }.get("lib").unwrap();
+            a.lock().regen(val["lib"].clone());
     }
     pub fn save_assets(&self) {
-        for (_, a) in &self.asset_managers_names {
+        for (_, a) in unsafe { &*self.asset_managers_names.get() } {
             a.lock().save();
         }
     }

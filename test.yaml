@@ -64,12 +64,12 @@ t_c:
     - 1.0
     - 1.0
   c:
-  - - ParticleEmitter
-    - template:
-        id: 2
   - - Renderer
     - model_id:
         id: 0
+  - - ParticleEmitter
+    - template:
+        id: 2
   t_c: []
 - t:
     position:
@@ -181,6 +181,11 @@ t_c:
     - 1.0
     - 1.0
   c:
+  - - Player
+    - rof: 0.0
+      speed: 10.0
+      grab_mode: false
+      cursor_vis: false
   - - Camera
     - fov: 60.0
       near: 0.10000000149011612
@@ -188,9 +193,4 @@ t_c:
   - - Renderer
     - model_id:
         id: 0
-  - - Player
-    - rof: 0.0
-      speed: 10.0
-      grab_mode: false
-      cursor_vis: false
   t_c: []

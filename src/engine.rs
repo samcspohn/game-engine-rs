@@ -46,6 +46,7 @@ use crate::{
     input::Input,
     inspectable::Inspectable,
     model::ModelManager,
+    model::ModelRenderer,
     particles::{ParticleCompute, ParticleEmitter},
     renderer::RenderPipeline,
     renderer_component2::RendererManager,
@@ -114,9 +115,23 @@ pub struct System<'a> {
     pub physics: &'a physics::Physics,
     pub defer: &'a Defer,
     pub input: &'a input::Input,
-    pub model_manager: &'a parking_lot::Mutex<ModelManager>,
+    // pub model_manager: &'a parking_lot::Mutex<ModelManager>,
     pub rendering: &'a RwLock<RendererManager>,
+    pub assets: &'a AssetsManager,
     pub vk: Arc<VulkanManager>,
+}
+impl<'a> System<'a> {
+    pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
+        let b = &self.assets;
+        let a = b
+            .get_manager::<ModelRenderer>()
+            // .asset_managers_type
+            // .get(&TypeId::of::<ModelRenderer>())
+            // .unwrap()
+            .clone();
+        // let b = a.clone();
+        a
+    }
 }
 
 pub trait Component {
@@ -442,14 +457,23 @@ pub struct GameObject {
 }
 
 pub struct Sys {
-    pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
+    // pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
-    pub assets_manager: Arc<Mutex<AssetsManager>>,
+    pub assets_manager: Arc<AssetsManager>,
     pub physics: Arc<Mutex<Physics>>,
     pub particles: Arc<ParticleCompute>,
     pub vk: Arc<VulkanManager>,
     pub defer: Defer,
 }
+use crate::asset_manager::AssetManagerBase;
+impl Sys {
+    pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
+        let b = &self.assets_manager;
+        let a = b.get_manager::<ModelRenderer>().clone();
+        a
+    }
+}
+
 // #[derive(Default)]
 pub struct World {
     // pub(crate) device: Arc<Device>,
@@ -466,16 +490,25 @@ pub struct World {
     // defer: SegQueue<Box<dyn FnOnce(&mut World) + Send + Sync>>,
 }
 
+//  T_ = 'static
+//     + Send
+//     + Sync
+//     + Component
+//     + Inspectable
+//     + Default
+//     + Clone
+//     + Serialize
+//     + for<'a> Deserialize<'a>;
 #[allow(dead_code)]
 impl World {
     pub fn new(
-        modeling: Arc<parking_lot::Mutex<ModelManager>>,
+        // modeling: Arc<parking_lot::Mutex<ModelManager>>,
         renderer_manager: Arc<RwLock<RendererManager>>,
         physics: Arc<Mutex<Physics>>,
         particles: Arc<ParticleCompute>,
         vk: Arc<VulkanManager>,
         defer: Defer,
-        assets_manager: Arc<Mutex<AssetsManager>>,
+        assets_manager: Arc<AssetsManager>,
     ) -> World {
         let mut trans = Transforms::new();
         let root = trans.new_root();
@@ -486,7 +519,7 @@ impl World {
             components_names: HashMap::new(),
             root,
             sys: Sys {
-                model_manager: modeling,
+                // model_manager: modeling,
                 renderer_manager,
                 physics,
                 particles,
@@ -730,7 +763,7 @@ impl World {
                 ent_components.insert(stor.get_name().into(), c_id);
             }
         } else {
-            panic!("no type key?")
+            panic!("no type key: {}", key);
         }
     }
     pub fn remove_component(&mut self, g: GameObject, key: String, c_id: i32) {
@@ -770,6 +803,34 @@ impl World {
             component_storage.read().get_name().to_string(),
             component_storage.clone(),
         );
+
+        // let component_storage = Arc::new(RwLock::new(Box::new(data)));
+        // self.components
+        //     .insert(key.clone(), component_storage.clone());
+    }
+
+    pub fn unregister<
+        T: 'static
+            + Send
+            + Sync
+            + Component
+            + Inspectable
+            + Default
+            + Clone
+            + Serialize
+            + for<'a> Deserialize<'a>,
+    >(
+        &mut self,
+    ) {
+        let key: TypeId = TypeId::of::<T>();
+        // let c = T::default();
+        // let has_render = T::on_render != &Component::on_render;
+        // let data = Storage::<T>::new(has_update, has_late_update, has_render);
+        // let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
+        //     Arc::new(RwLock::new(Box::new(data)));
+        self.components.remove(&key);
+        self.components_names
+            .remove(std::any::type_name::<T>().split("::").last().unwrap());
 
         // let component_storage = Arc::new(RwLock::new(Box::new(data)));
         // self.components
@@ -867,8 +928,9 @@ impl World {
                 physics: &sys.physics.lock(),
                 defer: &sys.defer,
                 input,
-                model_manager: &sys.model_manager,
+                // model_manager: &sys.model_manager,
                 rendering: &sys.renderer_manager,
+                assets: &sys.assets_manager,
                 vk: sys.vk.clone(),
             };
             for (_, stor) in &self.components_names {
@@ -906,12 +968,12 @@ impl World {
             physics: &sys.physics.lock(),
             defer: &sys.defer,
             input,
-            model_manager: &sys.model_manager,
+            // model_manager: &sys.model_manager,
             rendering: &sys.renderer_manager,
+            assets: &sys.assets_manager,
             vk: sys.vk.clone(),
         };
         for (name, stor) in &self.components_names {
-            println!("{}", name);
             stor.write().editor_update(&self.transforms, &sys, input);
         }
     }

@@ -4,9 +4,12 @@ use notify::{
 };
 use parking_lot::Mutex;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::Path,
-    sync::{mpsc::Receiver, Arc},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc,
+    },
 };
 use substring::Substring;
 use walkdir::WalkDir;
@@ -16,9 +19,9 @@ use crate::asset_manager::{AssetManagerBase, AssetsManager};
 
 pub struct FileWatcher {
     pub(crate) files: BTreeMap<String, u64>,
+    // dirs: BTreeSet<String>,
     path: String,
-    rx: Receiver<Result<Event>>,
-    watcher: Box<dyn Watcher>,
+    watchers: BTreeMap<String, (Receiver<Result<Event>>, Box<dyn Watcher>)>,
 }
 // fn get_files(file_map: &mut HashMap<String, u64>) -> Result<()> {
 //     for entry in fs::read_dir(path)? {
@@ -44,96 +47,139 @@ impl FileWatcher {
     pub fn new(path: &str) -> FileWatcher {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = Box::new(RecommendedWatcher::new(tx, Config::default()).unwrap());
+        // let config = notify::Config::default();
         watcher
-            .watch(Path::new(path), RecursiveMode::Recursive)
+            .watch(Path::new(path), RecursiveMode::NonRecursive)
             .unwrap();
+        let mut a: BTreeMap<String, (Receiver<Result<Event>>, Box<dyn Watcher>)> = BTreeMap::new();
+        a.insert(String::from(path), (rx, watcher));
         let files = BTreeMap::new();
         FileWatcher {
             files,
             path: path.into(),
-            rx,
-            watcher,
+            // rx,
+            // tx,
+            watchers: a,
+            // dirs: BTreeSet::new(),
         }
     }
-    pub fn init(&mut self, assets_manager: Arc<Mutex<AssetsManager>>) {
-        for entry in WalkDir::new(&self.path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| !e.file_type().is_dir())
+    pub fn init(&mut self, assets_manager: Arc<AssetsManager>) {
+        let mut do_later = Vec::new();
+        for entry in WalkDir::new(&self.path).into_iter().filter_map(|e| e.ok())
+        // .filter(|e| !e.file_type().is_dir())
         {
-            let f_name = String::from(entry.path().to_string_lossy());
-            if !f_name.contains(format!("{0}target{0}", std::path::MAIN_SEPARATOR).as_str()) {
-                assets_manager.lock().load(f_name.as_str());
-                self.files.entry(f_name).and_modify(|_e| {}).or_insert(
-                    entry
-                        .metadata()
-                        .unwrap()
-                        .modified()
-                        .unwrap()
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                );
+            if entry.file_type().is_dir() {
+                let p: String = entry.path().to_str().unwrap().into();
+                if !self.watchers.contains_key(&p) && !p.contains("/target") {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let mut watcher =
+                        Box::new(RecommendedWatcher::new(tx, Config::default()).unwrap());
+                    // let config = notify::Config::default();
+                    watcher
+                        .watch(Path::new(p.as_str()), RecursiveMode::Recursive)
+                        .unwrap();
+                    self.watchers.insert(p, (rx, watcher));
+                } else if !self.watchers.contains_key(&p)
+                    && (p == format!("{}/target/release", self.path)
+                        || p == format!("{}/target/debug", self.path))
+                {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let mut watcher =
+                        Box::new(RecommendedWatcher::new(tx, Config::default()).unwrap());
+                    // let config = notify::Config::default();
+                    watcher
+                        .watch(Path::new(p.as_str()), RecursiveMode::NonRecursive)
+                        .unwrap();
+                    self.watchers.insert(p, (rx, watcher));
+                }
+            } else {
+                let f_name = String::from(entry.path().to_string_lossy());
+                let ext = entry.path().extension().unwrap_or_default();
+                // #[cfg(debug)]
+                let sep = std::path::MAIN_SEPARATOR;
+                if !f_name.contains(format!("{0}target{0}", sep).as_str())
+                    || if let Some(a) = entry.path().parent() {
+                        a.to_str().unwrap()
+                    } else {
+                        ""
+                    } == format!("{}/target/release", self.path).as_str()
+                {
+                    println!("{:?}", ext);
+                    // if ext == ".so" {
+                    //     println!("{}", f_name);
+                    // }
+                    // let entry = entry.clone();
+                    // let f = |entry: walkdir::DirEntry| {
+                    // };
+                    if ext == "so" {
+                        do_later.push(entry);
+                    } else {
+                        assets_manager.load(f_name.as_str());
+                        self.files.entry(f_name).and_modify(|_e| {}).or_insert(
+                            entry
+                                .metadata()
+                                .unwrap()
+                                .modified()
+                                .unwrap()
+                                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                        );
+                    }
+                }
             }
         }
+        for entry in do_later {
+            let f_name = String::from(entry.path().to_string_lossy());
+            let ext = entry.path().extension().unwrap_or_default();
+            assets_manager.load(f_name.as_str());
+            self.files.entry(f_name).and_modify(|_e| {}).or_insert(
+                entry
+                    .metadata()
+                    .unwrap()
+                    .modified()
+                    .unwrap()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            );
+            // (f.0)(f.1);
+        }
     }
-    pub fn get_updates(&self, assets_manager: Arc<Mutex<AssetsManager>>) {
-        while let Ok(e) = self.rx.try_recv() {
-            println!("{:?}", e);
-            if let Ok(e) = e {
-                if e.paths[0].to_string_lossy().to_string().contains(format!("{0}target{0}", std::path::MAIN_SEPARATOR).as_str()) {
-                    continue;
-                }
-                match e.kind {
-                    EventKind::Create(_) => {
-                        // let ext = e.paths[0].extension();
-                        let p = e.paths[0].to_string_lossy();
-                        assets_manager.lock().load(p.to_string().as_str());
-                        // let p = p.substring(p.find("/./").unwrap(), p.len());
-                        // let sys = world.sys.lock();
-                        // let mut mm = sys.model_manager.lock();
-                        // if let Some(dot) = p.rfind(".") {
-                        //     if p.substring(dot, p.len()) == ".obj" {
-                        //         mm.from_file(p);
-                        //     }
-                        // }
-                    }
-                    EventKind::Remove(_) => {
-                        let p = e.paths[0].to_string_lossy();
-                        assets_manager.lock().remove(p.to_string().as_str());
-                        // let p = p.substring(p.find("/./").unwrap(), p.len());
-                        // let sys = world.sys.lock();
-                        // let mut mm = sys.model_manager.lock();
-                        // if let Some(dot) = p.rfind(".") {
-                        //     if p.substring(dot, p.len()) == ".obj" {
-                        //         mm.remove(p);
-                        //     }
-                        // }
-                    }
-                    EventKind::Access(a) => {
-                        if a == AccessKind::Close(AccessMode::Write) {
-                            let p = e.paths[0].to_string_lossy();
-                            assets_manager.lock().reload(p.to_string().as_str());
-                            // let p = p.substring(p.find("/./").unwrap(), p.len());
-                            // let sys = world.sys.lock();
-                            // let mut mm = sys.model_manager.lock();
-                            // if let Some(dot) = p.rfind(".") {
-                            //     if p.substring(dot, p.len()) == ".obj" {
-                            //         mm.reload(p)
-                            //     }
-                            // }
+    fn remove_base(p: &Path) -> String {
+        let p: String = p.to_str().unwrap().to_owned();
+        let p = p.substring(p.find("/./").unwrap() + 1, p.len());
+        p.into()
+    }
+    pub fn get_updates(&self, assets_manager: Arc<AssetsManager>) {
+        for (_, (rx, _)) in &self.watchers {
+            while let Ok(e) = rx.try_recv() {
+                if let Ok(e) = e {
+                    println!("{:?}", e);
+                    match e.kind {
+                        EventKind::Create(_) => {
+                            let p = Self::remove_base(e.paths[0].as_path());
+                            assets_manager.load(p.as_str());
                         }
-                    }
-                    EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-                        if e.paths.len() == 2 {
-                            let p: String = e.paths[0].as_path().to_str().unwrap().to_owned();
-                            let p = p.substring(p.find("/./").unwrap() + 1, p.len());
-                            let p2: String = e.paths[1].as_path().to_str().unwrap().to_owned();
-                            let p2 = p2.substring(p2.find("/./").unwrap() + 1, p2.len());
-                            assets_manager.lock().move_file(p, p2);
+                        EventKind::Remove(_) => {
+                            let p = Self::remove_base(e.paths[0].as_path());
+                            assets_manager.remove(p.as_str());
                         }
+                        EventKind::Access(a) => {
+                            if a == AccessKind::Close(AccessMode::Write) {
+                                let p = Self::remove_base(e.paths[0].as_path());
+                                assets_manager.reload(p.as_str());
+                            }
+                        }
+                        EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+                            if e.paths.len() == 2 {
+                                let p1 = Self::remove_base(e.paths[0].as_path());
+                                let p2 = Self::remove_base(e.paths[1].as_path());
+                                assets_manager.move_file(p1.as_str(), p2.as_str());
+                            }
+                        }
+                        EventKind::Any | EventKind::Modify(_) | EventKind::Other => {}
                     }
-                    EventKind::Any | EventKind::Modify(_) | EventKind::Other => {}
                 }
             }
         }
