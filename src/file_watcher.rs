@@ -79,39 +79,34 @@ impl FileWatcher {
                         .watch(Path::new(p.as_str()), RecursiveMode::Recursive)
                         .unwrap();
                     self.watchers.insert(p, (rx, watcher));
-                } else if !self.watchers.contains_key(&p)
-                    && (p == format!("{}/target/release", self.path)
-                        || p == format!("{}/target/debug", self.path))
-                {
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    let mut watcher =
-                        Box::new(RecommendedWatcher::new(tx, Config::default()).unwrap());
-                    // let config = notify::Config::default();
-                    watcher
-                        .watch(Path::new(p.as_str()), RecursiveMode::NonRecursive)
-                        .unwrap();
-                    self.watchers.insert(p, (rx, watcher));
-                }
+                } 
+                // else if !self.watchers.contains_key(&p)
+                //     && (p == format!("{}/target/release", self.path)
+                //         || p == format!("{}/target/debug", self.path))
+                // {
+                //     let (tx, rx) = std::sync::mpsc::channel();
+                //     let mut watcher =
+                //         Box::new(RecommendedWatcher::new(tx, Config::default()).unwrap());
+                //     // let config = notify::Config::default();
+                //     watcher
+                //         .watch(Path::new(p.as_str()), RecursiveMode::NonRecursive)
+                //         .unwrap();
+                //     self.watchers.insert(p, (rx, watcher));
+                // }
             } else {
                 let f_name = String::from(entry.path().to_string_lossy());
                 let ext = entry.path().extension().unwrap_or_default();
                 // #[cfg(debug)]
                 let sep = std::path::MAIN_SEPARATOR;
                 if !f_name.contains(format!("{0}target{0}", sep).as_str())
-                    || if let Some(a) = entry.path().parent() {
-                        a.to_str().unwrap()
-                    } else {
-                        ""
-                    } == format!("{}/target/release", self.path).as_str()
+                    // || if let Some(a) = entry.path().parent() {
+                    //     a.to_str().unwrap()
+                    // } else {
+                    //     ""
+                    // } == format!("{}/target/release", self.path).as_str()
                 {
                     println!("{:?}", ext);
-                    // if ext == ".so" {
-                    //     println!("{}", f_name);
-                    // }
-                    // let entry = entry.clone();
-                    // let f = |entry: walkdir::DirEntry| {
-                    // };
-                    if ext == "so" {
+                    if ext == "rs" {
                         do_later.push(entry);
                     } else {
                         assets_manager.load(f_name.as_str());

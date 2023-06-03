@@ -555,8 +555,8 @@ impl AssetsManager {
             let a = unsafe { &*self.asset_managers_names.get() }.get(n).unwrap();
             a.lock().regen(v.clone());
         }
-        let a = unsafe { &*self.asset_managers_names.get() }.get("lib").unwrap();
-            a.lock().regen(val["lib"].clone());
+        // let a = unsafe { &*self.asset_managers_names.get() }.get("lib").unwrap();
+        //     a.lock().regen(val["lib"].clone());
     }
     pub fn save_assets(&self) {
         for (_, a) in unsafe { &*self.asset_managers_names.get() } {

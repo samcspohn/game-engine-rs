@@ -116,14 +116,6 @@ use crate::transform_compute::cs;
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
 
-    // // let out_dir = env::var("OUT_DIR").unwrap();
-    // if !Path::new("test_project_rs/runtime").is_dir() {
-    //     Command::new("mkdir")
-    //         .arg("test_project_rs/runtime")
-    //         .status()
-    //         .unwrap();
-    // }
-
     if let Ok(mut watcher) = notify::recommended_watcher(|res| match res {
         Ok(event) => println!("event: {:?}", event),
         Err(e) => println!("watch error: {:?}", e),
@@ -310,11 +302,15 @@ fn main() {
         model_manager.lock().from_file("src/cube/cube.obj");
     }
 
-    let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
-    let lib_manager = Arc::new(Mutex::new(runtime_compilation::LibManager::new(
-        world.clone(),
-        &["so", "dll"],
-    )));
+    let path = "./test_project_rs/runtime";
+    fs::remove_dir_all(path).unwrap();
+    fs::create_dir(path).unwrap();
+
+    let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new(world.clone(), &["rs"])));
+    // let lib_manager = Arc::new(Mutex::new(runtime_compilation::LibManager::new(
+    //     world.clone(),
+    //     &["so", "dll"],
+    // )));
 
     unsafe {
         // let &mut assets_manager = assets_manager.as_ref();
@@ -325,7 +321,7 @@ fn main() {
             particles.particle_template_manager.clone(),
         );
         assets_manager.add_asset_manager("rs", rs_manager.clone());
-        assets_manager.add_asset_manager("lib", lib_manager.clone())
+        // assets_manager.add_asset_manager("lib", lib_manager.clone())
     }
 
     let rm = {
