@@ -303,14 +303,14 @@ fn main() {
     }
 
     let path = "./test_project_rs/runtime";
-    fs::remove_dir_all(path).unwrap();
+    if let Ok(_) = fs::remove_dir_all(path) {}
     fs::create_dir(path).unwrap();
 
     let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new(world.clone(), &["rs"])));
-    // let lib_manager = Arc::new(Mutex::new(runtime_compilation::LibManager::new(
-    //     world.clone(),
-    //     &["so", "dll"],
-    // )));
+    let lib_manager = Arc::new(Mutex::new(runtime_compilation::LibManager::new(
+        world.clone(),
+        &["so", "dll"],
+    )));
 
     unsafe {
         // let &mut assets_manager = assets_manager.as_ref();
@@ -321,7 +321,7 @@ fn main() {
             particles.particle_template_manager.clone(),
         );
         assets_manager.add_asset_manager("rs", rs_manager.clone());
-        // assets_manager.add_asset_manager("lib", lib_manager.clone())
+        assets_manager.add_asset_manager("lib", lib_manager.clone())
     }
 
     let rm = {

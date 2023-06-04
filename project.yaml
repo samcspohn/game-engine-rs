@@ -53,16 +53,20 @@ files:
   ./test_project_rs/res/models/sphere/sphere.obj: 1671756120
   ./test_project_rs/res/test.ptem: 1680024344
   ./test_project_rs/res/test2.ptem: 1685536095
-  ./test_project_rs/runtime/libhello.so: 1684507769
   ./test_project_rs/src/build.rs: 1685117487
   ./test_project_rs/src/lib.rs: 1684689540
+  ./test_project_rs/src/utils.rs: 1685812589
   ./test_project_rs/target/release/.cargo-lock: 1685125046
   ./test_project_rs/target/release/libtest_project_rs.d: 1685420448
-  ./test_project_rs/target/release/libtest_project_rs.rlib: 1685675290
-  ./test_project_rs/target/release/libtest_project_rs.so: 1685675295
+  ./test_project_rs/target/release/libtest_project_rs.rlib: 1685892804
+  ./test_project_rs/target/release/libtest_project_rs.so: 1685892809
   ./test_project_rs/test.ptem: 1680018210
   ./test_project_rs/test2.ptem: 1682368673
 assets:
+  lib:
+    assets:
+      ./test_project_rs/target/release/libtest_project_rs.so: 2
+    id_gen: 3
   model:
     assets:
       ./test_project_rs/res/models/Spruce_obj/Spruce.obj: 8
@@ -84,7 +88,8 @@ assets:
   rs:
     assets:
       ./test_project_rs/src/lib.rs: 1
-    id_gen: 2
+      ./test_project_rs/src/utils.rs: 2
+    id_gen: 3
   texture:
     assets:
       ./test_project_rs/res/models/Spruce_obj/Spruce branches.png: 20
