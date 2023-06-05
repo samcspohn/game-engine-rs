@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     any::{Any, TypeId},
     collections::{BTreeMap, HashMap},
+    fs,
     marker::PhantomData,
+    path::Path,
     sync::Arc,
 };
 use sync_unsafe_cell::SyncUnsafeCell;
@@ -262,6 +264,9 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for A
             println!("{:?}", i);
             // let (f, id) = i;
             let f: String = i.0.as_str().unwrap().into();
+            if !Path::new(f.as_str()).exists() {
+                continue;
+            }
             let id = i.1.as_i64().unwrap() as i32;
             self.assets_id.insert(
                 id,
@@ -294,7 +299,11 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for A
         // let _file = std::path::Path::new(path);
         if let Some(id) = self.assets.get(path) {
             let id = *id;
-            self.assets_id.get(&id).unwrap().lock().unload(path, &self.const_params);
+            self.assets_id
+                .get(&id)
+                .unwrap()
+                .lock()
+                .unload(path, &self.const_params);
             self.assets_id.remove(&id);
             self.assets.remove(path);
             self.assets_r.remove(&id);
@@ -429,9 +438,7 @@ impl AssetsManager {
     //         None
     //     }
     // }
-    pub fn get_manager<T: 'static>(
-        &self,
-    ) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
+    pub fn get_manager<T: 'static>(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
         unsafe { &*self.asset_managers_type.get() }
             .get(&TypeId::of::<T>())
             .unwrap()
@@ -473,12 +480,14 @@ impl AssetsManager {
         (*self.asset_managers_type.get()).insert(t, am);
     }
     pub fn inspect(&self, file: &str) -> Option<Arc<Mutex<dyn Inspectable_>>> {
-        let path = std::path::Path::new(file);
+        let file = file.replace(std::path::MAIN_SEPARATOR, "/");
+
+        let path = std::path::Path::new(&file);
         // if let Some(dot) = file.rfind(".") {
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
             if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
-                o.lock().inspectable(file)
+                o.lock().inspectable(&file)
             } else {
                 None
             }
@@ -487,22 +496,24 @@ impl AssetsManager {
         }
     }
     pub fn load(&self, file: &str) {
-        let path = std::path::Path::new(file);
+        let file = file.replace(std::path::MAIN_SEPARATOR, "/");
+        let path = std::path::Path::new(&file);
         // if let Some(dot) = file.rfind(".") {
         if let Some(ext) = path.extension() {
             if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext.to_str().unwrap()) {
-                o.lock().from_file(file);
+                o.lock().from_file(&file);
             } else {
             }
         }
     }
     pub fn new_asset(&self, file: &str) -> i32 {
+        let file = file.replace(std::path::MAIN_SEPARATOR, "/");
         println!("new asset {file}");
-        let path = std::path::Path::new(file);
+        let path = std::path::Path::new(&file);
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
             if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
-                o.lock().new_asset(file)
+                o.lock().new_asset(&file)
             } else {
                 -1
             }
@@ -511,32 +522,39 @@ impl AssetsManager {
         }
     }
     pub fn remove(&self, file: &str) {
+        let file = file.replace(std::path::MAIN_SEPARATOR, "/");
+
         // println!("remove asset {file}");
-        let path = std::path::Path::new(file);
+        let path = std::path::Path::new(&file);
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
             if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
-                o.lock().remove(file);
+                o.lock().remove(&file);
             }
         }
     }
     pub fn reload(&self, file: &str) {
+        let file = file.replace(std::path::MAIN_SEPARATOR, "/");
+
         // println!("remove asset {file}");
-        let path = std::path::Path::new(file);
+        let path = std::path::Path::new(&file);
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
             if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
-                o.lock().reload(file);
+                o.lock().reload(&file);
             }
         }
     }
     pub fn move_file(&self, from: &str, to: &str) {
+        let from = from.replace(std::path::MAIN_SEPARATOR, "/");
+        let to = to.replace(std::path::MAIN_SEPARATOR, "/");
+
         // println!("remove asset {file}");
-        let path = std::path::Path::new(from);
+        let path = std::path::Path::new(&from);
         if let Some(ext) = path.extension() {
             let ext = ext.to_str().unwrap();
             if let Some(o) = unsafe { &*self.asset_managers_ext.get() }.get(ext) {
-                o.lock().move_file(from, to);
+                o.lock().move_file(&from, &to);
             }
         }
     }
@@ -555,7 +573,9 @@ impl AssetsManager {
             let a = unsafe { &*self.asset_managers_names.get() }.get(n).unwrap();
             a.lock().regen(v.clone());
         }
-        let a = unsafe { &*self.asset_managers_names.get() }.get("lib").unwrap();
+        let a = unsafe { &*self.asset_managers_names.get() }
+            .get("lib")
+            .unwrap();
         if let Some(libs) = val.get("lib") {
             a.lock().regen(libs.clone());
         }

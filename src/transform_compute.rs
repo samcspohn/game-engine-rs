@@ -1,8 +1,8 @@
 use std::{cell::UnsafeCell, ptr, sync::Arc};
 
 use crate::{
-    transform::{POS_U, ROT_U, SCL_U},
     renderer_component2::buffer_usage_all,
+    transform::{POS_U, ROT_U, SCL_U},
 };
 
 use nalgebra_glm as glm;
@@ -151,6 +151,8 @@ impl TransformCompute {
             puffin::profile_scope!("transform_ids_buffer");
             if self.position_id_cache[image_num as usize].len()
                 < transform_ids_len_pos.next_power_of_two()
+                || self.position_cache[image_num as usize].len()
+                    < transform_ids_len_pos.next_power_of_two()
             {
                 // let num_images = self.position_id_cache.len();
                 self.position_id_cache[image_num as usize] = unsafe {
@@ -194,7 +196,7 @@ impl TransformCompute {
                         self.position_id_cache[image_num as usize] =
                             CpuAccessibleBuffer::<[i32]>::uninitialized_array(
                                 &mem,
-                                transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                                (transform_ids_len_pos + 1).next_power_of_two() as DeviceSize,
                                 buffer_usage_all(),
                                 false,
                             )
@@ -252,22 +254,29 @@ impl TransformCompute {
         image_num: u32,
         // command_allocator: &StandardCommandBufferAllocator,
     ) -> Option<u32> {
-        let transform_ids_len_pos: u64 = transform_data
+        let transform_ids_len_rot: u64 = transform_data
             .1
             .iter()
             .map(|x| x.0[ROT_U].len() as u64)
             .sum();
 
-        if transform_ids_len_pos > 0 {
+        let transform_len_rot: u64 = transform_data.1.iter().map(|x| x.2.len() as u64).sum();
+        if transform_len_rot != transform_ids_len_rot {
+            panic!("mismatch rot id and value data");
+        }
+
+        if transform_ids_len_rot > 0 {
             puffin::profile_scope!("transform_ids_buffer");
             if self.rotation_id_cache[image_num as usize].len()
-                < transform_ids_len_pos.next_power_of_two()
+                < transform_ids_len_rot.next_power_of_two()
+                || self.rotation_cache[image_num as usize].len()
+                    < transform_ids_len_rot.next_power_of_two()
             {
                 // let num_images = self.rotation_id_cache.len();
                 self.rotation_id_cache[image_num as usize] = unsafe {
                     CpuAccessibleBuffer::<[i32]>::uninitialized_array(
                         &mem,
-                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                        transform_ids_len_rot.next_power_of_two() as DeviceSize,
                         buffer_usage_all(),
                         false,
                     )
@@ -276,7 +285,7 @@ impl TransformCompute {
                 self.rotation_cache[image_num as usize] = unsafe {
                     CpuAccessibleBuffer::<[[f32; 4]]>::uninitialized_array(
                         &mem,
-                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                        transform_ids_len_rot.next_power_of_two() as DeviceSize,
                         buffer_usage_all(),
                         false,
                     )
@@ -304,7 +313,7 @@ impl TransformCompute {
                     } else {
                         let u = CpuAccessibleBuffer::<[i32]>::uninitialized_array(
                             &mem,
-                            transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                            transform_ids_len_rot.next_power_of_two() as DeviceSize,
                             buffer_usage_all(),
                             false,
                         )
@@ -322,6 +331,13 @@ impl TransformCompute {
                     let uninitialized = self.rotation_cache[image_num as usize].clone();
                     let u_w = uninitialized.write();
                     if let Ok(mut mapping) = u_w {
+                        if transform_len_rot as usize > mapping.len() {
+                            panic!(
+                                "rot data longer than mapping len: {} : {}",
+                                transform_len_rot,
+                                mapping.len()
+                            );
+                        }
                         for i in &transform_data.1 {
                             let j = &i.2;
                             let j_iter = j.iter();
@@ -337,7 +353,7 @@ impl TransformCompute {
                     } else {
                         let u = CpuAccessibleBuffer::<[[f32; 4]]>::uninitialized_array(
                             &mem,
-                            transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                            transform_ids_len_rot.next_power_of_two() as DeviceSize,
                             buffer_usage_all(),
                             false,
                         )
@@ -346,7 +362,7 @@ impl TransformCompute {
                     }
                 }
             }
-            Some(transform_ids_len_pos.try_into().unwrap())
+            Some(transform_ids_len_rot.try_into().unwrap())
         } else {
             None
         }
@@ -362,21 +378,23 @@ impl TransformCompute {
         mem: Arc<StandardMemoryAllocator>,
         image_num: u32,
     ) -> Option<u32> {
-        let transform_ids_len_pos: u64 = transform_data
+        let transform_ids_len_scl: u64 = transform_data
             .1
             .iter()
             .map(|x| x.0[SCL_U].len() as u64)
             .sum();
 
-        if transform_ids_len_pos > 0 {
+        if transform_ids_len_scl > 0 {
             puffin::profile_scope!("transform_ids_buffer");
             if self.scale_id_cache[image_num as usize].len()
-                < transform_ids_len_pos.next_power_of_two()
+                < transform_ids_len_scl.next_power_of_two()
+                || self.scale_cache[image_num as usize].len()
+                    < transform_ids_len_scl.next_power_of_two()
             {
                 self.scale_id_cache[image_num as usize] = unsafe {
                     CpuAccessibleBuffer::<[i32]>::uninitialized_array(
                         &mem,
-                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                        transform_ids_len_scl.next_power_of_two() as DeviceSize,
                         buffer_usage_all(),
                         false,
                     )
@@ -385,7 +403,7 @@ impl TransformCompute {
                 self.scale_cache[image_num as usize] = unsafe {
                     CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
                         &mem,
-                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                        transform_ids_len_scl.next_power_of_two() as DeviceSize,
                         buffer_usage_all(),
                         false,
                     )
@@ -414,7 +432,7 @@ impl TransformCompute {
                         self.scale_id_cache[image_num as usize] =
                             CpuAccessibleBuffer::<[i32]>::uninitialized_array(
                                 &mem,
-                                transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                                transform_ids_len_scl.next_power_of_two() as DeviceSize,
                                 buffer_usage_all(),
                                 false,
                             )
@@ -445,17 +463,17 @@ impl TransformCompute {
                         break;
                     } else {
                         self.scale_cache[image_num as usize] =
-                        CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
-                            &mem,
-                            transform_ids_len_pos.next_power_of_two() as DeviceSize,
-                            buffer_usage_all(),
-                            false,
-                        )
-                        .unwrap();
+                            CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
+                                &mem,
+                                transform_ids_len_scl.next_power_of_two() as DeviceSize,
+                                buffer_usage_all(),
+                                false,
+                            )
+                            .unwrap();
                     }
                 }
             }
-            Some(transform_ids_len_pos.try_into().unwrap())
+            Some(transform_ids_len_scl.try_into().unwrap())
         } else {
             None
         }

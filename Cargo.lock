@@ -843,6 +843,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-id"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13be71e6ca82e91bc0cb862bebaac0b2d1924a5a1d970c822b2f98b63fda8c3"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "filetime"
 version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1004,7 +1013,8 @@ dependencies = [
  "nalgebra-glm",
  "nohash-hasher",
  "noise",
- "notify",
+ "notify 5.1.0",
+ "notify-debouncer-full",
  "num-integer",
  "num_cpus",
  "once_cell",
@@ -1745,6 +1755,37 @@ dependencies = [
  "serde",
  "walkdir",
  "windows-sys 0.42.0",
+]
+
+[[package]]
+name = "notify"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d9ba6c734de18ca27c8cef5cd7058aa4ac9f63596131e4c7e41e579319032a2"
+dependencies = [
+ "bitflags",
+ "crossbeam-channel",
+ "filetime",
+ "fsevent-sys",
+ "inotify",
+ "kqueue",
+ "libc",
+ "mio",
+ "walkdir",
+ "windows-sys 0.45.0",
+]
+
+[[package]]
+name = "notify-debouncer-full"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4812c1eb49be776fb8df4961623bdc01ec9dfdc1abe8211ceb09150a2e64219"
+dependencies = [
+ "crossbeam-channel",
+ "file-id",
+ "notify 6.0.0",
+ "parking_lot 0.12.1",
+ "walkdir",
 ]
 
 [[package]]

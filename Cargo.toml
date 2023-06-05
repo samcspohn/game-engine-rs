@@ -92,3 +92,5 @@ libloading = "0.8.0"
 # windows-dll = "*"
 # dylib = "*"
 regex = "1.8.1"
+
+notify-debouncer-full = "*"

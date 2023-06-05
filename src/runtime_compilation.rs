@@ -1,4 +1,4 @@
-use std::{process::Command, sync::Arc, time::Duration};
+use std::{fs, process::Command, sync::Arc, time::Duration};
 
 use lazy_static::lazy_static;
 use libloading::Library;
@@ -25,7 +25,6 @@ lazy_static! {
 impl RSFile {}
 impl Asset<RSFile, (Arc<Mutex<World>>)> for RSFile {
     fn from_file(file: &str, params: &(Arc<Mutex<World>>)) -> RSFile {
-        // Command::new("cargo").args(&["clean", "--manifest-path=test_project_rs/Cargo.toml"]).status().unwrap();
         Command::new("cargo")
             .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
             .status()
@@ -59,31 +58,41 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
                 func(&mut world);
             }
         }
-        // *LIB.lock() = None;
+        *LIB.lock() = None;
 
+        #[cfg(target_os = "windows")]
+        let ext = "dll";
+        #[cfg(not(target_os = "windows"))]
+        let ext = "so";
         // DELETE OLD LIB
         let id = *ID.lock();
         *ID.lock() += 1;
-        let so_file = format!("test_project_rs/runtime/lib{}", id);
-        Command::new("rm").args(&[&so_file]).status().unwrap();
+        let so_file = format!("test_project_rs/runtime/lib{}.{}", id, ext);
+        match fs::remove_file(&so_file) {
+            Ok(_) => {},
+            Err(a) => println!("{:?}", a)
+            
+        } 
 
         // RELOCATE NEW LIB --- avoid dylib caching
         let id = id + 1;
-        let so_file = format!("test_project_rs/runtime/lib{}", id);
-        Command::new("cp").args(&[file, &so_file]).status().unwrap();
+        let so_file = format!("./test_project_rs/runtime/lib{}.{}", id, ext);
+        if let Ok(_) = fs::copy(file, &so_file) {
 
-        // LOAD NEW LIB
-        let lib = unsafe { libloading::Library::new(so_file).unwrap() };
-        let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> =
-            unsafe { lib.get(b"register").unwrap() };
+            // LOAD NEW LIB
+            let lib = unsafe { libloading::Library::new(&so_file).unwrap() };
+            let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> =
+                unsafe { lib.get(b"register").unwrap() };
 
-        let mut world = params.lock();
-        world.clear();
-        unsafe {
-            func(&mut world);
+            let mut world = params.lock();
+            world.clear();
+            unsafe {
+                func(&mut world);
+            }
+            crate::serialize::deserialize(&mut world);
+            *LIB.lock() = Some(lib);
         }
-        crate::serialize::deserialize(&mut world);
-        *LIB.lock() = Some(lib);
+
         Lib {}
     }
 

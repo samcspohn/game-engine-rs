@@ -1,4 +1,5 @@
 // mod engine;
+#![allow(warnings, unused)]
 pub mod input;
 pub mod model;
 pub mod perf;

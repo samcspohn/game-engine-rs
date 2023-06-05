@@ -270,15 +270,6 @@ fn main() {
         world.register::<ParticleEmitter>(false, false, false);
         world.register::<Terrain>(true, false, true);
         world.register::<Camera>(false, false, false);
-
-        // unsafe {
-        //     func(&mut world);
-        // }
-
-        // world.register::<Maker>(true);
-        // world.register::<game::Bomb>(true, false, false);
-        // world.register::<game::Player>(true, false, false);
-        // load_so(&mut world)
     };
 
     let texture_manager = Arc::new(Mutex::new(TextureManager::new(
@@ -307,9 +298,13 @@ fn main() {
     fs::create_dir(path).unwrap();
 
     let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new(world.clone(), &["rs"])));
+    #[cfg(target_os = "windows")]
+    let dylib_ext = ["dll"];
+    #[cfg(not(target_os = "windows"))]
+    let dylib_ext = ["so"];
     let lib_manager = Arc::new(Mutex::new(runtime_compilation::LibManager::new(
         world.clone(),
-        &["so", "dll"],
+        &dylib_ext,
     )));
 
     unsafe {
@@ -329,15 +324,6 @@ fn main() {
         let rm = w.sys.renderer_manager.read();
         rm.shr_data.clone()
     };
-    let lib_me = unsafe {
-        libloading::Library::from(
-            libloading::os::unix::Library::open::<&str>(
-                None,
-                libloading::os::unix::RTLD_NOW | libloading::os::unix::RTLD_GLOBAL,
-            )
-            .unwrap(),
-        )
-    };
 
     let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
     // load_project(&mut file_watcher, world.clone(), assets_manager.clone());
@@ -348,7 +334,7 @@ fn main() {
             assets_manager.deserialize(project.assets);
             file_watcher.init(assets_manager.clone());
         }
-        serialize::deserialize(&mut world.lock());
+        // serialize::deserialize(&mut world.lock());
     }
 
     let game_thread = {
