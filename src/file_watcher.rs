@@ -28,7 +28,7 @@ pub struct FileWatcher {
     // dirs: BTreeSet<String>,
     path: String,
     events_queue: Arc<SegQueue<DebounceEventResult>>,
-    watchers: BTreeMap<String, Debouncer<ReadDirectoryChangesWatcher, FileIdMap>>,
+    watchers: BTreeMap<String, Debouncer<RecommendedWatcher, FileIdMap>>,
 }
 const sep: char = std::path::MAIN_SEPARATOR;
 
