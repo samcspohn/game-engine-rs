@@ -1,3 +1,4 @@
+use component_derive::ComponentID;
 use parking_lot::RwLock;
 use puffin_egui::puffin;
 use std::{
@@ -9,7 +10,7 @@ use std::{
 use crate::{
     asset_manager::AssetInstance,
     drag_drop::{self, drop_target},
-    engine::{Component, Sys, _Storage},
+    engine::{Component, _ComponentID, Sys, _Storage},
     inspectable::{Inpsect, Ins, Inspectable},
     model::{ModelManager, ModelRenderer},
     transform::Transform,
@@ -68,7 +69,7 @@ use vulkano::{
 // }
 
 // #[component]
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
 #[repr(C)]
 
 pub struct Renderer {

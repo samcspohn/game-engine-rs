@@ -123,13 +123,7 @@ pub struct System<'a> {
 impl<'a> System<'a> {
     pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
         let b = &self.assets;
-        let a = b
-            .get_manager::<ModelRenderer>()
-            // .asset_managers_type
-            // .get(&TypeId::of::<ModelRenderer>())
-            // .unwrap()
-            .clone();
-        // let b = a.clone();
+        let a = b.get_manager::<ModelRenderer>().clone();
         a
     }
 }
@@ -147,6 +141,10 @@ pub trait Component {
         Box::new(|_rd: &mut RenderJobData| {})
     }
     // fn as_any(&self) -> &dyn Any;
+}
+
+pub trait _ComponentID {
+    const ID: u64;
 }
 
 pub struct _Storage<T> {
@@ -208,6 +206,7 @@ pub trait StorageBase {
     fn init(&self, transform: &Transform, i: i32, sys: &Sys);
     fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &Sys);
     fn get_name(&self) -> &'static str;
+    fn get_id(&self) -> u64;
     fn get_type(&self) -> TypeId;
     fn new_default(&mut self, t: i32) -> i32;
     // fn new(
@@ -307,6 +306,7 @@ impl<T: 'static> Storage<T> {
 impl<
         T: 'static
             + Component
+            + _ComponentID
             + Inspectable
             + Send
             + Sync
@@ -449,6 +449,9 @@ impl<
             // }
         });
     }
+    fn get_id(&self) -> u64 {
+        T::ID
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -477,10 +480,9 @@ impl Sys {
 // #[derive(Default)]
 pub struct World {
     // pub(crate) device: Arc<Device>,
-    pub(crate) entities: RwLock<Vec<Mutex<Option<HashMap<String, i32>>>>>,
+    pub(crate) entities: RwLock<Vec<Mutex<Option<HashMap<u64, i32>>>>>,
     pub(crate) transforms: Transforms,
-    pub(crate) components:
-        HashMap<TypeId, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
+    pub(crate) components: HashMap<u64, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) components_names:
         HashMap<String, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) root: i32,
@@ -678,8 +680,8 @@ impl World {
         }
         g
     }
-    fn copy_component_id(&self, t: &Transform, key: String, c_id: i32) -> i32 {
-        if let Some(stor) = self.components_names.get(&key) {
+    fn copy_component_id(&self, t: &Transform, key: u64, c_id: i32) -> i32 {
+        if let Some(stor) = self.components.get(&key) {
             let mut stor = stor.write();
             let c = stor.copy(t.id, c_id);
             stor.init(&t, c, &self.sys);
@@ -712,6 +714,7 @@ impl World {
             + Send
             + Sync
             + Component
+            + _ComponentID
             + Inspectable
             + Default
             + Clone
@@ -723,12 +726,8 @@ impl World {
         d: T,
     ) {
         // d.assign_transform(g.t);
-        let key: String = std::any::type_name::<T>()
-            .split("::")
-            .last()
-            .unwrap()
-            .into();
-        if let Some(stor) = self.components_names.get(&key) {
+        let key = T::ID;
+        if let Some(stor) = self.components.get(&key) {
             let stor: &mut Storage<T> = unsafe { std::mem::transmute(&mut stor.write()) };
             let c_id = stor.emplace(g.t, d);
             let trans = self.transforms.get(g.t);
@@ -740,12 +739,12 @@ impl World {
             panic!("no type key?")
         }
     }
-    pub fn add_component_id(&mut self, g: GameObject, key: String, c_id: i32) {
+    pub fn add_component_id(&mut self, g: GameObject, key: u64, c_id: i32) {
         // d.assign_transform(g.t);
 
         if let Some(ent_components) = self.entities.read()[g.t as usize].lock().as_mut() {
             ent_components.insert(key.clone(), c_id);
-            if let Some(stor) = self.components_names.get(&key) {
+            if let Some(stor) = self.components.get(&key) {
                 let trans = self.transforms.get(g.t);
                 stor.write().init(&trans, c_id, &self.sys);
             }
@@ -760,15 +759,15 @@ impl World {
             let trans = self.transforms.get(g.t);
             stor.init(&trans, c_id, &self.sys);
             if let Some(ent_components) = self.entities.read()[g.t as usize].lock().as_mut() {
-                ent_components.insert(stor.get_name().into(), c_id);
+                ent_components.insert(stor.get_id(), c_id);
             }
         } else {
             panic!("no type key: {}", key);
         }
     }
-    pub fn remove_component(&mut self, g: GameObject, key: String, c_id: i32) {
+    pub fn remove_component(&mut self, g: GameObject, key: u64, c_id: i32) {
         if let Some(ent_components) = self.entities.read()[g.t as usize].lock().as_mut() {
-            if let Some(stor) = self.components_names.get(&key) {
+            if let Some(stor) = self.components.get(&key) {
                 let trans = self.transforms.get(g.t);
                 stor.write().deinit(&trans, c_id, &self.sys);
                 stor.write().erase(c_id);
@@ -781,6 +780,7 @@ impl World {
             + Send
             + Sync
             + Component
+            + _ComponentID
             + Inspectable
             + Default
             + Clone
@@ -792,7 +792,7 @@ impl World {
         has_late_update: bool,
         has_render: bool,
     ) {
-        let key: TypeId = TypeId::of::<T>();
+        let key = T::ID;
         // let c = T::default();
         // let has_render = T::on_render != &Component::on_render;
         let data = Storage::<T>::new(has_update, has_late_update, has_render);
@@ -814,6 +814,7 @@ impl World {
             + Send
             + Sync
             + Component
+            + _ComponentID
             + Inspectable
             + Default
             + Clone
@@ -822,19 +823,11 @@ impl World {
     >(
         &mut self,
     ) {
-        let key: TypeId = TypeId::of::<T>();
-        // let c = T::default();
-        // let has_render = T::on_render != &Component::on_render;
-        // let data = Storage::<T>::new(has_update, has_late_update, has_render);
-        // let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
-        //     Arc::new(RwLock::new(Box::new(data)));
+        // let key: TypeId = TypeId::of::<T>();
+        let key = T::ID;
         self.components.remove(&key);
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
-
-        // let component_storage = Arc::new(RwLock::new(Box::new(data)));
-        // self.components
-        //     .insert(key.clone(), component_storage.clone());
     }
     pub fn destroy(&self, g: i32) {
         self.to_destroy.push(g);
@@ -854,7 +847,7 @@ impl World {
                     if let Some(g_components) = ent.as_mut() {
                         let trans = _self.transforms.get(g);
                         for (t, id) in g_components.iter() {
-                            let stor = &mut _self.components_names.get(t).unwrap().write();
+                            let stor = &mut _self.components.get(t).unwrap().write();
 
                             stor.deinit(&trans, *id, &_self.sys);
                             stor.erase(*id);
@@ -869,27 +862,7 @@ impl World {
                 });
             }
         });
-        // self.to_destroy.par_iter().for_each(|t| {
-        //     let g = *t;
-        //     let mut ent = ent[g as usize].lock();
-        //     if let Some(g_components) = ent.as_mut() {
-        //         let trans = self.transforms.get(g);
-        //         for (t, id) in g_components.iter() {
-        //             let stor = &mut self.components.get(t).unwrap().write();
-
-        //             stor.deinit(&trans, *id, &self.sys);
-        //             stor.erase(*id);
-        //         }
-        //         // remove entity
-        //         *ent = None; // todo make read()
-
-        //         // remove transform
-        //         self.transforms.remove(trans);
-        //         max_g.fetch_max(g, Ordering::Relaxed);
-        //     }
-        // });
         self.transforms.reduce_last(max_g.load(Ordering::Relaxed));
-        // self.to_destroy.lock().clear();
         // remove/deinit components
     }
     // pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: GameObject, f: F)
@@ -908,10 +881,10 @@ impl World {
     //         }
     //     }
     // }
-    pub fn get_components<T: 'static + Send + Sync + Component>(
+    pub fn get_components<T: 'static + Send + Sync + Component + _ComponentID>(
         &self,
     ) -> Option<&Arc<RwLock<Box<dyn StorageBase + Send + Sync>>>> {
-        let key: TypeId = TypeId::of::<T>();
+        let key = T::ID;
         self.components.get(&key)
     }
 
@@ -933,10 +906,10 @@ impl World {
                 assets: &sys.assets_manager,
                 vk: sys.vk.clone(),
             };
-            for (_, stor) in &self.components_names {
+            for (_, stor) in &self.components {
                 stor.write().update(&self.transforms, &sys, &self);
             }
-            for (_, stor) in &self.components_names {
+            for (_, stor) in &self.components {
                 stor.write().late_update(&self.transforms, &sys);
             }
         }
@@ -973,7 +946,7 @@ impl World {
             assets: &sys.assets_manager,
             vk: sys.vk.clone(),
         };
-        for (name, stor) in &self.components_names {
+        for (_, stor) in &self.components {
             stor.write().editor_update(&self.transforms, &sys, input);
         }
     }
@@ -981,7 +954,7 @@ impl World {
         // let transforms = self.transforms.read();
         // let sys = self.sys.lock();
         let mut render_jobs = vec![];
-        for (_, stor) in &self.components_names {
+        for (_, stor) in &self.components {
             stor.write().on_render(&mut render_jobs);
         }
         render_jobs
@@ -1090,6 +1063,7 @@ impl<'a> GameObjectParBuilder<'a> {
             + Send
             + Sync
             + Component
+            + _ComponentID
             + Inspectable
             + Default
             + Clone
@@ -1102,12 +1076,8 @@ impl<'a> GameObjectParBuilder<'a> {
         self.comp_funcs
             .push(Box::new(|world: &mut World, t_: &Vec<i32>| {
                 // let key: TypeId = TypeId::of::<T>();
-                let key: String = std::any::type_name::<T>()
-                    .split("::")
-                    .last()
-                    .unwrap()
-                    .into();
-                if let Some(stor) = world.components_names.get(&key) {
+                let key = T::ID;
+                if let Some(stor) = world.components.get(&key) {
                     let mut stor_lock = stor.write();
                     let mut src = stor_lock.as_mut();
                     // let src = stor_lock.as_mut();

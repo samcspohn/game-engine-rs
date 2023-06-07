@@ -30,6 +30,8 @@ debug = true
 # serde-serialize = [ "nalgebra-glm/serde-serialize" ]
 
 [dependencies]
+
+component-derive = { path = "component-derive" }
 num_cpus = "*"
 num-integer = "*"
 # libloading = "*"
@@ -94,3 +96,4 @@ libloading = "0.8.0"
 regex = "1.8.1"
 
 notify-debouncer-full = "*"
+const-fnv1a-hash = "1.1.0"

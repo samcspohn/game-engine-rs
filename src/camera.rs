@@ -2,6 +2,7 @@ use std::{
     sync::Arc, collections::VecDeque,
 };
 
+use component_derive::{ComponentID};
 use glm::{radians, vec1, Mat4, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard};
@@ -23,7 +24,7 @@ use vulkano::{
 
 
 use crate::{
-    engine::{ Component, RenderJobData},
+    engine::{ Component, _ComponentID, RenderJobData},
     transform::Transform,
     inspectable::{Inpsect, Ins, Inspectable},
     model::ModelManager,
@@ -57,9 +58,8 @@ pub struct CameraViewData {
     proj: Mat4,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(ComponentID, Clone, Serialize, Deserialize)]
 #[repr(C)]
-
 pub struct Camera {
     #[serde(skip_serializing, skip_deserializing)]
     data: Option<Arc<Mutex<CameraData>>>,
@@ -67,6 +67,14 @@ pub struct Camera {
     near: f32,
     far: f32,
 }
+
+// impl ComponentID for Camera {
+//     // const ID: u64 = std::any::type_name::<Self>().hash();
+//         const ID: u64 = const_fnv1a_hash::fnv1a_hash_64("Camera".as_bytes(), None);
+//     // fn hello_world() {
+//     //     println!("Hello, World! My name is {}", stringify!(#name));
+//     // }
+// }
 
 impl Default for Camera {
     fn default() -> Self {

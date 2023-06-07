@@ -6,6 +6,7 @@ use std::{
     },
 };
 
+use component_derive::ComponentID;
 use force_send_sync::SendSync;
 use noise::{NoiseFn, Perlin};
 
@@ -31,18 +32,15 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use crate::{model::{self, ModelManager}, engine::World, transform::Transform};
 use crate::{
     asset_manager::AssetManagerBase,
-    engine::{RenderJobData, System},
-};
-use crate::{renderer_component2::buffer_usage_all};
-// use crate::transform_compute::MVP;
-
-use crate::{
-    engine::{Component, Sys},
+    engine::World,
+    engine::{Component, RenderJobData, Sys, System, _ComponentID},
     inspectable::{Inpsect, Ins, Inspectable},
+    model::{self, ModelManager},
     model::{Normal, Vertex, UV},
+    renderer_component2::buffer_usage_all,
+    transform::Transform, texture::Texture,
 };
 
 // struct Chunk {
@@ -60,7 +58,7 @@ struct TerrainChunkRenderData {
     pub texture: Option<i32>,
 }
 // #[component]
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
 pub struct Terrain {
     // pub device: Arc<Device>,
     // pub queue: Arc<Queue>,
@@ -107,11 +105,7 @@ impl Terrain {
             let num_verts_chunk = (terrain_size * terrain_size).max(1);
             self.tcrd = Some(Arc::new(TerrainChunkRenderData {
                 texture: Some(
-                    sys.get_model_manager().lock().as_any().downcast_ref::<ModelManager>().unwrap()
-                        // .lock()
-                        .const_params
-                        .1
-                        .lock()
+                    sys.assets.get_manager::<Texture>().lock()
                         .from_file("grass.png"),
                 ),
                 vertex_buffer: unsafe {
@@ -228,11 +222,11 @@ impl Terrain {
                             let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces)
                                 .collision_groups(InteractionGroups::none())
                                 .solver_groups(InteractionGroups::none())
-                            // .collision_groups(InteractionGroups::new(
-                            //     0b10.into(),
-                            //     (!0b10).into(),
-                            // ))
-                            .build();
+                                // .collision_groups(InteractionGroups::new(
+                                //     0b10.into(),
+                                //     (!0b10).into(),
+                                // ))
+                                .build();
                             // .solver_groups(InteractionGroups::new(0b0011.into(), 0b1011.into()));
                             chunks
                                 .lock()

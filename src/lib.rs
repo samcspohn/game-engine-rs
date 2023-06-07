@@ -1,5 +1,6 @@
 // mod engine;
 #![allow(warnings, unused)]
+
 pub mod input;
 pub mod model;
 pub mod perf;
@@ -28,3 +29,4 @@ pub mod vulkan_manager;
 pub mod engine;
 pub mod physics;
 pub mod transform;
+pub use component_derive::ComponentID;

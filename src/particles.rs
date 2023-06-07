@@ -6,7 +6,7 @@ use std::sync::{
 use crate::{
     asset_manager::{self, Asset, AssetManagerBase, AssetInstance},
     color_gradient::ColorGradient,
-    engine::{Component, Sys, _Storage, self},
+    engine::{Component, _ComponentID, Sys, _Storage, self},
     transform::Transform, 
     inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
     particle_sort::ParticleSort,
@@ -16,6 +16,7 @@ use crate::{
 };
 // use lazy_static::lazy::Lazy;
 
+use component_derive::ComponentID;
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
@@ -102,7 +103,7 @@ pub const MAX_PARTICLES: i32 = 1024 * 1024 * 8 * 2;
 
 
 // #[component]
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(ComponentID, Clone, Deserialize, Serialize)]
 #[serde(default)]
 #[repr(C)]
 

@@ -659,7 +659,8 @@ impl Transforms {
 
 
         rayon::scope(|s| {
-            let num_jobs = (len / 1024).max(1); // TODO: find best number dependent on cpu
+            let num_jobs = (len / 4096).max(1); // TODO: find best number dependent on cpu
+            // let num_jobs = num_cpus::get().min(last / 1024).max(1); // TODO: find best number dependent on cpu
             for id in 0..num_jobs {
                 let start = len / num_jobs * id;
                 let mut end = start + len / num_jobs;

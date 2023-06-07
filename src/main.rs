@@ -629,7 +629,6 @@ fn main() {
                 perf.update("write to buffer".into(), Instant::now() - inst);
 
                 // render_thread = thread::spawn( || {
-                let inst = Instant::now();
 
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &vk.comm_alloc,
@@ -637,6 +636,7 @@ fn main() {
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
+            let inst = Instant::now();
 
                 {
                     puffin::profile_scope!("transform update compute");
@@ -683,6 +683,8 @@ fn main() {
                         image_num,
                     );
                 }
+                perf.update("transform update".into(), inst.elapsed());
+                let inst = Instant::now();
                 {
                     particles.update(
                         &mut builder,
@@ -694,6 +696,9 @@ fn main() {
                         editor_cam.rot.coords.into(),
                     );
                 }
+                perf.update("particle update".into(), inst.elapsed());
+
+                let inst = Instant::now();
                 // compute shader renderers
                 let offset_vec = {
                     puffin::profile_scope!("process renderers");
@@ -713,6 +718,8 @@ fn main() {
                         &transform_compute,
                     )
                 };
+                perf.update("update renderers".into(), inst.elapsed());
+                let inst = Instant::now();
 
                 if !playing_game {
                     cam_data.update(editor_cam.pos, editor_cam.rot, 0.01f32, 10_000f32, 70f32);
@@ -754,6 +761,8 @@ fn main() {
                         );
                     }
                 }
+                perf.update("render camera(s)".into(), inst.elapsed());
+                let inst = Instant::now();
 
                 {
                     puffin::profile_scope!("render meshes");

@@ -58,15 +58,14 @@ files:
   ./test_project_rs/src/utils.rs: 1685812589
   ./test_project_rs/target/release/.cargo-lock: 1685125046
   ./test_project_rs/target/release/libtest_project_rs.d: 1685420448
-  ./test_project_rs/target/release/libtest_project_rs.so: 1685892809
   ./test_project_rs/target/release/test_project_rs.d: 1685912873
   ./test_project_rs/test.ptem: 1680018210
   ./test_project_rs/test2.ptem: 1682368673
 assets:
   lib:
     assets:
-      ./test_project_rs/target/release/test_project_rs.dll: 25
-    id_gen: 26
+      ./test_project_rs/target/release/libtest_project_rs.so: 41
+    id_gen: 42
   model:
     assets:
       ./test_project_rs/res/models/Spruce_obj/Spruce.obj: 8

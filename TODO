@@ -4,7 +4,7 @@ game-engine:
   ☐ fix model manager sharing between game thread and render thread
   ✔ impl camera component @done(23-04-26 10:05)
   ☐ optimize transform data push to GPU
-  ☐ fix camera image texture "no longer exists"
+  ✔ fix camera image texture "no longer exists" @done(23-06-07 10:35)
   ☐ implement lazy load of assets
   particles:
     ☐ different rng type for particle emission
@@ -33,6 +33,7 @@ game-engine:
     ☐ fix cross platform path serialization
     ☐ 3d control widget
     ☐ click on objects to select
+    ✔ runtime compilation @done(23-06-07 10:02)
   audio:
     ☐ audio manager
     ☐ audio asset
