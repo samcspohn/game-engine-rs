@@ -140,49 +140,39 @@ fn main() {
     )
     .unwrap();
 
-    // let window = vk.surface.object().unwrap().downcast_ref::<Window>().unwrap();
-
     let assets_manager = Arc::new(AssetsManager::new());
-
-
 
     let texture_manager = Arc::new(Mutex::new(TextureManager::new(
         (vk.device.clone(), vk.queue.clone(), vk.mem_alloc.clone()),
         &["png", "jpeg"],
     )));
-    let model_manager = ModelManager::new(
+    let model_manager = Arc::new(Mutex::new(ModelManager::new(
         (
             vk.device.clone(),
             texture_manager.clone(),
             vk.mem_alloc.clone(),
         ),
         &["obj"],
-    );
+    )));
     let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
 
-    let model_manager = Arc::new(Mutex::new(model_manager));
-    {
-        model_manager.lock().from_file("src/cube/cube.obj");
-    }
-
-
+    
     let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
         vk.device.clone(),
         vk.mem_alloc.clone(),
     )));
-    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", vk.device.clone(), texture_manager.clone());
-
+    
+    model_manager.lock().from_file("src/cube/cube.obj");
 
     let particles = Arc::new(particles::ParticleCompute::new(
         vk.device.clone(),
         vk.clone(),
     ));
-
+    
     let physics = Physics::new();
     let defer = Defer::new();
-
+    
     let world = Arc::new(Mutex::new(World::new(
-        // model_manager.clone(),
         renderer_manager,
         Arc::new(Mutex::new(physics)),
         particles.clone(),
@@ -215,10 +205,6 @@ fn main() {
             particles.particle_template_manager.clone(),
         );
     }
-
-
-    // let uniform_buffer =
-    //     CpuBufferPool::<renderer::vs::ty::Data>::new(vk.device.clone(), BufferUsage::all());
 
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
