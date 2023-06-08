@@ -1050,6 +1050,7 @@ dependencies = [
  "serde_yaml",
  "substring",
  "sync-unsafe-cell",
+ "thincollections",
  "tobj",
  "vulkano",
  "vulkano-shaders",
@@ -2663,6 +2664,12 @@ name = "takeable-option"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36ae8932fcfea38b7d3883ae2ab357b0d57a02caaa18ebb4f5ece08beaec4aa0"
+
+[[package]]
+name = "thincollections"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fbbc709263615edd99a59621a9a039cd07e666b1df7a8b0e785eae5f518da25"
 
 [[package]]
 name = "thiserror"

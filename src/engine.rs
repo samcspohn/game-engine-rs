@@ -7,8 +7,6 @@ use std::{
     any::{Any, TypeId},
     cmp::Reverse,
     collections::HashMap,
-    mem::MaybeUninit,
-    ptr::null,
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc,
@@ -19,6 +17,7 @@ use crate::{
     input, physics,
     transform::{self, Transform, Transforms},
 };
+use force_send_sync::SendSync;
 use serde::{Deserialize, Serialize};
 use sync_unsafe_cell::SyncUnsafeCell;
 
@@ -26,10 +25,11 @@ use sync_unsafe_cell::SyncUnsafeCell;
 // use rapier3d::prelude::*;
 use rayon::prelude::*;
 
-use crossbeam::{atomic::AtomicConsume, queue::SegQueue};
+use crossbeam::{queue::SegQueue};
 
 use parking_lot::Mutex;
 use parking_lot::RwLock;
+use thincollections::thin_map::{ThinMap};
 // use spin::Mutex;
 use vulkano::{
     buffer::DeviceLocalBuffer,
@@ -314,14 +314,6 @@ impl<
             + for<'a> Deserialize<'a>,
     > StorageBase for Storage<T>
 {
-    // fn new(
-    //     &mut self,
-    //     t: i32,
-    //     f: &Box<dyn Fn(&mut dyn StorageBase) + 'static + Sync + Send>,
-    // ) -> i32 {
-    //     let a = f();
-    //     self.emplace(t, a)
-    // }
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
     }
@@ -475,19 +467,16 @@ impl Sys {
     }
 }
 
-// #[derive(Default)]
 pub struct World {
-    // pub(crate) device: Arc<Device>,
-    pub(crate) entities: RwLock<Vec<Mutex<Option<HashMap<u64, i32>>>>>,
+    pub(crate) entities: RwLock<Vec<Mutex<Option<SendSync<ThinMap<u64, i32>>>>>>,
     pub(crate) transforms: Transforms,
     pub(crate) components: HashMap<u64, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) components_names:
         HashMap<String, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) root: i32,
-    pub(crate) sys: Sys, // makers: Vec<Option<Mutex<Maker>>>,
+    pub(crate) sys: Sys,
     to_destroy: SegQueue<i32>,
     to_instantiate: Arc<Mutex<Vec<_GameObjectParBuilder>>>,
-    // defer: SegQueue<Box<dyn FnOnce(&mut World) + Send + Sync>>,
 }
 
 //  T_ = 'static
@@ -502,7 +491,6 @@ pub struct World {
 #[allow(dead_code)]
 impl World {
     pub fn new(
-        // renderer_manager: Arc<RwLock<RendererManager>>,
         particles: Arc<ParticleCompute>,
         vk: Arc<VulkanManager>,
         assets_manager: Arc<AssetsManager>,
@@ -545,14 +533,14 @@ impl World {
 
                 for i in &t {
                     if (*i as usize) < ent.len() {
-                        *ent[*i as usize].lock() = Some(HashMap::new());
+                        *ent[*i as usize].lock() = Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) });
                     } else {
                         break;
                     }
                 }
                 if let Some(last) = t.last() {
                     while ent.len() <= *last as usize {
-                        ent.push(Mutex::new(Some(HashMap::new())));
+                        ent.push(Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) })));
                     }
                 }
                 drop(ent);
@@ -573,9 +561,9 @@ impl World {
         {
             let entities = &mut self.entities.write();
             if ret.t as usize >= entities.len() {
-                entities.push(Mutex::new(Some(HashMap::new())));
+                entities.push(Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) })));
             } else {
-                entities[ret.t as usize] = Mutex::new(Some(HashMap::new()));
+                entities[ret.t as usize] = Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) }));
             }
         }
         ret
@@ -587,9 +575,9 @@ impl World {
         {
             let entities = &mut self.entities.write();
             if ret.t as usize >= entities.len() {
-                entities.push(Mutex::new(Some(HashMap::new())));
+                entities.push(Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) })));
             } else {
-                entities[ret.t as usize] = Mutex::new(Some(HashMap::new()));
+                entities[ret.t as usize] = Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) }));
             }
         }
         ret
@@ -698,9 +686,9 @@ impl World {
         {
             let entities = &mut self.entities.write();
             if ret.t as usize >= entities.len() {
-                entities.push(Mutex::new(Some(HashMap::new())));
+                entities.push(Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) })));
             } else {
-                entities[ret.t as usize] = Mutex::new(Some(HashMap::new()));
+                entities[ret.t as usize] = Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) }));
             }
         }
         ret
