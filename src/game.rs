@@ -341,7 +341,7 @@ pub fn game_loop(
     let renderer_data = world.sys.renderer_manager.write().get_renderer_data();
     perf.update("get renderer data".into(), Instant::now() - inst);
     let emitter_len = world.get_emitter_len();
-    let v = world.sys.particles.emitter_inits.get_vec();
+    let v = world.sys.particles_system.emitter_inits.get_vec();
     let (main_cam_id, cam_datas) = world.get_cam_datas();
     // drop(world);
     let inst = Instant::now();
@@ -425,7 +425,7 @@ pub fn game_thread_fn(
         let renderer_data = world.sys.renderer_manager.write().get_renderer_data();
         perf.update("get renderer data".into(), Instant::now() - inst);
         let emitter_len = world.get_emitter_len();
-        let v = world.sys.particles.emitter_inits.get_vec();
+        let v = world.sys.particles_system.emitter_inits.get_vec();
         let (main_cam_id, cam_datas) = world.get_cam_datas();
         drop(world);
         let data = RenderingData {

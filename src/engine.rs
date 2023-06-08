@@ -115,7 +115,6 @@ pub struct System<'a> {
     pub physics: &'a physics::Physics,
     pub defer: &'a Defer,
     pub input: &'a input::Input,
-    // pub model_manager: &'a parking_lot::Mutex<ModelManager>,
     pub rendering: &'a RwLock<RendererManager>,
     pub assets: &'a AssetsManager,
     pub vk: Arc<VulkanManager>,
@@ -174,7 +173,6 @@ impl<T: 'static> _Storage<T> {
         }
     }
     pub fn erase(&mut self, id: i32) {
-        // self.data[id as usize] = None;
         self.avail.push(Reverse(id));
     }
     pub fn get(&self, i: &i32) -> &T {
@@ -464,7 +462,7 @@ pub struct Sys {
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub assets_manager: Arc<AssetsManager>,
     pub physics: Arc<Mutex<Physics>>,
-    pub particles: Arc<ParticleCompute>,
+    pub particles_system: Arc<ParticleCompute>,
     pub vk: Arc<VulkanManager>,
     pub defer: Defer,
 }
@@ -504,12 +502,9 @@ pub struct World {
 #[allow(dead_code)]
 impl World {
     pub fn new(
-        // modeling: Arc<parking_lot::Mutex<ModelManager>>,
-        renderer_manager: Arc<RwLock<RendererManager>>,
-        physics: Arc<Mutex<Physics>>,
+        // renderer_manager: Arc<RwLock<RendererManager>>,
         particles: Arc<ParticleCompute>,
         vk: Arc<VulkanManager>,
-        defer: Defer,
         assets_manager: Arc<AssetsManager>,
     ) -> World {
         let mut trans = Transforms::new();
@@ -521,17 +516,18 @@ impl World {
             components_names: HashMap::new(),
             root,
             sys: Sys {
-                // model_manager: modeling,
-                renderer_manager,
-                physics,
-                particles,
-                vk: vk,
-                defer,
+                renderer_manager: Arc::new(RwLock::new(RendererManager::new(
+                    vk.device.clone(),
+                    vk.mem_alloc.clone(),
+                ))),
                 assets_manager,
+                physics: Arc::new(Mutex::new(Physics::new())),
+                particles_system: particles,
+                vk: vk,
+                defer: Defer::new(),
             },
             to_destroy: SegQueue::new(),
             to_instantiate: Arc::new(Mutex::new(Vec::new())),
-            // defer: SegQueue::new(),
         }
     }
     pub fn defer_instantiate(&mut self) {

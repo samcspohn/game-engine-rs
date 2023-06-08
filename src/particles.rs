@@ -148,10 +148,10 @@ impl Component for ParticleEmitter {
             template_id: self.template.id,
             e_id: id,
         };
-        match sys.particles.emitter_inits.try_push(d) {
+        match sys.particles_system.emitter_inits.try_push(d) {
             None => {}
             Some(i) => {
-                sys.particles.emitter_inits.push(i, d);
+                sys.particles_system.emitter_inits.push(i, d);
             }
         }
     }
@@ -163,10 +163,10 @@ impl Component for ParticleEmitter {
             e_id: id,
         };
 
-        match sys.particles.emitter_inits.try_push(d) {
+        match sys.particles_system.emitter_inits.try_push(d) {
             None => {}
             Some(i) => {
-                sys.particles.emitter_inits.push(i, d);
+                sys.particles_system.emitter_inits.push(i, d);
             }
         }
     }

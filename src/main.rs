@@ -155,29 +155,17 @@ fn main() {
         &["obj"],
     )));
     let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
-
-    
-    let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
-        vk.device.clone(),
-        vk.mem_alloc.clone(),
-    )));
     
     model_manager.lock().from_file("src/cube/cube.obj");
 
-    let particles = Arc::new(particles::ParticleCompute::new(
+    let particles_system = Arc::new(particles::ParticleCompute::new(
         vk.device.clone(),
         vk.clone(),
     ));
     
-    let physics = Physics::new();
-    let defer = Defer::new();
-    
     let world = Arc::new(Mutex::new(World::new(
-        renderer_manager,
-        Arc::new(Mutex::new(physics)),
-        particles.clone(),
+        particles_system.clone(),
         vk.clone(),
-        defer,
         assets_manager.clone(),
     )));
 
@@ -202,7 +190,7 @@ fn main() {
         assets_manager.add_asset_manager("texture", texture_manager.clone());
         assets_manager.add_asset_manager(
             "particle_template",
-            particles.particle_template_manager.clone(),
+            particles_system.particle_template_manager.clone(),
         );
     }
 
@@ -673,7 +661,7 @@ fn main() {
                 perf.update("transform update".into(), inst.elapsed());
                 let inst = Instant::now();
                 {
-                    particles.update(
+                    particles_system.update(
                         &mut builder,
                         emitter_inits,
                         transform_compute.transform.clone(),
@@ -714,7 +702,7 @@ fn main() {
                         vk.clone(),
                         &mut builder,
                         &mut transform_compute,
-                        particles.clone(),
+                        particles_system.clone(),
                         &transform_uniforms,
                         transform_data,
                         compute_pipeline.clone(),
@@ -733,7 +721,7 @@ fn main() {
                             vk.clone(),
                             &mut builder,
                             &mut transform_compute,
-                            particles.clone(),
+                            particles_system.clone(),
                             &transform_uniforms,
                             transform_data.clone(),
                             compute_pipeline.clone(),
