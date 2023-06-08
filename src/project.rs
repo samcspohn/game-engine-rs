@@ -52,13 +52,13 @@ pub fn save_project(
 pub fn load_project(
     file_watcher: &mut FileWatcher,
     world: Arc<Mutex<World>>,
-    assets_manager: Arc<Mutex<AssetsManager>>,
+    assets_manager: Arc<AssetsManager>,
 ) {
     if let Ok(s) = std::fs::read_to_string("project.yaml") {
         {
             let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
             file_watcher.files = project.files;
-            assets_manager.lock().deserialize(project.assets);
+            assets_manager.deserialize(project.assets);
             // let sys = world.sys.lock();
             // let mut mm = sys.model_manager.lock();
             // mm.regen(project.model_manager);

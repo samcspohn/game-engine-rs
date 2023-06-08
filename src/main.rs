@@ -142,6 +142,81 @@ fn main() {
 
     // let window = vk.surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
+    let assets_manager = Arc::new(AssetsManager::new());
+
+
+
+    let texture_manager = Arc::new(Mutex::new(TextureManager::new(
+        (vk.device.clone(), vk.queue.clone(), vk.mem_alloc.clone()),
+        &["png", "jpeg"],
+    )));
+    let model_manager = ModelManager::new(
+        (
+            vk.device.clone(),
+            texture_manager.clone(),
+            vk.mem_alloc.clone(),
+        ),
+        &["obj"],
+    );
+    let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
+
+    let model_manager = Arc::new(Mutex::new(model_manager));
+    {
+        model_manager.lock().from_file("src/cube/cube.obj");
+    }
+
+
+    let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
+        vk.device.clone(),
+        vk.mem_alloc.clone(),
+    )));
+    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", vk.device.clone(), texture_manager.clone());
+
+
+    let particles = Arc::new(particles::ParticleCompute::new(
+        vk.device.clone(),
+        vk.clone(),
+    ));
+
+    let physics = Physics::new();
+    let defer = Defer::new();
+
+    let world = Arc::new(Mutex::new(World::new(
+        // model_manager.clone(),
+        renderer_manager,
+        Arc::new(Mutex::new(physics)),
+        particles.clone(),
+        vk.clone(),
+        defer,
+        assets_manager.clone(),
+    )));
+
+
+    let path = "./test_project_rs/runtime";
+    if let Ok(_) = fs::remove_dir_all(path) {}
+    fs::create_dir(path).unwrap();
+
+    #[cfg(target_os = "windows")]
+    let dylib_ext = ["dll"];
+    #[cfg(not(target_os = "windows"))]
+    let dylib_ext = ["so"];
+
+    let lib_manager = Arc::new(Mutex::new(runtime_compilation::LibManager::new(
+        world.clone(),
+        &dylib_ext,
+    )));
+    unsafe {
+        assets_manager.add_asset_manager("rs", rs_manager.clone());
+        assets_manager.add_asset_manager("lib", lib_manager.clone());
+        assets_manager.add_asset_manager("model", model_manager.clone());
+        assets_manager.add_asset_manager("texture", texture_manager.clone());
+        assets_manager.add_asset_manager(
+            "particle_template",
+            particles.particle_template_manager.clone(),
+        );
+    }
+
+
     // let uniform_buffer =
     //     CpuBufferPool::<renderer::vs::ty::Data>::new(vk.device.clone(), BufferUsage::all());
 
@@ -239,30 +314,7 @@ fn main() {
 
     let coms = (rrx, tx);
 
-    let physics = Physics::new();
-    let defer = Defer::new();
-
-    let particles = Arc::new(particles::ParticleCompute::new(
-        vk.device.clone(),
-        vk.clone(),
-    ));
-
-    let assets_manager = Arc::new(AssetsManager::new());
-
-    let renderer_manager = Arc::new(RwLock::new(RendererManager::new(
-        vk.device.clone(),
-        vk.mem_alloc.clone(),
-    )));
-
-    let world = Arc::new(Mutex::new(World::new(
-        // model_manager.clone(),
-        renderer_manager,
-        Arc::new(Mutex::new(physics)),
-        particles.clone(),
-        vk.clone(),
-        defer,
-        assets_manager.clone(),
-    )));
+    
 
     {
         let mut world = world.lock();
@@ -272,59 +324,20 @@ fn main() {
         world.register::<Camera>(false, false, false);
     };
 
-    let texture_manager = Arc::new(Mutex::new(TextureManager::new(
-        (vk.device.clone(), vk.queue.clone(), vk.mem_alloc.clone()),
-        &["png", "jpeg"],
-    )));
-
-    let model_manager = ModelManager::new(
-        (
-            vk.device.clone(),
-            texture_manager.clone(),
-            vk.mem_alloc.clone(),
-        ),
-        &["obj"],
-    );
-
-    // let cube_mesh = Mesh::load_model("src/cube/cube.obj", vk.device.clone(), texture_manager.clone());
-
-    let model_manager = Arc::new(Mutex::new(model_manager));
-    {
-        model_manager.lock().from_file("src/cube/cube.obj");
-    }
-
-    let path = "./test_project_rs/runtime";
-    if let Ok(_) = fs::remove_dir_all(path) {}
-    fs::create_dir(path).unwrap();
-
-    let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new(world.clone(), &["rs"])));
-    #[cfg(target_os = "windows")]
-    let dylib_ext = ["dll"];
-    #[cfg(not(target_os = "windows"))]
-    let dylib_ext = ["so"];
-    let lib_manager = Arc::new(Mutex::new(runtime_compilation::LibManager::new(
-        world.clone(),
-        &dylib_ext,
-    )));
-
-    unsafe {
-        // let &mut assets_manager = assets_manager.as_ref();
-        assets_manager.add_asset_manager("model", model_manager.clone());
-        assets_manager.add_asset_manager("texture", texture_manager.clone());
-        assets_manager.add_asset_manager(
-            "particle_template",
-            particles.particle_template_manager.clone(),
-        );
-        assets_manager.add_asset_manager("rs", rs_manager.clone());
-        assets_manager.add_asset_manager("lib", lib_manager.clone())
-    }
-
     let rm = {
         let w = world.lock();
         let rm = w.sys.renderer_manager.read();
         rm.shr_data.clone()
     };
 
+    let game_thread = {
+        let _running = running.clone();
+        let world = world.clone();
+        thread::spawn(move || game_thread_fn(world.clone(), (rtx, rx), _running))
+    };
+    let mut game_thread = vec![game_thread];
+
+    let _res = coms.1.send((input.clone(), false));
     let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
     // load_project(&mut file_watcher, world.clone(), assets_manager.clone());
     if let Ok(s) = std::fs::read_to_string("project.yaml") {
@@ -336,18 +349,6 @@ fn main() {
         }
         // serialize::deserialize(&mut world.lock());
     }
-
-    let game_thread = {
-        // let _perf = perf.clone();
-        let _running = running.clone();
-        let world = world.clone();
-        thread::spawn(move || game_thread_fn(world.clone(), (rtx, rx), _running))
-    };
-    let mut game_thread = vec![game_thread];
-
-    // let ter = trx.recv().unwrap();
-    // println!("sending input");
-    let _res = coms.1.send((input.clone(), false));
 
     let mut cam_data = CameraData::new(vk.clone());
     let mut playing_game = false;
@@ -629,7 +630,7 @@ fn main() {
                 perf.update("write to buffer".into(), Instant::now() - inst);
 
                 // render_thread = thread::spawn( || {
-
+               
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &vk.comm_alloc,
                     vk.queue.queue_family_index(),
@@ -864,6 +865,9 @@ fn main() {
                         fc_map.clear();
                         fc_map.insert(-1, a); // replace
                     }
+                    // if _playing_game {
+                        recreate_swapchain = true;
+                    // }
                 }
                 playing_game = _playing_game;
 

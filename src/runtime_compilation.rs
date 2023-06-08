@@ -23,8 +23,8 @@ lazy_static! {
     static ref ID: Mutex<usize> = Mutex::new(0);
 }
 impl RSFile {}
-impl Asset<RSFile, (Arc<Mutex<World>>)> for RSFile {
-    fn from_file(file: &str, params: &(Arc<Mutex<World>>)) -> RSFile {
+impl Asset<RSFile, ()> for RSFile {
+    fn from_file(file: &str, params: &()) -> RSFile {
         Command::new("cargo")
             .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
             .status()
@@ -33,7 +33,7 @@ impl Asset<RSFile, (Arc<Mutex<World>>)> for RSFile {
         RSFile { path: file.into() }
     }
 
-    fn reload(&mut self, file: &str, params: &(Arc<Mutex<World>>)) {
+    fn reload(&mut self, file: &str, params: &()) {
         *self = Self::from_file(file, params);
     }
 }
@@ -42,7 +42,7 @@ impl Inspectable_ for RSFile {
         ui.add(egui::Label::new(self.path.as_str()));
     }
 }
-pub type RSManager = AssetManager<(Arc<Mutex<World>>), RSFile>;
+pub type RSManager = AssetManager<(), RSFile>;
 
 pub struct Lib {}
 
