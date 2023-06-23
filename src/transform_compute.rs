@@ -1,8 +1,7 @@
 use std::{cell::UnsafeCell, ptr, sync::Arc};
 
 use crate::{
-    renderer_component2::buffer_usage_all,
-    transform::{POS_U, ROT_U, SCL_U},
+    renderer_component::buffer_usage_all, engine::world::transform::{POS_U, ROT_U, SCL_U},
 };
 
 use nalgebra_glm as glm;
@@ -49,7 +48,7 @@ pub struct TransformCompute {
 pub mod cs {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/transform.comp",
+        path: "src/shaders/transform.comp",
         types_meta: {
             use bytemuck::{Pod, Zeroable};
 

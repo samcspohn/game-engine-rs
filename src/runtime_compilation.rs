@@ -1,19 +1,23 @@
 use std::{fs, process::Command, sync::Arc, time::Duration};
 
+use component_derive::AssetID;
 use lazy_static::lazy_static;
 use libloading::Library;
 use parking_lot::Mutex;
 
+use crate::engine::project::asset_manager::_AssetID;
 use crate::{
-    asset_manager::{Asset, AssetManager},
-    engine::World,
-    inspectable::Inspectable_,
+    editor::inspectable::Inspectable_,
+    engine::{
+        project::{
+            asset_manager::{Asset, AssetManager},
+            serialize,
+        },
+        world::World,
+    },
 };
 
-// struct RuntimeCompilation {
-
-// }
-
+#[derive(AssetID)]
 pub struct RSFile {
     path: String,
 }
@@ -44,6 +48,7 @@ impl Inspectable_ for RSFile {
 }
 pub type RSManager = AssetManager<(), RSFile>;
 
+#[derive(AssetID)]
 pub struct Lib {}
 
 impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
@@ -69,16 +74,14 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
         *ID.lock() += 1;
         let so_file = format!("test_project_rs/runtime/lib{}.{}", id, ext);
         match fs::remove_file(&so_file) {
-            Ok(_) => {},
-            Err(a) => println!("{:?}", a)
-            
-        } 
+            Ok(_) => {}
+            Err(a) => println!("{:?}", a),
+        }
 
         // RELOCATE NEW LIB --- avoid dylib caching
         let id = id + 1;
         let so_file = format!("./test_project_rs/runtime/lib{}.{}", id, ext);
         if let Ok(_) = fs::copy(file, &so_file) {
-
             // LOAD NEW LIB
             let lib = unsafe { libloading::Library::new(&so_file).unwrap() };
             let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> =
@@ -89,7 +92,7 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
             unsafe {
                 func(&mut world);
             }
-            crate::serialize::deserialize(&mut world);
+            serialize::deserialize(&mut world);
             *LIB.lock() = Some(lib);
         }
 

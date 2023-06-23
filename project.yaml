@@ -64,8 +64,8 @@ files:
 assets:
   lib:
     assets:
-      ./test_project_rs/target/release/libtest_project_rs.so: 9
-    id_gen: 10
+      ./test_project_rs/target/release/libtest_project_rs.so: 18
+    id_gen: 19
   model:
     assets:
       ./test_project_rs/res/models/Spruce_obj/Spruce.obj: 8

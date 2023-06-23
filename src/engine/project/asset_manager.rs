@@ -2,7 +2,7 @@ use egui::Ui;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{
-    any::{Any, TypeId},
+    any::{Any},
     collections::{BTreeMap, HashMap},
     fs,
     marker::PhantomData,
@@ -12,9 +12,7 @@ use std::{
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::{
-    drag_drop::{self, drop_target},
-    engine::World,
-    inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
+    editor::{inspectable::{Inpsect, Ins, Inspectable, Inspectable_}, drag_drop::{self, drop_target}}, engine::world::{Sys, World},
 };
 
 #[derive(Deserialize, Serialize)]
@@ -51,110 +49,18 @@ impl<T> Clone for AssetInstance<T> {
 }
 impl<T> Copy for AssetInstance<T> {}
 
-impl<'a, T: 'static> Inpsect for Ins<'a, AssetInstance<T>> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &crate::engine::Sys) {
+impl<'a, T: 'static + _AssetID> Inpsect for Ins<'a, AssetInstance<T>> {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) {
         let drop_data = drag_drop::DRAG_DROP_DATA.lock();
         sys.assets_manager
             .inspect_instance::<T>(name, &drop_data, &mut self.0.id, ui)
-
-        // let asset_manager = sys.assets_manager.asset_managers_type.get(&TypeId::of::<T>()).unwrap();
-
-        // let model: String = match asset_manager.lock().assets_id.get(&self.0.id) {
-        //     Some(model) => model.lock().file.clone(),
-        //     None => "".into(),
-        // };
-        // let can_accept_drop_data = match drop_data.rfind(".obj") {
-        //     Some(_) => true,
-        //     None => false,
-        // };
-        // // println!("can accept drop data:{}",can_accept_drop_data);
-        // ui.horizontal(|ui| {
-        //     ui.add(egui::Label::new(name));
-        //     drop_target(ui, can_accept_drop_data, |ui| {
-        //         let response = ui.add(egui::Label::new(model.as_str()));
-        //         if response.hovered() && ui.input().pointer.any_released() {
-        //             let model_file: String = drop_data.clone();
-
-        //             if let Some(id) = asset_manager.lock().assets.get(&model_file) {
-        //                 self.0.id = *id;
-        //             }
-        //         }
-        //     });
-        // });
     }
-    // fn inspect(
-    //     &mut self,
-    //     transform: &crate::engine::transform::Transform,
-    //     id: i32,
-    //     ui: &mut egui::Ui,
-    //     sys: &crate::engine::Sys,
-    // ) {
-    //     let drop_data = drag_drop::DRAG_DROP_DATA.lock();
-
-    //     let model: String = match sys.model_manager.lock().assets_id.get(&self.0.id) {
-    //         Some(model) => model.lock().file.clone(),
-    //         None => "".into(),
-    //     };
-    //     let can_accept_drop_data = match drop_data.rfind(".obj") {
-    //         Some(_) => true,
-    //         None => false,
-    //     };
-    //     // println!("can accept drop data:{}",can_accept_drop_data);
-    //     ui.horizontal(|ui| {
-    //         ui.add(egui::Label::new(name));
-    //         drop_target(ui, can_accept_drop_data, |ui| {
-    //             // let model_name = sys.model_manager.lock().models.get(k)
-    //             let response = ui.add(egui::Label::new(model.as_str()));
-    //             if response.hovered() && ui.input().pointer.any_released() {
-    //                 let model_file: String = drop_data.clone();
-
-    //                 if let Some(id) = sys.model_manager.lock().assets.get(&model_file) {
-    //                     self.0.id = *id;
-    //                 }
-    //             }
-    //         });
-    //     });
-    // }
-}
-pub trait _AssetInstance<T> {
-    const ASSET: T;
 }
 
-impl<Model> AssetInstance<Model> {}
-
-impl<T> AssetInstance<T> {
-    // const ASSET: T = T;
-    // pub fn inspect(&mut self) {
-    //     fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) {
-    //         let drop_data = drag_drop::DRAG_DROP_DATA.lock();
-
-    //         let model: String = match sys.model_manager.lock().assets_id.get(&self.0.id) {
-    //             Some(model) => model.lock().file.clone(),
-    //             None => "".into(),
-    //         };
-    //         let can_accept_drop_data = match drop_data.rfind(".obj") {
-    //             Some(_) => true,
-    //             None => false,
-    //         };
-    //         // println!("can accept drop data:{}",can_accept_drop_data);
-    //         ui.horizontal(|ui| {
-    //             ui.add(egui::Label::new(name));
-    //             drop_target(ui, can_accept_drop_data, |ui| {
-    //                 // let model_name = sys.model_manager.lock().models.get(k)
-    //                 let response = ui.add(egui::Label::new(model.as_str()));
-    //                 if response.hovered() && ui.input().pointer.any_released() {
-    //                     let model_file: String = drop_data.clone();
-
-    //                     if let Some(id) = sys.model_manager.lock().assets.get(&model_file) {
-    //                         self.0.id = *id;
-    //                     }
-    //                 }
-    //             });
-    //         });
-    //     }
-    // }
+impl<T> AssetInstance<T> {}
+pub trait _AssetID {
+    const ID: u64;
 }
-
 pub trait Asset<T, P> {
     fn from_file(file: &str, params: &P) -> T;
     fn reload(&mut self, file: &str, params: &P);
@@ -168,14 +74,8 @@ pub trait Asset<T, P> {
 
 struct TestAsset {}
 
-// impl Asset<TestAsset> for TestAsset {
-//     fn from_file(file: &str) -> TestAsset {
-//         TestAsset {  }
-//     }
-// }
-
 #[derive(Serialize, Deserialize)]
-pub struct AssetManager<P, T: Inspectable_ + Asset<T, P>> {
+pub struct AssetManager<P, T: Inspectable_ + Asset<T, P> + _AssetID> {
     pub assets: BTreeMap<String, i32>,
     #[serde(skip_serializing, skip_deserializing)]
     pub assets_r: BTreeMap<i32, String>,
@@ -212,7 +112,7 @@ pub struct AssetManager<P, T: Inspectable_ + Asset<T, P>> {
 //     }
 // }
 
-impl<P: 'static, T: Inspectable_ + Asset<T, P>> AssetManager<P, T> {
+impl<P: 'static, T: Inspectable_ + Asset<T, P> + _AssetID> AssetManager<P, T> {
     pub fn new(const_params: P, ext: &[&str]) -> Self {
         Self {
             assets: BTreeMap::new(),
@@ -229,7 +129,7 @@ impl<P: 'static, T: Inspectable_ + Asset<T, P>> AssetManager<P, T> {
     }
 }
 
-impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for AssetManager<P, T> {
+impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManagerBase for AssetManager<P, T> {
     fn inspect(&mut self, file: &str, ui: &mut Ui, world: &Mutex<World>) {
         // let file = std::path::Path::new(file);
         if let Some(a) = self.assets.get(file) {
@@ -359,8 +259,8 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for A
         self.assets.insert(to.to_owned(), asset_id);
     }
 
-    fn get_type(&self) -> TypeId {
-        TypeId::of::<T>()
+    fn get_type(&self) -> u64 {
+        T::ID
     }
 
     fn inspect_instance(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) {
@@ -402,6 +302,9 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P>> AssetManagerBase for A
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
     }
+    // fn get_id<O>(&self, id: &i32) -> Option<&Arc<Mutex<T>>> {
+    //     self.assets_id.get(id)
+    // }
 }
 
 pub trait AssetManagerBase {
@@ -415,10 +318,11 @@ pub trait AssetManagerBase {
     fn serialize(&self) -> serde_yaml::Value;
     fn save(&self);
     fn move_file(&mut self, from: &str, to: &str);
-    fn get_type(&self) -> TypeId;
+    fn get_type(&self) -> u64;
     fn inspect_instance(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui);
     fn get_ext(&self) -> &[String];
     fn as_any(&self) -> &dyn std::any::Any;
+    // fn get_id<T>(&self, id: &i32) -> Option<&Arc<Mutex<T>>> {None}
 }
 
 pub struct AssetsManager {
@@ -427,7 +331,7 @@ pub struct AssetsManager {
     pub asset_managers_ext:
         SyncUnsafeCell<HashMap<String, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>>,
     pub asset_managers_type:
-        SyncUnsafeCell<HashMap<TypeId, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>>,
+        SyncUnsafeCell<HashMap<u64, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>>,
 }
 
 impl AssetsManager {
@@ -438,9 +342,9 @@ impl AssetsManager {
     //         None
     //     }
     // }
-    pub fn get_manager<T: 'static>(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
+    pub fn get_manager<T: 'static + _AssetID>(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
         unsafe { &*self.asset_managers_type.get() }
-            .get(&TypeId::of::<T>())
+            .get(&T::ID)
             .unwrap()
             .clone()
     }
@@ -453,9 +357,9 @@ impl AssetsManager {
     //         .unwrap()
     //         .clone()
     // }
-    pub fn inspect_instance<T: 'static>(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) {
+    pub fn inspect_instance<T: 'static + _AssetID>(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) {
         let asset_manager = unsafe { &*self.asset_managers_type.get() }
-            .get(&TypeId::of::<T>())
+            .get(&T::ID)
             .unwrap();
         asset_manager.lock().inspect_instance(name, path, id, ui);
     }

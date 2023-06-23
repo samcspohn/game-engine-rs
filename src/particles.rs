@@ -4,19 +4,16 @@ use std::sync::{
 };
 
 use crate::{
-    asset_manager::{self, Asset, AssetManagerBase, AssetInstance},
     color_gradient::ColorGradient,
-    engine::{Component, _ComponentID, Sys, _Storage, self},
-    transform::Transform, 
-    inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
+    editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
     particle_sort::ParticleSort,
-    renderer_component2::buffer_usage_all,
+    renderer_component::buffer_usage_all,
     transform_compute::cs::ty::transform,
-    vulkan_manager::VulkanManager,
+    vulkan_manager::VulkanManager, engine::{world::{transform::Transform, Sys, World}, component::{Component, _ComponentID}, storage::_Storage, project::asset_manager::{AssetInstance, Asset, AssetManager, AssetManagerBase}},
 };
 // use lazy_static::lazy::Lazy;
 
-use component_derive::ComponentID;
+use component_derive::{ComponentID, AssetID};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
@@ -141,7 +138,7 @@ impl ParticleEmitter {
 }
 
 impl Component for ParticleEmitter {
-    fn init(&mut self, transform: &Transform, id: i32, sys: &engine::Sys) {
+    fn init(&mut self, transform: &Transform, id: i32, sys: &Sys) {
         let d = cs::ty::emitter_init {
             transform_id: transform.id,
             alive: 1,
@@ -155,7 +152,7 @@ impl Component for ParticleEmitter {
             }
         }
     }
-    fn deinit(&mut self, transform: &Transform, id: i32, sys: &engine::Sys) {
+    fn deinit(&mut self, transform: &Transform, id: i32, sys: &Sys) {
         let d = cs::ty::emitter_init {
             transform_id: transform.id,
             alive: 0,
@@ -172,7 +169,8 @@ impl Component for ParticleEmitter {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+use crate::engine::project::asset_manager::_AssetID;
+#[derive(AssetID, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ParticleTemplate {
     color: [f32; 4],
@@ -217,11 +215,11 @@ where
     ui.horizontal(|ui| {
         ui.add(egui::Label::new(name));
         func(ui);
-        // ui.add(egui::DragValue::new(self.0));
+        // ui.add(egui::DragValue::new(self.0));s
     });
 }
 impl Inspectable_ for ParticleTemplate {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &parking_lot::Mutex<crate::engine::World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &parking_lot::Mutex<World>) {
         field(ui, "color", |ui| {
             ui.color_edit_button_rgba_premultiplied(&mut self.color);
         });
@@ -294,7 +292,7 @@ impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>> fo
 }
 
 pub type ParticleTemplateManager =
-    asset_manager::AssetManager<Arc<Mutex<_Storage<cs::ty::particle_template>>>, ParticleTemplate>;
+    AssetManager<Arc<Mutex<_Storage<cs::ty::particle_template>>>, ParticleTemplate>;
 
 pub struct PerformanceCounters {
     pub update_particles: i32,

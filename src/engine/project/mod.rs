@@ -1,16 +1,14 @@
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 
-use crate::{
-    asset_manager::{AssetManagerBase, AssetsManager},
-    engine::World,
-    file_watcher::FileWatcher,
-    serialize,
-};
+use crate::engine::world::World;
+
+use self::{asset_manager::AssetsManager, file_watcher::FileWatcher};
+
+pub mod asset_manager;
+pub mod file_watcher;
+pub mod serialize;
 
 #[derive(Serialize, Deserialize)]
 pub struct Project {
@@ -21,11 +19,7 @@ pub struct Project {
     working_file: String,
 }
 
-pub fn save_project(
-    file_watcher: &FileWatcher,
-    world: &World,
-    assets_manager: Arc<AssetsManager>,
-) {
+pub fn save_project(file_watcher: &FileWatcher, world: &World, assets_manager: Arc<AssetsManager>) {
     // let _sys = world.sys.lock();
     let files = file_watcher.files.clone();
     // let model_manager = serde_yaml::to_value(&*sys.model_manager.lock()).unwrap();

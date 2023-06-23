@@ -2,10 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::engine::{
-    World,
-};
-use crate::transform::{Transform, Transforms, _Transform};
+use crate::engine::world::{transform::{_Transform, Transforms}, World};
+
 
 #[derive(Serialize, Deserialize)]
 struct SerGameObject {

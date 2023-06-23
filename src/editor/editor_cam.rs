@@ -1,9 +1,9 @@
 use glm::{vec4, Vec3};
 use winit::event::VirtualKeyCode;
 
-use crate::input::Input;
-
 use nalgebra_glm as glm;
+
+use crate::engine::input::Input;
 
 pub struct EditorCam {
     pub pos: glm::Vec3,

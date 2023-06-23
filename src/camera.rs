@@ -1,8 +1,6 @@
-use std::{
-    sync::Arc, collections::VecDeque,
-};
+use std::{collections::VecDeque, sync::Arc};
 
-use component_derive::{ComponentID};
+use component_derive::ComponentID;
 use glm::{radians, vec1, Mat4, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard};
@@ -22,15 +20,13 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-
 use crate::{
-    engine::{ Component, _ComponentID, RenderJobData},
-    transform::Transform,
-    inspectable::{Inpsect, Ins, Inspectable},
+    engine::{component::{_ComponentID, Component}, world::{transform::Transform, Sys}, RenderJobData},
+    editor::inspectable::{Inpsect, Ins, Inspectable},
     model::ModelManager,
     particles::{ParticleCompute, ParticleRenderPipeline},
     renderer::RenderPipeline,
-    renderer_component2::{buffer_usage_all, ur, RendererData, SharedRendererData},
+    renderer_component::{buffer_usage_all, ur, RendererData, SharedRendererData},
     texture::TextureManager,
     transform_compute::{cs::ty::Data, TransformCompute},
     vulkan_manager::VulkanManager,
@@ -92,7 +88,7 @@ impl Inspectable for Camera {
         _transform: &Transform,
         _id: i32,
         ui: &mut egui::Ui,
-        sys: &crate::engine::Sys,
+        sys: &Sys,
     ) {
         Ins(&mut self.fov).inspect("fov", ui, sys);
         Ins(&mut self.near).inspect("near", ui, sys);
@@ -100,7 +96,7 @@ impl Inspectable for Camera {
     }
 }
 impl Component for Camera {
-    fn init(&mut self, _transform: &Transform, _id: i32, sys: &crate::engine::Sys) {
+    fn init(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
         self.data = Some(Arc::new(Mutex::new(CameraData::new(sys.vk.clone()))));
     }
 }
@@ -186,8 +182,7 @@ impl CameraData {
             viewport,
             framebuffers,
             output,
-            camera_view_data: VecDeque::new()
-            // swapchain,
+            camera_view_data: VecDeque::new(), // swapchain,
         }
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>) {
@@ -313,10 +308,7 @@ impl CameraData {
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![
-                        Some([0.2, 0.25, 1., 1.].into()),
-                        Some(1f32.into()),
-                    ],
+                    clear_values: vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into())],
                     ..RenderPassBeginInfo::framebuffer(
                         self.framebuffers[image_num as usize].clone(),
                     )

@@ -8,16 +8,16 @@ use std::{
 // use ai::import::Importer;
 // use assimp as ai;
 use bytemuck::{Pod, Zeroable};
+use component_derive::AssetID;
 use parking_lot::Mutex;
 
 // use std::mem::size_of;
 use nalgebra_glm as glm;
 // use rapier3d::na::Norm;
 use crate::{
-    asset_manager::{self, Asset, AssetManagerBase},
-    inspectable::Inspectable_,
-    renderer_component2::buffer_usage_all,
-    texture::{TextureManager},
+    editor::inspectable::Inspectable_,
+    renderer_component::buffer_usage_all,
+    texture::{TextureManager}, engine::{world::World, project::asset_manager::{self, Asset, AssetManagerBase}},
 };
 use vulkano::memory::allocator::{MemoryAllocator, StandardMemoryAllocator};
 use vulkano::{
@@ -266,6 +266,8 @@ impl Mesh {
     // pub fn draw(&self, amount: i32) {}
 }
 
+use crate::engine::project::asset_manager::_AssetID;
+#[derive(AssetID)]
 pub struct ModelRenderer {
     pub file: String,
     pub mesh: Mesh,
@@ -312,7 +314,7 @@ impl
 }
 
 impl Inspectable_ for ModelRenderer {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &parking_lot::Mutex<crate::engine::World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &parking_lot::Mutex<World>) {
         ui.add(egui::Label::new(self.file.as_str()));
     }
 }

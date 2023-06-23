@@ -1,5 +1,5 @@
 #version 450
-#include "../util.glsl"
+#include "../shaders/util.glsl"
 #include "particle.glsl"
 
 struct transform {

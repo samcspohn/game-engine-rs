@@ -21,14 +21,12 @@ use winit::{event::VirtualKeyCode, window::Window};
 
 use crate::{
     camera::{Camera, CameraData},
-    editor_ui::PLAYING_GAME,
-    engine::{Component, Defer, Storage, Sys, System, World},
-    input::Input,
-    inspectable::{Inpsect, Ins, Inspectable},
+    editor::editor_ui::PLAYING_GAME,
+    engine::input::Input,
+    editor::inspectable::{Inpsect, Ins, Inspectable},
     particles::{cs::ty::emitter_init, ParticleEmitter},
     perf::Perf,
-    renderer_component2::RendererData,
-    transform::{Transform, _Transform},
+    renderer_component::RendererData, engine::world::World,
 };
 
 // // #[component]

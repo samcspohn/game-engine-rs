@@ -4,6 +4,7 @@ use std::{
 };
 
 
+use component_derive::AssetID;
 use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
@@ -16,7 +17,7 @@ use vulkano::{
     sampler::{Sampler, SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
 };
 
-use crate::{asset_manager::{self, Asset}, inspectable::Inspectable_};
+use crate::{editor::inspectable::Inspectable_, engine::{world::World, project::asset_manager::{AssetManager, Asset}}};
 
 // pub struct TextureManager {
 //     pub device: Arc<Device>,
@@ -50,15 +51,16 @@ use crate::{asset_manager::{self, Asset}, inspectable::Inspectable_};
 //     }
 // }
 
-pub type TextureManager = asset_manager::AssetManager<(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>),Texture>;
-
+pub type TextureManager = AssetManager<(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>),Texture>;
+use crate::engine::project::asset_manager::_AssetID;
+#[derive(AssetID)]
 pub struct Texture {
     pub file: String,
     pub image: Arc<ImageView<ImmutableImage>>,
     pub sampler: Arc<Sampler>,
 }
 impl Inspectable_ for Texture {
-    fn inspect(&mut self, _ui: &mut egui::Ui, _world: &parking_lot::Mutex<crate::engine::World>) {
+    fn inspect(&mut self, _ui: &mut egui::Ui, _world: &parking_lot::Mutex<World>) {
         
     }
 }

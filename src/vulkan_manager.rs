@@ -4,11 +4,13 @@ use std::{
     sync::{
         atomic::{AtomicI32, Ordering},
         Arc,
-    },
+    }
 };
 
 use nohash_hasher::NoHashHasher;
 use parking_lot::Mutex;
+use sync_unsafe_cell::SyncUnsafeCell;
+use thincollections::thin_map::ThinMap;
 use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
@@ -24,7 +26,7 @@ use vulkano::{
     memory::allocator::StandardMemoryAllocator,
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
-    VulkanLibrary,
+    VulkanLibrary, buffer::CpuAccessibleBuffer,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
@@ -33,12 +35,14 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+use crate::renderer_component::buffer_usage_all;
+
 #[repr(C)]
 pub struct VulkanManager {
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
     pub surface: Arc<Surface>,
-    pub swapchain: Mutex<Arc<Swapchain>>,
+    pub swapchain: SyncUnsafeCell<Arc<Swapchain>>,
     pub images: Vec<Arc<SwapchainImage>>,
     pub instance: Arc<Instance>,
     // pub event_loop: EventLoop<()>,
@@ -47,9 +51,27 @@ pub struct VulkanManager {
     pub comm_alloc: Arc<StandardCommandBufferAllocator>,
     pub query_pool: Mutex<HashMap<i32, Arc<QueryPool>, nohash_hasher::BuildNoHashHasher<i32>>>,
     query_counter: AtomicI32,
+    // a: ThinMap<std::ptr::>
 }
 
 impl VulkanManager {
+    // pub fn new_buffer<T>(data: Vec<T>) {
+    //     unsafe {
+    //         CpuAccessibleBuffer::<[T]>::uninitialized_array(
+    //             &self.mem_alloc,
+    //             (num_chunks * num_verts_chunk) as u64,
+    //             buffer_usage_all(),
+    //             false,
+    //         )
+    //         .unwrap()
+    //     }
+    // }
+    pub fn swapchain(&self) -> Arc<Swapchain> {
+        unsafe { &*self.swapchain.get() }.clone()
+    }
+    pub fn update_swapchain(&self, swapchain: Arc<Swapchain>) {
+        unsafe { *self.swapchain.get() = swapchain; }
+    }
     pub fn new(event_loop: &EventLoop<()>) -> Arc<Self> {
         // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
         let library = VulkanLibrary::new().unwrap();
@@ -185,7 +207,7 @@ impl VulkanManager {
                         .iter()
                         .next()
                         .unwrap(),
-                    present_mode: vulkano::swapchain::PresentMode::Immediate,
+                    present_mode: vulkano::swapchain::PresentMode::Fifo,
                     ..Default::default()
                 },
             )
@@ -206,7 +228,7 @@ impl VulkanManager {
             queue,
             instance,
             surface,
-            swapchain: Mutex::new(swapchain),
+            swapchain: SyncUnsafeCell::new(swapchain),
             images,
             mem_alloc,
             desc_alloc,

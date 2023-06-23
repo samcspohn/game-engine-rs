@@ -38,7 +38,7 @@ use crate::{
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/model.vert",
+        path: "src/shaders/model.vert",
         types_meta: {
             use bytemuck::{Pod, Zeroable};
 
@@ -50,7 +50,7 @@ pub mod vs {
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/model.frag"
+        path: "src/shaders/model.frag"
     }
 }
 

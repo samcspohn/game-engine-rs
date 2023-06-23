@@ -19,9 +19,9 @@ use std::{
 };
 use substring::Substring;
 use walkdir::WalkDir;
-// use relative_path;
 
-use crate::asset_manager::{AssetManagerBase, AssetsManager};
+use super::asset_manager::AssetsManager;
+// use relative_path;
 
 pub struct FileWatcher {
     pub(crate) files: BTreeMap<String, u64>,

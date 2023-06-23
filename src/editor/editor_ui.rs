@@ -13,12 +13,7 @@ use std::{
 
 
 use crate::{
-    drag_drop::drag_source,
-    transform::{Transform, Transforms},
-    engine::{
-        GameObject, Sys, World,
-    },
-    inspectable::{Inspectable, Inspectable_}, asset_manager::AssetsManager,
+    editor::{inspectable::{Inspectable, Inspectable_}, drag_drop::drag_source}, engine::{world::{World, transform::Transform, Sys}, component::GameObject, project::{serialize, asset_manager::AssetsManager}},
 };
 use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
@@ -64,7 +59,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                         {
                             let mut world = self.world.lock();
                             world.clear();
-                            crate::serialize::deserialize(&mut world);
+                            serialize::deserialize(&mut world);
                         }
                     }    
                 } else if ui.button("Play").clicked() {
@@ -296,7 +291,7 @@ impl Inspectable_ for GameObjectInspector {
                 let mut component_init: Option<(u64, i32)> = None;
                 
                 ui.menu_button("add component",|ui| {
-                    for (_k, c) in &world.components {
+                    for (_k, c) in world.components.iter() {
                         let mut c = c.write();
                         let resp = ui.add(egui::Button::new(c.get_name()));
                         if resp.clicked() {
@@ -754,11 +749,11 @@ pub fn editor_ui(
                                             ui.close_menu();
                                         }
                                         if ui.menu_button("Save", |_ui| {}).response.clicked() {
-                                            crate::serialize::serialize(&world);
+                                            serialize::serialize(&world);
                                             ui.close_menu();
                                         }
                                         if ui.menu_button("Load", |_ui| {}).response.clicked() {
-                                            crate::serialize::deserialize(&mut world);
+                                            serialize::deserialize(&mut world);
                                             ui.close_menu();
                                         }
                                     });

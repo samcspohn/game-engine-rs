@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     particles::{ParticleBuffers, MAX_PARTICLES},
-    renderer_component2::buffer_usage_all,
+    renderer_component::buffer_usage_all,
     transform_compute::cs::ty::transform,
 };
 
@@ -147,11 +147,8 @@ impl ParticleSort {
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, draw.clone()))
             .unwrap();
 
-        let uniforms = CpuBufferPool::<cs::ty::Data>::new(
-            mem,
-            buffer_usage_all(),
-            MemoryUsage::Upload,
-        );
+        let uniforms =
+            CpuBufferPool::<cs::ty::Data>::new(mem, buffer_usage_all(), MemoryUsage::Upload);
 
         // build buffer
         let command_buffer = builder.build().unwrap();

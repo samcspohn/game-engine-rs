@@ -2,12 +2,12 @@ use camera::{Camera, CameraData};
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::TextureId;
-use engine::Defer;
+use engine::input::Input;
+use engine::project::{Project, file_watcher};
+use engine::project::asset_manager::{AssetsManager, AssetManagerBase};
+use engine::world::World;
 use game::RenderingData;
-use project::Project;
 
-use std::any::TypeId;
-use std::process::{Command, ExitStatus};
 use std::{env, fs};
 use vulkan_manager::VulkanManager;
 
@@ -16,13 +16,10 @@ use vulkano::command_buffer::RenderPassBeginInfo;
 use vulkano::memory::allocator::MemoryUsage;
 use vulkano::swapchain::SwapchainPresentInfo;
 
-use winit::window::CursorGrabMode;
-// use egui_dock::Tree;
 use puffin_egui::*;
 
 use nalgebra_glm as glm;
-use parking_lot::{Mutex, RwLock};
-use vulkano::buffer::TypedBufferAccess;
+use parking_lot::Mutex;
 
 use winit::event::MouseButton;
 
@@ -65,51 +62,35 @@ use std::sync::mpsc::{Receiver, Sender};
 use notify::{RecursiveMode, Watcher};
 
 // use game_engine;
+mod editor;
 mod engine;
-mod input;
 mod model;
 mod perf;
 mod renderer;
-//  mod renderer_component;
-mod asset_manager;
 mod camera;
 mod color_gradient;
-mod drag_drop;
-mod editor_cam;
-mod editor_ui;
-mod file_watcher;
 mod game;
-mod inspectable;
 mod particle_sort;
 mod particles;
 mod physics;
-mod project;
 mod render_pipeline;
-mod renderer_component2;
+mod renderer_component;
 mod runtime_compilation;
-mod serialize;
-mod terrain;
 mod texture;
 mod time;
-mod transform;
 mod transform_compute;
 mod vulkan_manager;
 
-use crate::asset_manager::{AssetManagerBase, AssetsManager};
-use crate::editor_ui::EDITOR_ASPECT_RATIO;
-use crate::physics::Physics;
+use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
 
-use crate::engine::World;
 use crate::game::game_thread_fn;
 
 use crate::model::ModelManager;
 use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
 
-use crate::input::Input;
-use crate::project::{load_project, save_project};
-use crate::renderer_component2::{buffer_usage_all, Renderer, RendererManager};
-use crate::terrain::Terrain;
+use crate::engine::project::{load_project, save_project};
+use crate::renderer_component::{buffer_usage_all, Renderer};
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
 
@@ -132,7 +113,7 @@ fn main() {
             final_color: {
                 load: Clear,
                 store: Store,
-                format: vk.swapchain.lock().image_format(),
+                format: vk.swapchain().image_format(),
                 samples: 1,
             }
         },
@@ -155,20 +136,19 @@ fn main() {
         &["obj"],
     )));
     let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
-    
+
     model_manager.lock().from_file("src/cube/cube.obj");
 
     let particles_system = Arc::new(particles::ParticleCompute::new(
         vk.device.clone(),
         vk.clone(),
     ));
-    
+
     let world = Arc::new(Mutex::new(World::new(
         particles_system.clone(),
         vk.clone(),
         assets_manager.clone(),
     )));
-
 
     let path = "./test_project_rs/runtime";
     if let Ok(_) = fs::remove_dir_all(path) {}
@@ -223,7 +203,7 @@ fn main() {
     let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
         &event_loop,
         vk.surface.clone(),
-        Some(vk.swapchain.lock().image_format()),
+        Some(vk.swapchain().image_format()),
         vk.queue.clone(),
         Subpass::from(render_pass.clone(), 0).unwrap(),
     );
@@ -283,18 +263,14 @@ fn main() {
     /////////////////////////////////////////////////////////////////////////////////////////
     let (tx, rx): (Sender<_>, Receiver<_>) = mpsc::channel();
     let (rtx, rrx): (Sender<_>, Receiver<_>) = mpsc::channel();
-    // let (ttx, trx): (Sender<Terrain>, Receiver<Terrain>) = mpsc::channel();
     let running = Arc::new(AtomicBool::new(true));
 
     let coms = (rrx, tx);
-
-    
 
     {
         let mut world = world.lock();
         world.register::<Renderer>(false, false, false);
         world.register::<ParticleEmitter>(false, false, false);
-        world.register::<Terrain>(true, false, true);
         world.register::<Camera>(false, false, false);
     };
 
@@ -313,7 +289,7 @@ fn main() {
 
     let _res = coms.1.send((input.clone(), false));
     let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
-    // load_project(&mut file_watcher, world.clone(), assets_manager.clone());
+
     if let Ok(s) = std::fs::read_to_string("project.yaml") {
         {
             let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
@@ -327,14 +303,12 @@ fn main() {
     let mut cam_data = CameraData::new(vk.clone());
     let mut playing_game = false;
 
-    // let (mut cam_pos, mut cam_rot) = (Vec3::default(), glm::quat(-1., 0., 0., 0.));
-    let mut editor_cam = editor_cam::EditorCam {
+    let mut editor_cam = editor::editor_cam::EditorCam {
         rot: glm::quat(-1., 0., 0., 0.),
         pos: Vec3::default(),
         speed: 30f32,
     };
     event_loop.run(move |event, _, control_flow| {
-        // let game_thread = game_thread.clone();
         *control_flow = ControlFlow::Poll;
         match event {
             Event::DeviceEvent { event, .. } => match event {
@@ -479,7 +453,7 @@ fn main() {
                         .inner_size()
                         .into();
 
-                    let mut swapchain = vk.swapchain.lock();
+                    let mut swapchain = vk.swapchain();
                     let (new_swapchain, new_images) =
                         match swapchain.recreate(SwapchainCreateInfo {
                             image_extent: dimensions,
@@ -490,7 +464,7 @@ fn main() {
                             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
                         };
 
-                    *swapchain = new_swapchain;
+                    vk.update_swapchain(new_swapchain);
 
                     framebuffers = window_size_dependent_setup(
                         &new_images,
@@ -502,7 +476,7 @@ fn main() {
                 }
 
                 let (image_num, suboptimal, acquire_future) =
-                    match acquire_next_image(vk.swapchain.lock().clone(), None) {
+                    match acquire_next_image(vk.swapchain(), None) {
                         Ok(r) => r,
                         Err(AcquireError::OutOfDate) => {
                             recreate_swapchain = true;
@@ -536,7 +510,7 @@ fn main() {
                 let mut _playing_game = false;
                 gui.immediate_ui(|gui| {
                     let ctx = gui.context();
-                    _playing_game = editor_ui::editor_ui(
+                    _playing_game = editor::editor_ui::editor_ui(
                         &world,
                         &mut fps_queue,
                         &ctx,
@@ -604,14 +578,14 @@ fn main() {
                 perf.update("write to buffer".into(), Instant::now() - inst);
 
                 // render_thread = thread::spawn( || {
-               
+
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &vk.comm_alloc,
                     vk.queue.queue_family_index(),
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
-            let inst = Instant::now();
+                let inst = Instant::now();
 
                 {
                     puffin::profile_scope!("transform update compute");
@@ -798,7 +772,7 @@ fn main() {
                             .then_swapchain_present(
                                 vk.queue.clone(),
                                 SwapchainPresentInfo::swapchain_image_index(
-                                    vk.swapchain.lock().clone(),
+                                    vk.swapchain(),
                                     image_num,
                                 ),
                             )
@@ -839,9 +813,7 @@ fn main() {
                         fc_map.clear();
                         fc_map.insert(-1, a); // replace
                     }
-                    // if _playing_game {
-                        recreate_swapchain = true;
-                    // }
+                    // recreate_swapchain = true;
                 }
                 playing_game = _playing_game;
 
