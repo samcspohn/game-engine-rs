@@ -140,7 +140,7 @@ impl TransformCompute {
     ) -> Option<u32> where [T]:BufferContents {
         let transform_ids_len_pos: u64 = ids
             .iter()
-            .map(|x| x.v.lock().len() as u64)
+            .map(|x| x.len() as u64)
             .sum();
 
         if transform_ids_len_pos > 0 {
@@ -177,15 +177,15 @@ impl TransformCompute {
                     let u_w = uninitialized.write();
                     if let Ok(mut mapping) = u_w {
                         for i in ids {
-                            let j = &i.v.lock();
-                            let j_iter = j.iter();
-                            let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                            // let j = &i.v;
+                            let j_iter = i.iter();
+                            let m_iter = mapping[offset..offset + i.len()].iter_mut();
                             j_iter.zip(m_iter).for_each(|(j, m)| {
                                 // for  in slice {
                                 ptr::write(m, *j);
                                 // }
                             });
-                            offset += j.len();
+                            offset += i.len();
                         }
                         break;
                     } else {
@@ -210,15 +210,15 @@ impl TransformCompute {
                     let u_w = uninitialized.write();
                     if let Ok(mut mapping) = u_w {
                         for i in data {
-                            let j = &i.v.lock();
-                            let j_iter = j.iter();
-                            let m_iter = mapping[offset..offset + j.len()].iter_mut();
+                            // let j = &i.v;
+                            let j_iter = i.iter();
+                            let m_iter = mapping[offset..offset + i.len()].iter_mut();
                             j_iter.zip(m_iter).for_each(|(j, m)| {
                                 // for  in slice {
                                 ptr::write(m, *j);
                                 // }
                             });
-                            offset += j.len();
+                            offset += i.len();
                         }
                         break;
                     } else {

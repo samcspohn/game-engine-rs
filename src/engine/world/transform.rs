@@ -188,9 +188,20 @@ fn mul_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
 
 pub struct CacheVec<T> {
     r: Arc<SegQueue<CacheVec<T>>>,
-    pub v: Arc<Mutex<Vec<T>>>,
+    pub v: Arc<SyncUnsafeCell<Vec<T>>>,
 }
-
+impl<T> CacheVec<T> {
+    pub fn len(&self) -> usize {
+        unsafe { &*self.v.get() }.len()
+    }
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        let a = unsafe { &*self.v.get() }.iter();
+        a
+    }
+    pub fn get(&self) -> &mut Vec<T> {
+        unsafe { &mut *self.v.get() }
+    }
+}
 struct VecCache<T> {
     count: AtomicUsize,
     avail: Arc<SegQueue<CacheVec<T>>>,
@@ -213,20 +224,19 @@ impl<'a, T> VecCache<T> {
         }
     }
     pub fn get_vec(&self, capacity: usize) -> CacheVec<T> {
-        if let Some(a) = self.avail.pop() {
-            let mut b = a.v.lock();
+        if let Some(mut a) = self.avail.pop() {
+            let b = unsafe { &mut *a.v.get() };
             let len = b.len();
             b.reserve(capacity.checked_sub(len).unwrap_or(len));
             b.clear();
-            drop(b);
             a
         } else {
             // let mut a = self.store.lock();
-            let c = Arc::new(Mutex::new(Vec::with_capacity(capacity)));
+            let c = Arc::new(SyncUnsafeCell::new(Vec::with_capacity(capacity)));
             self.count.fetch_add(1, Ordering::Relaxed);
             let b = CacheVec {
                 r: self.avail.clone(),
-                v: c.clone(),
+                v: c,
             };
             // a.push(c);
             b
@@ -747,13 +757,13 @@ impl Transforms {
                     let _scl = self_.scl_cache.get_vec(len);
 
                     {
-                        let mut p_ids = _pos_ids.v.lock();
-                        let mut r_ids = _rot_ids.v.lock();
-                        let mut s_ids = _scl_ids.v.lock();
+                        let mut p_ids = _pos_ids.get();
+                        let mut r_ids = _rot_ids.get();
+                        let mut s_ids = _scl_ids.get();
 
-                        let mut pos = _pos.v.lock();
-                        let mut rot = _rot.v.lock();
-                        let mut scl = _scl.v.lock();
+                        let mut pos = _pos.get();
+                        let mut rot = _rot.get();
+                        let mut scl = _scl.get();
 
                         let p = &_positions;
                         let r = &_rotations;
