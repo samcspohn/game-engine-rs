@@ -29,8 +29,10 @@ debug = true
 # [features]
 # serde-serialize = [ "nalgebra-glm/serde-serialize" ]
 
-[dependencies]
+[target.'cfg(windows)'.dependencies]
+mimalloc = { version = "*", default-features = false }
 
+[dependencies]
 component-derive = { path = "component-derive" }
 num_cpus = "*"
 num-integer = "*"

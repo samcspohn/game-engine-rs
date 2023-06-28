@@ -21,7 +21,7 @@ use vulkano::{
 };
 
 use crate::{
-    engine::{component::{_ComponentID, Component}, world::{transform::Transform, Sys}, RenderJobData},
+    engine::{component::{_ComponentID, Component}, world::{transform::{Transform, TransformData}, Sys}, RenderJobData},
     editor::inspectable::{Inpsect, Ins, Inspectable},
     model::ModelManager,
     particles::{ParticleCompute, ParticleRenderPipeline},
@@ -203,10 +203,7 @@ impl CameraData {
         transform_compute: &mut TransformCompute,
         particles: Arc<ParticleCompute>,
         transform_uniforms: &CpuBufferPool<Data>,
-        transform_data: Arc<(
-            usize,
-            Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
-        )>,
+        transform_data: &TransformData,
         compute_pipeline: Arc<ComputePipeline>,
         renderer_pipeline: Arc<ComputePipeline>,
         offset_vec: Vec<i32>,
@@ -229,7 +226,7 @@ impl CameraData {
             cvd.proj,
             transform_uniforms,
             compute_pipeline,
-            transform_data.0 as i32,
+            transform_data.extent as i32,
             vk.mem_alloc.clone(),
             &vk.comm_alloc,
             vk.desc_alloc.clone(),

@@ -1,5 +1,5 @@
 use core::panic;
-use crossbeam::atomic::AtomicConsume;
+use crossbeam::{atomic::AtomicConsume, queue::SegQueue};
 use deepmesa::lists::{
     linkedlist::{Iter, Node},
     LinkedList,
@@ -19,7 +19,7 @@ use std::{
     cmp::Reverse,
     collections::BinaryHeap,
     sync::{
-        atomic::{AtomicBool, AtomicI32, Ordering, AtomicUsize},
+        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -54,6 +54,10 @@ pub struct Transforms {
     count: AtomicI32,
     updates: Vec<SyncUnsafeCell<[bool; 3]>>,
     extent: AtomicI32,
+    ids_cache: VecCache<i32>,
+    pos_cache: VecCache<[f32; 3]>,
+    rot_cache: VecCache<[f32; 4]>,
+    scl_cache: VecCache<[f32; 3]>,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -182,6 +186,63 @@ fn mul_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
 //     v + ((uv * q.w) + uuv) * 2.
 // }
 
+pub struct CacheVec<T> {
+    r: Arc<SegQueue<CacheVec<T>>>,
+    pub v: Arc<Mutex<Vec<T>>>,
+}
+
+struct VecCache<T> {
+    count: AtomicUsize,
+    avail: Arc<SegQueue<CacheVec<T>>>,
+    // store: Arc<Mutex<Vec<Arc<Mutex<Vec<T>>>>>>,
+}
+impl<T> Drop for CacheVec<T> {
+    fn drop(&mut self) {
+        self.r.push(CacheVec {
+            r: self.r.clone(),
+            v: self.v.clone(),
+        });
+    }
+}
+impl<'a, T> VecCache<T> {
+    pub fn new() -> Self {
+        Self {
+            avail: Arc::new(SegQueue::new()),
+            count: AtomicUsize::new(0),
+            // store: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+    pub fn get_vec(&self, capacity: usize) -> CacheVec<T> {
+        if let Some(a) = self.avail.pop() {
+            let mut b = a.v.lock();
+            let len = b.len();
+            b.reserve(capacity.checked_sub(len).unwrap_or(len));
+            b.clear();
+            drop(b);
+            a
+        } else {
+            // let mut a = self.store.lock();
+            let c = Arc::new(Mutex::new(Vec::with_capacity(capacity)));
+            self.count.fetch_add(1, Ordering::Relaxed);
+            let b = CacheVec {
+                r: self.avail.clone(),
+                v: c.clone(),
+            };
+            // a.push(c);
+            b
+        }
+    }
+}
+
+pub struct TransformData {
+    pub pos_id: Vec<CacheVec<i32>>,
+    pub rot_id: Vec<CacheVec<i32>>,
+    pub scl_id: Vec<CacheVec<i32>>,
+    pub pos_data: Vec<CacheVec<[f32; 3]>>,
+    pub rot_data: Vec<CacheVec<[f32; 4]>>,
+    pub scl_data: Vec<CacheVec<[f32; 3]>>,
+    pub extent: usize,
+}
 
 #[allow(dead_code)]
 impl Transforms {
@@ -221,6 +282,10 @@ impl Transforms {
             avail: AtomicI32::new(0),
             count: AtomicI32::new(0),
             extent: AtomicI32::new(0),
+            ids_cache: VecCache::new(),
+            pos_cache: VecCache::new(),
+            rot_cache: VecCache::new(),
+            scl_cache: VecCache::new(),
         }
     }
 
@@ -272,7 +337,6 @@ impl Transforms {
         }
     }
     pub(crate) fn reduce_last(&mut self, id: i32) {
-
         // let i = self.last.fetch_add(-1, Ordering::Relaxed);
         let mut id = id;
         if id == self.last.load(Ordering::Relaxed) {
@@ -638,29 +702,31 @@ impl Transforms {
         unsafe { (*self.meta[t as usize].get()).parent }
     }
 
-    pub fn get_transform_data_updates(
-        &mut self,
-    ) -> Arc<(
-        usize,
-        Vec<Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>>,
-    )> {
-
+    pub fn get_transform_data_updates(&mut self) -> TransformData {
         let last = self.last.load(Ordering::Relaxed) as usize + 1;
         let _positions = &self.positions[0..last];
         let _rotations = &self.rotations[0..last];
         let _scales = &self.scales[0..last];
         let _updates = &self.updates[0..last];
         let len = _updates.len();
-        let transform_data = Arc::new(Mutex::new(Vec::<
-            Arc<(Vec<Vec<i32>>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 3]>)>,
-        >::new()));
+        let transform_data = Arc::new(Mutex::new(TransformData {
+            pos_id: Vec::new(),
+            rot_id: Vec::new(),
+            scl_id: Vec::new(),
+            pos_data: Vec::new(),
+            rot_data: Vec::new(),
+            scl_data: Vec::new(),
+            extent: self.extent.load(Ordering::Relaxed) as usize,
+        }));
+        // let transform_data = Arc::new(Mutex::new(
+        //    (Vec::<VecCache::<i32>::new()>),
+        // ));
         let self_ = Arc::new(&self);
-
-
+        // println!("vec cache size: {}", self.pos_cache.count.load(Ordering::Relaxed));
 
         rayon::scope(|s| {
-            let num_jobs = (len / 4096).max(1); // TODO: find best number dependent on cpu
-            // let num_jobs = num_cpus::get().min(last / 1024).max(1); // TODO: find best number dependent on cpu
+            // let num_jobs = (len / 4096).max(1); // TODO: find best number dependent on cpu
+            let num_jobs = num_cpus::get().min(last / 2048).max(1); // TODO: find best number dependent on cpu
             for id in 0..num_jobs {
                 let start = len / num_jobs * id;
                 let mut end = start + len / num_jobs;
@@ -672,50 +738,69 @@ impl Transforms {
                 let self_ = self_.clone();
                 s.spawn(move |_| {
                     let len = end - start;
-                    let mut transform_ids = vec![
-                        Vec::<i32>::with_capacity(len),
-                        Vec::<i32>::with_capacity(len),
-                        Vec::<i32>::with_capacity(len),
-                    ];
-                    let mut pos = Vec::<[f32; 3]>::with_capacity(len);
-                    let mut rot = Vec::<[f32; 4]>::with_capacity(len);
-                    let mut scl = Vec::<[f32; 3]>::with_capacity(len);
+                    let _pos_ids = self_.ids_cache.get_vec(len);
+                    let _rot_ids = self_.ids_cache.get_vec(len);
+                    let _scl_ids = self_.ids_cache.get_vec(len);
 
-                    let p = &_positions;
-                    let r = &_rotations;
-                    let s = &_scales;
+                    let _pos = self_.pos_cache.get_vec(len);
+                    let _rot = self_.rot_cache.get_vec(len);
+                    let _scl = self_.scl_cache.get_vec(len);
 
-                    for i in start..end {
-                        unsafe {
-                            if !*self_.valid[i].get() {
-                                continue;
-                            }
-                            let u = &mut *_updates[i].get();
-                            if u[POS_U] {
-                                transform_ids[POS_U].push(i as i32);
-                                let p = &*p[i].get();
-                                pos.push([p.x, p.y, p.z]);
-                                u[POS_U] = false;
-                            }
-                            if u[ROT_U] {
-                                transform_ids[ROT_U].push(i as i32);
-                                let r = &*r[i].get();
-                                rot.push([r.w, r.k, r.j, r.i]);
-                                u[ROT_U] = false;
-                            }
-                            if u[SCL_U] {
-                                transform_ids[SCL_U].push(i as i32);
-                                let s = &*s[i].get();
-                                scl.push([s.x, s.y, s.z]);
-                                u[SCL_U] = false;
+                    {
+                        let mut p_ids = _pos_ids.v.lock();
+                        let mut r_ids = _rot_ids.v.lock();
+                        let mut s_ids = _scl_ids.v.lock();
+
+                        let mut pos = _pos.v.lock();
+                        let mut rot = _rot.v.lock();
+                        let mut scl = _scl.v.lock();
+
+                        let p = &_positions;
+                        let r = &_rotations;
+                        let s = &_scales;
+
+                        for i in start..end {
+                            unsafe {
+                                if !*self_.valid[i].get() {
+                                    continue;
+                                }
+                                let u = &mut *_updates[i].get();
+                                if u[POS_U] {
+                                    p_ids.push(i as i32);
+                                    let p = &*p[i].get();
+                                    pos.push([p.x, p.y, p.z]);
+                                    u[POS_U] = false;
+                                }
+                                if u[ROT_U] {
+                                    r_ids.push(i as i32);
+                                    let r = &*r[i].get();
+                                    rot.push([r.w, r.k, r.j, r.i]);
+                                    u[ROT_U] = false;
+                                }
+                                if u[SCL_U] {
+                                    s_ids.push(i as i32);
+                                    let s = &*s[i].get();
+                                    scl.push([s.x, s.y, s.z]);
+                                    u[SCL_U] = false;
+                                }
                             }
                         }
                     }
-                    let ret = Arc::new((transform_ids, pos, rot, scl));
-                    transform_data.lock().push(ret);
+
+                    // let ret = Arc::new((transform_ids, pos, rot, scl));
+                    // transform_data.lock().push(ret);
+
+                    let mut td = transform_data.lock();
+                    td.pos_data.push(_pos);
+                    td.pos_id.push(_pos_ids);
+                    td.rot_data.push(_rot);
+                    td.rot_id.push(_rot_ids);
+                    td.scl_data.push(_scl);
+                    td.scl_id.push(_scl_ids);
                 });
             }
         });
+        Arc::into_inner(transform_data).unwrap().into_inner()
         /////////////////////////////////////////////////////////////////////////////////////////////////
         // self.updates
         //     .par_iter_mut()
@@ -821,10 +906,11 @@ impl Transforms {
         //         transform_data.lock().push(ret);
         //     }
         // });
-        Arc::new((
-            self.extent.load(Ordering::Relaxed) as usize,
-            Arc::try_unwrap(transform_data).unwrap().into_inner(),
-        ))
+
+        //     Arc::new((
+        //         self.extent.load(Ordering::Relaxed) as usize,
+        //         Arc::try_unwrap(transform_data).unwrap().into_inner(),
+        //     ))
     }
 }
 
@@ -884,4 +970,3 @@ impl Transforms {
 // } else {
 //     (0..num_cpus::get()).into_par_iter().for_each(|i| f(i));
 // }
-

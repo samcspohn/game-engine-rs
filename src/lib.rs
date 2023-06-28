@@ -44,3 +44,11 @@ pub mod prelude {
 
     use crate::{engine, editor::inspectable, particles, renderer_component};
 }
+
+#[cfg(target_os = "windows")]
+pub mod win_alloc {
+    pub use mimalloc::MiMalloc;
+    
+    #[global_allocator]
+    static GLOBAL: MiMalloc = MiMalloc;
+}

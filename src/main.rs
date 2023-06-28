@@ -1,3 +1,6 @@
+#![allow(warnings)]
+
+
 use camera::{Camera, CameraData};
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
@@ -80,6 +83,7 @@ mod texture;
 mod time;
 mod transform_compute;
 mod vulkan_manager;
+mod terrain;
 
 use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
 
@@ -93,18 +97,19 @@ use crate::engine::project::{load_project, save_project};
 use crate::renderer_component::{buffer_usage_all, Renderer};
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
+use crate::terrain::Terrain;
 
+
+#[cfg(target_os = "windows")]
+mod win_alloc {
+    use mimalloc::MiMalloc;
+    
+    #[global_allocator]
+    static GLOBAL: MiMalloc = MiMalloc;
+}
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
 
-    if let Ok(mut watcher) = notify::recommended_watcher(|res| match res {
-        Ok(event) => println!("event: {:?}", event),
-        Err(e) => println!("watch error: {:?}", e),
-    }) {
-        // Add a path to be watched. All files and directories at that path and
-        // below will be monitored for changes.
-        if let Ok(_) = watcher.watch(Path::new("./test_project"), RecursiveMode::Recursive) {}
-    }
     let event_loop = EventLoop::new();
     let vk = VulkanManager::new(&event_loop);
     let render_pass = vulkano::single_pass_renderpass!(
@@ -272,6 +277,8 @@ fn main() {
         world.register::<Renderer>(false, false, false);
         world.register::<ParticleEmitter>(false, false, false);
         world.register::<Camera>(false, false, false);
+        world.register::<Terrain>(true, false, true);
+
     };
 
     let rm = {
@@ -550,24 +557,21 @@ fn main() {
                 let (position_update_data, rotation_update_data, scale_update_data) = {
                     puffin::profile_scope!("buffer transform data");
                     let position_update_data = transform_compute.get_position_update_data(
-                        vk.device.clone(),
-                        transform_data.clone(),
-                        vk.mem_alloc.clone(),
+                        &transform_data,
                         image_num,
+                        vk.mem_alloc.clone(),
                     );
 
                     let rotation_update_data = transform_compute.get_rotation_update_data(
-                        vk.device.clone(),
-                        transform_data.clone(),
-                        vk.mem_alloc.clone(),
+                        &transform_data,
                         image_num,
+                        vk.mem_alloc.clone(),
                     );
 
                     let scale_update_data = transform_compute.get_scale_update_data(
-                        vk.device.clone(),
-                        transform_data.clone(),
-                        vk.mem_alloc.clone(),
+                        &transform_data,
                         image_num,
+                        vk.mem_alloc.clone(),
                     );
                     (
                         position_update_data,
@@ -594,7 +598,7 @@ fn main() {
                     transform_compute.update(
                         vk.device.clone(),
                         &mut builder,
-                        transform_data.0,
+                        transform_data.extent,
                         vk.mem_alloc.clone(),
                         &vk.comm_alloc,
                     );
@@ -678,7 +682,7 @@ fn main() {
                         &mut transform_compute,
                         particles_system.clone(),
                         &transform_uniforms,
-                        transform_data,
+                        &transform_data,
                         compute_pipeline.clone(),
                         rm.pipeline.clone(),
                         offset_vec,
@@ -697,7 +701,7 @@ fn main() {
                             &mut transform_compute,
                             particles_system.clone(),
                             &transform_uniforms,
-                            transform_data.clone(),
+                            &transform_data,
                             compute_pipeline.clone(),
                             rm.pipeline.clone(),
                             offset_vec.clone(),

@@ -195,7 +195,7 @@ impl VulkanManager {
                 device.clone(),
                 surface.clone(),
                 SwapchainCreateInfo {
-                    min_image_count: surface_capabilities.min_image_count,
+                    min_image_count: surface_capabilities.max_image_count.unwrap_or(3).min(3).max(surface_capabilities.min_image_count),
                     image_format,
                     image_extent: window.inner_size().into(),
                     image_usage: ImageUsage {
@@ -207,7 +207,7 @@ impl VulkanManager {
                         .iter()
                         .next()
                         .unwrap(),
-                    present_mode: vulkano::swapchain::PresentMode::Fifo,
+                    present_mode: vulkano::swapchain::PresentMode::Immediate,
                     ..Default::default()
                 },
             )

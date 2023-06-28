@@ -26,7 +26,7 @@ use crate::{
     editor::inspectable::{Inpsect, Ins, Inspectable},
     particles::{cs::ty::emitter_init, ParticleEmitter},
     perf::Perf,
-    renderer_component::RendererData, engine::world::World,
+    renderer_component::RendererData, engine::world::{World, transform::TransformData},
 };
 
 // // #[component]
@@ -261,17 +261,7 @@ type GameComm = (
 // transform_data, cam_datas, main_cam_id, renderer_data, emitter_inits
 #[repr(C)]
 pub struct RenderingData {
-    pub transform_data: Arc<(
-        usize,
-        std::vec::Vec<
-            Arc<(
-                std::vec::Vec<std::vec::Vec<i32>>,
-                std::vec::Vec<[f32; 3]>,
-                std::vec::Vec<[f32; 4]>,
-                std::vec::Vec<[f32; 3]>,
-            )>,
-        >,
-    )>,
+    pub transform_data: TransformData,
     pub cam_datas: std::vec::Vec<Arc<Mutex<CameraData>>>,
     pub main_cam_id: i32,
     pub renderer_data: RendererData,
@@ -345,7 +335,7 @@ pub fn game_loop(
     let inst = Instant::now();
 
     RenderingData {
-        transform_data: transform_data.clone(),
+        transform_data,
         cam_datas,
         main_cam_id,
         renderer_data,
@@ -427,7 +417,7 @@ pub fn game_thread_fn(
         let (main_cam_id, cam_datas) = world.get_cam_datas();
         drop(world);
         let data = RenderingData {
-            transform_data: transform_data.clone(),
+            transform_data,
             cam_datas,
             main_cam_id,
             renderer_data,
