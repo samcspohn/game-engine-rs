@@ -191,7 +191,7 @@ impl VulkanManager {
             let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
             // Please take a look at the docs for the meaning of the parameters we didn't mention.
-            Swapchain::new(
+            match Swapchain::new(
                 device.clone(),
                 surface.clone(),
                 SwapchainCreateInfo {
@@ -207,11 +207,34 @@ impl VulkanManager {
                         .iter()
                         .next()
                         .unwrap(),
-                    present_mode: vulkano::swapchain::PresentMode::Immediate,
+                    present_mode: vulkano::swapchain::PresentMode::Mailbox,
                     ..Default::default()
                 },
-            )
-            .unwrap()
+            ) {
+                Ok(sc) => sc,
+                Err(_) => {
+                    Swapchain::new(
+                        device.clone(),
+                        surface.clone(),
+                        SwapchainCreateInfo {
+                            min_image_count: surface_capabilities.max_image_count.unwrap_or(3).min(3).max(surface_capabilities.min_image_count),
+                            image_format,
+                            image_extent: window.inner_size().into(),
+                            image_usage: ImageUsage {
+                                color_attachment: true,
+                                ..ImageUsage::empty()
+                            },
+                            composite_alpha: surface_capabilities
+                                .supported_composite_alpha
+                                .iter()
+                                .next()
+                                .unwrap(),
+                            present_mode: vulkano::swapchain::PresentMode::Immediate,
+                            ..Default::default()
+                        },
+                    ).unwrap()
+                },
+            }
         };
         // self.swapchain = swapchain.clone();
         // let query_pool = QueryPool::new(
