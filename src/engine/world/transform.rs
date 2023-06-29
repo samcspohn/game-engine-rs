@@ -227,8 +227,8 @@ impl<'a, T> VecCache<T> {
         if let Some(mut a) = self.avail.pop() {
             let b = unsafe { &mut *a.v.get() };
             let len = b.len();
-            b.reserve(capacity.checked_sub(len).unwrap_or(0));
             b.clear();
+            b.reserve(capacity);
             a
         } else {
             // let mut a = self.store.lock();
