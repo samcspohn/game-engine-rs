@@ -7,6 +7,7 @@ game-engine:
   ✔ fix camera image texture "no longer exists" @done(23-06-07 10:35)
   ☐ implement lazy load of assets
   ☐ change hashmaps (components, etc.) to faster hash
+  ☐ improve write to buffer (bottle neck)
   particles:
     ☐ different rng type for particle emission
     ☐ color over life @started(23-04-24 17:13)
