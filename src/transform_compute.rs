@@ -1,7 +1,8 @@
 use std::{cell::UnsafeCell, ptr, sync::Arc};
 
 use crate::{
-    renderer_component::buffer_usage_all, engine::world::transform::{POS_U, ROT_U, SCL_U, CacheVec, TransformData},
+    engine::world::transform::{CacheVec, TransformData, POS_U, ROT_U, SCL_U},
+    renderer_component::buffer_usage_all,
 };
 
 use nalgebra_glm as glm;
@@ -10,7 +11,8 @@ use rayon::prelude::*;
 use sync_unsafe_cell::SyncUnsafeCell;
 use vulkano::{
     buffer::{
-        BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer, TypedBufferAccess, BufferContents,
+        BufferContents, BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer,
+        TypedBufferAccess,
     },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CopyBufferInfo,
@@ -129,26 +131,25 @@ impl TransformCompute {
                 .unwrap();
         }
     }
-///////////////////////////////////////////////////////////////////////////////////////////////
-    pub fn get_update_data<T: Copy>(
-        ids: &Vec<CacheVec<i32>>, 
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    pub fn get_update_data<T>(
+        ids: &Vec<CacheVec<i32>>,
         data: &Vec<CacheVec<T>>,
         ids_buf: &mut Vec<Arc<CpuAccessibleBuffer<[i32]>>>,
         data_buf: &mut Vec<Arc<CpuAccessibleBuffer<[T]>>>,
         mem: Arc<StandardMemoryAllocator>,
         image_num: u32,
-    ) -> Option<u32> where [T]:BufferContents {
-        let transform_ids_len_pos: u64 = ids
-            .iter()
-            .map(|x| x.len() as u64)
-            .sum();
+    ) -> Option<u32>
+    where
+        T: Copy + Send + Sync,
+        [T]: BufferContents + Send + Sync,
+    {
+        let transform_ids_len_pos: u64 = ids.iter().map(|x| x.len() as u64).sum();
 
         if transform_ids_len_pos > 0 {
             puffin::profile_scope!("transform_ids_buffer");
-            if ids_buf[image_num as usize].len()
-                < transform_ids_len_pos.next_power_of_two()
-                || data_buf[image_num as usize].len()
-                    < transform_ids_len_pos.next_power_of_two()
+            if ids_buf[image_num as usize].len() < transform_ids_len_pos.next_power_of_two()
+                || data_buf[image_num as usize].len() < transform_ids_len_pos.next_power_of_two()
             {
                 // let num_images = ids_buff.len();
                 ids_buf[image_num as usize] = unsafe {
@@ -170,83 +171,149 @@ impl TransformCompute {
                     .unwrap()
                 };
             }
-            unsafe {
-                loop {
-                    let uninitialized = ids_buf[image_num as usize].clone();
-                    let mut offset = 0;
-                    let u_w = uninitialized.write();
-                    if let Ok(mut mapping) = u_w {
-                        for i in ids {
-                            // let j = &i.v;
-                            let j_iter = i.iter();
-                            let m_iter = mapping[offset..offset + i.len()].iter_mut();
-                            j_iter.zip(m_iter).for_each(|(j, m)| {
-                                // for  in slice {
-                                ptr::write(m, *j);
-                                // }
-                            });
-                            offset += i.len();
-                        }
-                        break;
-                    } else {
-                        ids_buf[image_num as usize] =
-                            CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                                &mem,
-                                (transform_ids_len_pos + 1).next_power_of_two() as DeviceSize,
-                                buffer_usage_all(),
-                                false,
-                            )
-                            .unwrap();
-                    }
-                }
-            }
-            // };
-            // let position_updates_buffer = unsafe {
-            puffin::profile_scope!("position_updates_buffer");
-            unsafe {
-                loop {
-                    let uninitialized = data_buf[image_num as usize].clone();
-                    let mut offset = 0;
-                    let u_w = uninitialized.write();
-                    if let Ok(mut mapping) = u_w {
-                        for i in data {
-                            // let j = &i.v;
-                            let j_iter = i.iter();
-                            let m_iter = mapping[offset..offset + i.len()].iter_mut();
-                            j_iter.zip(m_iter).for_each(|(j, m)| {
-                                // for  in slice {
-                                ptr::write(m, *j);
-                                // }
-                            });
-                            offset += i.len();
-                        }
-                        break;
-                    } else {
-                        data_buf[image_num as usize] =
-                            CpuAccessibleBuffer::<[T]>::uninitialized_array(
-                                &mem,
-                                transform_ids_len_pos.next_power_of_two() as DeviceSize,
-                                buffer_usage_all(),
-                                false,
-                            )
-                            .unwrap();
-                    }
-                }
-            }
+            // rayon::ThreadPoolBuilder::new()
+            //     .num_threads(16)
+            //     .build_scoped(
+            //         |thread| thread.run(),
+            //         |pool| {
+            //             pool.install(|| {
+                            unsafe {
+                                loop {
+                                    let uninitialized = ids_buf[image_num as usize].clone();
+                                    let mut offset = 0;
+                                    let u_w = uninitialized.write();
+                                    if let Ok(mut mapping) = u_w {
+                                        let mapping = Arc::new(SyncUnsafeCell::new(&mut mapping));
+                                        rayon::scope(move |s| {
+                                            for i in ids {
+                                                let _offset = offset;
+                                                let _mapping = mapping.clone();
+                                                s.spawn(move |s| {
+                                                    // let j = &i.v;
+                                                    let j_iter = i.iter();
+                                                    let m_iter = (&mut *_mapping.get())
+                                                        [_offset.._offset + i.len()]
+                                                        .iter_mut();
+                                                    j_iter.zip(m_iter).for_each(|(j, m)| {
+                                                        // for  in slice {
+                                                        ptr::write(m, *j);
+                                                        // }
+                                                    });
+                                                });
+                                                offset += i.len();
+                                            }
+                                        });
+                                        break;
+                                    } else {
+                                        ids_buf[image_num as usize] =
+                                            CpuAccessibleBuffer::<[i32]>::uninitialized_array(
+                                                &mem,
+                                                (transform_ids_len_pos + 1).next_power_of_two()
+                                                    as DeviceSize,
+                                                buffer_usage_all(),
+                                                false,
+                                            )
+                                            .unwrap();
+                                    }
+                                }
+                            }
+                            // };
+                            // let position_updates_buffer = unsafe {
+                            puffin::profile_scope!("position_updates_buffer");
+                            unsafe {
+                                loop {
+                                    let uninitialized = data_buf[image_num as usize].clone();
+                                    let mut offset = 0;
+                                    let u_w = uninitialized.write();
+                                    if let Ok(mut mapping) = u_w {
+                                        let mapping = Arc::new(SyncUnsafeCell::new(&mut mapping));
+                                        rayon::scope(move |s| {
+                                            for i in data {
+                                                let _offset = offset;
+                                                let _mapping = mapping.clone();
+                                                s.spawn(move |s| {
+                                                    // let j = &i.v;
+                                                    let j_iter = i.iter();
+                                                    let m_iter = (&mut *_mapping.get())
+                                                        [_offset.._offset + i.len()]
+                                                        .iter_mut();
+                                                    j_iter.zip(m_iter).for_each(|(j, m)| {
+                                                        // for  in slice {
+                                                        ptr::write(m, *j);
+                                                        // }
+                                                    });
+                                                });
+                                                offset += i.len();
+                                            }
+                                        });
+                                        break;
+                                    } else {
+                                        data_buf[image_num as usize] =
+                                            CpuAccessibleBuffer::<[T]>::uninitialized_array(
+                                                &mem,
+                                                transform_ids_len_pos.next_power_of_two()
+                                                    as DeviceSize,
+                                                buffer_usage_all(),
+                                                false,
+                                            )
+                                            .unwrap();
+                                    }
+                                }
+                            }
+                //         });
+                //     },
+                // );
             Some(transform_ids_len_pos.try_into().unwrap())
         } else {
             None
         }
     }
 
-    pub fn get_position_update_data(&mut self, transform_data: &TransformData, image_num: u32, mem: Arc<StandardMemoryAllocator>) -> Option<u32> {
-        Self::get_update_data(&transform_data.pos_id, &transform_data.pos_data, &mut self.position_id_cache, &mut self.position_cache, mem, image_num)
+
+    pub fn get_position_update_data(
+        &mut self,
+        transform_data: &TransformData,
+        image_num: u32,
+        mem: Arc<StandardMemoryAllocator>,
+    ) -> Option<u32> {
+        Self::get_update_data(
+            &transform_data.pos_id,
+            &transform_data.pos_data,
+            &mut self.position_id_cache,
+            &mut self.position_cache,
+            mem,
+            image_num,
+        )
     }
-    pub fn get_rotation_update_data(&mut self, transform_data: &TransformData, image_num: u32, mem: Arc<StandardMemoryAllocator>) -> Option<u32> {
-        Self::get_update_data(&transform_data.rot_id, &transform_data.rot_data, &mut self.rotation_id_cache, &mut self.rotation_cache, mem, image_num)
+    pub fn get_rotation_update_data(
+        &mut self,
+        transform_data: &TransformData,
+        image_num: u32,
+        mem: Arc<StandardMemoryAllocator>,
+    ) -> Option<u32> {
+        Self::get_update_data(
+            &transform_data.rot_id,
+            &transform_data.rot_data,
+            &mut self.rotation_id_cache,
+            &mut self.rotation_cache,
+            mem,
+            image_num,
+        )
     }
-    pub fn get_scale_update_data(&mut self, transform_data: &TransformData, image_num: u32, mem: Arc<StandardMemoryAllocator>) -> Option<u32> {
-        Self::get_update_data(&transform_data.scl_id, &transform_data.scl_data, &mut self.scale_id_cache, &mut self.scale_cache, mem, image_num)
+    pub fn get_scale_update_data(
+        &mut self,
+        transform_data: &TransformData,
+        image_num: u32,
+        mem: Arc<StandardMemoryAllocator>,
+    ) -> Option<u32> {
+        Self::get_update_data(
+            &transform_data.scl_id,
+            &transform_data.scl_data,
+            &mut self.scale_id_cache,
+            &mut self.scale_cache,
+            mem,
+            image_num,
+        )
     }
 
     pub fn update_positions(
