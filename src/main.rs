@@ -109,6 +109,12 @@ mod win_alloc {
 }
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
+    if thread_priority::set_current_thread_priority(thread_priority::ThreadPriority::Max).is_ok() {
+        println!("Set main thread priority");
+    }
+    println!("main thread id: {:?}", thread::current().id());
+    println!("main thread priority: {:?}", thread_priority::get_current_thread_priority().ok().unwrap());
+
 
     let event_loop = EventLoop::new();
     let vk = VulkanManager::new(&event_loop);
@@ -331,6 +337,7 @@ fn main() {
                 match event {
                     WindowEvent::Focused(foc) => {
                         focused = foc;
+                        println!("main event_loop id: {:?}", thread::current().id());
                     }
                     WindowEvent::CloseRequested => {
                         *control_flow = ControlFlow::Exit;

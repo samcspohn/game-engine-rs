@@ -33,6 +33,7 @@ debug = true
 mimalloc = { version = "*", default-features = false }
 
 [dependencies]
+thread-priority = "*"
 component-derive = { path = "component-derive" }
 num_cpus = "*"
 num-integer = "*"

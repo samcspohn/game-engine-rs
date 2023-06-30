@@ -55,6 +55,8 @@ pub fn game_thread_fn(
     };
     let mut phys_time = 0f32;
     let phys_step = 1. / 30.;
+    println!("game thread id: {:?}", std::thread::current().id());
+    println!("game thread priority: {:?}", thread_priority::get_current_thread_priority().ok().unwrap());
     while running.load(Ordering::SeqCst) {
         let (input, playing_game) = coms.1.recv().unwrap();
         let mut world = world.lock();
