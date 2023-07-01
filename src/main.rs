@@ -83,7 +83,7 @@ mod texture;
 mod time;
 mod transform_compute;
 mod vulkan_manager;
-mod terrain;
+// mod terrain;
 
 use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
 
@@ -97,7 +97,7 @@ use crate::engine::project::{load_project, save_project};
 use crate::renderer_component::{buffer_usage_all, Renderer};
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
-use crate::terrain::Terrain;
+// use crate::terrain::Terrain;
 
 
 #[cfg(target_os = "windows")]
@@ -283,7 +283,7 @@ fn main() {
         world.register::<Renderer>(false, false, false);
         world.register::<ParticleEmitter>(false, false, false);
         world.register::<Camera>(false, false, false);
-        world.register::<Terrain>(true, false, true);
+        // world.register::<Terrain>(true, false, true);
 
     };
 

@@ -8,6 +8,7 @@ game-engine:
   ☐ implement lazy load of assets
   ☐ change hashmaps (components, etc.) to faster hash
   ☐ improve write to buffer (bottle neck)
+  ☐ command buffer builder can not be allowed in dylib / buffers locked during rendering when in dylib?
   particles:
     ☐ different rng type for particle emission
     ☐ color over life @started(23-04-24 17:13)
