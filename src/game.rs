@@ -1,3 +1,5 @@
+use crossbeam::queue::SegQueue;
+use force_send_sync::SendSync;
 use glm::{vec3, Vec3};
 use nalgebra_glm as glm;
 use num_integer::Roots;
@@ -6,6 +8,7 @@ use puffin_egui::puffin;
 use rapier3d::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, CommandBufferInheritanceInfo};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -22,11 +25,12 @@ use winit::{event::VirtualKeyCode, window::Window};
 use crate::{
     camera::{Camera, CameraData},
     editor::editor_ui::PLAYING_GAME,
-    engine::input::Input,
     editor::inspectable::{Inpsect, Ins, Inspectable},
+    engine::input::Input,
+    engine::{world::{transform::TransformData, World}, component::{SecondaryCommandBuffer, GPUWork}},
     particles::{cs::ty::emitter_init, ParticleEmitter},
     perf::Perf,
-    renderer_component::RendererData, engine::world::{World, transform::TransformData},
+    renderer_component::RendererData,
 };
 
 type GameComm = (
@@ -42,13 +46,10 @@ pub struct RenderingData {
     pub main_cam_id: i32,
     pub renderer_data: RendererData,
     pub emitter_inits: (usize, std::vec::Vec<emitter_init>),
+    pub gpu_work: GPUWork,
 }
 
-pub fn game_thread_fn(
-    world: Arc<Mutex<World>>,
-    coms: GameComm,
-    running: Arc<AtomicBool>,
-) {
+pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBool>) {
     let gravity = vector![0.0, -9.81, 0.0];
     let mut perf = Perf {
         data: BTreeMap::new(),
@@ -56,10 +57,14 @@ pub fn game_thread_fn(
     let mut phys_time = 0f32;
     let phys_step = 1. / 30.;
     println!("game thread id: {:?}", std::thread::current().id());
-    println!("game thread priority: {:?}", thread_priority::get_current_thread_priority().ok().unwrap());
+    println!(
+        "game thread priority: {:?}",
+        thread_priority::get_current_thread_priority().ok().unwrap()
+    );
     while running.load(Ordering::SeqCst) {
         let (input, playing_game) = coms.1.recv().unwrap();
         let mut world = world.lock();
+        let gpu_work = SegQueue::new();
         if playing_game {
             puffin::profile_scope!("game loop");
             let inst = Instant::now();
@@ -85,7 +90,7 @@ pub fn game_thread_fn(
                     phys_time -= phys_step;
                 }
                 phys_time += input.time.dt;
-                world._update(&input);
+                world._update(&input, &gpu_work);
             }
             {
                 puffin::profile_scope!("defered");
@@ -96,7 +101,7 @@ pub fn game_thread_fn(
 
             perf.update("world sim".into(), Instant::now() - inst);
         } else {
-            world.editor_update(&input);
+            world.editor_update(&input, &gpu_work);
         }
         let inst = Instant::now();
         let transform_data = world.transforms.get_transform_data_updates();
@@ -115,6 +120,7 @@ pub fn game_thread_fn(
             main_cam_id,
             renderer_data,
             emitter_inits: (emitter_len, v),
+            gpu_work,
         };
         let res = coms.0.send(data);
         if res.is_err() {

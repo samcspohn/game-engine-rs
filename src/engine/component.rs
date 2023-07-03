@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
+use crossbeam::queue::SegQueue;
+use force_send_sync::SendSync;
 use parking_lot::{Mutex, RwLock};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, SecondaryAutoCommandBuffer, allocator::StandardCommandBufferAllocator, PrimaryAutoCommandBuffer};
 
 use crate::{
     model::ModelRenderer, physics, renderer_component::RendererManager,
@@ -14,6 +17,9 @@ use super::{
     Defer, RenderJobData,
 };
 
+pub type SecondaryCommandBuffer = AutoCommandBufferBuilder<SecondaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
+pub type PrimaryCommandBuffer = AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
+pub type GPUWork = SegQueue<SendSync<Box<dyn FnOnce(&mut PrimaryCommandBuffer)>>>;
 pub struct System<'a> {
     pub physics: &'a physics::Physics,
     pub defer: &'a Defer,
@@ -21,12 +27,16 @@ pub struct System<'a> {
     pub rendering: &'a RwLock<RendererManager>,
     pub assets: &'a AssetsManager,
     pub vk: Arc<VulkanManager>,
+    pub gpu_work: &'a GPUWork,
 }
 impl<'a> System<'a> {
     pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
         let b = &self.assets;
         let a = b.get_manager::<ModelRenderer>().clone();
         a
+    }
+    pub fn enque_gpu_work<T: 'static>(&self, gpu_job: T) where T: FnOnce(&mut PrimaryCommandBuffer) {
+        self.gpu_work.push(unsafe{ SendSync::new(Box::new(gpu_job)) });
     }
 }
 

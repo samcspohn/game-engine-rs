@@ -1,13 +1,12 @@
 #![allow(warnings)]
 
-
 use camera::{Camera, CameraData};
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::TextureId;
 use engine::input::Input;
-use engine::project::{Project, file_watcher};
-use engine::project::asset_manager::{AssetsManager, AssetManagerBase};
+use engine::project::asset_manager::{AssetManagerBase, AssetsManager};
+use engine::project::{file_watcher, Project};
 use engine::world::World;
 use game::RenderingData;
 
@@ -65,18 +64,18 @@ use std::sync::mpsc::{Receiver, Sender};
 use notify::{RecursiveMode, Watcher};
 
 // use game_engine;
-mod editor;
-mod engine;
-mod model;
-mod perf;
-mod renderer;
 mod camera;
 mod color_gradient;
+mod editor;
+mod engine;
 mod game;
+mod model;
 mod particle_sort;
 mod particles;
+mod perf;
 mod physics;
 mod render_pipeline;
+mod renderer;
 mod renderer_component;
 mod runtime_compilation;
 mod texture;
@@ -99,11 +98,10 @@ use crate::texture::TextureManager;
 use crate::transform_compute::cs;
 // use crate::terrain::Terrain;
 
-
 #[cfg(target_os = "windows")]
 mod win_alloc {
     use mimalloc::MiMalloc;
-    
+
     #[global_allocator]
     static GLOBAL: MiMalloc = MiMalloc;
 }
@@ -113,8 +111,10 @@ fn main() {
         println!("Set main thread priority");
     }
     println!("main thread id: {:?}", thread::current().id());
-    println!("main thread priority: {:?}", thread_priority::get_current_thread_priority().ok().unwrap());
-
+    println!(
+        "main thread priority: {:?}",
+        thread_priority::get_current_thread_priority().ok().unwrap()
+    );
 
     let event_loop = EventLoop::new();
     let vk = VulkanManager::new(&event_loop);
@@ -284,7 +284,6 @@ fn main() {
         world.register::<ParticleEmitter>(false, false, false);
         world.register::<Camera>(false, false, false);
         // world.register::<Terrain>(true, false, true);
-
     };
 
     let rm = {
@@ -416,25 +415,20 @@ fn main() {
                 ////////////////////////////////////
 
                 let full = Instant::now();
-                let (transform_data, cam_datas, main_cam_id, mut rd, emitter_inits) = {
+                let RenderingData {
+                    transform_data,
+                    cam_datas,
+                    main_cam_id,
+                    renderer_data: mut rd,
+                    emitter_inits,
+                    gpu_work,
+                } = {
                     puffin::profile_scope!("wait for game");
                     let inst = Instant::now();
-                    let RenderingData {
-                        transform_data,
-                        cam_datas,
-                        main_cam_id,
-                        renderer_data,
-                        emitter_inits,
-                    } = coms.0.recv().unwrap();
+                    let rd = coms.0.recv().unwrap();
 
                     perf.update("wait for game".into(), Instant::now() - inst);
-                    (
-                        transform_data,
-                        cam_datas,
-                        main_cam_id,
-                        renderer_data,
-                        emitter_inits,
-                    )
+                    rd
                 };
 
                 if !playing_game {
@@ -596,6 +590,8 @@ fn main() {
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
+               
+
                 let inst = Instant::now();
 
                 {
@@ -680,6 +676,14 @@ fn main() {
                 };
                 perf.update("update renderers".into(), inst.elapsed());
                 let inst = Instant::now();
+
+                while let Some(job) = gpu_work.pop() {
+                    job.unwrap()(&mut builder);
+                }
+                // let a = Arc::try_unwrap(gpu_work).ok().unwrap();
+                // let a = a.into_inner().unwrap();
+                // let b = a.build().unwrap();
+                // builder.execute_commands(b).unwrap();
 
                 if !playing_game {
                     cam_data.update(editor_cam.pos, editor_cam.rot, 0.01f32, 10_000f32, 70f32);

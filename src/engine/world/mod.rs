@@ -25,7 +25,7 @@ use crate::{
 use self::transform::{Transform, Transforms};
 
 use super::{
-    component::{Component, GameObject, System, _ComponentID},
+    component::{Component, GameObject, SecondaryCommandBuffer, System, _ComponentID, PrimaryCommandBuffer, GPUWork},
     game_object::{GameObjectParBuilder, _GameObjectParBuilder},
     input::Input,
     project::asset_manager::{AssetManagerBase, AssetsManager},
@@ -462,7 +462,11 @@ impl World {
         }
         // self.sys.defer.do_defered(self);
     }
-    pub(crate) fn _update(&mut self, input: &Input) {
+    pub(crate) fn _update(
+        &mut self,
+        input: &Input,
+        gpu_work: &GPUWork,
+    ) {
         {
             let sys = &self.sys;
             let sys = System {
@@ -473,6 +477,7 @@ impl World {
                 rendering: &sys.renderer_manager,
                 assets: &sys.assets_manager,
                 vk: sys.vk.clone(),
+                gpu_work,
             };
             for (_, stor) in self.components.iter() {
                 stor.write().update(&self.transforms, &sys, &self);
@@ -501,7 +506,11 @@ impl World {
                 }
             });
     }
-    pub(crate) fn editor_update(&mut self, input: &Input) {
+    pub(crate) fn editor_update(
+        &mut self,
+        input: &Input,
+        gpu_work: &GPUWork,
+    ) {
         // let sys = self.sys.lock();
         let sys = &self.sys;
         let sys = System {
@@ -513,6 +522,7 @@ impl World {
             rendering: &sys.renderer_manager,
             assets: &sys.assets_manager,
             vk: sys.vk.clone(),
+            gpu_work,
         };
         for (_, stor) in self.components.iter() {
             stor.write().editor_update(&self.transforms, &sys, input);
