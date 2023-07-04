@@ -98,13 +98,13 @@ use crate::texture::TextureManager;
 use crate::transform_compute::cs;
 // use crate::terrain::Terrain;
 
-#[cfg(target_os = "windows")]
-mod win_alloc {
-    use mimalloc::MiMalloc;
+// #[cfg(target_os = "windows")]
+// mod win_alloc {
+//     use mimalloc::MiMalloc;
 
-    #[global_allocator]
-    static GLOBAL: MiMalloc = MiMalloc;
-}
+//     #[global_allocator]
+//     static GLOBAL: MiMalloc = MiMalloc;
+// }
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
     if thread_priority::set_current_thread_priority(thread_priority::ThreadPriority::Max).is_ok() {
