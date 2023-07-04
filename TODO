@@ -18,6 +18,8 @@ game-engine:
     ☐ fix culling @started(23-04-30 16:13)
     ☐ active particles list
     ☐ seperate buffers for emitter init/de-init
+    ☐ textures
+    ☐ texture for color over live
   lights:
     ☐ lights
     ☐ shadows
@@ -40,5 +42,11 @@ game-engine:
   audio:
     ☐ audio manager
     ☐ audio asset
-  
+  refactor:
+    ☐ restructure files
+    ☐ rework/solidify render pipeline with secondary command buffer. only update on change
+    ✔ fix runtime compiled code using command buffer freezing engine @done(23-07-04 10:40)
+      ✔ add enqueue gpu work @done(23-07-04 10:40)
+      ☐ add enqueue render work
+    ☐ go through and ensure args to functions are reasonable
   
