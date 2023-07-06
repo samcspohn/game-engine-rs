@@ -129,7 +129,7 @@ fn main() {
     let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
 
     assert!(env::set_current_dir(&Path::new(&engine_dir)).is_ok()); // procedurally generate cube/move cube to built in assets
-    model_manager.lock().from_file("src/cube/cube.obj");
+    model_manager.lock().from_file("eng_res/cube/cube.obj");
     assert!(env::set_current_dir(&Path::new(&args[1])).is_ok());
 
 
