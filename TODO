@@ -10,6 +10,7 @@ game-engine:
   ☐ improve write to buffer (bottle neck)
   ☐ command buffer builder can not be allowed in dylib / buffers locked during rendering when in dylib?
   ☐ change instances of buffer_usage_all()
+  ☐ try c++ style deque for storage
   particles:
     ☐ different rng type for particle emission
     ☐ color over life @started(23-04-24 17:13)
