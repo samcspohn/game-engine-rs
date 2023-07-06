@@ -112,7 +112,6 @@ impl<'a> EntityParBuilder<'a> {
         // if let Some(t_func) = self.transform_func {
         self.world
             .to_instantiate
-            .lock()
             .push(_EntityParBuilder::from(self));
         // }
     }

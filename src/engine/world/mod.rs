@@ -65,7 +65,7 @@ pub struct World {
     pub(crate) root: i32,
     pub sys: Sys,
     pub(crate) to_destroy: SegQueue<i32>,
-    pub(crate) to_instantiate: Arc<Mutex<Vec<_EntityParBuilder>>>,
+    pub(crate) to_instantiate: SegQueue<_EntityParBuilder>,
 }
 
 //  T_ = 'static
@@ -104,15 +104,15 @@ impl World {
                 defer: Defer::new(),
             },
             to_destroy: SegQueue::new(),
-            to_instantiate: Arc::new(Mutex::new(Vec::new())),
+            to_instantiate: SegQueue::new(),
         }
     }
     pub fn defer_instantiate(&mut self) {
-        let mut v = Vec::new();
-        let mut y = self.to_instantiate.lock();
-        std::mem::swap(&mut v, &mut y);
-        drop(y);
-        for a in v.into_iter() {
+        // let mut v = Vec::new();
+        // let mut y = self.to_instantiate.lock();
+        // std::mem::swap(&mut v, &mut y);
+        // drop(y);
+        while let Some(a) = self.to_instantiate.pop() {
             if let Some(t_func) = a.t_func {
                 let t = self
                     .transforms
