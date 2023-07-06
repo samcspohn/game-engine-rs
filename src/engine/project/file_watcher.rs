@@ -80,6 +80,7 @@ impl FileWatcher {
     fn process(&mut self, assets_manager: &Arc<AssetsManager>, entry: walkdir::DirEntry) {
         let f_name = String::from(entry.path().to_string_lossy());
         let f_name = f_name.replace(sep, "/");
+        let f_name = f_name.substring(2, f_name.len()).to_owned();
         assets_manager.load(f_name.as_str());
         self.files.entry(f_name).and_modify(|_e| {}).or_insert(
             entry
@@ -116,6 +117,7 @@ impl FileWatcher {
         let p: String = p.to_str().unwrap().to_owned();
         let p = p.replace(sep, "/");
         let p = p.substring(p.find("/./").unwrap() + 1, p.len());
+        let p = p.substring(2, p.len()).to_owned();
         p.into()
     }
     pub fn get_updates(&mut self, assets_manager: Arc<AssetsManager>) {

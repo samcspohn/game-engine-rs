@@ -1,13 +1,34 @@
 #![allow(warnings)]
 
+
+mod color_gradient;
+mod editor;
+mod engine;
+mod perf;
+
+
+
+use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
+use crate::engine::particles::particles::{ParticleCompute, ParticleEmitter};
+use crate::engine::project::{load_project, save_project};
+use crate::engine::main_loop::{game_thread_fn, RenderingData};
+use crate::engine::rendering::camera::{Camera, CameraData};
+use crate::engine::rendering::model::ModelManager;
+use crate::engine::rendering::renderer_component::{buffer_usage_all, Renderer};
+use crate::engine::rendering::texture::TextureManager;
+use crate::engine::rendering::vulkan_manager::VulkanManager;
+use crate::engine::transform_compute::cs;
+use crate::engine::{runtime_compilation, particles, transform_compute};
+use crate::perf::Perf;
+use crate::engine::input::Input;
+use crate::engine::project::asset_manager::{AssetManagerBase, AssetsManager};
+use crate::engine::project::{file_watcher, Project};
+use crate::engine::world::World;
+
+
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::TextureId;
-use engine::input::Input;
-use engine::project::asset_manager::{AssetManagerBase, AssetsManager};
-use engine::project::{file_watcher, Project};
-use engine::world::World;
-
 
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
@@ -51,25 +72,6 @@ use winit::{
     window::Window,
 };
 
-mod color_gradient;
-mod editor;
-mod engine;
-mod perf;
-
-
-
-use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
-use crate::engine::particles::particles::{ParticleCompute, ParticleEmitter};
-use crate::engine::project::{load_project, save_project};
-use crate::engine::main_loop::{game_thread_fn, RenderingData};
-use crate::engine::rendering::camera::{Camera, CameraData};
-use crate::engine::rendering::model::ModelManager;
-use crate::engine::rendering::renderer_component::{buffer_usage_all, Renderer};
-use crate::engine::rendering::texture::TextureManager;
-use crate::engine::rendering::vulkan_manager::VulkanManager;
-use crate::engine::transform_compute::cs;
-use crate::engine::{runtime_compilation, particles, transform_compute};
-use crate::perf::Perf;
 
 #[cfg(target_os = "windows")]
 mod win_alloc {
@@ -81,6 +83,10 @@ mod win_alloc {
 
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
+    let args: Vec<String> = env::args().collect();
+    // dbg!(args);
+    let engine_dir = env::current_dir().ok().unwrap();
+    assert!(env::set_current_dir(&Path::new(&args[1])).is_ok()); // TODO move to top. procedurally generate cube/move cube to built in assets
     if thread_priority::set_current_thread_priority(thread_priority::ThreadPriority::Max).is_ok() {
         println!("Set main thread priority");
     }
@@ -122,7 +128,10 @@ fn main() {
     )));
     let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
 
+    assert!(env::set_current_dir(&Path::new(&engine_dir)).is_ok()); // procedurally generate cube/move cube to built in assets
     model_manager.lock().from_file("src/cube/cube.obj");
+    assert!(env::set_current_dir(&Path::new(&args[1])).is_ok());
+
 
     let particles_system = Arc::new(ParticleCompute::new(
         vk.device.clone(),
@@ -135,7 +144,7 @@ fn main() {
         assets_manager.clone(),
     )));
 
-    let path = "./test_project_rs/runtime";
+    let path = "runtime";
     if let Ok(_) = fs::remove_dir_all(path) {}
     fs::create_dir(path).unwrap();
 
@@ -274,7 +283,7 @@ fn main() {
     let mut game_thread = vec![game_thread];
 
     let _res = coms.1.send((input.clone(), false));
-    let mut file_watcher = file_watcher::FileWatcher::new("./test_project_rs");
+    let mut file_watcher = file_watcher::FileWatcher::new(".");
 
     if let Ok(s) = std::fs::read_to_string("project.yaml") {
         {

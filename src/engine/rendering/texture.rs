@@ -120,7 +120,7 @@ impl Asset<Texture, (Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)> for T
 
                     ImageView::new_default(image).unwrap()
                 }
-                Err(_) => panic!("file not found{}", path),
+                Err(_) => panic!("file not found{}: ", path),
             }
         };
 

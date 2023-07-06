@@ -30,7 +30,7 @@ impl RSFile {}
 impl Asset<RSFile, ()> for RSFile {
     fn from_file(file: &str, params: &()) -> RSFile {
         Command::new("cargo")
-            .args(&["build", "--manifest-path=test_project_rs/Cargo.toml", "-r"])
+            .args(&["build", "-r"])
             .status()
             .unwrap();
 
@@ -72,7 +72,7 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
         // DELETE OLD LIB
         let id = *ID.lock();
         *ID.lock() += 1;
-        let so_file = format!("test_project_rs/runtime/lib{}.{}", id, ext);
+        let so_file = format!("runtime/lib{}.{}", id, ext);
         match fs::remove_file(&so_file) {
             Ok(_) => {}
             Err(a) => println!("{:?}", a),
@@ -80,7 +80,7 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
 
         // RELOCATE NEW LIB --- avoid dylib caching
         let id = id + 1;
-        let so_file = format!("./test_project_rs/runtime/lib{}.{}", id, ext);
+        let so_file = format!("runtime/lib{}.{}", id, ext);
         if let Ok(_) = fs::copy(file, &so_file) {
             // LOAD NEW LIB
             let lib = unsafe { libloading::Library::new(&so_file).unwrap() };

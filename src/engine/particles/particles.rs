@@ -272,8 +272,12 @@ impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>> fo
         // t
     }
     fn save(&mut self, file: &str, _params: &Arc<Mutex<_Storage<particle_template>>>) {
-        let s = serde_yaml::to_string(self).unwrap();
-        std::fs::write(file, s.as_bytes()).unwrap();
+        if let Ok(s) = serde_yaml::to_string(self) {
+            match std::fs::write(file, s.as_bytes()) {
+                Ok(_) => (),
+                Err(a) => {println!("{}: failed for file: {}",a, file)}
+            }
+        }
     }
     fn new(
         _file: &str,
@@ -630,7 +634,7 @@ impl ParticleCompute {
             particle_templates.clone(),
             &["ptem"],
         )));
-        particle_template_manager.lock().new_asset("default.ptem");
+        particle_template_manager.lock().new_asset("res/default.ptem");
 
         let copy_buffer = CpuAccessibleBuffer::from_iter(
             &vk.mem_alloc,

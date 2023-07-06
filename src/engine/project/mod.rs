@@ -40,7 +40,6 @@ pub fn save_project(file_watcher: &FileWatcher, world: &World, assets_manager: A
         working_file,
     };
     std::fs::write("project.yaml", serde_yaml::to_string(&project).unwrap()).unwrap();
-    // serialize::serialize(world);
 }
 
 pub fn load_project(
@@ -53,17 +52,6 @@ pub fn load_project(
             let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
             file_watcher.files = project.files;
             assets_manager.deserialize(project.assets);
-            // let sys = world.sys.lock();
-            // let mut mm = sys.model_manager.lock();
-            // mm.regen(project.model_manager);
-            // let mut tm = mm.const_params.1.lock();
-            // tm.regen(project.texture_manager);
-            // let a = serde_yaml::from_value(project.texture_manager).unwrap();
-            // println!("{:?}", project.texture_manager);
-            // panic!();
-            // mm.const_params.1.assets = a;
-            // mm.regen(project.models);
-            // mm.id_gen = project.model_id_gen;
         }
         serialize::deserialize(&mut world.lock());
     }
