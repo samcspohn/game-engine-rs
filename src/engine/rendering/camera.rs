@@ -21,16 +21,11 @@ use vulkano::{
 };
 
 use crate::{
-    engine::{component::{_ComponentID, Component}, world::{transform::{Transform, TransformData}, Sys}, RenderJobData},
+    engine::{component::{_ComponentID, Component}, world::{transform::{Transform, TransformData}, Sys}, RenderJobData, particles::particles::{ParticleRenderPipeline, ParticleCompute}, transform_compute::{TransformCompute, cs::ty::Data}, rendering::renderer_component::ur},
     editor::inspectable::{Inpsect, Ins, Inspectable},
-    model::ModelManager,
-    particles::{ParticleCompute, ParticleRenderPipeline},
-    renderer::RenderPipeline,
-    renderer_component::{buffer_usage_all, ur, RendererData, SharedRendererData},
-    texture::TextureManager,
-    transform_compute::{cs::ty::Data, TransformCompute},
-    vulkan_manager::VulkanManager,
 };
+
+use super::{pipeline::RenderPipeline, vulkan_manager::VulkanManager, renderer_component::{SharedRendererData, RendererData, buffer_usage_all}, model::ModelManager, texture::TextureManager};
 
 // #[derive(Clone)]
 pub struct CameraData {

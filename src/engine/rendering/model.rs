@@ -15,9 +15,7 @@ use parking_lot::Mutex;
 use nalgebra_glm as glm;
 // use rapier3d::na::Norm;
 use crate::{
-    editor::inspectable::Inspectable_,
-    renderer_component::buffer_usage_all,
-    texture::{TextureManager}, engine::{world::World, project::asset_manager::{self, Asset, AssetManagerBase}},
+    editor::inspectable::Inspectable_,engine::{world::World, project::asset_manager::{self, Asset, AssetManagerBase}},
 };
 use vulkano::memory::allocator::{MemoryAllocator, StandardMemoryAllocator};
 use vulkano::{
@@ -267,6 +265,8 @@ impl Mesh {
 }
 
 use crate::engine::project::asset_manager::_AssetID;
+
+use super::{renderer_component::buffer_usage_all, texture::TextureManager};
 #[derive(AssetID)]
 pub struct ModelRenderer {
     pub file: String,

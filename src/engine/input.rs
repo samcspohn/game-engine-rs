@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::time::Time;
+use super::time::Time;
 use winit::event::VirtualKeyCode;
 
 #[derive(Default, Clone)]

@@ -13,13 +13,7 @@ use serde::{Deserialize, Serialize};
 use thincollections::thin_map::ThinMap;
 
 use crate::{
-    camera::{Camera, CameraData},
     editor::inspectable::Inspectable,
-    model::ModelRenderer,
-    particles::{ParticleCompute, ParticleEmitter},
-    physics::Physics,
-    renderer_component::RendererManager,
-    vulkan_manager::VulkanManager,
 };
 
 use self::transform::{Transform, Transforms};
@@ -30,7 +24,7 @@ use super::{
     input::Input,
     project::asset_manager::{AssetManagerBase, AssetsManager},
     storage::{Storage, StorageBase},
-    Defer, RenderJobData,
+    Defer, RenderJobData, rendering::{renderer_component::RendererManager, vulkan_manager::VulkanManager, model::ModelRenderer, camera::{Camera, CameraData}}, physics::Physics, particles::particles::{ParticleCompute, ParticleEmitter},
 };
 
 pub mod transform;

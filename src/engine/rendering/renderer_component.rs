@@ -8,10 +8,7 @@ use std::{
 };
 
 use crate::{
-    editor::inspectable::{Inpsect, Ins, Inspectable},
-    model::{ModelManager, ModelRenderer},
-    transform_compute::TransformCompute,
-    vulkan_manager::VulkanManager, engine::{world::{transform::Transform, Sys}, storage::_Storage, component::{ Component, _ComponentID}, project::asset_manager::AssetInstance },
+    editor::inspectable::{Inpsect, Ins, Inspectable}, engine::{world::{transform::Transform, Sys}, storage::_Storage, component::{ Component, _ComponentID}, project::asset_manager::AssetInstance, transform_compute::TransformCompute },
 };
 use bytemuck::{Pod, Zeroable};
 // use parking_lot::RwLock;
@@ -29,6 +26,8 @@ use vulkano::{
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     shader::ShaderModule,
 };
+
+use super::{model::{ModelManager, ModelRenderer}, vulkan_manager::VulkanManager};
 
 // #[derive(Default, Clone, Copy, Serialize, Deserialize)]
 // struct ModelId {

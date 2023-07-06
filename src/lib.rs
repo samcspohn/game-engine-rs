@@ -1,23 +1,11 @@
 // mod engine;
 #![allow(warnings, unused)]
 
-pub mod model;
+
 pub mod perf;
-pub mod renderer;
-pub mod camera;
 pub mod color_gradient;
 pub mod editor;
 pub mod engine;
-pub mod game;
-pub mod particle_sort;
-pub mod particles;
-pub mod physics;
-pub mod render_pipeline;
-pub mod renderer_component;
-pub mod texture;
-pub mod time;
-pub mod transform_compute;
-pub mod vulkan_manager;
 pub use component_derive;
 
 pub use vulkano;
@@ -39,10 +27,10 @@ pub mod prelude {
         RenderJobData,
     };
     pub use inspectable::{Inpsect, Ins, Inspectable};
-    pub use particles::ParticleEmitter;
-    pub use renderer_component::Renderer;
+    pub use crate::engine::particles::particles::ParticleEmitter;
+    pub use crate::engine::rendering::renderer_component::Renderer;
 
-    use crate::{engine, editor::inspectable, particles, renderer_component};
+    use crate::{engine, editor::inspectable};
 }
 #[cfg(target_os = "windows")]
 pub mod win_alloc {

@@ -1,8 +1,7 @@
 use std::{cell::UnsafeCell, ptr, sync::Arc};
 
-use crate::{
-    renderer_component::buffer_usage_all, engine::world::transform::{POS_U, ROT_U, SCL_U, CacheVec, TransformData},
-};
+use crate::engine::{world::transform::{POS_U, ROT_U, SCL_U, CacheVec, TransformData,
+}, rendering::renderer_component::buffer_usage_all};
 
 use nalgebra_glm as glm;
 use puffin_egui::puffin;

@@ -5,23 +5,19 @@ use force_send_sync::SendSync;
 use parking_lot::{Mutex, RwLock};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, SecondaryAutoCommandBuffer, allocator::StandardCommandBufferAllocator, PrimaryAutoCommandBuffer};
 
-use crate::{
-    model::ModelRenderer, physics, renderer_component::RendererManager,
-    vulkan_manager::VulkanManager,
-};
 
 use super::{
     input::Input,
     project::asset_manager::{AssetManagerBase, AssetsManager},
     world::{transform::Transform, Sys, World},
-    Defer, RenderJobData,
+    Defer, RenderJobData, physics::Physics, rendering::{renderer_component::RendererManager, vulkan_manager::VulkanManager, model::ModelRenderer},
 };
 
 pub type SecondaryCommandBuffer = AutoCommandBufferBuilder<SecondaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
 pub type PrimaryCommandBuffer = AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
 pub type GPUWork = SegQueue<SendSync<Box<dyn FnOnce(&mut PrimaryCommandBuffer)>>>;
 pub struct System<'a> {
-    pub physics: &'a physics::Physics,
+    pub physics: &'a Physics,
     pub defer: &'a Defer,
     pub input: &'a Input,
     pub rendering: &'a RwLock<RendererManager>,

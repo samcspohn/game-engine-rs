@@ -30,10 +30,10 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-use crate::{
-    model::{Mesh, Normal, Vertex, UV},
-    transform_compute::cs::ty::MVP, texture::TextureManager,
-};
+use crate::engine::transform_compute::cs::ty::MVP;
+
+use super::{model::{Vertex, Normal, UV, Mesh}, texture::TextureManager};
+
 
 pub mod vs {
     vulkano_shaders::shader! {

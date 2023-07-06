@@ -6,10 +6,7 @@ use std::sync::{
 use crate::{
     color_gradient::ColorGradient,
     editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
-    particle_sort::ParticleSort,
-    renderer_component::buffer_usage_all,
-    transform_compute::cs::ty::transform,
-    vulkan_manager::VulkanManager, engine::{world::{transform::Transform, Sys, World}, component::{Component, _ComponentID}, storage::_Storage, project::asset_manager::{AssetInstance, Asset, AssetManager, AssetManagerBase}},
+    engine::{world::{transform::Transform, Sys, World}, component::{Component, _ComponentID}, storage::_Storage, project::asset_manager::{AssetInstance, Asset, AssetManager, AssetManagerBase}, rendering::{vulkan_manager::VulkanManager, renderer_component::buffer_usage_all}, transform_compute::cs::ty::transform},
 };
 // use lazy_static::lazy::Lazy;
 
@@ -170,6 +167,8 @@ impl Component for ParticleEmitter {
 }
 
 use crate::engine::project::asset_manager::_AssetID;
+
+use super::particle_sort::ParticleSort;
 #[derive(AssetID, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ParticleTemplate {

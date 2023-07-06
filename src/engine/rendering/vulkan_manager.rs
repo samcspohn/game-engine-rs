@@ -35,8 +35,6 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::renderer_component::buffer_usage_all;
-
 #[repr(C)]
 pub struct VulkanManager {
     pub device: Arc<Device>,
@@ -55,17 +53,6 @@ pub struct VulkanManager {
 }
 
 impl VulkanManager {
-    // pub fn new_buffer<T>(data: Vec<T>) {
-    //     unsafe {
-    //         CpuAccessibleBuffer::<[T]>::uninitialized_array(
-    //             &self.mem_alloc,
-    //             (num_chunks * num_verts_chunk) as u64,
-    //             buffer_usage_all(),
-    //             false,
-    //         )
-    //         .unwrap()
-    //     }
-    // }
     pub fn swapchain(&self) -> Arc<Swapchain> {
         unsafe { &*self.swapchain.get() }.clone()
     }
@@ -173,14 +160,10 @@ impl VulkanManager {
             Default::default(),
         ));
         let (swapchain, images) = {
-            // Querying the capabilities of the surface. When we create the swapchain we can only
-            // pass values that are allowed by the capabilities.
             let surface_capabilities = device
                 .physical_device()
                 .surface_capabilities(&surface, Default::default())
                 .unwrap();
-
-            // Choosing the internal format that the images will have.
             let image_format = Some(
                 device
                     .physical_device()
@@ -189,13 +172,11 @@ impl VulkanManager {
                     .0,
             );
             let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
-
-            // Please take a look at the docs for the meaning of the parameters we didn't mention.
             match Swapchain::new(
                 device.clone(),
                 surface.clone(),
                 SwapchainCreateInfo {
-                    min_image_count: surface_capabilities.max_image_count.unwrap_or(3).min(3).max(surface_capabilities.min_image_count),
+                    min_image_count: surface_capabilities.min_image_count, //surface_capabilities.max_image_count.unwrap_or(3).min(3).max(surface_capabilities.min_image_count),
                     image_format,
                     image_extent: window.inner_size().into(),
                     image_usage: ImageUsage {
@@ -217,7 +198,7 @@ impl VulkanManager {
                         device.clone(),
                         surface.clone(),
                         SwapchainCreateInfo {
-                            min_image_count: surface_capabilities.max_image_count.unwrap_or(3).min(3).max(surface_capabilities.min_image_count),
+                            min_image_count: surface_capabilities.min_image_count, //surface_capabilities.max_image_count.unwrap_or(3).min(3).max(surface_capabilities.min_image_count),
                             image_format,
                             image_extent: window.inner_size().into(),
                             image_usage: ImageUsage {

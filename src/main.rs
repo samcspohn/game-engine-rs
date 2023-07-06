@@ -1,6 +1,5 @@
 #![allow(warnings)]
 
-use camera::{Camera, CameraData};
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::TextureId;
@@ -8,7 +7,7 @@ use engine::input::Input;
 use engine::project::asset_manager::{AssetManagerBase, AssetsManager};
 use engine::project::{file_watcher, Project};
 use engine::world::World;
-use game::RenderingData;
+
 
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
@@ -28,7 +27,6 @@ use std::{
     thread::{self},
     time::{Duration, Instant},
 };
-use vulkan_manager::VulkanManager;
 use vulkano::{
     buffer::CpuBufferPool,
     command_buffer::{
@@ -53,34 +51,25 @@ use winit::{
     window::Window,
 };
 
-mod camera;
 mod color_gradient;
 mod editor;
 mod engine;
-mod game;
-mod model;
-mod particle_sort;
-mod particles;
 mod perf;
-mod physics;
-mod render_pipeline;
-mod renderer;
-mod renderer_component;
-mod runtime_compilation;
-mod texture;
-mod time;
-mod transform_compute;
-mod vulkan_manager;
+
+
 
 use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
+use crate::engine::particles::particles::{ParticleCompute, ParticleEmitter};
 use crate::engine::project::{load_project, save_project};
-use crate::game::game_thread_fn;
-use crate::model::ModelManager;
-use crate::particles::ParticleEmitter;
+use crate::engine::main_loop::{game_thread_fn, RenderingData};
+use crate::engine::rendering::camera::{Camera, CameraData};
+use crate::engine::rendering::model::ModelManager;
+use crate::engine::rendering::renderer_component::{buffer_usage_all, Renderer};
+use crate::engine::rendering::texture::TextureManager;
+use crate::engine::rendering::vulkan_manager::VulkanManager;
+use crate::engine::transform_compute::cs;
+use crate::engine::{runtime_compilation, particles, transform_compute};
 use crate::perf::Perf;
-use crate::renderer_component::{buffer_usage_all, Renderer};
-use crate::texture::TextureManager;
-use crate::transform_compute::cs;
 
 #[cfg(target_os = "windows")]
 mod win_alloc {
@@ -135,7 +124,7 @@ fn main() {
 
     model_manager.lock().from_file("src/cube/cube.obj");
 
-    let particles_system = Arc::new(particles::ParticleCompute::new(
+    let particles_system = Arc::new(ParticleCompute::new(
         vk.device.clone(),
         vk.clone(),
     ));
@@ -213,7 +202,7 @@ fn main() {
         vk.device.clone(),
         // vk.queue.clone(),
         vec![
-            crate::cs::ty::transform {
+            cs::ty::transform {
                 position: Default::default(),
                 _dummy0: Default::default(),
                 rotation: Default::default(),

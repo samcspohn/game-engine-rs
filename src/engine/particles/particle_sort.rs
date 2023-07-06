@@ -1,11 +1,5 @@
 use std::sync::Arc;
 
-use crate::{
-    particles::{ParticleBuffers, MAX_PARTICLES},
-    renderer_component::buffer_usage_all,
-    transform_compute::cs::ty::transform,
-};
-
 use vulkano::{
     buffer::{CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer},
     command_buffer::{
@@ -21,6 +15,10 @@ use vulkano::{
     sync::{self, FlushError, GpuFuture},
     DeviceSize,
 };
+
+use crate::engine::{rendering::renderer_component::buffer_usage_all, transform_compute::cs::ty::transform};
+
+use super::particles::{MAX_PARTICLES, ParticleBuffers};
 
 pub mod cs {
     vulkano_shaders::shader! {

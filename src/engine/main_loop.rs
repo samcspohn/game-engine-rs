@@ -20,18 +20,18 @@ use std::{
 };
 
 use winit::{event::VirtualKeyCode, window::Window};
-// use rapier3d::{na::point, prelude::InteractionGroups};
 
 use crate::{
-    camera::{Camera, CameraData},
+
     editor::editor_ui::PLAYING_GAME,
     editor::inspectable::{Inpsect, Ins, Inspectable},
+    engine::rendering::camera::CameraData,
     engine::input::Input,
     engine::{world::{transform::TransformData, World}, component::{SecondaryCommandBuffer, GPUWork}},
-    particles::{cs::ty::emitter_init, ParticleEmitter},
     perf::Perf,
-    renderer_component::RendererData,
 };
+
+use super::{particles::particles::cs::ty::emitter_init, rendering::renderer_component::RendererData};
 
 type GameComm = (
     Sender<RenderingData>,
