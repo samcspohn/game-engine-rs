@@ -1,18 +1,28 @@
+use force_send_sync::SendSync;
 use serde::{Deserialize, Serialize};
+use thincollections::thin_map::ThinMap;
 
-use crate::{editor::inspectable::Inspectable};
+use crate::editor::inspectable::Inspectable;
 
 use super::{
     component::{Component, _ComponentID},
     world::{World, transform::_Transform}, storage::{Storage, StorageBase},
 };
 
-pub struct GameObjectBuilder {}
-impl GameObjectBuilder {
+pub struct Entity {
+    pub components: SendSync<ThinMap<u64, i32>>
+}
+impl Entity {
+    pub fn new() -> Self {
+        Self { components: unsafe { SendSync::new(ThinMap::with_capacity(2)) } }
+    }
+}
+pub struct EntityBuilder {}
+impl EntityBuilder {
     pub fn with_com<T: Component>(&mut self, d: T) {}
 }
 
-pub(crate) struct _GameObjectParBuilder {
+pub(crate) struct _EntityParBuilder {
     pub(crate) count: i32,
     pub(crate) chunk: i32,
     pub(crate) parent: i32,
@@ -20,8 +30,8 @@ pub(crate) struct _GameObjectParBuilder {
     pub(crate) comp_funcs: Vec<Box<dyn Fn(&mut World, &Vec<i32>) + Send + Sync>>,
 }
 
-impl _GameObjectParBuilder {
-    fn from(g: GameObjectParBuilder) -> Self {
+impl _EntityParBuilder {
+    fn from(g: EntityParBuilder) -> Self {
         Self {
             count: g.count,
             chunk: g.chunk,
@@ -31,7 +41,7 @@ impl _GameObjectParBuilder {
         }
     }
 }
-pub struct GameObjectParBuilder<'a> {
+pub struct EntityParBuilder<'a> {
     world: &'a World,
     count: i32,
     chunk: i32,
@@ -39,9 +49,9 @@ pub struct GameObjectParBuilder<'a> {
     transform_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
     comp_funcs: Vec<Box<dyn Fn(&mut World, &Vec<i32>) + Send + Sync>>,
 }
-impl<'a> GameObjectParBuilder<'a> {
+impl<'a> EntityParBuilder<'a> {
     pub fn new(parent: i32, count: i32, chunk: i32, world: &'a World) -> Self {
-        GameObjectParBuilder {
+        EntityParBuilder {
             world,
             count,
             chunk,
@@ -86,10 +96,10 @@ impl<'a> GameObjectParBuilder<'a> {
                         let c_id = (*stor).emplace(*g, f());
                         let trans = world.transforms.get(*g);
                         (*stor).init(&trans, c_id, &mut world.sys);
-                        if let Some(ent_components) =
+                        if let Some(ent) =
                             world.entities.read()[*g as usize].lock().as_mut()
                         {
-                            ent_components.insert(key.clone(), c_id);
+                            ent.components.insert(key.clone(), c_id);
                         }
                     }
                 } else {
@@ -103,7 +113,7 @@ impl<'a> GameObjectParBuilder<'a> {
         self.world
             .to_instantiate
             .lock()
-            .push(_GameObjectParBuilder::from(self));
+            .push(_EntityParBuilder::from(self));
         // }
     }
 }

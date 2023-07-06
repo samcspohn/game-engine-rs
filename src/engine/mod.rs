@@ -35,7 +35,7 @@ use self::world::World;
 pub mod storage;
 pub mod component;
 pub mod world;
-pub mod game_object;
+pub mod entity;
 pub mod project;
 pub mod input;
 pub mod rendering;

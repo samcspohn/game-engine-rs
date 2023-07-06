@@ -250,7 +250,7 @@ impl Inspectable_ for GameObjectInspector {
                             });
                         // let mut components = ent.;
                         // let components = &mut ent;
-                        for (c_type, id) in ent.iter_mut() {
+                        for (c_type, id) in ent.components.iter_mut() {
                             if let Some(c) = world.components.get(c_type) {
                                 let c = c.write();
                                 // let name: String = c.get_name().into();

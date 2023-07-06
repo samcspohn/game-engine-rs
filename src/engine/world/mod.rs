@@ -12,19 +12,28 @@ use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use thincollections::thin_map::ThinMap;
 
-use crate::{
-    editor::inspectable::Inspectable,
-};
+use crate::editor::inspectable::Inspectable;
 
 use self::transform::{Transform, Transforms};
 
 use super::{
-    component::{Component, GameObject, SecondaryCommandBuffer, System, _ComponentID, PrimaryCommandBuffer, GPUWork},
-    game_object::{GameObjectParBuilder, _GameObjectParBuilder},
+    component::{
+        Component, GPUWork, GameObject, PrimaryCommandBuffer, SecondaryCommandBuffer, System,
+        _ComponentID,
+    },
+    entity::{EntityParBuilder, _EntityParBuilder, Entity},
     input::Input,
+    particles::particles::{ParticleCompute, ParticleEmitter},
+    physics::Physics,
     project::asset_manager::{AssetManagerBase, AssetsManager},
+    rendering::{
+        camera::{Camera, CameraData},
+        model::ModelRenderer,
+        renderer_component::RendererManager,
+        vulkan_manager::VulkanManager,
+    },
     storage::{Storage, StorageBase},
-    Defer, RenderJobData, rendering::{renderer_component::RendererManager, vulkan_manager::VulkanManager, model::ModelRenderer, camera::{Camera, CameraData}}, physics::Physics, particles::particles::{ParticleCompute, ParticleEmitter},
+    Defer, RenderJobData,
 };
 
 pub mod transform;
@@ -47,7 +56,7 @@ impl Sys {
 }
 
 pub struct World {
-    pub(crate) entities: RwLock<Vec<Mutex<Option<SendSync<ThinMap<u64, i32>>>>>>,
+    pub(crate) entities: RwLock<Vec<Mutex<Option<Entity>>>>,
     pub(crate) transforms: Transforms,
     pub(crate) components:
         SendSync<ThinMap<u64, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>>,
@@ -56,7 +65,7 @@ pub struct World {
     pub(crate) root: i32,
     pub sys: Sys,
     pub(crate) to_destroy: SegQueue<i32>,
-    pub(crate) to_instantiate: Arc<Mutex<Vec<_GameObjectParBuilder>>>,
+    pub(crate) to_instantiate: Arc<Mutex<Vec<_EntityParBuilder>>>,
 }
 
 //  T_ = 'static
@@ -114,16 +123,14 @@ impl World {
                 for i in &t {
                     if (*i as usize) < ent.len() {
                         *ent[*i as usize].lock() =
-                            Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) });
+                            Some(Entity::new());
                     } else {
                         break;
                     }
                 }
                 if let Some(last) = t.last() {
                     while ent.len() <= *last as usize {
-                        ent.push(Mutex::new(Some(unsafe {
-                            SendSync::new(ThinMap::with_capacity(2))
-                        })));
+                        ent.push(Mutex::new(Some(Entity::new())));
                     }
                 }
                 drop(ent);
@@ -134,8 +141,8 @@ impl World {
             }
         }
     }
-    pub fn instantiate_many(&self, count: i32, chunk: i32, parent: i32) -> GameObjectParBuilder {
-        GameObjectParBuilder::new(parent, count, chunk, &self)
+    pub fn instantiate_many(&self, count: i32, chunk: i32, parent: i32) -> EntityParBuilder {
+        EntityParBuilder::new(parent, count, chunk, &self)
     }
     pub fn instantiate(&mut self) -> GameObject {
         let ret = GameObject {
@@ -144,12 +151,10 @@ impl World {
         {
             let entities = &mut self.entities.write();
             if ret.t as usize >= entities.len() {
-                entities.push(Mutex::new(Some(unsafe {
-                    SendSync::new(ThinMap::with_capacity(2))
-                })));
+                entities.push(Mutex::new(Some(Entity::new())));
             } else {
                 entities[ret.t as usize] =
-                    Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) }));
+                    Mutex::new(Some(Entity::new()));
             }
         }
         ret
@@ -161,12 +166,10 @@ impl World {
         {
             let entities = &mut self.entities.write();
             if ret.t as usize >= entities.len() {
-                entities.push(Mutex::new(Some(unsafe {
-                    SendSync::new(ThinMap::with_capacity(2))
-                })));
+                entities.push(Mutex::new(Some(Entity::new())));
             } else {
                 entities[ret.t as usize] =
-                    Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) }));
+                    Mutex::new(Some(Entity::new()));
             }
         }
         ret
@@ -177,11 +180,11 @@ impl World {
         let entities = self.entities.read();
         let src = entities[t as usize].lock();
         let mut dest = entities[g.t as usize].lock();
-        if let (Some(src_obj), Some(dest_obj)) = (&mut src.as_ref(), &mut dest.as_mut()) {
+        if let (Some(src_ent), Some(dest_ent)) = (&mut src.as_ref(), &mut dest.as_mut()) {
             let children: Vec<i32> = {
                 // let mut dest_obj = dest_obj;
-                for c in src_obj.iter() {
-                    dest_obj.insert(
+                for c in src_ent.components.iter() {
+                    dest_ent.components.insert(
                         c.0.clone(),
                         self.copy_component_id(&self.transforms.get(g.t), c.0.clone(), *c.1),
                     );
@@ -215,11 +218,11 @@ impl World {
         let entities = self.entities.read();
         let src = entities[t as usize].lock();
         let mut dest = entities[g.t as usize].lock();
-        if let (Some(src_obj), Some(dest_obj)) = (&mut src.as_ref(), &mut dest.as_mut()) {
+        if let (Some(src_ent), Some(dest_ent)) = (&mut src.as_ref(), &mut dest.as_mut()) {
             let children: Vec<i32> = {
                 // let mut dest_obj = dest_obj.write();
-                for c in src_obj.iter() {
-                    dest_obj.insert(
+                for c in src_ent.components.iter() {
+                    dest_ent.components.insert(
                         c.0.clone(),
                         self.copy_component_id(&self.transforms.get(g.t), c.0.clone(), *c.1),
                     );
@@ -267,12 +270,10 @@ impl World {
         {
             let entities = &mut self.entities.write();
             if ret.t as usize >= entities.len() {
-                entities.push(Mutex::new(Some(unsafe {
-                    SendSync::new(ThinMap::with_capacity(2))
-                })));
+                entities.push(Mutex::new(Some(Entity::new())));
             } else {
                 entities[ret.t as usize] =
-                    Mutex::new(Some(unsafe { SendSync::new(ThinMap::with_capacity(2)) }));
+                    Mutex::new(Some(Entity::new()));
             }
         }
         ret
@@ -300,8 +301,8 @@ impl World {
             let c_id = stor.emplace(g.t, d);
             let trans = self.transforms.get(g.t);
             stor.init(&trans, c_id, &self.sys);
-            if let Some(ent_components) = self.entities.read()[g.t as usize].lock().as_mut() {
-                ent_components.insert(key, c_id);
+            if let Some(ent) = self.entities.read()[g.t as usize].lock().as_mut() {
+                ent.components.insert(key, c_id);
             }
         } else {
             panic!("no type key?")
@@ -310,8 +311,8 @@ impl World {
     pub fn add_component_id(&mut self, g: GameObject, key: u64, c_id: i32) {
         // d.assign_transform(g.t);
 
-        if let Some(ent_components) = self.entities.read()[g.t as usize].lock().as_mut() {
-            ent_components.insert(key.clone(), c_id);
+        if let Some(ent) = self.entities.read()[g.t as usize].lock().as_mut() {
+            ent.components.insert(key.clone(), c_id);
             if let Some(stor) = self.components.get(&key) {
                 let trans = self.transforms.get(g.t);
                 stor.write().init(&trans, c_id, &self.sys);
@@ -326,21 +327,21 @@ impl World {
             let c_id = stor.deserialize(g.t, s);
             let trans = self.transforms.get(g.t);
             stor.init(&trans, c_id, &self.sys);
-            if let Some(ent_components) = self.entities.read()[g.t as usize].lock().as_mut() {
-                ent_components.insert(stor.get_id(), c_id);
+            if let Some(ent) = self.entities.read()[g.t as usize].lock().as_mut() {
+                ent.components.insert(stor.get_id(), c_id);
             }
         } else {
             panic!("no type key: {}", key);
         }
     }
     pub fn remove_component(&mut self, g: GameObject, key: u64, c_id: i32) {
-        if let Some(ent_components) = self.entities.read()[g.t as usize].lock().as_mut() {
+        if let Some(ent) = self.entities.read()[g.t as usize].lock().as_mut() {
             if let Some(stor) = self.components.get(&key) {
                 let trans = self.transforms.get(g.t);
                 stor.write().deinit(&trans, c_id, &self.sys);
                 stor.write().erase(c_id);
             }
-            ent_components.remove(&key);
+            ent.components.remove(&key);
         }
     }
     pub fn register<
@@ -406,9 +407,9 @@ impl World {
                 s.spawn(move |s| {
                     let g = t;
                     let mut ent = ent[g as usize].lock();
-                    if let Some(g_components) = ent.as_mut() {
+                    if let Some(ent_mut) = ent.as_mut() {
                         let trans = _self.transforms.get(g);
-                        for (t, id) in g_components.iter() {
+                        for (t, id) in ent_mut.components.iter() {
                             let stor = &mut _self.components.get(t).unwrap().write();
 
                             stor.deinit(&trans, *id, &_self.sys);
@@ -456,11 +457,7 @@ impl World {
         }
         // self.sys.defer.do_defered(self);
     }
-    pub(crate) fn _update(
-        &mut self,
-        input: &Input,
-        gpu_work: &GPUWork,
-    ) {
+    pub(crate) fn _update(&mut self, input: &Input, gpu_work: &GPUWork) {
         {
             let sys = &self.sys;
             let sys = System {
@@ -500,11 +497,7 @@ impl World {
                 }
             });
     }
-    pub(crate) fn editor_update(
-        &mut self,
-        input: &Input,
-        gpu_work: &GPUWork,
-    ) {
+    pub(crate) fn editor_update(&mut self, input: &Input, gpu_work: &GPUWork) {
         // let sys = self.sys.lock();
         let sys = &self.sys;
         let sys = System {
