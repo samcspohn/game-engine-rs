@@ -10,60 +10,49 @@ use engine::project::{file_watcher, Project};
 use engine::world::World;
 use game::RenderingData;
 
-use std::{env, fs};
-use vulkan_manager::VulkanManager;
-
-use vulkano::command_buffer::RenderPassBeginInfo;
-
-use vulkano::memory::allocator::MemoryUsage;
-use vulkano::swapchain::SwapchainPresentInfo;
-
-use puffin_egui::*;
-
+use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
+use notify::{RecursiveMode, Watcher};
 use parking_lot::Mutex;
-
-use winit::event::MouseButton;
-
-use std::collections::BTreeMap;
-
-use std::path::Path;
+use puffin_egui::*;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
+    env, fs,
+    path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc,
+        mpsc::{Receiver, Sender},
         Arc,
     },
     thread::{self},
     time::{Duration, Instant},
 };
+use vulkan_manager::VulkanManager;
 use vulkano::{
     buffer::CpuBufferPool,
-    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, SubpassContents},
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
+    },
     image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
+    memory::allocator::MemoryUsage,
     pipeline::graphics::viewport::Viewport,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    swapchain::{acquire_next_image, AcquireError, SwapchainCreateInfo, SwapchainCreationError},
+    swapchain::{
+        acquire_next_image, AcquireError, SwapchainCreateInfo, SwapchainCreationError,
+        SwapchainPresentInfo,
+    },
     sync::{self, FlushError, GpuFuture},
 };
-
 use winit::{
     event::{
-        DeviceEvent, ElementState, Event, KeyboardInput, ModifiersState, VirtualKeyCode,
-        WindowEvent,
+        DeviceEvent, ElementState, Event, KeyboardInput, ModifiersState, MouseButton,
+        VirtualKeyCode, WindowEvent,
     },
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
 
-use glm::{vec4, Vec3};
-
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
-// use rust_test::{INDICES, NORMALS, VERTICES};
-use notify::{RecursiveMode, Watcher};
-
-// use game_engine;
 mod camera;
 mod color_gradient;
 mod editor;
@@ -82,29 +71,25 @@ mod texture;
 mod time;
 mod transform_compute;
 mod vulkan_manager;
-// mod terrain;
 
 use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
-
+use crate::engine::project::{load_project, save_project};
 use crate::game::game_thread_fn;
-
 use crate::model::ModelManager;
 use crate::particles::ParticleEmitter;
 use crate::perf::Perf;
-
-use crate::engine::project::{load_project, save_project};
 use crate::renderer_component::{buffer_usage_all, Renderer};
 use crate::texture::TextureManager;
 use crate::transform_compute::cs;
-// use crate::terrain::Terrain;
 
-// #[cfg(target_os = "windows")]
-// mod win_alloc {
-//     use mimalloc::MiMalloc;
+#[cfg(target_os = "windows")]
+mod win_alloc {
+    use mimalloc::MiMalloc;
 
-//     #[global_allocator]
-//     static GLOBAL: MiMalloc = MiMalloc;
-// }
+    #[global_allocator]
+    static GLOBAL: MiMalloc = MiMalloc;
+}
+
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
     if thread_priority::set_current_thread_priority(thread_priority::ThreadPriority::Max).is_ok() {
@@ -590,7 +575,6 @@ fn main() {
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
-               
 
                 let inst = Instant::now();
 
