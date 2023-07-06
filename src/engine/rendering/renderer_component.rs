@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    editor::inspectable::{Inpsect, Ins, Inspectable}, engine::{world::{transform::Transform, Sys}, storage::_Storage, component::{ Component, _ComponentID}, project::asset_manager::AssetInstance, transform_compute::TransformCompute },
+    editor::inspectable::{Inpsect, Ins, Inspectable}, engine::{world::{transform::Transform, component::{ Component, _ComponentID}, Sys}, storage::_Storage, project::asset_manager::AssetInstance, transform_compute::TransformCompute },
 };
 use bytemuck::{Pod, Zeroable};
 // use parking_lot::RwLock;

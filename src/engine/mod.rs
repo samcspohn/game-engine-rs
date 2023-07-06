@@ -33,9 +33,7 @@ use self::transform_compute::cs::ty::transform;
 use self::world::World;
 
 pub mod storage;
-pub mod component;
 pub mod world;
-pub mod entity;
 pub mod project;
 pub mod input;
 pub mod rendering;
@@ -46,6 +44,7 @@ pub mod runtime_compilation;
 pub mod physics;
 pub mod particles;
 pub mod main_loop;
+pub mod utils;
 
 #[repr(C)]
 pub struct RenderJobData<'a> {

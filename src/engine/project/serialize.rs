@@ -66,7 +66,7 @@ fn deserialize_c(parent: i32, sgo: SerGameObject, world: &mut World) {
         world.deserialize(g, typ, val);
     }
     for c in sgo.t_c {
-        deserialize_c(g.t, c, world);
+        deserialize_c(g, c, world);
     }
 }
 

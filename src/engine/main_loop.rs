@@ -27,11 +27,11 @@ use crate::{
     editor::inspectable::{Inpsect, Ins, Inspectable},
     engine::rendering::camera::CameraData,
     engine::input::Input,
-    engine::{world::{transform::TransformData, World}, component::{SecondaryCommandBuffer, GPUWork}},
+    engine::world::{transform::TransformData, World },
     perf::Perf,
 };
 
-use super::{particles::particles::cs::ty::emitter_init, rendering::renderer_component::RendererData};
+use super::{particles::particles::cs::ty::emitter_init, rendering::renderer_component::RendererData, utils::GPUWork};
 
 type GameComm = (
     Sender<RenderingData>,

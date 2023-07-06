@@ -5,9 +5,9 @@ use rayon::prelude::*;
 use serde::{Serialize, Deserialize};
 use sync_unsafe_cell::SyncUnsafeCell;
 
-use crate::{editor::inspectable::Inspectable};
+use crate::editor::inspectable::Inspectable;
 
-use super::{input::Input, RenderJobData, component::{System, Component, _ComponentID}, world::{World, Sys, transform::{Transforms, Transform}}};
+use super::{input::Input, RenderJobData, world::{World, Sys, transform::{Transforms, Transform}, component::{System, Component, _ComponentID}}};
 
 
 pub struct _Storage<T> {

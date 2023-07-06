@@ -13,7 +13,7 @@ use std::{
 
 
 use crate::{
-    editor::{inspectable::{Inspectable, Inspectable_}, drag_drop::drag_source}, engine::{world::{World, transform::Transform, Sys}, component::GameObject, project::{serialize, asset_manager::AssetsManager}},
+    editor::{inspectable::{Inspectable, Inspectable_}, drag_drop::drag_source}, engine::{world::{World, transform::Transform, Sys }, project::{serialize, asset_manager::AssetsManager}},
 };
 use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
@@ -124,7 +124,7 @@ static mut _selected: Option<i32> = None;
 impl Inspectable_ for GameObjectInspector {
     fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
         let mut world = world.lock();
-        let mut rmv: Option<(GameObject, u64, i32)> = None;
+        let mut rmv: Option<(i32, u64, i32)> = None;
 
         let resp = ui.scope(|ui| {
 
@@ -266,9 +266,9 @@ impl Inspectable_ for GameObjectInspector {
                                         ui.heading(c.get_name());
                                         if ui.button("delete").clicked() {
                                             println!("delete component");
-                                            let g = GameObject { t: t_id };
+                                            // let g = t_id;
                                             // world.remove_component(g, *c_type, *id)
-                                            rmv = Some((g, c_type.clone(), *id));
+                                            rmv = Some((t_id, c_type.clone(), *id));
                                         }
                                     });
                                 })
@@ -394,8 +394,8 @@ impl Inspectable_ for GameObjectInspector {
                 // });
                 if let (Some(t_id), Some((key, c_id))) = (unsafe { _selected }, component_init)
                 {
-                    let g = GameObject { t: t_id };
-                    world.add_component_id(g, key, c_id)
+                    // let g = GameObject { t: t_id };
+                    world.add_component_id(t_id, key, c_id)
                 }
         }
     }
@@ -704,29 +704,29 @@ pub fn editor_ui(
                                     // resp
                                 // };
                                 if let Some(cm) = &context_menu {
-                                    let g = match cm {
+                                    let e = match cm {
                                         GameObjectContextMenu::NewGameObject(t_id) => {
                                             let _t = world.transforms.get(*t_id).get_transform();
-                                            let g = world
+                                            let e = world
                                                 .instantiate_with_transform_with_parent(*t_id, _t);
                                             println!("add game object");
-                                            g
+                                            e
                                         }
                                         GameObjectContextMenu::CopyGameObject(t_id) => {
-                                            let g = world.copy_game_object(*t_id);
+                                            let e = world.copy_game_object(*t_id);
                                             println!("copy game object");
-                                            g
+                                            e
                                         }
                                         GameObjectContextMenu::DeleteGameObject(t_id) => {
                                             world.destroy(*t_id);
-                                            GameObject { t: -1 }
+                                            -1
                                         }
                                     };
-                                    if g.t >= 0 {
+                                    if e >= 0 {
                                         // unsafe {
-                                            _selected = Some(g.t);
+                                            _selected = Some(e);
                                             _selected_transforms.clear();
-                                            _selected_transforms.insert(g.t, true);
+                                            _selected_transforms.insert(e, true);
                                         // }
                                     } else {
                                         // unsafe {
@@ -739,11 +739,11 @@ pub fn editor_ui(
                                     resp.response.context_menu(|ui: &mut Ui| {
                                         let resp = ui.menu_button("Add Game Object", |_ui| {});
                                         if resp.response.clicked() {
-                                            let g = world.instantiate();
+                                            let e = world.instantiate();
                                             unsafe {
-                                                _selected = Some(g.t);
+                                                _selected = Some(e);
                                                 _selected_transforms.clear();
-                                                _selected_transforms.insert(g.t, true);
+                                                _selected_transforms.insert(e, true);
                                             }
                                             println!("add game object");
                                             ui.close_menu();

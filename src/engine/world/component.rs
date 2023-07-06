@@ -6,16 +6,13 @@ use parking_lot::{Mutex, RwLock};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, SecondaryAutoCommandBuffer, allocator::StandardCommandBufferAllocator, PrimaryAutoCommandBuffer};
 
 
-use super::{
+use crate::engine::{
     input::Input,
     project::asset_manager::{AssetManagerBase, AssetsManager},
     world::{transform::Transform, Sys, World},
-    Defer, RenderJobData, physics::Physics, rendering::{renderer_component::RendererManager, vulkan_manager::VulkanManager, model::ModelRenderer},
+    Defer, RenderJobData, physics::Physics, rendering::{renderer_component::RendererManager, vulkan_manager::VulkanManager, model::ModelRenderer}, utils::{PrimaryCommandBuffer, GPUWork},
 };
 
-pub type SecondaryCommandBuffer = AutoCommandBufferBuilder<SecondaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
-pub type PrimaryCommandBuffer = AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
-pub type GPUWork = SegQueue<SendSync<Box<dyn FnOnce(&mut PrimaryCommandBuffer)>>>;
 pub struct System<'a> {
     pub physics: &'a Physics,
     pub defer: &'a Defer,
@@ -55,7 +52,7 @@ pub trait _ComponentID {
     const ID: u64;
 }
 
-#[derive(Clone, Copy)]
-pub struct GameObject {
-    pub t: i32,
-}
+// #[derive(Clone, Copy)]
+// pub struct GameObject {
+//     pub t: i32,
+// }

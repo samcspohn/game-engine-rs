@@ -21,11 +21,27 @@ use vulkano::{
 };
 
 use crate::{
-    engine::{component::{_ComponentID, Component}, world::{transform::{Transform, TransformData}, Sys}, RenderJobData, particles::particles::{ParticleRenderPipeline, ParticleCompute}, transform_compute::{TransformCompute, cs::ty::Data}, rendering::renderer_component::ur},
     editor::inspectable::{Inpsect, Ins, Inspectable},
+    engine::{
+        particles::particles::{ParticleCompute, ParticleRenderPipeline},
+        rendering::renderer_component::ur,
+        transform_compute::{cs::ty::Data, TransformCompute},
+        world::{
+            component::{Component, _ComponentID},
+            transform::{Transform, TransformData},
+            Sys,
+        },
+        RenderJobData,
+    },
 };
 
-use super::{pipeline::RenderPipeline, vulkan_manager::VulkanManager, renderer_component::{SharedRendererData, RendererData, buffer_usage_all}, model::ModelManager, texture::TextureManager};
+use super::{
+    model::ModelManager,
+    pipeline::RenderPipeline,
+    renderer_component::{buffer_usage_all, RendererData, SharedRendererData},
+    texture::TextureManager,
+    vulkan_manager::VulkanManager,
+};
 
 // #[derive(Clone)]
 pub struct CameraData {
@@ -78,13 +94,7 @@ impl Default for Camera {
     }
 }
 impl Inspectable for Camera {
-    fn inspect(
-        &mut self,
-        _transform: &Transform,
-        _id: i32,
-        ui: &mut egui::Ui,
-        sys: &Sys,
-    ) {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         Ins(&mut self.fov).inspect("fov", ui, sys);
         Ins(&mut self.near).inspect("near", ui, sys);
         Ins(&mut self.far).inspect("far", ui, sys);

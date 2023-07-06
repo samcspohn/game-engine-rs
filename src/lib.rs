@@ -18,13 +18,14 @@ pub mod prelude {
     pub use component_derive::ComponentID;
     pub use component_derive::AssetID;
     pub use engine::{
-        component::{Component, System, _ComponentID},
         world::{
+            component::{Component, System, _ComponentID},
             transform::{Transform, _Transform},
             Sys, World,
         },
         input,
         RenderJobData,
+        utils,
     };
     pub use inspectable::{Inpsect, Ins, Inspectable};
     pub use crate::engine::particles::particles::ParticleEmitter;

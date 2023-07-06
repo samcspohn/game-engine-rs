@@ -6,11 +6,21 @@ use std::sync::{
 use crate::{
     color_gradient::ColorGradient,
     editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
-    engine::{world::{transform::Transform, Sys, World}, component::{Component, _ComponentID}, storage::_Storage, project::asset_manager::{AssetInstance, Asset, AssetManager, AssetManagerBase}, rendering::{vulkan_manager::VulkanManager, renderer_component::buffer_usage_all}, transform_compute::cs::ty::transform},
+    engine::{
+        project::asset_manager::{Asset, AssetInstance, AssetManager, AssetManagerBase},
+        rendering::{renderer_component::buffer_usage_all, vulkan_manager::VulkanManager},
+        storage::_Storage,
+        transform_compute::cs::ty::transform,
+        world::{
+            component::{Component, _ComponentID},
+            transform::Transform,
+            Sys, World,
+        },
+    },
 };
 // use lazy_static::lazy::Lazy;
 
-use component_derive::{ComponentID, AssetID};
+use component_derive::{AssetID, ComponentID};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
@@ -94,8 +104,6 @@ pub mod fs {
 pub const MAX_PARTICLES: i32 = 1024 * 1024 * 8 * 2;
 // pub const NUM_EMITTERS: i32 = 1_200_000;
 
-
-
 // #[component]
 #[derive(ComponentID, Clone, Deserialize, Serialize)]
 #[serde(default)]
@@ -106,7 +114,9 @@ pub struct ParticleEmitter {
 }
 impl Default for ParticleEmitter {
     fn default() -> Self {
-        Self { template: AssetInstance::new(0) }
+        Self {
+            template: AssetInstance::new(0),
+        }
     }
 }
 
@@ -275,7 +285,9 @@ impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>> fo
         if let Ok(s) = serde_yaml::to_string(self) {
             match std::fs::write(file, s.as_bytes()) {
                 Ok(_) => (),
-                Err(a) => {println!("{}: failed for file: {}",a, file)}
+                Err(a) => {
+                    println!("{}: failed for file: {}", a, file)
+                }
             }
         }
     }
@@ -336,16 +348,15 @@ impl<T: Copy> AtomicVec<T> {
             index: AtomicUsize::new(0),
         }
     }
-    pub fn push_multi<'a>(&mut self, count: usize) -> ( MutexGuard<()>, &'a [T]) {
+    pub fn push_multi<'a>(&mut self, count: usize) -> (MutexGuard<()>, &'a [T]) {
         let _l = self.lock.lock();
         unsafe {
             let index = self.index.load(Ordering::Relaxed);
             (*self.data.get()).reserve(count);
             (*self.data.get()).set_len(index + count);
             self.index.fetch_add(count, Ordering::Relaxed);
-            (_l, &(*self.data.get())[index..(index+count)])
+            (_l, &(*self.data.get())[index..(index + count)])
         }
-        
     }
     pub fn try_push(&self, d: T) -> Option<usize> {
         let index = self.index.fetch_add(1, Ordering::Relaxed);
@@ -634,7 +645,9 @@ impl ParticleCompute {
             particle_templates.clone(),
             &["ptem"],
         )));
-        particle_template_manager.lock().new_asset("res/default.ptem");
+        particle_template_manager
+            .lock()
+            .new_asset("res/default.ptem");
 
         let copy_buffer = CpuAccessibleBuffer::from_iter(
             &vk.mem_alloc,

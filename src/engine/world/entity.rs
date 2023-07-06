@@ -2,11 +2,11 @@ use force_send_sync::SendSync;
 use serde::{Deserialize, Serialize};
 use thincollections::thin_map::ThinMap;
 
-use crate::editor::inspectable::Inspectable;
+use crate::{editor::inspectable::Inspectable, engine::storage::{Storage, StorageBase}};
 
 use super::{
     component::{Component, _ComponentID},
-    world::{World, transform::_Transform}, storage::{Storage, StorageBase},
+    {World, transform::_Transform}
 };
 
 pub struct Entity {
