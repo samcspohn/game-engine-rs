@@ -1,7 +1,5 @@
 #![allow(warnings)]
 
-
-mod color_gradient;
 mod editor;
 mod engine;
 mod perf;

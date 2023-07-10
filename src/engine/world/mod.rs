@@ -19,10 +19,7 @@ use thincollections::thin_map::ThinMap;
 use crate::editor::inspectable::Inspectable;
 
 use self::{
-    component::{
-        Component, System,
-        _ComponentID,
-    },
+    component::{Component, System, _ComponentID},
     entity::{Entity, EntityParBuilder, _EntityParBuilder},
     transform::{Transform, Transforms},
 };
@@ -39,7 +36,8 @@ use super::{
         vulkan_manager::VulkanManager,
     },
     storage::{Storage, StorageBase},
-    Defer, RenderJobData, utils::GPUWork,
+    utils::GPUWork,
+    Defer, RenderJobData,
 };
 
 pub struct Sys {
@@ -149,7 +147,7 @@ impl World {
         EntityParBuilder::new(parent, count, chunk, &self)
     }
     pub fn instantiate(&mut self) -> i32 {
-        let ret =  self.transforms.new_transform(self.root);
+        let ret = self.transforms.new_transform(self.root);
         {
             let entities = &mut self.entities.write();
             if ret as usize >= entities.len() {
@@ -179,24 +177,20 @@ impl World {
         let src = entities[t as usize].lock();
         let mut dest = entities[g as usize].lock();
         if let (Some(src_ent), Some(dest_ent)) = (&mut src.as_ref(), &mut dest.as_mut()) {
-            let children: Vec<i32> = {
-                // let mut dest_obj = dest_obj;
-                for c in src_ent.components.iter() {
-                    dest_ent.components.insert(
-                        c.0.clone(),
-                        self.copy_component_id(&self.transforms.get(g), c.0.clone(), *c.1),
-                    );
-                }
-                let x = self
-                    .transforms
-                    .get(t)
-                    .get_meta()
-                    .children
-                    .iter()
-                    .copied()
-                    .collect();
-                x
-            };
+            for c in src_ent.components.iter() {
+                dest_ent.components.insert(
+                    c.0.clone(),
+                    self.copy_component_id(&self.transforms.get(g), c.0.clone(), *c.1),
+                );
+            }
+            let children: Vec<i32> = self
+                .transforms
+                .get(t)
+                .get_meta()
+                .children
+                .iter()
+                .copied()
+                .collect();
             drop(src);
             drop(dest);
             drop(entities);
@@ -217,24 +211,20 @@ impl World {
         let src = entities[t as usize].lock();
         let mut dest = entities[g as usize].lock();
         if let (Some(src_ent), Some(dest_ent)) = (&mut src.as_ref(), &mut dest.as_mut()) {
-            let children: Vec<i32> = {
-                // let mut dest_obj = dest_obj.write();
-                for c in src_ent.components.iter() {
-                    dest_ent.components.insert(
-                        c.0.clone(),
-                        self.copy_component_id(&self.transforms.get(g), c.0.clone(), *c.1),
-                    );
-                }
-                let x = self
-                    .transforms
-                    .get(t)
-                    .get_meta()
-                    .children
-                    .iter()
-                    .copied()
-                    .collect();
-                x
-            };
+            for c in src_ent.components.iter() {
+                dest_ent.components.insert(
+                    c.0.clone(),
+                    self.copy_component_id(&self.transforms.get(g), c.0.clone(), *c.1),
+                );
+            }
+            let children: Vec<i32> = self
+                .transforms
+                .get(t)
+                .get_meta()
+                .children
+                .iter()
+                .copied()
+                .collect();
             drop(src);
             drop(dest);
             drop(entities);

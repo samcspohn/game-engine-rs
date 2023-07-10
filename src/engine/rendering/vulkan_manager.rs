@@ -237,11 +237,7 @@ impl VulkanManager {
             mem_alloc,
             desc_alloc,
             comm_alloc,
-            query_pool: Mutex::new(HashMap::<
-                i32,
-                Arc<QueryPool>,
-                BuildHasherDefault<NoHashHasher<i32>>,
-            >::default()),
+            query_pool: Mutex::new(HashMap::default()),
             query_counter: AtomicI32::new(0),
         })
     }

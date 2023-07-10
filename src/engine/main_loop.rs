@@ -101,6 +101,7 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
 
             perf.update("world sim".into(), Instant::now() - inst);
         } else {
+            world._destroy();
             world.editor_update(&input, &gpu_work);
         }
         let inst = Instant::now();

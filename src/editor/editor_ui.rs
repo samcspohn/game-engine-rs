@@ -735,29 +735,27 @@ pub fn editor_ui(
                                         // }
                                     }
                                 }
-                                // else if let Some(resp) = resp {
-                                    resp.response.context_menu(|ui: &mut Ui| {
-                                        let resp = ui.menu_button("Add Game Object", |_ui| {});
-                                        if resp.response.clicked() {
-                                            let e = world.instantiate();
-                                            unsafe {
-                                                _selected = Some(e);
-                                                _selected_transforms.clear();
-                                                _selected_transforms.insert(e, true);
-                                            }
-                                            println!("add game object");
-                                            ui.close_menu();
+                                resp.response.context_menu(|ui: &mut Ui| {
+                                    let resp = ui.menu_button("Add Game Object", |_ui| {});
+                                    if resp.response.clicked() {
+                                        let e = world.instantiate();
+                                        unsafe {
+                                            _selected = Some(e);
+                                            _selected_transforms.clear();
+                                            _selected_transforms.insert(e, true);
                                         }
-                                        if ui.menu_button("Save", |_ui| {}).response.clicked() {
-                                            serialize::serialize(&world);
-                                            ui.close_menu();
-                                        }
-                                        if ui.menu_button("Load", |_ui| {}).response.clicked() {
-                                            serialize::deserialize(&mut world);
-                                            ui.close_menu();
-                                        }
-                                    });
-                                // }
+                                        println!("add game object");
+                                        ui.close_menu();
+                                    }
+                                    if ui.menu_button("Save", |_ui| {}).response.clicked() {
+                                        serialize::serialize(&world);
+                                        ui.close_menu();
+                                    }
+                                    if ui.menu_button("Load", |_ui| {}).response.clicked() {
+                                        serialize::deserialize(&mut world);
+                                        ui.close_menu();
+                                    }
+                                });
                             },
                             "Inspector" => {
                                 

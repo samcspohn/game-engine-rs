@@ -37,7 +37,6 @@ thread-priority = "*"
 component-derive = { path = "component-derive" }
 num_cpus = "*"
 num-integer = "*"
-# libloading = "*"
 libc = "*"
 rayon = "*"
 crossbeam = "*"
@@ -45,12 +44,9 @@ once_cell = "*"
 pqueue = "*"
 rand = "*"
 scoped_threadpool = "*"
-
 nalgebra-glm = { version = "*", features = ["serde-serialize"]}
 
-
 bytemuck = { version = "*", features = ["derive", "extern_crate_std", "min_const_generics"] }
-# cgmath = "*"
 png = "*"
 image = "*"
 serde = { version = "*", features = ["derive"] }
@@ -71,7 +67,6 @@ vulkano = "0.32.3"
 vulkano-shaders = "0.32.0"
 winit = "0.27.5"
 vulkano-win = "0.32.0"
-
 
 egui = "0.20.1"
 # egui_vulkano = "*"

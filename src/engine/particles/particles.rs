@@ -4,9 +4,9 @@ use std::sync::{
 };
 
 use crate::{
-    color_gradient::ColorGradient,
     editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
     engine::{
+        color_gradient::ColorGradient,
         project::asset_manager::{Asset, AssetInstance, AssetManager, AssetManagerBase},
         rendering::{renderer_component::buffer_usage_all, vulkan_manager::VulkanManager},
         storage::_Storage,

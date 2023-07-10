@@ -3,7 +3,6 @@
 
 
 pub mod perf;
-pub mod color_gradient;
 pub mod editor;
 pub mod engine;
 pub use component_derive;

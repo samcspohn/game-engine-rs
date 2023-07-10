@@ -45,6 +45,7 @@ pub mod physics;
 pub mod particles;
 pub mod main_loop;
 pub mod utils;
+pub mod color_gradient;
 
 #[repr(C)]
 pub struct RenderJobData<'a> {

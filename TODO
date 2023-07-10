@@ -54,4 +54,5 @@ refactor:
   ☐ go through and ensure args to functions are reasonable
   ☐ fix multiple meshes in model
   ☐ optimize parallel instantiate/de-instantiate
+  ☐ implement Engine struct to contain all functionality/state
   
