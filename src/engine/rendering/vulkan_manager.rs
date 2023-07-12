@@ -107,8 +107,8 @@ impl VulkanManager {
                     .map(|i| (p, i as u32))
             })
             .min_by_key(|(p, _)| match p.properties().device_type {
-                PhysicalDeviceType::DiscreteGpu => 1,
-                PhysicalDeviceType::IntegratedGpu => 0,
+                PhysicalDeviceType::DiscreteGpu => 0,
+                PhysicalDeviceType::IntegratedGpu => 1,
                 PhysicalDeviceType::VirtualGpu => 2,
                 PhysicalDeviceType::Cpu => 3,
                 PhysicalDeviceType::Other => 4,

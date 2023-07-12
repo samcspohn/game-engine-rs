@@ -13,7 +13,7 @@ use vulkano::{
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    format::Format,
+    format::{Format, ClearValue},
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage},
     pipeline::{graphics::viewport::Viewport, ComputePipeline, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
@@ -141,7 +141,7 @@ impl CameraData {
             attachments: {
                 color: {
                     load: Clear,
-                    store: DontCare,
+                    store: Store,
                     format: Format::R8G8B8A8_UNORM,
                     samples: 1,
                 },
@@ -310,7 +310,7 @@ impl CameraData {
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into())],
+                    clear_values: vec![ Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into())],
                     ..RenderPassBeginInfo::framebuffer(
                         self.framebuffers[image_num as usize].clone(),
                     )
