@@ -124,7 +124,7 @@ impl FileWatcher {
         while let Some(e) = self.events_queue.pop() {
             if let Ok(e) = e {
                 for e in e.iter() {
-                    if !self.filter(&e.paths[0]) {
+                    if e.paths.len() > 0 && !self.filter(&e.paths[0]) {
                         continue;
                     }
                     match e.kind {
