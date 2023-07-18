@@ -32,7 +32,7 @@ use vulkano_win::VkSurfaceBuild;
 use winit::{
     dpi::LogicalSize,
     event_loop::EventLoop,
-    window::{Window, WindowBuilder},
+    window::{Window, WindowBuilder, self},
 };
 
 #[repr(C)]
@@ -53,6 +53,14 @@ pub struct VulkanManager {
 }
 
 impl VulkanManager {
+    pub fn window(&self) -> &Window {
+        self
+        .surface
+        .object()
+        .unwrap()
+        .downcast_ref::<Window>()
+        .unwrap()
+    }
     pub fn swapchain(&self) -> Arc<Swapchain> {
         unsafe { &*self.swapchain.get() }.clone()
     }

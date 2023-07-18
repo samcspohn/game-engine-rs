@@ -397,7 +397,7 @@ impl SharedRendererData {
                         WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
                         WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
                         WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                        WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
+                        WriteDescriptorSet::buffer(4, transform_compute.gpu_transforms.clone()),
                         WriteDescriptorSet::buffer(5, offsets_buffer),
                         WriteDescriptorSet::buffer(6, uniforms),
                     ],

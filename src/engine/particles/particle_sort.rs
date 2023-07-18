@@ -16,9 +16,11 @@ use vulkano::{
     DeviceSize,
 };
 
-use crate::engine::{rendering::renderer_component::buffer_usage_all, transform_compute::cs::ty::transform};
+use crate::engine::{
+    rendering::renderer_component::buffer_usage_all, transform_compute::cs::ty::transform,
+};
 
-use super::particles::{MAX_PARTICLES, ParticleBuffers};
+use super::particles::{ParticleBuffers, _MAX_PARTICLES};
 
 pub mod cs {
     vulkano_shaders::shader! {
@@ -61,6 +63,7 @@ impl ParticleSort {
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
+        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
 
         let a1 = DeviceLocalBuffer::<[cs::ty::_a]>::array(
             &mem,
@@ -209,6 +212,8 @@ impl ParticleSort {
         >,
         desc_allocator: &StandardDescriptorSetAllocator,
     ) {
+        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+
         let mut uniform_data = cs::ty::Data {
             num_jobs: MAX_PARTICLES,
             stage: 0,

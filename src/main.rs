@@ -4,25 +4,22 @@ mod editor;
 mod engine;
 mod perf;
 
-
-
 use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
-use crate::engine::particles::particles::{ParticleCompute, ParticleEmitter};
-use crate::engine::project::{load_project, save_project};
+use crate::engine::input::Input;
 use crate::engine::main_loop::{game_thread_fn, RenderingData};
+use crate::engine::particles::particles::{ParticleCompute, ParticleEmitter};
+use crate::engine::project::asset_manager::{AssetManagerBase, AssetsManager};
+use crate::engine::project::{file_watcher, Project};
+use crate::engine::project::{load_project, save_project};
 use crate::engine::rendering::camera::{Camera, CameraData};
 use crate::engine::rendering::model::ModelManager;
 use crate::engine::rendering::renderer_component::{buffer_usage_all, Renderer};
 use crate::engine::rendering::texture::TextureManager;
 use crate::engine::rendering::vulkan_manager::VulkanManager;
-use crate::engine::transform_compute::cs;
-use crate::engine::{runtime_compilation, particles, transform_compute};
-use crate::perf::Perf;
-use crate::engine::input::Input;
-use crate::engine::project::asset_manager::{AssetManagerBase, AssetsManager};
-use crate::engine::project::{file_watcher, Project};
+use crate::engine::transform_compute::{cs, TransformCompute};
 use crate::engine::world::World;
-
+use crate::engine::{particles, runtime_compilation, transform_compute};
+use crate::perf::Perf;
 
 use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
@@ -70,7 +67,6 @@ use winit::{
     window::Window,
 };
 
-
 #[cfg(target_os = "windows")]
 mod win_alloc {
     use mimalloc::MiMalloc;
@@ -81,6 +77,10 @@ mod win_alloc {
 
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
+    crate::engine::utils::SETTINGS
+        .read()
+        .get::<i32>("MAX_PARTICLES")
+        .unwrap();
     let args: Vec<String> = env::args().collect();
     // dbg!(args);
     let engine_dir = env::current_dir().ok().unwrap();
@@ -130,11 +130,7 @@ fn main() {
     model_manager.lock().from_file("eng_res/cube/cube.obj");
     assert!(env::set_current_dir(&Path::new(&args[1])).is_ok());
 
-
-    let particles_system = Arc::new(ParticleCompute::new(
-        vk.device.clone(),
-        vk.clone(),
-    ));
+    let particles_system = Arc::new(ParticleCompute::new(vk.device.clone(), vk.clone()));
 
     let world = Arc::new(Mutex::new(World::new(
         particles_system.clone(),
@@ -203,44 +199,8 @@ fn main() {
     let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
 
     let mut frame_time = Instant::now();
-    // let mut fps_time: f32 = 0.0;
 
-    let mut transform_compute = transform_compute::transform_buffer_init(
-        vk.device.clone(),
-        // vk.queue.clone(),
-        vec![
-            cs::ty::transform {
-                position: Default::default(),
-                _dummy0: Default::default(),
-                rotation: Default::default(),
-                scale: Default::default(),
-                _dummy1: Default::default()
-            };
-            1
-        ],
-        vk.mem_alloc.clone(),
-        &vk.comm_alloc,
-        vk.desc_alloc.clone(),
-        vk.images.len() as u32,
-    );
-
-    let cs = cs::load(vk.device.clone()).unwrap();
-
-    // Create compute-pipeline for applying compute shader to vertices.
-    let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
-        vk.device.clone(),
-        cs.entry_point("main").unwrap(),
-        &(),
-        None,
-        |_| {},
-    )
-    .expect("Failed to create compute shader");
-
-    let transform_uniforms = CpuBufferPool::<cs::ty::Data>::new(
-        vk.mem_alloc.clone(),
-        buffer_usage_all(),
-        MemoryUsage::Download,
-    );
+    let mut transform_compute = TransformCompute::new(vk.clone());
 
     let mut fps_queue = std::collections::VecDeque::new();
 
@@ -304,15 +264,7 @@ fn main() {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
-            Event::DeviceEvent { event, .. } => match event {
-                DeviceEvent::MouseMotion { delta } => {
-                    if focused {
-                        input.mouse_x += delta.0;
-                        input.mouse_y += delta.1;
-                    }
-                }
-                _ => (),
-            },
+            Event::DeviceEvent { event, .. } => input.process_device(event, focused),
             Event::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::Focused(foc) => {
@@ -329,55 +281,23 @@ fn main() {
                         perf.print();
                     }
                     WindowEvent::MouseInput {
-                        device_id: _,
+                        device_id,
                         state,
                         button,
-                        ..
-                    } => match state {
-                        ElementState::Pressed => {
-                            input.mouse_buttons.insert(
-                                match button {
-                                    MouseButton::Left => 0,
-                                    MouseButton::Middle => 1,
-                                    MouseButton::Right => 2,
-                                    MouseButton::Other(x) => x as u32,
-                                },
-                                true,
-                            );
-                        }
-                        ElementState::Released => {
-                            input.mouse_buttons.insert(
-                                match button {
-                                    MouseButton::Left => 0,
-                                    MouseButton::Middle => 1,
-                                    MouseButton::Right => 2,
-                                    MouseButton::Other(x) => x as u32,
-                                },
-                                false,
-                            );
-                        }
-                    },
-                    WindowEvent::KeyboardInput { input: x, .. } => {
-                        let _ = match x {
-                            KeyboardInput {
-                                state: ElementState::Released,
-                                virtual_keycode: Some(key),
-                                ..
-                            } => {
-                                input.key_downs.insert(key, false);
-                                input.key_ups.insert(key, true);
-                            }
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(key),
-                                ..
-                            } => {
-                                input.key_presses.insert(key, true);
-                                input.key_downs.insert(key, true);
-                            }
-                            _ => {}
-                        };
-                    }
+                        modifiers,
+                    } => input.process_mouse_input(device_id, state, button, modifiers),
+                    WindowEvent::MouseWheel {
+                        device_id,
+                        delta,
+                        phase,
+                        modifiers,
+                    } => input.process_mouse_wheel(device_id, delta, phase, modifiers),
+
+                    WindowEvent::KeyboardInput {
+                        input: ky_input,
+                        device_id,
+                        is_synthetic,
+                    } => input.process_keyboard(device_id, ky_input, is_synthetic),
                     WindowEvent::ModifiersChanged(m) => modifiers = m,
                     WindowEvent::Resized(_size) => {
                         recreate_swapchain = true;
@@ -385,62 +305,25 @@ fn main() {
                     _ => (),
                 }
 
-                if !input.get_key(&VirtualKeyCode::Space) {
-                    gui.update(&event);
-                }
+                // if !input.get_key(&VirtualKeyCode::Space) {
+                gui.update(&event);
+                // }
             }
             Event::RedrawEventsCleared => {
                 puffin::GlobalProfiler::lock().new_frame();
 
                 puffin::profile_scope!("full");
-                ////////////////////////////////////
 
-                let full = Instant::now();
-                let RenderingData {
-                    transform_data,
-                    cam_datas,
-                    main_cam_id,
-                    renderer_data: mut rd,
-                    emitter_inits,
-                    gpu_work,
-                } = {
-                    puffin::profile_scope!("wait for game");
-                    let inst = Instant::now();
-                    let rd = coms.0.recv().unwrap();
-
-                    perf.update("wait for game".into(), Instant::now() - inst);
-                    rd
-                };
-
-                if !playing_game {
-                    editor_cam.update(&input);
-                }
-
-                file_watcher.get_updates(assets_manager.clone());
-
-                let dimensions = vk
-                    .surface
-                    .object()
-                    .unwrap()
-                    .downcast_ref::<Window>()
-                    .unwrap()
-                    .inner_size();
+                let dimensions = vk.window().inner_size();
                 if dimensions.width == 0 || dimensions.height == 0 {
                     return;
                 }
-                previous_frame_end.as_mut().unwrap().cleanup_finished();
+                // previous_frame_end.as_mut().unwrap().cleanup_finished();
 
                 if recreate_swapchain {
                     println!("recreate swapchain");
                     println!("dimensions {}: {}", dimensions.width, dimensions.height);
-                    let dimensions: [u32; 2] = vk
-                        .surface
-                        .object()
-                        .unwrap()
-                        .downcast_ref::<Window>()
-                        .unwrap()
-                        .inner_size()
-                        .into();
+                    let dimensions: [u32; 2] = vk.window().inner_size().into();
 
                     let mut swapchain = vk.swapchain();
                     let (new_swapchain, new_images) =
@@ -474,6 +357,32 @@ fn main() {
                         }
                         Err(e) => panic!("Failed to acquire next image: {:?}", e),
                     };
+
+                ////////////////////////////////////
+
+                let full = Instant::now();
+                let RenderingData {
+                    transform_data,
+                    cam_datas,
+                    main_cam_id,
+                    renderer_data: mut rd,
+                    emitter_inits,
+                    gpu_work,
+                } = {
+                    puffin::profile_scope!("wait for game");
+                    let inst = Instant::now();
+                    let rd = coms.0.recv().unwrap();
+
+                    perf.update("wait for game".into(), Instant::now() - inst);
+                    rd
+                };
+
+                if !playing_game {
+                    editor_cam.update(&input);
+                }
+
+                file_watcher.get_updates(assets_manager.clone());
+
                 let cam_num = if playing_game { main_cam_id } else { -1 };
                 let fc = fc_map
                     .entry(cam_num)
@@ -519,51 +428,16 @@ fn main() {
 
                 let render_jobs = world.lock().render();
 
-                // let rm = renderer_manager.read();
                 let mut rm = rm.write();
 
                 // start new game frame
+                ///////////////////////////////////////////////////////////////
                 let res = coms.1.send((input.clone(), _playing_game));
                 if res.is_err() {
                     return;
                 }
-
-                input.key_presses.clear();
-                input.key_ups.clear();
-                input.mouse_x = 0.;
-                input.mouse_y = 0.;
-
+                input.reset();
                 /////////////////////////////////////////////////////////////////
-                let inst = Instant::now();
-
-                let (position_update_data, rotation_update_data, scale_update_data) = {
-                    puffin::profile_scope!("buffer transform data");
-                    let position_update_data = transform_compute.get_position_update_data(
-                        &transform_data,
-                        image_num,
-                        vk.mem_alloc.clone(),
-                    );
-
-                    let rotation_update_data = transform_compute.get_rotation_update_data(
-                        &transform_data,
-                        image_num,
-                        vk.mem_alloc.clone(),
-                    );
-
-                    let scale_update_data = transform_compute.get_scale_update_data(
-                        &transform_data,
-                        image_num,
-                        vk.mem_alloc.clone(),
-                    );
-                    (
-                        position_update_data,
-                        rotation_update_data,
-                        scale_update_data,
-                    )
-                };
-                perf.update("write to buffer".into(), Instant::now() - inst);
-
-                // render_thread = thread::spawn( || {
 
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &vk.comm_alloc,
@@ -572,66 +446,17 @@ fn main() {
                 )
                 .unwrap();
 
+                transform_compute.update_data(&mut builder, image_num, &transform_data, &mut perf);
+
                 let inst = Instant::now();
-
-                {
-                    puffin::profile_scope!("transform update compute");
-
-                    // compute shader transforms
-                    transform_compute.update(
-                        vk.device.clone(),
-                        &mut builder,
-                        transform_data.extent,
-                        vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
-                    );
-                    // {
-                    //     puffin::profile_scope!("update transforms");
-                    // stage 0
-                    transform_compute.update_positions(
-                        &mut builder,
-                        &transform_uniforms,
-                        compute_pipeline.clone(),
-                        position_update_data,
-                        vk.mem_alloc.clone(),
-                        &vk.comm_alloc,
-                        vk.desc_alloc.clone(),
-                        image_num,
-                    );
-
-                    // stage 1
-                    transform_compute.update_rotations(
-                        &mut builder,
-                        &transform_uniforms,
-                        compute_pipeline.clone(),
-                        rotation_update_data,
-                        vk.desc_alloc.clone(),
-                        image_num,
-                    );
-
-                    // stage 2
-                    transform_compute.update_scales(
-                        &mut builder,
-                        &transform_uniforms,
-                        compute_pipeline.clone(),
-                        scale_update_data,
-                        vk.desc_alloc.clone(),
-                        image_num,
-                    );
-                }
-                perf.update("transform update".into(), inst.elapsed());
-                let inst = Instant::now();
-                {
-                    particles_system.update(
-                        &mut builder,
-                        emitter_inits,
-                        transform_compute.transform.clone(),
-                        input.time.dt,
-                        input.time.time,
-                        editor_cam.pos.into(),
-                        editor_cam.rot.coords.into(),
-                    );
-                }
+                particles_system.update(
+                    &mut builder,
+                    emitter_inits,
+                    &transform_compute,
+                    &input.time,
+                    editor_cam.pos.into(),
+                    editor_cam.rot.coords.into(),
+                );
                 perf.update("particle update".into(), inst.elapsed());
 
                 let inst = Instant::now();
@@ -660,10 +485,6 @@ fn main() {
                 while let Some(job) = gpu_work.pop() {
                     job.unwrap()(&mut builder);
                 }
-                // let a = Arc::try_unwrap(gpu_work).ok().unwrap();
-                // let a = a.into_inner().unwrap();
-                // let b = a.build().unwrap();
-                // builder.execute_commands(b).unwrap();
 
                 if !playing_game {
                     cam_data.update(editor_cam.pos, editor_cam.rot, 0.01f32, 10_000f32, 70f32);
@@ -672,9 +493,7 @@ fn main() {
                         &mut builder,
                         &mut transform_compute,
                         particles_system.clone(),
-                        &transform_uniforms,
                         &transform_data,
-                        compute_pipeline.clone(),
                         rm.pipeline.clone(),
                         offset_vec,
                         &mut rm,
@@ -691,9 +510,7 @@ fn main() {
                             &mut builder,
                             &mut transform_compute,
                             particles_system.clone(),
-                            &transform_uniforms,
                             &transform_data,
-                            compute_pipeline.clone(),
                             rm.pipeline.clone(),
                             offset_vec.clone(),
                             &mut rm,
@@ -708,35 +525,21 @@ fn main() {
                 perf.update("render camera(s)".into(), inst.elapsed());
                 let inst = Instant::now();
 
-                {
-                    puffin::profile_scope!("render meshes");
-
-                    builder
-                        .begin_render_pass(
-                            RenderPassBeginInfo {
-                                clear_values: vec![
-                                    Some([0., 0., 0., 1.].into()),
-                                    // Some([0., 0., 0., 1.].into()),
-                                    // Some(1f32.into()),
-                                ],
-                                ..RenderPassBeginInfo::framebuffer(
-                                    framebuffers[image_num as usize].clone(),
-                                )
-                            },
-                            SubpassContents::SecondaryCommandBuffers,
-                        )
-                        .unwrap()
-                        .set_viewport(0, [viewport.clone()]);
-                }
-
-                // Automatically start the next render subpass and draw the gui
-                let size = vk
-                    .surface
-                    .object()
+                builder
+                    .begin_render_pass(
+                        RenderPassBeginInfo {
+                            clear_values: vec![Some([0., 0., 0., 1.].into())],
+                            ..RenderPassBeginInfo::framebuffer(
+                                framebuffers[image_num as usize].clone(),
+                            )
+                        },
+                        SubpassContents::SecondaryCommandBuffers,
+                    )
                     .unwrap()
-                    .downcast_ref::<Window>()
-                    .unwrap()
-                    .inner_size();
+                    .set_viewport(0, [viewport.clone()]);
+
+                // start next render subpass and draw gui
+                let size = vk.window().inner_size();
 
                 let gui_commands = gui.draw_on_subpass_image([size.width, size.height]);
                 builder.execute_commands(gui_commands).unwrap();
@@ -755,6 +558,7 @@ fn main() {
                 builder.end_render_pass().unwrap();
 
                 let command_buffer = builder.build().unwrap();
+                previous_frame_end.as_mut().unwrap().cleanup_finished();
                 let execute = previous_frame_end
                     .take()
                     .unwrap()

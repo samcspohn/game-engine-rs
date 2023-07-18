@@ -13,7 +13,7 @@ use vulkano::{
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    format::{Format, ClearValue},
+    format::{ClearValue, Format},
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage},
     pipeline::{graphics::viewport::Viewport, ComputePipeline, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
@@ -207,9 +207,9 @@ impl CameraData {
         >,
         transform_compute: &mut TransformCompute,
         particles: Arc<ParticleCompute>,
-        transform_uniforms: &CpuBufferPool<Data>,
+        // transform_uniforms: &CpuBufferPool<Data>,
         transform_data: &TransformData,
-        compute_pipeline: Arc<ComputePipeline>,
+        // compute_pipeline: Arc<ComputePipeline>,
         renderer_pipeline: Arc<ComputePipeline>,
         offset_vec: Vec<i32>,
         rm: &mut RwLockWriteGuard<SharedRendererData>,
@@ -224,18 +224,20 @@ impl CameraData {
             return;
         }
         let cvd = cvd.unwrap();
-        transform_compute.update_mvp(
-            builder,
-            vk.device.clone(),
-            cvd.view,
-            cvd.proj,
-            transform_uniforms,
-            compute_pipeline,
-            transform_data.extent as i32,
-            vk.mem_alloc.clone(),
-            &vk.comm_alloc,
-            vk.desc_alloc.clone(),
-        );
+        // transform_compute.update_mvp(
+        //     builder,
+        //     vk.device.clone(),
+        //     cvd.view,
+        //     cvd.proj,
+        //     // transform_uniforms,
+        //     // compute_pipeline,
+        //     transform_data.extent as i32,
+        //     vk.mem_alloc.clone(),
+        //     &vk.comm_alloc,
+        //     vk.desc_alloc.clone(),
+        // );
+        transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_data.extent as i32);
+        
         if !offset_vec.is_empty() {
             let offsets_buffer = CpuAccessibleBuffer::from_iter(
                 &vk.mem_alloc,
@@ -274,7 +276,7 @@ impl CameraData {
                             WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
                             WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
                             WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                            WriteDescriptorSet::buffer(4, transform_compute.transform.clone()),
+                            WriteDescriptorSet::buffer(4, transform_compute.gpu_transforms.clone()),
                             WriteDescriptorSet::buffer(5, offsets_buffer),
                             WriteDescriptorSet::buffer(6, uniforms),
                         ],
@@ -300,7 +302,7 @@ impl CameraData {
             // per camera
             cvd.view.into(),
             cvd.proj.into(),
-            transform_compute.transform.clone(),
+            transform_compute.gpu_transforms.clone(),
             &particles.particle_buffers,
             vk.device.clone(),
             vk.queue.clone(),
@@ -310,7 +312,7 @@ impl CameraData {
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![ Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into())],
+                    clear_values: vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into())],
                     ..RenderPassBeginInfo::framebuffer(
                         self.framebuffers[image_num as usize].clone(),
                     )
@@ -363,7 +365,7 @@ impl CameraData {
         }
         let mut rjd = RenderJobData {
             builder,
-            transforms: transform_compute.transform.clone(),
+            transforms: transform_compute.gpu_transforms.clone(),
             mvp: transform_compute.mvp.clone(),
             view: &cvd.view,
             proj: &cvd.proj,
@@ -382,7 +384,7 @@ impl CameraData {
             cvd.proj,
             cvd.cam_rot.coords.into(),
             cvd.cam_pos.into(),
-            transform_compute.transform.clone(),
+            transform_compute.gpu_transforms.clone(),
             vk.mem_alloc.clone(),
             &vk.comm_alloc,
             vk.desc_alloc.clone(),

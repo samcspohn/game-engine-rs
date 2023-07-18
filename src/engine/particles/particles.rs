@@ -10,7 +10,8 @@ use crate::{
         project::asset_manager::{Asset, AssetInstance, AssetManager, AssetManagerBase},
         rendering::{renderer_component::buffer_usage_all, vulkan_manager::VulkanManager},
         storage::_Storage,
-        transform_compute::cs::ty::transform,
+        time::Time,
+        transform_compute::{self, cs::ty::transform, TransformCompute},
         world::{
             component::{Component, _ComponentID},
             transform::Transform,
@@ -101,8 +102,15 @@ pub mod fs {
     }
 }
 
-pub const MAX_PARTICLES: i32 = 1024 * 1024 * 8 * 2;
-// pub const NUM_EMITTERS: i32 = 1_200_000;
+use lazy_static::lazy_static;
+
+// pub const MAX_PARTICLES: i32 = SETTINGS.read().get::<i32>("MAX_PARTICLES").unwrap();
+lazy_static! {
+    pub static ref _MAX_PARTICLES: i32 = crate::engine::utils::SETTINGS
+        .read()
+        .get::<i32>("MAX_PARTICLES")
+        .unwrap();
+}
 
 // #[component]
 #[derive(ComponentID, Clone, Deserialize, Serialize)]
@@ -463,7 +471,7 @@ impl ParticleCompute {
             init_emitters: vk.new_query(),
             sort_particles: vk.new_query(),
         };
-
+        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
         let particles = DeviceLocalBuffer::<[cs::ty::particle]>::array(
             &vk.mem_alloc,
             MAX_PARTICLES as vulkano::DeviceSize,
@@ -781,32 +789,35 @@ impl ParticleCompute {
             Arc<StandardCommandBufferAllocator>,
         >,
         emitter_inits: (usize, Vec<emitter_init>),
-        transform: Arc<DeviceLocalBuffer<[transform]>>,
-        dt: f32,
-        time: f32,
+        transform_compute: &TransformCompute,
+        time: &Time,
         cam_pos: [f32; 3],
         cam_rot: [f32; 4],
     ) {
         self.emitter_init(
             builder,
-            transform.clone(),
+            transform_compute.gpu_transforms.clone(),
             emitter_inits.1.clone(),
             emitter_inits.0,
-            dt,
             time,
             cam_pos,
             cam_rot,
         );
         self.emitter_update(
             builder,
-            transform.clone(),
+            transform_compute.gpu_transforms.clone(),
             emitter_inits.0,
-            dt,
             time,
             cam_pos,
             cam_rot,
         );
-        self.particle_update(builder, transform, dt, time, cam_pos, cam_rot);
+        self.particle_update(
+            builder,
+            transform_compute.gpu_transforms.clone(),
+            time,
+            cam_pos,
+            cam_rot,
+        );
     }
     pub fn emitter_init(
         &self,
@@ -817,8 +828,8 @@ impl ParticleCompute {
         transform: Arc<DeviceLocalBuffer<[transform]>>,
         emitter_inits: Vec<cs::ty::emitter_init>,
         emitter_len: usize,
-        dt: f32,
-        time: f32,
+        time: &Time,
+
         cam_pos: [f32; 3],
         cam_rot: [f32; 4],
     ) {
@@ -903,12 +914,12 @@ impl ParticleCompute {
                 .unwrap();
             *pb.emitters.lock() = emitters;
         }
-
+        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
         let uniform_sub_buffer = {
             let uniform_data = cs::ty::Data {
                 num_jobs: len as i32,
-                dt,
-                time,
+                dt: time.dt,
+                time: time.time,
                 stage: 0,
                 cam_pos,
                 cam_rot,
@@ -966,8 +977,8 @@ impl ParticleCompute {
         >,
         transform: Arc<DeviceLocalBuffer<[transform]>>,
         emitter_len: usize,
-        dt: f32,
-        time: f32,
+        time: &Time,
+
         cam_pos: [f32; 3],
         cam_rot: [f32; 4],
     ) {
@@ -981,12 +992,13 @@ impl ParticleCompute {
             self.vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
+        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
 
         let uniform_sub_buffer = {
             let uniform_data = cs::ty::Data {
                 num_jobs: emitter_len as i32,
-                dt,
-                time,
+                dt: time.dt,
+                time: time.time,
                 stage: 1,
                 cam_pos,
                 cam_rot,
@@ -1042,8 +1054,7 @@ impl ParticleCompute {
             Arc<StandardCommandBufferAllocator>,
         >,
         transform: Arc<DeviceLocalBuffer<[transform]>>,
-        dt: f32,
-        time: f32,
+        time: &Time,
         cam_pos: [f32; 3],
         cam_rot: [f32; 4],
     ) {
@@ -1056,10 +1067,12 @@ impl ParticleCompute {
             self.vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
+        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+
         let mut uniform_data = cs::ty::Data {
             num_jobs: MAX_PARTICLES,
-            dt,
-            time,
+            dt: time.dt,
+            time: time.time,
             stage: 2,
             cam_pos,
             cam_rot,
@@ -1098,6 +1111,7 @@ impl ParticleCompute {
             get_descriptors(uniform_sub_buffer),
         )
         .unwrap();
+        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
 
         builder
             .copy_buffer(CopyBufferInfo::buffers(
