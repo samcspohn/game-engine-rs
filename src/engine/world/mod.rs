@@ -12,9 +12,11 @@ use std::{
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
+use rayon::Scope;
 use serde::{Deserialize, Serialize};
 use thincollections::thin_map::ThinMap;
+use winit::platform::unix::x11::ffi::Atom;
 
 use crate::editor::inspectable::Inspectable;
 
@@ -294,8 +296,6 @@ impl World {
         }
     }
     pub fn add_component_id(&mut self, g: i32, key: u64, c_id: i32) {
-        // d.assign_transform(g);
-
         if let Some(ent) = self.entities.read()[g as usize].lock().as_mut() {
             ent.components.insert(key.clone(), c_id);
             if let Some(stor) = self.components.get(&key) {
@@ -305,8 +305,6 @@ impl World {
         }
     }
     pub fn deserialize(&mut self, g: i32, key: String, s: serde_yaml::Value) {
-        // d.assign_transform(g);
-
         if let Some(stor) = self.components_names.get(&key) {
             let mut stor = stor.write();
             let c_id = stor.deserialize(g, s);
@@ -380,37 +378,74 @@ impl World {
     pub fn destroy(&self, g: i32) {
         self.to_destroy.push(g);
     }
+    fn __destroy<'a>(
+        _self: &'a World,
+        trans: Transform,
+        entities: &'a RwLockWriteGuard<Vec<Mutex<Option<Entity>>>>,
+        s: &Scope<'a>,
+    ) {
+        let g = trans.id;
+        let mut ent = entities[g as usize].lock();
+        if let Some(ent_mut) = ent.as_mut() {
+            for (t, id) in ent_mut.components.iter() {
+                let stor = &mut _self.components.get(t).unwrap().write();
+
+                stor.deinit(&trans, *id, &_self.sys);
+                stor.erase(*id);
+            }
+            // remove entity
+            *ent = None; // todo make read()
+        }
+
+        let children: Vec<i32> = trans.get_meta().children.iter().copied().collect();
+        for t in children {
+            let _self = _self.clone();
+            s.spawn(move |s| {
+                let t = _self.transforms.get(t);
+                Self::__destroy(_self, t, entities, s);
+            });
+        }
+
+        // remove transform
+        _self.transforms.remove(trans);
+    }
     pub(crate) fn _destroy(&mut self) {
         let ent = &self.entities.write();
-
-        let max_g = &AtomicI32::new(0);
         let _self = Arc::new(&self);
         rayon::scope(|s| {
             while let Some(t) = _self.to_destroy.pop() {
+                let trans = _self.transforms.get(t);
+                Self::__destroy(&_self, trans, &ent, &s);
                 // let t = t.clone();
-                let _self = _self.clone();
-                s.spawn(move |s| {
-                    let g = t;
-                    let mut ent = ent[g as usize].lock();
-                    if let Some(ent_mut) = ent.as_mut() {
-                        let trans = _self.transforms.get(g);
-                        for (t, id) in ent_mut.components.iter() {
-                            let stor = &mut _self.components.get(t).unwrap().write();
+                // let _self = _self.clone();
+                // s.spawn(move |s| {
+                //     let g = t;
+                //     let mut ent = ent[g as usize].lock();
+                //     if let Some(ent_mut) = ent.as_mut() {
+                //         let trans = _self.transforms.get(g);
+                //         for (t, id) in ent_mut.components.iter() {
+                //             let stor = &mut _self.components.get(t).unwrap().write();
 
-                            stor.deinit(&trans, *id, &_self.sys);
-                            stor.erase(*id);
-                        }
-                        // remove entity
-                        *ent = None; // todo make read()
+                //             stor.deinit(&trans, *id, &_self.sys);
+                //             stor.erase(*id);
+                //         }
+                //         // remove entity
+                //         *ent = None; // todo make read()
 
-                        // remove transform
-                        _self.transforms.remove(trans);
-                        max_g.fetch_max(g, Ordering::Relaxed);
-                    }
-                });
+                //         // for t in trans.get_children() {
+                //         //     _self.to_destroy.push(t.id);
+                //         // }
+
+                //         // remove transform
+                //         _self.transforms.remove(trans);
+                //     }
+                // });
             }
         });
-        self.transforms.reduce_last(max_g.load(Ordering::Relaxed));
+        self.transforms.reduce_last();
+        for (id, c) in self.components.iter() {
+            c.read().reduce_last();
+        }
         // remove/deinit components
     }
     // pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: i32, f: F)
@@ -545,14 +580,17 @@ impl World {
     }
 
     pub fn clear(&mut self) {
-        // let mut sys = self.sys.lock();
+        // for a in self.components.iter() {
+        //     a.1.write().clear(&self.transforms,&self.sys);
+        // }
+        self.destroy(self.root);
+        self._destroy();
+        // self.entities.write().clear();
+        // self.transforms.clear();
+
         self.sys.renderer_manager.write().clear();
         self.sys.physics.lock().clear();
-        self.entities.write().clear();
-        for a in self.components.iter() {
-            a.1.write().clear();
-        }
-        self.transforms.clear();
+
         self.root = self.transforms.new_root();
         self.entities.write().push(Mutex::new(None));
     }

@@ -323,39 +323,59 @@ impl Transforms {
         self.updates.push(SyncUnsafeCell::new([true, true, true]));
     }
     fn get_next_id(&mut self) -> (bool, i32) {
-        let i = self.avail.load(Ordering::Relaxed);
-        self.count.fetch_add(1, Ordering::Relaxed);
-        let extent = self.extent.load(Ordering::Relaxed);
-        if i < extent {
-            unsafe {
-                *self.valid[i as usize].get() = true;
-            }
-            let mut _i = i;
-            while _i < extent && unsafe { *self.valid[_i as usize].get() } {
-                // find next open slot
-                _i += 1;
-            }
-            self.avail.store(_i, Ordering::Relaxed);
-            self.last.fetch_max(_i, Ordering::Relaxed);
-            return (true, i);
+        self.count.fetch_add(1, Ordering::Acquire);
+        let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
+        while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
+            i = self.avail.fetch_add(1, Ordering::Relaxed);
+        }
+        if i == self.extent.load(Ordering::Relaxed) {
+            self.extent.fetch_add(1, Ordering::Relaxed);
+            self.last.store(i, Ordering::Relaxed);
+            (false, i)
         } else {
-            let extent = extent + 1;
-            self.extent.store(extent, Ordering::Relaxed);
-            self.avail.store(extent, Ordering::Relaxed);
-            self.last.store(extent - 1, Ordering::Relaxed);
-            return (false, extent - 1);
+            self.last.fetch_max(i, Ordering::Relaxed);
+            (true, i)
         }
+
+        // let i = self.avail.load(Ordering::Relaxed);
+        // self.count.fetch_add(1, Ordering::Relaxed);
+        // let extent = self.extent.load(Ordering::Relaxed);
+        // if i < extent {
+        //     unsafe {
+        //         *self.valid[i as usize].get() = true;
+        //     }
+        //     let mut _i = i;
+        //     while _i < extent && unsafe { *self.valid[_i as usize].get() } {
+        //         // find next open slot
+        //         _i += 1;
+        //     }
+        //     self.avail.store(_i, Ordering::Relaxed);
+        //     self.last.fetch_max(_i, Ordering::Relaxed);
+        //     return (true, i);
+        // } else {
+        //     let extent = i + 1;
+        //     self.extent.store(extent, Ordering::Relaxed);
+        //     self.avail.store(extent, Ordering::Relaxed);
+        //     self.last.store(i, Ordering::Relaxed);
+        //     return (false, i);
+        // }
     }
-    pub(crate) fn reduce_last(&mut self, id: i32) {
+    pub(crate) fn reduce_last(&mut self) {
         // let i = self.last.fetch_add(-1, Ordering::Relaxed);
-        let mut id = id;
-        if id == self.last.load(Ordering::Relaxed) {
-            while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
-                // not thread safe!
-                id -= 1;
-            }
-            self.last.store(id, Ordering::Relaxed); // multi thread safe?
+        let mut id = self.last.load(Ordering::Relaxed);
+        while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
+            // not thread safe!
+            id -= 1;
         }
+        self.last.store(id, Ordering::Relaxed);
+        // let mut id = id;
+        // if id == self.last.load(Ordering::Relaxed) {
+        //     while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
+        //         // not thread safe!
+        //         id -= 1;
+        //     }
+        //     self.last.store(id, Ordering::Relaxed); // multi thread safe?
+        // }
     }
     pub fn new_root(&mut self) -> i32 {
         let (write, id) = self.get_next_id();
@@ -379,6 +399,9 @@ impl Transforms {
             self.write_transform(id, transform);
         } else {
             self.push_transform(transform);
+        }
+        if id as usize >= self.positions.len() {
+            panic!("next id invalid/out of range: {:?}", (write, id));
         }
         unsafe {
             let meta = &mut *self.meta[id as usize].get();
@@ -478,10 +501,10 @@ impl Transforms {
 
         unsafe {
             let meta = &*self.meta[t.id as usize].get();
-            if meta.parent < 0 {
-                panic!("wat? - child:{} parent: {}", t.id, meta.parent);
+            if meta.parent >= 0 {
+                // panic!("wat? - child:{} parent: {}", t.id, meta.parent);
+                t.get_parent().get_meta().children.pop_node(&meta.child_id);
             }
-            t.get_parent().get_meta().children.pop_node(&meta.child_id);
             *self.meta[t.id as usize].get() = TransformMeta::new();
             *self.valid[t.id as usize].get() = false;
         }

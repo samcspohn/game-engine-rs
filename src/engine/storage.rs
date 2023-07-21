@@ -1,14 +1,25 @@
-use std::{sync::atomic::{AtomicBool, Ordering, AtomicI32}, cmp::Reverse, any::{TypeId, Any}};
+use std::{
+    any::{Any, TypeId},
+    cmp::Reverse,
+    sync::atomic::{AtomicBool, AtomicI32, Ordering},
+};
 
 use parking_lot::Mutex;
 use rayon::prelude::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::editor::inspectable::Inspectable;
 
-use super::{input::Input, RenderJobData, world::{World, Sys, transform::{Transforms, Transform}, component::{System, Component, _ComponentID}}};
-
+use super::{
+    input::Input,
+    world::{
+        component::{Component, System, _ComponentID},
+        transform::{Transform, Transforms},
+        Sys, World,
+    },
+    RenderJobData,
+};
 
 pub struct _Storage<T> {
     pub data: Vec<T>,
@@ -55,8 +66,6 @@ impl<T: 'static> _Storage<T> {
     }
 }
 
-
-
 pub trait StorageBase {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -73,6 +82,7 @@ pub trait StorageBase {
     fn get_id(&self) -> u64;
     fn get_type(&self) -> TypeId;
     fn new_default(&mut self, t: i32) -> i32;
+    fn reduce_last(&self);
     // fn new(
     //     &mut self,
     //     t: i32,
@@ -80,7 +90,7 @@ pub trait StorageBase {
     // ) -> i32;
     fn serialize(&self, i: i32) -> serde_yaml::Value;
     fn deserialize(&mut self, transform: i32, d: serde_yaml::Value) -> i32;
-    fn clear(&mut self);
+    fn clear(&mut self, transforms: &Transforms, sys: &Sys);
 }
 
 // use pqueue::Queue;
@@ -97,32 +107,45 @@ pub struct Storage<T> {
 }
 impl<T: 'static> Storage<T> {
     pub fn get_next_id(&self) -> (bool, i32) {
-        let i = self.avail.load(Ordering::Relaxed);
-        // self.count.fetch_add(1, Ordering::Relaxed);
-        let extent = self.extent.load(Ordering::Relaxed);
-        if i < extent {
-            unsafe {
-                *self.valid[i as usize].get() = true;
-            }
-            let mut _i = i;
-            while _i < extent && unsafe { *self.valid[_i as usize].get() } {
-                // find next open slot
-                _i += 1;
-            }
-            self.avail.store(_i, Ordering::Relaxed);
-            self.last.fetch_max(_i, Ordering::Relaxed);
-            return (true, i);
-        } else {
-            let extent = extent + 1;
-            self.extent.store(extent, Ordering::Relaxed);
-            self.avail.store(extent, Ordering::Relaxed);
-            self.last.store(extent - 1, Ordering::Relaxed);
-            return (false, extent - 1);
+        let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
+        while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
+            i = self.avail.fetch_add(1, Ordering::Relaxed);
         }
+        if i == self.extent.load(Ordering::Relaxed) { // push back
+            self.extent.fetch_add(1, Ordering::Relaxed);
+            self.last.store(i, Ordering::Relaxed);
+            (false, i)
+        } else { // insert
+            self.last.fetch_max(i, Ordering::Relaxed);
+            (true, i)
+        }
+        // let i = self.avail.load(Ordering::Relaxed);
+        // // self.count.fetch_add(1, Ordering::Relaxed);
+        // let extent = self.extent.load(Ordering::Relaxed);
+        // if i < extent {
+        //     unsafe {
+        //         *self.valid[i as usize].get() = true;
+        //     }
+        //     let mut _i = i;
+        //     while _i < extent && unsafe { *self.valid[_i as usize].get() } {
+        //         // find next open slot
+        //         _i += 1;
+        //     }
+        //     self.avail.store(_i, Ordering::Relaxed);
+        //     self.last.fetch_max(_i, Ordering::Relaxed);
+        //     return (true, i);
+        // } else {
+        //     let extent = extent + 1;
+        //     self.extent.store(extent, Ordering::Relaxed);
+        //     self.avail.store(extent, Ordering::Relaxed);
+        //     self.last.store(extent - 1, Ordering::Relaxed);
+        //     return (false, extent - 1);
+        // }
     }
     pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
         let (b, id) = self.get_next_id();
         if b {
+            unsafe { *self.valid[id as usize].get() = true; }
             *self.data[id as usize].lock() = (transform, d);
         } else {
             self.data.push(Mutex::new((transform, d)));
@@ -131,24 +154,30 @@ impl<T: 'static> Storage<T> {
         id
     }
     pub fn insert_multi<D: Fn() -> T>(&mut self, transforms: &[i32], d: D) {}
-    fn reduce_last(&self, id: i32) {
-        let mut id = id;
-        if id == self.last.load(Ordering::Relaxed) {
-            while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
-                // not thread safe!
-                id -= 1;
-            }
-            self.last.store(id, Ordering::Relaxed); // multi thread safe?
+    fn _reduce_last(&self) {
+        let mut id = self.last.load(Ordering::Relaxed);
+        while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
+            // not thread safe!
+            id -= 1;
         }
+        self.last.store(id, Ordering::Relaxed);
+        // let mut id = id;
+        // if id == self.last.load(Ordering::Relaxed) {
+        //     while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
+        //         // not thread safe!
+        //         id -= 1;
+        //     }
+        //     self.last.store(id, Ordering::Relaxed); // multi thread safe?
+        // }
     }
-    pub fn erase(&self, id: i32) {
+    pub fn _erase(&self, id: i32) {
         // self.data[id as usize] = None;
         self.avail.fetch_min(id, Ordering::Relaxed);
         // drop(&self.data[id as usize].lock().1);
         unsafe {
             *self.valid[id as usize].get() = false;
         }
-        self.reduce_last(id);
+        // self.reduce_last(id);
     }
     // pub fn get(&self, i: &i32) -> &Mutex<T> {
     //     &self.data[*i as usize]
@@ -217,7 +246,7 @@ impl<
         });
     }
     fn erase(&self, i: i32) {
-        self.erase(i);
+        self._erase(i);
     }
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys) {
         self.data[i as usize].lock().1.deinit(transform, i, sys);
@@ -254,8 +283,19 @@ impl<
     fn serialize(&self, i: i32) -> serde_yaml::Value {
         serde_yaml::to_value(&self.data[i as usize].lock().1).unwrap()
     }
-    fn clear(&mut self) {
-        *self = Self::new(self.has_update, self.has_late_update, self.has_render);
+    fn clear(&mut self, transforms: &Transforms, sys: &Sys) {
+        let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
+        let data = &self.data[0..last];
+        let valid = &self.valid[0..last];
+        data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
+            if unsafe { *v.get() } {
+                let mut d = d.lock();
+                let id: i32 = d.0;
+                let trans = transforms.get(d.0);
+                d.1.deinit(&trans, id, sys);
+            }
+        });
+        // *self = Self::new(self.has_update, self.has_late_update, self.has_render);
     }
 
     fn deserialize(&mut self, transform: i32, d: serde_yaml::Value) -> i32 {
@@ -298,5 +338,8 @@ impl<
     }
     fn get_id(&self) -> u64 {
         T::ID
+    }
+    fn reduce_last(&self) {
+        self._reduce_last();
     }
 }

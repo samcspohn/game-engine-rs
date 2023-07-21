@@ -9,7 +9,7 @@ use std::{
 // use assimp as ai;
 use bytemuck::{Pod, Zeroable};
 use component_derive::AssetID;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
 // use std::mem::size_of;
 use nalgebra_glm as glm;

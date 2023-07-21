@@ -3,7 +3,7 @@ use std::{collections::VecDeque, sync::Arc};
 use component_derive::ComponentID;
 use glm::{radians, vec1, Mat4, Quat, Vec3};
 use nalgebra_glm as glm;
-use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard};
+use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard, RwLock, RwLockReadGuard};
 use puffin_egui::puffin;
 use serde::{Deserialize, Serialize};
 use vulkano::{
@@ -224,20 +224,8 @@ impl CameraData {
             return;
         }
         let cvd = cvd.unwrap();
-        // transform_compute.update_mvp(
-        //     builder,
-        //     vk.device.clone(),
-        //     cvd.view,
-        //     cvd.proj,
-        //     // transform_uniforms,
-        //     // compute_pipeline,
-        //     transform_data.extent as i32,
-        //     vk.mem_alloc.clone(),
-        //     &vk.comm_alloc,
-        //     vk.desc_alloc.clone(),
-        // );
         transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_data.extent as i32);
-        
+
         if !offset_vec.is_empty() {
             let offsets_buffer = CpuAccessibleBuffer::from_iter(
                 &vk.mem_alloc,
@@ -331,20 +319,20 @@ impl CameraData {
             let mut offset = 0;
 
             for (_ind_id, m_id) in rd.indirect_model.iter() {
-                if let Some(ind) = rd.model_indirect.get(m_id) {
+                if let Some(indr) = rd.model_indirect.get(m_id) {
                     if let Some(mr) = mm.assets_id.get(m_id) {
                         let mr = mr.lock();
-                        if ind.count == 0 {
+                        if indr.count == 0 {
                             continue;
                         }
                         if let Some(indirect_buffer) =
                             BufferSlice::from_typed_buffer_access(rm.indirect_buffer.clone())
-                                .slice(ind.id as u64..(ind.id + 1) as u64)
+                                .slice(indr.id as u64..(indr.id + 1) as u64)
                         {
                             // println!("{}",indirect_buffer.len());
                             if let Some(renderer_buffer) =
                                 BufferSlice::from_typed_buffer_access(rm.renderers_gpu.clone())
-                                    .slice(offset..(offset + ind.count as u64))
+                                    .slice(offset..(offset + indr.count as u64))
                             {
                                 // println!("{}",renderer_buffer.len());
                                 self.rend.bind_mesh(
@@ -359,7 +347,7 @@ impl CameraData {
                             }
                         }
                     }
-                    offset += ind.count as u64;
+                    offset += indr.count as u64;
                 }
             }
         }

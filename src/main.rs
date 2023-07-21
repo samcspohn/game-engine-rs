@@ -28,7 +28,7 @@ use egui::TextureId;
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
 use notify::{RecursiveMode, Watcher};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use puffin_egui::*;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -318,7 +318,7 @@ fn main() {
                 if dimensions.width == 0 || dimensions.height == 0 {
                     return;
                 }
-                // previous_frame_end.as_mut().unwrap().cleanup_finished();
+                previous_frame_end.as_mut().unwrap().cleanup_finished();
 
                 if recreate_swapchain {
                     println!("recreate swapchain");
@@ -522,7 +522,9 @@ fn main() {
                         );
                     }
                 }
+
                 perf.update("render camera(s)".into(), inst.elapsed());
+                // }
                 let inst = Instant::now();
 
                 builder
@@ -558,7 +560,7 @@ fn main() {
                 builder.end_render_pass().unwrap();
 
                 let command_buffer = builder.build().unwrap();
-                previous_frame_end.as_mut().unwrap().cleanup_finished();
+                // previous_frame_end.as_mut().unwrap().cleanup_finished();
                 let execute = previous_frame_end
                     .take()
                     .unwrap()
@@ -598,6 +600,7 @@ fn main() {
                         previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                     }
                 };
+
                 // was playing != next frame playing?
                 if playing_game != _playing_game {
                     if playing_game {
@@ -612,7 +615,7 @@ fn main() {
                         fc_map.clear();
                         fc_map.insert(-1, a); // replace
                     }
-                    // recreate_swapchain = true;
+                    recreate_swapchain = true;
                 }
                 playing_game = _playing_game;
 

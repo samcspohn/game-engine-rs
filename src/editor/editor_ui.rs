@@ -191,50 +191,7 @@ impl Inspectable_ for GameObjectInspector {
                                             );
                                         }
                                     });
-                                    // ui.horizontal(|ui| {
-                                    //     ui.add(egui::DragValue::new(&mut rot.coords.w).speed(0.1));
-                                    //     ui.add(egui::DragValue::new(&mut rot.coords.x).speed(0.1));
-                                    //     ui.add(egui::DragValue::new(&mut rot.coords.y).speed(0.1));
-                                    //     ui.add(egui::DragValue::new(&mut rot.coords.z).speed(0.1));
-                                    // });
                                 });
-
-                                // Ins(&mut rot).inspect("Rotation", ui);
-                                // if let Some(rot) = unsafe { &mut CUR_EULER_ANGLES } {
-                                //     if changed_rot {
-                                //         // vec<3, T, Q> c = glm::cos(eulerAngle * T(0.5));
-                                //         // vec<3, T, Q> s = glm::sin(eulerAngle * T(0.5));
-
-                                //         // this->x = s.x * c.y * c.z - c.x * s.y * s.z;
-                                //         // this->y = c.x * s.y * c.z + s.x * c.y * s.z;
-                                //         // this->z = c.x * c.y * s.z - s.x * s.y * c.z;
-                                //         // this->w = c.x * c.y * c.z + s.x * s.y * s.z;
-
-                                //         // let c = glm::cos(&(*rot * 0.5));
-                                //         // let s = glm::sin(&(*rot * 0.5));
-                                //         // let q = glm::Quat {
-                                //         //     coords: [
-                                //         //         s.x * c.y * c.z - c.x * s.y * s.z, // x
-                                //         //         c.x * s.y * c.z + s.x * c.y * s.z, // y
-                                //         //         c.x * c.y * s.z - s.x * s.y * c.z, // z
-                                //         //         c.x * c.y * c.z + s.x * s.y * s.z, // w
-                                //         //     ].into(),
-                                //         // };
-
-                                //         // let mut q = glm::Mat4::identity();
-                                //         // q = glm::rotate(&q, rot.z, &glm::vec3(0., 0., 1.));
-                                //         // q = glm::rotate(&q, rot.y, &glm::vec3(0., 1., 0.));
-                                //         // q = glm::rotate(&q, rot.x, &glm::vec3(1., 0., 0.));
-                                //         // let q = glm::to_quat(&q);
-                                //         // let x = glm::quat_angle_axis(rot.x, &glm::vec3(1., 0., 0.));
-                                //         // let y = glm::quat_angle_axis(rot.y, &glm::vec3(0., 1., 0.));
-                                //         // let z = glm::quat_angle_axis(rot.z, &glm::vec3(0., 0., 1.));
-                                //         // let q = x * y * z;
-                                //         // *t.rotations[t_id as usize].lock() = q;
-                                //         // t.updates[t_id as usize][1].store(true, Ordering::Relaxed);
-                                //         t.set_rotation(t_id, q);
-                                //     }
-                                // }
                                 let mut scl = _t.get_scale();
                                 let prev_scl = scl;
                                 // Ins(&mut scl).inspect("Scale", ui);
@@ -286,7 +243,6 @@ impl Inspectable_ for GameObjectInspector {
         if let Some((g, c_type, id)) = rmv {
             world.remove_component(g, c_type, id)
         }
-        // if let Some(resp) = resp {
             if unsafe {_selected.is_some() } {
                 let mut component_init: Option<(u64, i32)> = None;
                 
@@ -304,94 +260,6 @@ impl Inspectable_ for GameObjectInspector {
                         }
                     }
                 });
-                // egui::
-                // let right_clicked = ui.input().pointer.button_clicked(egui::PointerButton::Secondary);
-                // let popup_id = ui.auto_id_with("inspector_popup");
-                // // if ui.input().pointer.button_clicked(egui::PointerButton::Secondary) {
-                //     //     println!("clicked right");
-                //     //     // let popup_id = ui.auto_id_with("inspector_popup");
-                    
-                //     // }
-                // static mut POPUP_POS: Pos2 = Pos2 {x: 0., y: 0.};
-                // // resp.response.sense
-                // if resp.response.hovered() && right_clicked {
-                //     // println!("here");
-                //     // ui.memory().toggle_popup(popup_id);
-                //     // let pos = ui.input().pointer.hover_pos().unwrap_or(Pos2 { x: 50., y: 50. });
-                //     // unsafe { POPUP_POS = pos}
-                // }
-                // m_menu(ui, resp.response.hovered() && right_clicked, "inspector_popup", |ui| {
-                //     let enabled = ui.button("Add Component").clicked();
-                //     m_menu(ui, enabled, "component_list_popup", |ui| {
-                //             println!("add component");
-                //             // ScrollArea::vertical().show(ui, |ui| {
-                //                 for (_k, c) in &world.components {
-                //                     let mut c = c.write();
-                //                     let resp = ui.add(egui::Button::new(c.get_name()));
-                //                     if resp.clicked() {
-                //                         if let Some(t_id) = unsafe { _selected } {
-                //                             let c_id = c.new_default(t_id);
-                //                             let key = c.get_type();
-                //                             component_init = Some((key, c_id));
-                //                         }
-                //                         // ui.close_menu();
-                //                     }
-                //                 }
-                //             // });
-                            
-                //         });
-                // });
-                // if ui.memory().is_popup_open(popup_id) {
-                //     let area_response = egui::Area::new(popup_id)
-                //         .order(egui::Order::Foreground)
-                //         .fixed_pos(unsafe { POPUP_POS })
-                //         .constrain(true)
-                //         .show(ui.ctx(), |ui| {
-                //             egui::Frame::popup(ui.style()).show(ui, |ui| {
-                //                 if ui.button("Add Component").clicked() {
-                //                     // println!("add component");
-                //                     ScrollArea::vertical().show(ui, |ui| {
-                //                         for (_k, c) in &world.components {
-                //                             let mut c = c.write();
-                //                             let resp = ui.add(egui::Button::new(c.get_name()));
-                //                             if resp.clicked() {
-                //                                 if let Some(t_id) = unsafe { _selected } {
-                //                                     let c_id = c.new_default(t_id);
-                //                                     let key = c.get_type();
-                //                                     component_init = Some((key, c_id));
-                //                                 }
-                //                                 ui.close_menu();
-                //                             }
-                //                         }
-                //                     });
-                //                 }
-                //             })
-                //         })
-                //         .response;
-        
-                //     if ui.input().key_pressed(egui::Key::Escape) || area_response.clicked_elsewhere() {
-                //         ui.memory().close_popup();
-                //         // unsafe { key = -1 }
-                //     }
-                // }
-                // resp.response.context_menu(|ui: &mut Ui| {
-                //         ui.with_layout(Layout::right_to_left(egui::Align::Min), |ui| {
-                //         let _resp = ui.menu_button("Add Component", |ui| {
-                //             for (_k, c) in &world.components {
-                //                 let mut c = c.write();
-                //                 let resp = ui.add(egui::Button::new(c.get_name()));
-                //                 if resp.clicked() {
-                //                     if let Some(t_id) = unsafe { _selected } {
-                //                         let c_id = c.new_default(t_id);
-                //                         let key = c.get_type();
-                //                         component_init = Some((key, c_id));
-                //                     }
-                //                     ui.close_menu();
-                //                 }
-                //             }
-                //         });
-                //     });
-                // });
                 if let (Some(t_id), Some((key, c_id))) = (unsafe { _selected }, component_init)
                 {
                     // let g = GameObject { t: t_id };

@@ -8,7 +8,6 @@ use puffin_egui::puffin;
 use rapier3d::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, CommandBufferInheritanceInfo};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -18,20 +17,25 @@ use std::{
     },
     time::Instant,
 };
+use vulkano::command_buffer::{
+    AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
+};
 
 use winit::{event::VirtualKeyCode, window::Window};
 
 use crate::{
-
     editor::editor_ui::PLAYING_GAME,
     editor::inspectable::{Inpsect, Ins, Inspectable},
-    engine::rendering::camera::CameraData,
     engine::input::Input,
-    engine::world::{transform::TransformData, World },
+    engine::rendering::camera::CameraData,
+    engine::world::{transform::TransformData, World},
     perf::Perf,
 };
 
-use super::{particles::particles::cs::ty::emitter_init, rendering::renderer_component::RendererData, utils::GPUWork};
+use super::{
+    particles::particles::cs::ty::emitter_init, rendering::renderer_component::RendererData,
+    utils::GPUWork,
+};
 
 type GameComm = (
     Sender<RenderingData>,
@@ -65,9 +69,9 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
         let (input, playing_game) = coms.1.recv().unwrap();
         let mut world = world.lock();
         let gpu_work = SegQueue::new();
+        let inst = Instant::now();
         if playing_game {
             puffin::profile_scope!("game loop");
-            let inst = Instant::now();
             {
                 puffin::profile_scope!("world update");
                 if phys_time >= phys_step {
@@ -98,12 +102,11 @@ pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<Ato
                 world._destroy();
                 world.defer_instantiate();
             }
-
-            perf.update("world sim".into(), Instant::now() - inst);
         } else {
             world._destroy();
             world.editor_update(&input, &gpu_work);
         }
+        perf.update("world sim".into(), Instant::now() - inst);
         let inst = Instant::now();
         let transform_data = world.transforms.get_transform_data_updates();
         perf.update("get transform data".into(), Instant::now() - inst);

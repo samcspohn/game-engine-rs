@@ -298,22 +298,22 @@ impl SharedRendererData {
         renderer_pipeline: Arc<ComputePipeline>,
         transform_compute: &TransformCompute,
     ) -> Vec<i32> {
-        let rm = self;
-        if rm.transform_ids_gpu.len() < rd.transforms_len as u64 {
+        // let rm = self;
+        if self.transform_ids_gpu.len() < rd.transforms_len as u64 {
             let len = rd.transforms_len;
             let max_len = (len as f32 + 1.).log2().ceil();
             let max_len = 2_u32.pow(max_len as u32);
 
-            let copy_buffer = rm.transform_ids_gpu.clone();
+            let copy_buffer = self.transform_ids_gpu.clone();
             unsafe {
-                rm.transform_ids_gpu = CpuAccessibleBuffer::uninitialized_array(
+                self.transform_ids_gpu = CpuAccessibleBuffer::uninitialized_array(
                     &vk.mem_alloc,
                     max_len as u64,
                     buffer_usage_all(),
                     false,
                 )
                 .unwrap();
-                rm.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
+            self.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
                     &vk.mem_alloc,
                     max_len as u64,
                     buffer_usage_all(),
@@ -326,16 +326,16 @@ impl SharedRendererData {
             builder
                 .copy_buffer(CopyBufferInfo::buffers(
                     copy_buffer,
-                    rm.transform_ids_gpu.clone(),
+                    self.transform_ids_gpu.clone(),
                 ))
                 .unwrap();
         }
-        if !rm.indirect.data.is_empty() {
-            rm.indirect_buffer = CpuAccessibleBuffer::from_iter(
+        if !self.indirect.data.is_empty() {
+            self.indirect_buffer = CpuAccessibleBuffer::from_iter(
                 &vk.mem_alloc,
                 buffer_usage_all(),
                 false,
-                rm.indirect.data.clone(),
+                self.indirect.data.clone(),
             )
             .unwrap();
         }
@@ -363,7 +363,7 @@ impl SharedRendererData {
                 let mut rd_updates = Vec::new();
                 std::mem::swap(&mut rd_updates, &mut rd.updates);
                 if update_num > 0 {
-                    rm.updates_gpu = CpuAccessibleBuffer::from_iter(
+                    self.updates_gpu = CpuAccessibleBuffer::from_iter(
                         &vk.mem_alloc,
                         buffer_usage_all(),
                         false,
@@ -373,7 +373,7 @@ impl SharedRendererData {
                 }
 
                 // stage 0
-                let uniforms = rm
+                let uniforms = self
                     .uniform
                     .from_data(ur::ty::Data {
                         num_jobs: update_num as i32,
@@ -393,10 +393,10 @@ impl SharedRendererData {
                         .clone(),
                     [
                         // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
-                        WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
-                        WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
-                        WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
-                        WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
+                        WriteDescriptorSet::buffer(0, self.updates_gpu.clone()),
+                        WriteDescriptorSet::buffer(1, self.transform_ids_gpu.clone()),
+                        WriteDescriptorSet::buffer(2, self.renderers_gpu.clone()),
+                        WriteDescriptorSet::buffer(3, self.indirect_buffer.clone()),
                         WriteDescriptorSet::buffer(4, transform_compute.gpu_transforms.clone()),
                         WriteDescriptorSet::buffer(5, offsets_buffer),
                         WriteDescriptorSet::buffer(6, uniforms),
