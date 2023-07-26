@@ -37,8 +37,6 @@ layout(set = 0, binding = 8) uniform Data {
     float dt;
     float time;
     int stage;
-    vec3 cam_pos;
-    vec4 cam_rot;
     int MAX_PARTICLES;
     // mat4 view;
 };
@@ -46,8 +44,8 @@ layout(set = 0, binding = 8) uniform Data {
 // vec4 look_at = lookAt(vec3(rotate(cam_rot) * vec4(0,0,1,1)).xyz,
 //         vec3(rotate(cam_rot) * vec4(0.,1,0.,1)).xyz);
 
-vec4 look_at =
-    lookAt(rotate3(cam_rot) * vec3(0, 0, 1), rotate3(cam_rot) * vec3(0, 1, 0));
+// vec4 look_at =
+//     lookAt(rotate3(cam_rot) * vec3(0, 0, 1), rotate3(cam_rot) * vec3(0, 1, 0));
 
 float rand(float i) {
     return sin(float(i) * 8.96 + time * 5.5) +
@@ -59,7 +57,7 @@ void update_particle(uint id) {
         p_l[id].pos += particles[id].vel * dt;
         // particles[id].rot = lookAt(vec3(rotate(cam_rot) *
         // vec4(0,0,-1,1)).xyz, vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
-        particles[id].rot = look_at;
+        // particles[id].rot = look_at;
         p_l[id].life -= dt * 1.0 / templates[template_ids[id]].life_time;
         if (p_l[id].life < 0.0) {
             int avail_id = atomicAdd(avail_count, -1);

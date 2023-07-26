@@ -11,7 +11,8 @@ pub type SecondaryCommandBuffer =
     AutoCommandBufferBuilder<SecondaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
 pub type PrimaryCommandBuffer =
     AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
-pub type GPUWork = SegQueue<SendSync<Box<dyn FnOnce(&mut PrimaryCommandBuffer)>>>;
+pub type GPUWork =
+    SegQueue<SendSync<Box<dyn FnOnce(&mut PrimaryCommandBuffer, Arc<VulkanManager>)>>>;
 
 pub use config;
 
@@ -19,6 +20,15 @@ use config::{Config, File};
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
 
+use super::rendering::vulkan_manager::VulkanManager;
+
 lazy_static! {
-    pub static ref SETTINGS: RwLock<Config> = { println!("{:?}", std::env::current_dir().ok().unwrap()); RwLock::new(Config::builder().add_source(File::with_name("config.toml")).build().unwrap()) };
+    pub static ref SETTINGS: RwLock<Config> = {
+        RwLock::new(
+            Config::builder()
+                .add_source(File::with_name("config.toml"))
+                .build()
+                .unwrap(),
+        )
+    };
 }

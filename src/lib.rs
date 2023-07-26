@@ -1,8 +1,6 @@
 // mod engine;
 #![allow(warnings, unused)]
 
-
-pub mod perf;
 pub mod editor;
 pub mod engine;
 pub use component_derive;
@@ -30,7 +28,8 @@ pub mod prelude {
     pub use crate::engine::particles::particles::ParticleEmitter;
     pub use crate::engine::rendering::renderer_component::Renderer;
 
-    use crate::{engine, editor::inspectable};
+    pub use crate::engine::rendering::vulkan_manager::VulkanManager;
+    pub use crate::{engine, editor::inspectable};
 }
 #[cfg(target_os = "windows")]
 pub mod win_alloc {

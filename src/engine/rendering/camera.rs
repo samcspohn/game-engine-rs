@@ -31,15 +31,15 @@ use crate::{
             transform::{Transform, TransformData},
             Sys,
         },
-        RenderJobData,
+        RenderJobData, project::asset_manager::AssetsManager,
     },
 };
 
 use super::{
-    model::ModelManager,
+    model::{ModelManager, ModelRenderer},
     pipeline::RenderPipeline,
     renderer_component::{buffer_usage_all, RendererData, SharedRendererData},
-    texture::TextureManager,
+    texture::{TextureManager, Texture},
     vulkan_manager::VulkanManager,
 };
 
@@ -207,16 +207,15 @@ impl CameraData {
         >,
         transform_compute: &mut TransformCompute,
         particles: Arc<ParticleCompute>,
-        // transform_uniforms: &CpuBufferPool<Data>,
         transform_data: &TransformData,
-        // compute_pipeline: Arc<ComputePipeline>,
         renderer_pipeline: Arc<ComputePipeline>,
         offset_vec: Vec<i32>,
         rm: &mut RwLockWriteGuard<SharedRendererData>,
         rd: &mut RendererData,
         image_num: u32,
-        model_manager: &MutexGuard<ModelManager>,
-        texture_manager: &Mutex<TextureManager>,
+        // model_manager: &MutexGuard<ModelManager>,
+        // texture_manager: &Mutex<TextureManager>,
+        assets: Arc<AssetsManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData)>>,
     ) {
         let cvd = self.camera_view_data.front();
@@ -224,6 +223,12 @@ impl CameraData {
             return;
         }
         let cvd = cvd.unwrap();
+        let _model_manager = assets.get_manager::<ModelRenderer>();
+        let __model_manager = _model_manager.lock();
+        let model_manager: &ModelManager = __model_manager.as_any().downcast_ref().unwrap();
+        let _texture_manager = assets.get_manager::<Texture>();
+        let __texture_manager = _texture_manager.lock();
+        let texture_manager: &TextureManager = __texture_manager.as_any().downcast_ref().unwrap();
         transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_data.extent as i32);
 
         if !offset_vec.is_empty() {
@@ -336,7 +341,7 @@ impl CameraData {
                             {
                                 // println!("{}",renderer_buffer.len());
                                 self.rend.bind_mesh(
-                                    &texture_manager.lock(),
+                                    &texture_manager,
                                     builder,
                                     vk.desc_alloc.clone(),
                                     renderer_buffer.clone(),
@@ -353,7 +358,7 @@ impl CameraData {
         }
         let mut rjd = RenderJobData {
             builder,
-            transforms: transform_compute.gpu_transforms.clone(),
+            gpu_transforms: transform_compute.gpu_transforms.clone(),
             mvp: transform_compute.mvp.clone(),
             view: &cvd.view,
             proj: &cvd.proj,

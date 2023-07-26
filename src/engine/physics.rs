@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use rapier3d::prelude::*;
 
-use crate::perf::Perf;
+use super::perf::Perf;
 
 pub struct Physics {
     pub rigid_body_set: RigidBodySet,

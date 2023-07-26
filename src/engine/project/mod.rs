@@ -10,7 +10,7 @@ pub mod asset_manager;
 pub mod file_watcher;
 pub mod serialize;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct Project {
     pub files: BTreeMap<String, u64>,
     pub assets: BTreeMap<String, serde_yaml::Value>,
@@ -51,7 +51,7 @@ pub fn load_project(
         {
             let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
             file_watcher.files = project.files;
-            assets_manager.deserialize(project.assets);
+            assets_manager.deserialize(&project.assets);
         }
         serialize::deserialize(&mut world.lock());
     }

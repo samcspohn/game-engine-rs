@@ -1,4 +1,4 @@
-use crossbeam::queue::SegQueue;
+use crossbeam::{queue::SegQueue, channel::{Sender, Receiver}};
 use force_send_sync::SendSync;
 use glm::{vec3, Vec3};
 use nalgebra_glm as glm;
@@ -12,7 +12,6 @@ use std::{
     collections::BTreeMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{Receiver, Sender},
         Arc,
     },
     time::Instant,
@@ -26,10 +25,9 @@ use winit::{event::VirtualKeyCode, window::Window};
 use crate::{
     editor::editor_ui::PLAYING_GAME,
     editor::inspectable::{Inpsect, Ins, Inspectable},
-    engine::input::Input,
+    engine::{input::Input, perf::Perf},
     engine::rendering::camera::CameraData,
     engine::world::{transform::TransformData, World},
-    perf::Perf,
 };
 
 use super::{
@@ -53,7 +51,7 @@ pub struct RenderingData {
     pub gpu_work: GPUWork,
 }
 
-pub fn game_thread_fn(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBool>) {
+pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBool>) {
     let gravity = vector![0.0, -9.81, 0.0];
     let mut perf = Perf {
         data: BTreeMap::new(),

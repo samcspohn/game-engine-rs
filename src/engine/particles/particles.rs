@@ -791,8 +791,6 @@ impl ParticleCompute {
         emitter_inits: (usize, Vec<emitter_init>),
         transform_compute: &TransformCompute,
         time: &Time,
-        cam_pos: [f32; 3],
-        cam_rot: [f32; 4],
     ) {
         self.emitter_init(
             builder,
@@ -800,24 +798,14 @@ impl ParticleCompute {
             emitter_inits.1.clone(),
             emitter_inits.0,
             time,
-            cam_pos,
-            cam_rot,
         );
         self.emitter_update(
             builder,
             transform_compute.gpu_transforms.clone(),
             emitter_inits.0,
             time,
-            cam_pos,
-            cam_rot,
         );
-        self.particle_update(
-            builder,
-            transform_compute.gpu_transforms.clone(),
-            time,
-            cam_pos,
-            cam_rot,
-        );
+        self.particle_update(builder, transform_compute.gpu_transforms.clone(), time);
     }
     pub fn emitter_init(
         &self,
@@ -829,9 +817,6 @@ impl ParticleCompute {
         emitter_inits: Vec<cs::ty::emitter_init>,
         emitter_len: usize,
         time: &Time,
-
-        cam_pos: [f32; 3],
-        cam_rot: [f32; 4],
     ) {
         // let mut emitter_inits = emitter_inits.lock();
 
@@ -921,10 +906,7 @@ impl ParticleCompute {
                 dt: time.dt,
                 time: time.time,
                 stage: 0,
-                cam_pos,
-                cam_rot,
                 MAX_PARTICLES,
-                _dummy0: Default::default(),
             };
             self.compute_uniforms.from_data(uniform_data).unwrap()
         };
@@ -978,9 +960,6 @@ impl ParticleCompute {
         transform: Arc<DeviceLocalBuffer<[transform]>>,
         emitter_len: usize,
         time: &Time,
-
-        cam_pos: [f32; 3],
-        cam_rot: [f32; 4],
     ) {
         let pb = &self.particle_buffers;
 
@@ -1000,10 +979,7 @@ impl ParticleCompute {
                 dt: time.dt,
                 time: time.time,
                 stage: 1,
-                cam_pos,
-                cam_rot,
                 MAX_PARTICLES,
-                _dummy0: Default::default(),
             };
             self.compute_uniforms.from_data(uniform_data).unwrap()
         };
@@ -1055,8 +1031,6 @@ impl ParticleCompute {
         >,
         transform: Arc<DeviceLocalBuffer<[transform]>>,
         time: &Time,
-        cam_pos: [f32; 3],
-        cam_rot: [f32; 4],
     ) {
         let pb = &self.particle_buffers;
 
@@ -1074,10 +1048,7 @@ impl ParticleCompute {
             dt: time.dt,
             time: time.time,
             stage: 2,
-            cam_pos,
-            cam_rot,
             MAX_PARTICLES,
-            _dummy0: Default::default(),
         };
         let uniform_sub_buffer = self.compute_uniforms.from_data(uniform_data).unwrap();
         let get_descriptors = |ub: Arc<CpuBufferPoolSubbuffer<cs::ty::Data>>| {

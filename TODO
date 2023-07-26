@@ -11,6 +11,8 @@ game-engine:
   ☐ command buffer builder can not be allowed in dylib / buffers locked during rendering when in dylib?
   ☐ change instances of buffer_usage_all()
   ☐ try c++ style deque for storage
+  ☐ implement gui in game
+  ☐ rework autocompilation
   particles:
     ☐ different rng type for particle emission
     ☐ color over life @started(23-04-24 17:13)
@@ -46,13 +48,13 @@ game-engine:
     ☐ audio manager
     ☐ audio asset
 refactor:
-  ☐ restructure files
-  ☐ rework/solidify render pipeline with secondary command buffer. only update on change
+  ✔ restructure files @done(23-07-25 10:24)
+  ✘ rework/solidify render pipeline with secondary command buffer. only update on change @cancelled(23-07-25 10:25)
   ✔ fix runtime compiled code using command buffer freezing engine @done(23-07-04 10:40)
     ✔ add enqueue gpu work @done(23-07-04 10:40)
     ☐ add enqueue render work
   ☐ go through and ensure args to functions are reasonable
   ☐ fix multiple meshes in model
-  ☐ optimize parallel instantiate/de-instantiate
+  ✘ optimize parallel instantiate/de-instantiate @cancelled(23-07-25 10:25)
   ☐ implement Engine struct to contain all functionality/state
   

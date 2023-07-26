@@ -469,8 +469,8 @@ impl AssetsManager {
         }
         r
     }
-    pub fn deserialize(&self, val: BTreeMap<String, serde_yaml::Value>) {
-        for (n, v) in &val {
+    pub fn deserialize(&self, val: &BTreeMap<String, serde_yaml::Value>) {
+        for (n, v) in val {
             if n == "lib" {
                 continue;
             }

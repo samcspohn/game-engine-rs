@@ -5,7 +5,6 @@ use crate::{
         rendering::renderer_component::buffer_usage_all,
         world::transform::{CacheVec, TransformData, POS_U, ROT_U, SCL_U},
     },
-    perf::Perf,
 };
 
 use nalgebra_glm as glm;
@@ -32,7 +31,7 @@ use vulkano::{
 
 use self::cs::ty::{transform, Data, MVP};
 
-use super::rendering::vulkan_manager::VulkanManager;
+use super::{rendering::vulkan_manager::VulkanManager, perf::Perf};
 
 // #[repr(C)]
 // #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]

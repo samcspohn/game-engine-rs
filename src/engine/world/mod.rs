@@ -416,30 +416,6 @@ impl World {
             while let Some(t) = _self.to_destroy.pop() {
                 let trans = _self.transforms.get(t);
                 Self::__destroy(&_self, trans, &ent, &s);
-                // let t = t.clone();
-                // let _self = _self.clone();
-                // s.spawn(move |s| {
-                //     let g = t;
-                //     let mut ent = ent[g as usize].lock();
-                //     if let Some(ent_mut) = ent.as_mut() {
-                //         let trans = _self.transforms.get(g);
-                //         for (t, id) in ent_mut.components.iter() {
-                //             let stor = &mut _self.components.get(t).unwrap().write();
-
-                //             stor.deinit(&trans, *id, &_self.sys);
-                //             stor.erase(*id);
-                //         }
-                //         // remove entity
-                //         *ent = None; // todo make read()
-
-                //         // for t in trans.get_children() {
-                //         //     _self.to_destroy.push(t.id);
-                //         // }
-
-                //         // remove transform
-                //         _self.transforms.remove(trans);
-                //     }
-                // });
             }
         });
         self.transforms.reduce_last();
@@ -518,14 +494,11 @@ impl World {
             });
     }
     pub(crate) fn editor_update(&mut self, input: &Input, gpu_work: &GPUWork) {
-        // let sys = self.sys.lock();
         let sys = &self.sys;
         let sys = System {
-            // trans: transforms,
             physics: &sys.physics.lock(),
             defer: &sys.defer,
             input,
-            // model_manager: &sys.model_manager,
             rendering: &sys.renderer_manager,
             assets: &sys.assets_manager,
             vk: sys.vk.clone(),
@@ -536,8 +509,6 @@ impl World {
         }
     }
     pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData)>> {
-        // let transforms = self.transforms.read();
-        // let sys = self.sys.lock();
         let mut render_jobs = vec![];
         for (_, stor) in self.components.iter() {
             stor.write().on_render(&mut render_jobs);
@@ -580,9 +551,6 @@ impl World {
     }
 
     pub fn clear(&mut self) {
-        // for a in self.components.iter() {
-        //     a.1.write().clear(&self.transforms,&self.sys);
-        // }
         self.destroy(self.root);
         self._destroy();
         // self.entities.write().clear();
