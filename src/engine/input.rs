@@ -68,30 +68,30 @@ impl Input {
                 winit::event::MouseScrollDelta::PixelDelta(_) => (),
             },
             DeviceEvent::Motion { axis, value } => (),
-            DeviceEvent::Button { button, state } => println!("Button: {} {:?}", button, state),
-            DeviceEvent::Key(key) => {
-                let KeyboardInput {
-                    scancode,
-                    state,
-                    virtual_keycode,
-                    modifiers,
-                } = key;
-                println!("key: {} {:?}", scancode, state);
-                if let Some(virtual_keycode) = virtual_keycode {
-                    match state {
-                        ElementState::Pressed => {
-                            self.key_presses.insert(virtual_keycode, true);
-                            self.key_downs.insert(virtual_keycode, true);
-                        }
-                        ElementState::Released => {
-                            self.key_downs.insert(virtual_keycode, false);
-                            self.key_ups.insert(virtual_keycode, true);
-                        }
-                    }
-                }
-            }
-            DeviceEvent::Text { codepoint } => (),
-            // _ => (),
+            // DeviceEvent::Button { button, state } => println!("Button: {} {:?}", button, state),
+            // DeviceEvent::Key(key) => {
+            //     let KeyboardInput {
+            //         scancode,
+            //         state,
+            //         virtual_keycode,
+            //         modifiers,
+            //     } = key;
+            //     println!("key: {} {:?}", scancode, state);
+            //     if let Some(virtual_keycode) = virtual_keycode {
+            //         match state {
+            //             ElementState::Pressed => {
+            //                 self.key_presses.insert(virtual_keycode, true);
+            //                 self.key_downs.insert(virtual_keycode, true);
+            //             }
+            //             ElementState::Released => {
+            //                 self.key_downs.insert(virtual_keycode, false);
+            //                 self.key_ups.insert(virtual_keycode, true);
+            //             }
+            //         }
+            //     }
+            // }
+            // DeviceEvent::Text { codepoint } => (),
+            _ => (),
         }
     }
     pub(crate) fn process_mouse_input(

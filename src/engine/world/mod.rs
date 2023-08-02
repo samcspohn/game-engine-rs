@@ -16,7 +16,6 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use rayon::Scope;
 use serde::{Deserialize, Serialize};
 use thincollections::thin_map::ThinMap;
-use winit::platform::unix::x11::ffi::Atom;
 
 use crate::editor::inspectable::Inspectable;
 
