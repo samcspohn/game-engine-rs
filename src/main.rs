@@ -332,6 +332,7 @@ fn main() {
 
                 let inst = Instant::now();
 
+                let _inst = Instant::now();
                 builder
                     .begin_render_pass(
                         RenderPassBeginInfo {
@@ -344,26 +345,35 @@ fn main() {
                     )
                     .unwrap()
                     .set_viewport(0, [viewport.clone()]);
-
-                // start next render subpass and draw gui
+                engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
+            
+                let _inst = Instant::now();
                 let size = vk.window().inner_size();
-
                 let gui_commands = gui.draw_on_subpass_image([size.width, size.height]);
+                engine.perf.update("_ get gui commands".into(), Instant::now() - _inst);
+
                 builder.execute_commands(gui_commands).unwrap();
 
-                // egui_bench.push(frame_time.elapsed().as_secs_f64(), positions.len());
                 frame_time = Instant::now();
-
+                
+                let _inst = Instant::now();
                 builder.end_render_pass().unwrap();
+                engine.perf.update("_ end render pass".into(), Instant::now() - _inst);
 
+                let _inst = Instant::now();
                 let command_buffer = builder.build().unwrap();
-                // previous_frame_end.as_mut().unwrap().cleanup_finished();
+                engine.perf.update("_ build command buffer".into(), Instant::now() - _inst);
+                
+                
+                let _inst = Instant::now();
                 let execute = previous_frame_end
                     .take()
                     .unwrap()
                     .join(acquire_future)
                     .then_execute(vk.queue.clone(), command_buffer);
-
+                engine.perf.update("_ wait for previous frame".into(), Instant::now() - _inst);
+                
+                let _inst = Instant::now();
                 match execute {
                     Ok(execute) => {
                         let future = execute
@@ -397,6 +407,8 @@ fn main() {
                         previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                     }
                 };
+                engine.perf.update("_ execute".into(), Instant::now() - _inst);
+
 
                 // was playing != next frame playing?
                 if playing_game != _playing_game {

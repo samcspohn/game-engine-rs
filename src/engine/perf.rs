@@ -36,9 +36,9 @@ impl Perf {
         for (k, x) in p {
             let len = x.len();
             println!(
-                "{}: {:?}",
+                "{}: {:?} ms",
                 k,
-                (x.into_iter().sum::<Duration>() / len as u32)
+                (x.into_iter().sum::<Duration>().as_nanos() / len as u128) as f32 / 1e6
             );
         }
     }

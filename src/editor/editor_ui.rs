@@ -13,10 +13,12 @@ use std::{
 
 
 use crate::{
-    editor::{inspectable::{Inspectable, Inspectable_}, drag_drop::drag_source}, engine::{world::{World, transform::Transform, Sys }, project::{serialize, asset_manager::AssetsManager}},
+    editor::{inspectable::{Inspectable, Inspectable_}, drag_drop::drag_source, editor_ui::entity_inspector::_selected}, engine::{world::{World, transform::Transform, Sys }, project::{serialize, asset_manager::AssetsManager}},
 };
 use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
+mod entity_inspector;
+mod util;
 enum TransformDrag {
     DragToTransform(i32, i32),
     DragBetweenTransform(i32, i32, bool),
@@ -78,196 +80,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
     }
 }
 
-struct GameObjectInspector {
-    // world: &'a Mutex<World>,
-}
 
-fn m_menu<R>(ui: &mut Ui, enable: bool, popup_name: &str, add_contents: impl FnOnce(&mut Ui) -> R){
-    // let right_clicked = ui.input().pointer.button_clicked(egui::PointerButton::Secondary);
-    let popup_id = ui.auto_id_with(popup_name);
-    // if ui.input().pointer.button_clicked(egui::PointerButton::Secondary) {
-        //     println!("clicked right");
-        //     // let popup_id = ui.auto_id_with("inspector_popup");
-        
-        // }
-    static mut POPUP_POS: Lazy<HashMap<String,Pos2>> = Lazy::new(|| {
-        HashMap::default()
-    });
-
-    if enable {
-        println!("here");
-        ui.memory().toggle_popup(popup_id);
-        let pos = ui.input().pointer.hover_pos().unwrap_or(Pos2 { x: 50., y: 50. });
-        unsafe { POPUP_POS.insert(popup_name.into(), pos); }
-    }
-    if ui.memory().is_popup_open(popup_id) {
-        let area_response = egui::Area::new(popup_id)
-            .order(egui::Order::Foreground)
-            .fixed_pos(unsafe { *POPUP_POS.get(popup_name.into()).unwrap() })
-            .constrain(true)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    add_contents(ui);
-                })
-            })
-            .response;
-
-        if ui.input().key_pressed(egui::Key::Escape) || area_response.clicked_elsewhere() {
-            // ui.memory().close_popup();
-            // unsafe { key = -1 }
-        }
-    }
-}
-
-static mut _selected: Option<i32> = None;
-
-impl Inspectable_ for GameObjectInspector {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
-        let mut world = world.lock();
-        let mut rmv: Option<(i32, u64, i32)> = None;
-
-        let resp = ui.scope(|ui| {
-
-            egui::ScrollArea::both().auto_shrink([false,true]).show(ui, |ui| {
-
-                if let Some(t_id) = unsafe { _selected } {
-                    let entities = world.entities.write();
-                    let mut _ent = entities[t_id as usize].lock(); // TODO: fix: if object is destroyed in play, fix panic on "stop"
-                    if let Some(ent) = _ent.as_mut() {
-                        // let t = &world.transforms;
-                        let _t = world.transforms.get(t_id);
-                        egui::CollapsingHeader::new("Transform")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                // let mut pos = *t.positions[t_id as usize].lock();
-                                let mut pos = _t.get_position();
-                                let prev_pos = pos;
-                                // Ins(&mut pos).inspect("Postition", ui);
-                                ui.horizontal(|ui| {
-                                    ui.add(egui::Label::new("Position"));
-                                    ui.add(egui::DragValue::new(&mut pos.x).speed(0.1));
-                                    ui.add(egui::DragValue::new(&mut pos.y).speed(0.1));
-                                    ui.add(egui::DragValue::new(&mut pos.z).speed(0.1));
-                                });
-                                if pos != prev_pos {
-                                    _t.move_child(pos - prev_pos);
-                                }
-                                let rot = _t.get_rotation();
-                                let mut rot = glm::quat_euler_angles(&rot);
-                                ui.vertical(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.add(egui::Label::new("Rotation"));
-                                        // let x = ui.add(
-                                        //     egui::Button::new(format!("{}", )).sense(egui::Sense::drag()),
-                                        // );
-                                        // x.sense.drag = true;
-                                        let x = ui.drag_angle(&mut rot.z);
-                                        if x.dragged() && x.drag_delta().x != 0. {
-                                            _t.rotate(
-                                                &glm::vec3(1., 0., 0.),
-                                                x.drag_delta().x / 10.,
-                                            );
-                                        }
-                                        // let y = ui.add(
-                                        //     egui::Button::new("< Y >").sense(egui::Sense::drag()),
-                                        // );
-                                        let y = ui.drag_angle(&mut rot.y);
-                                        // y.sense.drag = true;
-                                        if y.dragged() && y.drag_delta().x != 0. {
-                                            _t.rotate(
-                                                &glm::vec3(0., 1., 0.),
-                                                y.drag_delta().x / 10.,
-                                            );
-                                        }
-                                        // let z = ui.add(
-                                        //     egui::Button::new("< Z >").sense(egui::Sense::drag()),
-                                        // );
-                                        let z = ui.drag_angle(&mut rot.x);
-                                        // z.sense.drag = true;
-                                        if z.dragged() && z.drag_delta().x != 0. {
-                                            _t.rotate(
-                                                &glm::vec3(0., 0., 1.),
-                                                z.drag_delta().x / 10.,
-                                            );
-                                        }
-                                    });
-                                });
-                                let mut scl = _t.get_scale();
-                                let prev_scl = scl;
-                                // Ins(&mut scl).inspect("Scale", ui);
-                                ui.horizontal(|ui| {
-                                    ui.add(egui::Label::new("Scale"));
-                                    ui.add(egui::DragValue::new(&mut scl.x).speed(0.1));
-                                    ui.add(egui::DragValue::new(&mut scl.y).speed(0.1));
-                                    ui.add(egui::DragValue::new(&mut scl.z).speed(0.1));
-                                });
-                                if prev_scl != scl {
-                                    _t.set_scale(scl);
-                                }
-                            });
-                        // let mut components = ent.;
-                        // let components = &mut ent;
-                        for (c_type, id) in ent.components.iter_mut() {
-                            if let Some(c) = world.components.get(c_type) {
-                                let c = c.write();
-                                // let name: String = c.get_name().into();
-                                ui.separator();
-                                let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
-                                egui::collapsing_header::CollapsingState::load_with_default_open(
-                                    ui.ctx(),
-                                    _id,
-                                    true,
-                                )
-                                .show_header(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.heading(c.get_name());
-                                        if ui.button("delete").clicked() {
-                                            println!("delete component");
-                                            // let g = t_id;
-                                            // world.remove_component(g, *c_type, *id)
-                                            rmv = Some((t_id, c_type.clone(), *id));
-                                        }
-                                    });
-                                })
-                                .body(|ui| {
-                                    c.inspect(&_t, *id, ui, &world.sys);
-                                });
-                            }
-                        }
-                    }
-                }
-            });
-        });
-        
-
-        if let Some((g, c_type, id)) = rmv {
-            world.remove_component(g, c_type, id)
-        }
-            if unsafe {_selected.is_some() } {
-                let mut component_init: Option<(u64, i32)> = None;
-                
-                ui.menu_button("add component",|ui| {
-                    for (_k, c) in world.components.iter() {
-                        let mut c = c.write();
-                        let resp = ui.add(egui::Button::new(c.get_name()));
-                        if resp.clicked() {
-                            if let Some(t_id) = unsafe { _selected } {
-                                let c_id = c.new_default(t_id);
-                                let key = c.get_id();
-                                component_init = Some((key, c_id));
-                            }
-                            ui.close_menu();
-                        }
-                    }
-                });
-                if let (Some(t_id), Some((key, c_id))) = (unsafe { _selected }, component_init)
-                {
-                    // let g = GameObject { t: t_id };
-                    world.add_component_id(t_id, key, c_id)
-                }
-        }
-    }
-}
 struct ModelInspector {
     file: String
 }
@@ -286,17 +99,13 @@ pub fn editor_ui(
     assets_manager: Arc<AssetsManager>
 ) -> bool {
     {
-        static mut _selected_transforms: Lazy<HashMap<i32, bool>> =
+        static mut _SELECTED_TRANSFORMS: Lazy<HashMap<i32, bool>> =
             Lazy::new(HashMap::<i32, bool>::new);
 
-        static mut context_menu: Option<GameObjectContextMenu> = None;
-        unsafe { context_menu = None };
-        static mut inspectable: Option<Arc<Mutex<dyn Inspectable_>>> = None;
-        // let mut _inspectable: Option<Box<dyn Inspectable_>> = None;
-        // let game_object_inspector = GameObjectInspector {world: &world };
-        // let mut world = world.lock();
-
-        static mut dock: Lazy<Tree<String>> = Lazy::new(|| {
+        static mut CONTEXT_MENU: Option<GameObjectContextMenu> = None;
+        unsafe { CONTEXT_MENU = None };
+        static mut INSPECTABLE: Option<Arc<Mutex<dyn Inspectable_>>> = None;
+        static mut DOCK: Lazy<Tree<String>> = Lazy::new(|| {
             let mut tree = Tree::new(vec!["Game".to_owned()]);
 
             // You can modify the tree before constructing the dock
@@ -310,14 +119,10 @@ pub fn editor_ui(
             let [_, _] = tree.split_below(c, 0.7, vec!["console".to_owned()]);
             tree
         });
-        // static mut CUR_EULER_ANGLES: Option<glm::Vec3> = None;
         unsafe {
-            // for x in dock.iter_mut() {
-            //     x.
-            // }
-            DockArea::new(&mut dock)
+            DockArea::new(&mut DOCK)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
-                .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut inspectable, assets_manager, func:
+                .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut INSPECTABLE, assets_manager, func:
                     Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>| {
                         let assets_manager = assets_manager;
                         match tab {
@@ -336,12 +141,8 @@ pub fn editor_ui(
                                             ui.label(format!("fps: {}", 1.0 / fps));
                                         }
                                         ui.label(format!("entities: {}",transforms.active()));
-                                        // if playing {
-                                        //     return;
-                                        // }
 
                                         fn transform_hierarchy_ui(
-                                            // transforms: &Transforms,
                                             selected_transforms: &mut HashMap<i32, bool>,
                                             t: Transform,
                                             ui: &mut egui::Ui,
@@ -366,46 +167,45 @@ pub fn editor_ui(
                                                         selected_transforms.clear();
                                                         selected_transforms.insert(t.id, true);
                                                         *selected = Some(t.id);
-                                                        unsafe { inspectable = Some(Arc::new(Mutex::new(GameObjectInspector {}))); }
-                                                        // unsafe {
-                                                        //     CUR_EULER_ANGLES = None;
-                                                        // };
+                                                        unsafe { INSPECTABLE = Some(Arc::new(Mutex::new(entity_inspector::GameObjectInspector {}))); }
                                                     }
 
                                                     let id = resp.id;
                                                     let is_being_dragged = ui.memory().is_being_dragged(id);
                                                     let pointer_released = ui.input().pointer.any_released();
 
-                                                    // drop target
-                                                    // on transform
-                                                    // between transforms
-                                                    let height = 7.0;
-                                                    let width = resp.rect.right() - resp.rect.left();
-                                                    let offset = 6.0;
-                                                    let between_rect = egui::Rect::from_min_size(
-                                                        egui::pos2(resp.rect.left(), resp.rect.bottom() + offset - height),
-                                                        egui::vec2(width, height),
-                                                    );
-                                                    let between = ui.rect_contains_pointer(between_rect);
-                                                    let a = egui::Shape::Rect(egui::epaint::RectShape::filled(
-                                                        between_rect,
-                                                        Rounding::same(1.0),
-                                                        Color32::from_rgba_unmultiplied(255, 255, 255, 50),
-                                                    ));
-                                                    if between && ui.memory().is_anything_being_dragged() {
-                                                        ui.painter().add(a);
-                                                    } else if ui.rect_contains_pointer(resp.rect)
-                                                        && ui.memory().is_anything_being_dragged()
-                                                    {
-                                                        let a = egui::Shape::Rect(egui::epaint::RectShape::filled(
-                                                            resp.rect,
+                                                    let between = if ui.memory().is_anything_being_dragged() {
+                                                        const HEIGHT: f32 = 7.0;
+                                                        let width = resp.rect.right() - resp.rect.left();
+                                                        const OFFSET: f32 = 6.0;
+                                                        let between_rect = egui::Rect::from_min_size(
+                                                            egui::pos2(resp.rect.left(), resp.rect.bottom() + OFFSET - HEIGHT),
+                                                            egui::vec2(width, HEIGHT),
+                                                        );
+                                                        let between = ui.rect_contains_pointer(between_rect);
+                                                        let between_rect_fill = egui::Shape::Rect(egui::epaint::RectShape::filled(
+                                                            between_rect,
                                                             Rounding::same(1.0),
                                                             Color32::from_rgba_unmultiplied(255, 255, 255, 50),
                                                         ));
-                                                        ui.painter().add(a);
-                                                    }
+                                                        if between && ui.memory().is_anything_being_dragged() {
+                                                            ui.painter().add(between_rect_fill);
+                                                        } else if ui.rect_contains_pointer(resp.rect)
+                                                            && ui.memory().is_anything_being_dragged()
+                                                        {
+                                                            let a = egui::Shape::Rect(egui::epaint::RectShape::filled(
+                                                                resp.rect,
+                                                                Rounding::same(1.0),
+                                                                Color32::from_rgba_unmultiplied(255, 255, 255, 50),
+                                                            ));
+                                                            ui.painter().add(a);
+                                                        }
+                                                        between
+                                                } else {
+                                                    false
+                                                };
 
-                                                    // if pointer_released { println!("id: {2}, top: {0}, botom: {1}, height: {height}", resp.rect.top(),resp.rect.bottom(), t.id); }
+
                                                     if TRANSFORM_DRAG.lock().is_none() {
                                                         if between && pointer_released {
                                                             let d_t_id: i32 = *DRAGGED_TRANSFORM.lock();
@@ -460,7 +260,7 @@ pub fn editor_ui(
                                                         // let resp = ui.menu_button("Add Child", |ui| {});
                                                         if ui.menu_button("Add Child", |_ui| {}).response.clicked() {
                                                             unsafe {
-                                                                context_menu =
+                                                                CONTEXT_MENU =
                                                                     Some(GameObjectContextMenu::NewGameObject(t.id))
                                                             };
                                                             ui.close_menu();
@@ -471,7 +271,7 @@ pub fn editor_ui(
                                                             .clicked()
                                                         {
                                                             unsafe {
-                                                                context_menu =
+                                                                CONTEXT_MENU =
                                                                     Some(GameObjectContextMenu::CopyGameObject(t.id))
                                                             };
                                                             ui.close_menu();
@@ -482,7 +282,7 @@ pub fn editor_ui(
                                                             .clicked()
                                                         {
                                                             unsafe {
-                                                                context_menu =
+                                                                CONTEXT_MENU =
                                                                     Some(GameObjectContextMenu::DeleteGameObject(t.id))
                                                             }
                                                             ui.close_menu();
@@ -533,7 +333,7 @@ pub fn editor_ui(
                                                 .show(ui, |ui| {
                                                     transform_hierarchy_ui(
                                                         // transforms,
-                                                        &mut _selected_transforms,
+                                                        &mut _SELECTED_TRANSFORMS,
                                                         root,
                                                         ui,
                                                         &mut count,
@@ -571,7 +371,7 @@ pub fn editor_ui(
                                 });
                                     // resp
                                 // };
-                                if let Some(cm) = &context_menu {
+                                if let Some(cm) = &CONTEXT_MENU {
                                     let e = match cm {
                                         GameObjectContextMenu::NewGameObject(t_id) => {
                                             let _t = world.transforms.get(*t_id).get_transform();
@@ -593,13 +393,13 @@ pub fn editor_ui(
                                     if e >= 0 {
                                         // unsafe {
                                             _selected = Some(e);
-                                            _selected_transforms.clear();
-                                            _selected_transforms.insert(e, true);
+                                            _SELECTED_TRANSFORMS.clear();
+                                            _SELECTED_TRANSFORMS.insert(e, true);
                                         // }
                                     } else {
                                         // unsafe {
                                             _selected = None;
-                                            _selected_transforms.clear();
+                                            _SELECTED_TRANSFORMS.clear();
                                         // }
                                     }
                                 }
@@ -609,8 +409,8 @@ pub fn editor_ui(
                                         let e = world.instantiate();
                                         unsafe {
                                             _selected = Some(e);
-                                            _selected_transforms.clear();
-                                            _selected_transforms.insert(e, true);
+                                            _SELECTED_TRANSFORMS.clear();
+                                            _SELECTED_TRANSFORMS.insert(e, true);
                                         }
                                         println!("add game object");
                                         ui.close_menu();
@@ -627,7 +427,7 @@ pub fn editor_ui(
                             },
                             "Inspector" => {
                                 
-                                if let Some(ins) = &mut inspectable {
+                                if let Some(ins) = &mut INSPECTABLE {
                                     // let mut world = world.lock();
                                     ins.lock().inspect(ui, world);
                                 } else {
@@ -696,7 +496,7 @@ pub fn editor_ui(
                                                 });
                                                 if resp.clicked() {
                                                     
-                                                    unsafe { inspectable = assets_manager.inspect(label.as_str()) };
+                                                    unsafe { INSPECTABLE = assets_manager.inspect(label.as_str()) };
                                                 }
                                             // }
                                         }
