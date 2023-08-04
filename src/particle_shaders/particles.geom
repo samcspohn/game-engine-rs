@@ -1,5 +1,5 @@
 #version 450
-#include "../util.glsl"
+#include "../shaders/util.glsl"
 #include "particle.glsl"
 
 struct transform {
@@ -76,18 +76,21 @@ void main() {
     EmitVertex();
 
     gl_Position = get_position(mvp, 1);
+    templ_id = template_ids[i];
     life = color2;
     EmitVertex();
 
     gl_Position = get_position(mvp, 2);
+    templ_id = template_ids[i];
     life = color1;
     EmitVertex();
 
     gl_Position = get_position(mvp, 3);
+    templ_id = template_ids[i];
     life = color2;
     EmitVertex();
 
-    EndPrimitive();
+    // EndPrimitive();
 
     // // DEBUG POINT
     // model = translate(p_l[i].pos) * rotate(look_at) * scale(vec3(0.5,0.5,0.5));

@@ -9,7 +9,7 @@
             "request": "launch",
             "name": "Debug",
             "program": "${workspaceFolder}/target/debug/game-engine-rs",
-            "args": [],
+            "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "rust: cargo build",
         },
@@ -18,7 +18,7 @@
             "request": "launch",
             "name": "Release",
             "program": "${workspaceFolder}/target/release/game-engine-rs",
-            "args": [],
+            "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "rust: cargo build --release",
         }

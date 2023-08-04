@@ -7,6 +7,12 @@ game-engine:
   ✔ fix camera image texture "no longer exists" @done(23-06-07 10:35)
   ☐ implement lazy load of assets
   ☐ change hashmaps (components, etc.) to faster hash
+  ☐ improve write to buffer (bottle neck)
+  ☐ command buffer builder can not be allowed in dylib / buffers locked during rendering when in dylib?
+  ☐ change instances of buffer_usage_all()
+  ☐ try c++ style deque for storage
+  ☐ implement gui in game
+  ☐ rework autocompilation
   particles:
     ☐ different rng type for particle emission
     ☐ color over life @started(23-04-24 17:13)
@@ -16,6 +22,8 @@ game-engine:
     ☐ fix culling @started(23-04-30 16:13)
     ☐ active particles list
     ☐ seperate buffers for emitter init/de-init
+    ☐ textures
+    ☐ texture for color over live
   lights:
     ☐ lights
     ☐ shadows
@@ -35,8 +43,18 @@ game-engine:
     ☐ 3d control widget
     ☐ click on objects to select
     ✔ runtime compilation @done(23-06-07 10:02)
+    ☐ add drop down for assets
   audio:
     ☐ audio manager
     ☐ audio asset
-  
+refactor:
+  ✔ restructure files @done(23-07-25 10:24)
+  ✘ rework/solidify render pipeline with secondary command buffer. only update on change @cancelled(23-07-25 10:25)
+  ✔ fix runtime compiled code using command buffer freezing engine @done(23-07-04 10:40)
+    ✔ add enqueue gpu work @done(23-07-04 10:40)
+    ☐ add enqueue render work
+  ☐ go through and ensure args to functions are reasonable
+  ☐ fix multiple meshes in model
+  ✘ optimize parallel instantiate/de-instantiate @cancelled(23-07-25 10:25)
+  ☐ implement Engine struct to contain all functionality/state
   

@@ -29,12 +29,14 @@ debug = true
 # [features]
 # serde-serialize = [ "nalgebra-glm/serde-serialize" ]
 
-[dependencies]
+[target.'cfg(windows)'.dependencies]
+mimalloc = { version = "*", default-features = false }
 
+[dependencies]
+thread-priority = "*"
 component-derive = { path = "component-derive" }
 num_cpus = "*"
 num-integer = "*"
-# libloading = "*"
 libc = "*"
 rayon = "*"
 crossbeam = "*"
@@ -42,12 +44,9 @@ once_cell = "*"
 pqueue = "*"
 rand = "*"
 scoped_threadpool = "*"
-
 nalgebra-glm = { version = "*", features = ["serde-serialize"]}
 
-
 bytemuck = { version = "*", features = ["derive", "extern_crate_std", "min_const_generics"] }
-# cgmath = "*"
 png = "*"
 image = "*"
 serde = { version = "*", features = ["derive"] }
@@ -68,7 +67,6 @@ vulkano = "0.32.3"
 vulkano-shaders = "0.32.0"
 winit = "0.27.5"
 vulkano-win = "0.32.0"
-
 
 egui = "0.20.1"
 # egui_vulkano = "*"
@@ -97,3 +95,5 @@ regex = "1.8.1"
 
 notify-debouncer-full = "*"
 const-fnv1a-hash = "1.1.0"
+thincollections = "0.5.4"
+config = "0.13.3"
