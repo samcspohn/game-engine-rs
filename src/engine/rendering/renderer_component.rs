@@ -29,41 +29,6 @@ use vulkano::{
 
 use super::{model::{ModelManager, ModelRenderer}, vulkan_manager::VulkanManager};
 
-// #[derive(Default, Clone, Copy, Serialize, Deserialize)]
-// struct ModelId {
-//     id: i32,
-// }
-// impl<'a> Inpsect for Ins<'a, ModelId> {
-//     fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) {
-//         let drop_data = drag_drop::DRAG_DROP_DATA.lock();
-//         sys.assets_manager.lock().asset_managers_type.get(&TypeId::of::<Model>()).unwrap().lock().assets_id.get(&self.0.id)
-//         let model: String = match sys.model_manager.lock().assets_id.get(&self.0.id) {
-//             Some(model) => model.lock().file.clone(),
-//             None => "".into(),
-//         };
-//         let can_accept_drop_data = match drop_data.rfind(".obj") {
-//             Some(_) => true,
-//             None => false,
-//         };
-//         // println!("can accept drop data:{}",can_accept_drop_data);
-//         ui.horizontal(|ui| {
-//             ui.add(egui::Label::new(name));
-//             drop_target(ui, can_accept_drop_data, |ui| {
-//                 // let model_name = sys.model_manager.lock().models.get(k)
-//                 let response = ui.add(egui::Label::new(model.as_str()));
-//                 if response.hovered() && ui.input().pointer.any_released() {
-//                     let model_file: String = drop_data.clone();
-
-//                     if let Some(id) = sys.model_manager.lock().assets.get(&model_file) {
-//                         self.0.id = *id;
-//                     }
-//                 }
-//             });
-//         });
-//     }
-// }
-
-// #[component]
 #[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Renderer {

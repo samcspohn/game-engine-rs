@@ -47,15 +47,11 @@ use super::{
 pub struct CameraData {
     rend: RenderPipeline,
     particle_render_pipeline: ParticleRenderPipeline,
-    // surface: Arc<Surface>,
     _render_pass: Arc<RenderPass>,
     viewport: Viewport,
-    // swapchain: Arc<Swapchain>,
     framebuffers: Vec<Arc<Framebuffer>>,
     pub output: Vec<Arc<AttachmentImage>>,
     pub camera_view_data: std::collections::VecDeque<CameraViewData>,
-    // recreate_swapchain: bool,
-    // previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
 #[derive(Clone, Default)]
 pub struct CameraViewData {
@@ -74,14 +70,6 @@ pub struct Camera {
     near: f32,
     far: f32,
 }
-
-// impl ComponentID for Camera {
-//     // const ID: u64 = std::any::type_name::<Self>().hash();
-//         const ID: u64 = const_fnv1a_hash::fnv1a_hash_64("Camera".as_bytes(), None);
-//     // fn hello_world() {
-//     //     println!("Hello, World! My name is {}", stringify!(#name));
-//     // }
-// }
 
 impl Default for Camera {
     fn default() -> Self {
@@ -123,7 +111,6 @@ impl Camera {
 }
 impl CameraData {
     pub fn update(&mut self, pos: Vec3, rot: Quat, near: f32, far: f32, fov: f32) {
-        // let cvd = &mut self.camera_view_data;
         let mut cvd = CameraViewData::default();
         cvd.cam_pos = pos;
         cvd.cam_rot = rot;
@@ -180,7 +167,6 @@ impl CameraData {
             &vk.comm_alloc,
         );
         Self {
-            // surface,
             rend,
             particle_render_pipeline: ParticleRenderPipeline::new(vk, render_pass.clone()),
             _render_pass: render_pass,
@@ -213,8 +199,6 @@ impl CameraData {
         rm: &mut RwLockWriteGuard<SharedRendererData>,
         rd: &mut RendererData,
         image_num: u32,
-        // model_manager: &MutexGuard<ModelManager>,
-        // texture_manager: &Mutex<TextureManager>,
         assets: Arc<AssetsManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData)>>,
     ) {
@@ -334,12 +318,10 @@ impl CameraData {
                             BufferSlice::from_typed_buffer_access(rm.indirect_buffer.clone())
                                 .slice(indr.id as u64..(indr.id + 1) as u64)
                         {
-                            // println!("{}",indirect_buffer.len());
                             if let Some(renderer_buffer) =
                                 BufferSlice::from_typed_buffer_access(rm.renderers_gpu.clone())
                                     .slice(offset..(offset + indr.count as u64))
                             {
-                                // println!("{}",renderer_buffer.len());
                                 self.rend.bind_mesh(
                                     &texture_manager,
                                     builder,
@@ -391,36 +373,15 @@ impl CameraData {
 /// This method is called once during initialization, then again whenever the window is resized
 fn window_size_dependent_setup(
     dimensions: [u32; 2],
-    // images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     vk: Arc<VulkanManager>,
-    // color: &mut FrameImage,
 ) -> (Vec<Arc<Framebuffer>>, Vec<Arc<AttachmentImage>>) {
-    // let dimensions = [1920, 1080]; //images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
     let depth_buffer = ImageView::new_default(
         AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::D32_SFLOAT).unwrap(),
     )
     .unwrap();
-
-    // color.arc = AttachmentImage::with_usage(
-    //     &mem,
-    //     dimensions,
-    //     Format::R8G8B8A8_UNORM,
-    //     ImageUsage {
-    //         transfer_src: true,
-    //         transfer_dst: false,
-    //         sampled: false,
-    //         storage: true,
-    //         color_attachment: true,
-    //         depth_stencil_attachment: false,
-    //         transient_attachment: false,
-    //         input_attachment: true,
-    //         ..ImageUsage::empty()
-    //     },
-    // )
-    // .unwrap();
     let mut images = Vec::new();
     let fb = vk
         .images
@@ -445,8 +406,6 @@ fn window_size_dependent_setup(
             .unwrap();
             images.push(image.clone());
             let view = ImageView::new_default(image).unwrap();
-            // let view = ImageView::new_default(image.clone()).unwrap();
-            // let color_view = ImageView::new_default(color.arc.clone()).unwrap();
             Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {

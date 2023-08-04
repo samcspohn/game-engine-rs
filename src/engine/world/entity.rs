@@ -84,12 +84,10 @@ impl<'a> EntityParBuilder<'a> {
     ) -> Self {
         self.comp_funcs
             .push(Box::new(|world: &mut World, t_: &Vec<i32>| {
-                // let key: TypeId = TypeId::of::<T>();
                 let key = T::ID;
                 if let Some(stor) = world.components.get(&key) {
                     let mut stor_lock = stor.write();
                     let mut src = stor_lock.as_mut();
-                    // let src = stor_lock.as_mut();
                     let stor: &mut &mut Storage<T> = unsafe { std::mem::transmute(&mut src) };
                     // if key == TypeId::of::<ParticleEmitter>() {}
                     for g in t_ {
@@ -109,10 +107,8 @@ impl<'a> EntityParBuilder<'a> {
         self
     }
     pub fn build(mut self) {
-        // if let Some(t_func) = self.transform_func {
         self.world
             .to_instantiate
             .push(_EntityParBuilder::from(self));
-        // }
     }
 }

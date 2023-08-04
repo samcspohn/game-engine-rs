@@ -79,8 +79,7 @@ pub struct Mesh {
     pub uvs_buffer: Arc<CpuAccessibleBuffer<[UV]>>,
     pub index_buffer: Arc<CpuAccessibleBuffer<[u16]>>,
     pub normals_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
-    pub texture: Option<i32>, // pub texture: Option<Arc<ImageView<ImmutableImage>>>,
-                                       // pub sampler: Option<Arc<Sampler>>,
+    pub texture: Option<i32>,
 }
 
 impl Mesh {
@@ -89,11 +88,9 @@ impl Mesh {
         normals: Vec<Normal>,
         indeces: Vec<u16>,
         uvs: Vec<UV>,
-        _device: Arc<Device>,
         allocator: &(impl MemoryAllocator + ?Sized),
     ) -> Mesh {
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            // device.clone(),
             allocator,
             buffer_usage_all(),
             false,
@@ -101,7 +98,6 @@ impl Mesh {
         )
         .unwrap();
         let uvs_buffer = CpuAccessibleBuffer::from_iter(
-            // device.clone(),
             allocator,
             buffer_usage_all(),
             false,
@@ -109,7 +105,6 @@ impl Mesh {
         )
         .unwrap();
         let normals_buffer = CpuAccessibleBuffer::from_iter(
-            // device.clone(),
             allocator,
             buffer_usage_all(),
             false,
@@ -117,7 +112,7 @@ impl Mesh {
         )
         .unwrap();
         let index_buffer = CpuAccessibleBuffer::from_iter(
-            // device.clone(),
+
             allocator,
             buffer_usage_all(),
             false,
@@ -141,7 +136,6 @@ impl Mesh {
 
     pub fn load_model(
         path: &str,
-        _device: Arc<Device>,
         texture_manager: Arc<Mutex<TextureManager>>,
         allocator: &(impl MemoryAllocator + ?Sized),
     ) -> Mesh {
@@ -157,27 +151,11 @@ impl Mesh {
         for (_i, m) in models.iter().enumerate() {
             let mesh = &m.mesh;
 
-            // println!("model[{}].name = \'{}\'", i, m.name);
-            // println!("model[{}].mesh.material_id = {:?}", i, mesh.material_id);
-
-            // println!(
-            //     "Size of model[{}].face_arities: {}",
-            //     i,
-            //     mesh.face_arities.len()
-            // );
-
-            // let mut next_face = 0;
-
             for face in mesh.indices.chunks(3) {
                 indices.push(face[0] as u16);
                 indices.push(face[2] as u16);
                 indices.push(face[1] as u16);
             }
-
-            // Normals and texture coordinates are also loaded, but not printed in this example
-            // println!("model[{}].vertices: {}", i, mesh.positions.len() / 3);
-
-            // assert!(mesh.positions.len() % 3 == 0);
             for v in mesh.positions.chunks(3) {
                 vertices.push(Vertex {
                     position: [v[0], v[1], v[2]],
@@ -194,12 +172,8 @@ impl Mesh {
                 uvs.push(UV { uv: [uv[0], uv[1]] });
             }
         }
-        // println!("num indices {}", indices.len());
-        // println!("num vertices {}", vertices.len());
-        // println!("num normals {}", normals.len());
 
         let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            // device.clone(),
             allocator,
             buffer_usage_all(),
             false,
@@ -207,7 +181,6 @@ impl Mesh {
         )
         .unwrap();
         let uvs_buffer = CpuAccessibleBuffer::from_iter(
-            // device.clone(),
             allocator,
             buffer_usage_all(),
             false,
@@ -215,7 +188,6 @@ impl Mesh {
         )
         .unwrap();
         let normals_buffer = CpuAccessibleBuffer::from_iter(
-            // device.clone(),
             allocator,
             buffer_usage_all(),
             false,
@@ -223,7 +195,6 @@ impl Mesh {
         )
         .unwrap();
         let index_buffer = CpuAccessibleBuffer::from_iter(
-            // device.clone(),
             allocator,
             buffer_usage_all(),
             false,
@@ -232,19 +203,15 @@ impl Mesh {
         .unwrap();
 
         let mut texture = None;
-        // let mut sampler = None;
         for mat in materials.iter() {
             for m in mat {
-                // m.diffuse_texture;
                 if m.diffuse_texture.is_none() {
                     continue;
                 }
                 let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string()
                     + "/"
                     + m.diffuse_texture.as_ref().unwrap());
-                // println!("tex {}", diff_path);
                 texture = Some(texture_manager.lock().from_file(diff_path));
-                // texture = Some(Arc::new(Texture::from_file(diff_path, device.clone(), queue.clone())));
             }
         }
 
@@ -258,10 +225,8 @@ impl Mesh {
             normals_buffer,
             index_buffer,
             texture,
-            // sampler,
         }
     }
-    // pub fn draw(&self, amount: i32) {}
 }
 
 use crate::engine::project::asset_manager::_AssetID;
@@ -278,7 +243,6 @@ impl
     Asset<
         ModelRenderer,
         (
-            Arc<Device>,
             Arc<Mutex<TextureManager>>,
             Arc<StandardMemoryAllocator>,
         ),
@@ -287,12 +251,11 @@ impl
     fn from_file(
         file: &str,
         params: &(
-            Arc<Device>,
             Arc<Mutex<TextureManager>>,
             Arc<StandardMemoryAllocator>,
         ),
     ) -> ModelRenderer {
-        let mesh = Mesh::load_model(file, params.0.clone(), params.1.clone(), &params.2);
+        let mesh = Mesh::load_model(file, params.0.clone(), &params.1);
         ModelRenderer {
             file: file.into(),
             mesh,
@@ -304,12 +267,11 @@ impl
         &mut self,
         file: &str,
         params: &(
-            Arc<Device>,
             Arc<Mutex<TextureManager>>,
             Arc<StandardMemoryAllocator>,
         ),
     ) {
-        let _mesh = Mesh::load_model(file, params.0.clone(), params.1.clone(), &params.2);
+        let _mesh = Mesh::load_model(file, params.0.clone(), &params.1);
     }
 }
 
@@ -322,7 +284,6 @@ impl Inspectable_ for ModelRenderer {
 
 pub type ModelManager = asset_manager::AssetManager<
     (
-        Arc<Device>,
         Arc<Mutex<TextureManager>>,
         Arc<StandardMemoryAllocator>,
     ),

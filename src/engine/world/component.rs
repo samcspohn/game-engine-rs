@@ -62,8 +62,3 @@ pub trait Component {
 pub trait _ComponentID {
     const ID: u64;
 }
-
-// #[derive(Clone, Copy)]
-// pub struct GameObject {
-//     pub t: i32,
-// }

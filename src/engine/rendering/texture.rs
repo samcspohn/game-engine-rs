@@ -19,38 +19,6 @@ use vulkano::{
 
 use crate::{editor::inspectable::Inspectable_, engine::{world::World, project::asset_manager::{AssetManager, Asset}}};
 
-// pub struct TextureManager {
-//     pub device: Arc<Device>,
-//     pub queue: Arc<Queue>,
-//     pub textures: RwLock<HashMap<String, Arc<Texture>>>,
-//     pub mem: Arc<StandardMemoryAllocator>,
-// }
-
-// impl TextureManager {
-//     pub fn regen(&self, textures: BTreeSet<String>) {
-//         for t in textures {
-//             self.texture(&t);
-//         }
-//     }
-//     pub fn texture(&self, path: &str) -> Arc<Texture> {
-//         {
-//             if let Some(tex) = self.textures.read().get(path.into()) {
-//                 return tex.clone();
-//             }
-//         }
-//         {
-//             let tex = Arc::new(Texture::from_file(
-//                 path,
-//                 self.device.clone(),
-//                 self.queue.clone(),
-//                 &self.mem,
-//             ));
-//             self.textures.write().insert(path.into(), tex.clone());
-//             tex
-//         }
-//     }
-// }
-
 pub type TextureManager = AssetManager<(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>),Texture>;
 use crate::engine::project::asset_manager::_AssetID;
 #[derive(AssetID)]

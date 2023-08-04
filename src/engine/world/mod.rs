@@ -112,10 +112,6 @@ impl World {
         }
     }
     pub fn defer_instantiate(&mut self) {
-        // let mut v = Vec::new();
-        // let mut y = self.to_instantiate.lock();
-        // std::mem::swap(&mut v, &mut y);
-        // drop(y);
         while let Some(a) = self.to_instantiate.pop() {
             if let Some(t_func) = a.t_func {
                 let t = self

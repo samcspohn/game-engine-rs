@@ -189,7 +189,6 @@ impl Engine {
         )));
         let model_manager = Arc::new(Mutex::new(ModelManager::new(
             (
-                vk.device.clone(),
                 texture_manager.clone(),
                 vk.mem_alloc.clone(),
             ),

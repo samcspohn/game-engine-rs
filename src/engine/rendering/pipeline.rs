@@ -269,12 +269,4 @@ impl RenderPipeline {
         }
         self
     }
-
-    // pub fn bind_finish(
-    //     &self,
-    //     builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-    // ) {
-    //     builder
-    //         .unwrap();
-    // }
 }

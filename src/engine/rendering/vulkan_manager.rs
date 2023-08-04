@@ -298,21 +298,8 @@ impl VulkanManager {
             res.get_results(
                 &mut query_results,
                 QueryResultFlags {
-                    // Block the function call until the results are available.
-                    // Note: if not all the queries have actually been executed, then this
-                    // will wait forever for something that never happens!
                     wait: true,
-
-                    // Blocking and waiting will never give partial results.
                     partial: false,
-
-                    // Blocking and waiting will ensure the results are always available after
-                    // the function returns.
-                    //
-                    // If you disable waiting, then this can be used to include the
-                    // availability of each query's results. You need one extra element per
-                    // query in your `query_results` buffer for this. This element will
-                    // be filled with a zero/nonzero value indicating availability.
                     with_availability: false,
                     ..QueryResultFlags::empty()
                 },
