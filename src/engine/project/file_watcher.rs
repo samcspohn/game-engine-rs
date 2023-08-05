@@ -23,6 +23,7 @@ use walkdir::WalkDir;
 use super::asset_manager::AssetsManager;
 // use relative_path;
 
+use crate::engine::utils::SEP;
 pub struct FileWatcher {
     pub(crate) files: BTreeMap<String, u64>,
     // dirs: BTreeSet<String>,
@@ -30,7 +31,6 @@ pub struct FileWatcher {
     events_queue: Arc<SegQueue<DebounceEventResult>>,
     watcher: Debouncer<RecommendedWatcher, FileIdMap>,
 }
-const sep: char = std::path::MAIN_SEPARATOR;
 
 impl FileWatcher {
     pub fn new(path: &str) -> FileWatcher {
@@ -70,17 +70,16 @@ impl FileWatcher {
                 p_str.find(&self.path).unwrap() + self.path.len(),
                 p_str.len(),
             )
-            .replace(sep, "/");
+            .replace(SEP, "/");
         let parent = a.substring(0, a.rfind("/").unwrap_or_else(|| a.len()));
         if parent == "/target/release" {
             return true;
         }
-        !f_name.contains(format!("target{0}", sep).as_str()) && !f_name.contains("runtime")
+        !f_name.contains(format!("target{0}", SEP).as_str()) && !f_name.contains("runtime")
     }
+
     fn process(&mut self, assets_manager: &Arc<AssetsManager>, entry: walkdir::DirEntry) {
-        let f_name = String::from(entry.path().to_string_lossy());
-        let f_name = f_name.replace(sep, "/");
-        let f_name = f_name.substring(2, f_name.len()).to_owned();
+        let f_name = crate::engine::utils::path_format(&entry.path().to_path_buf());
         assets_manager.load(f_name.as_str());
         self.files.entry(f_name).and_modify(|_e| {}).or_insert(
             entry
@@ -115,7 +114,7 @@ impl FileWatcher {
     }
     fn remove_base(&self, p: &Path) -> String {
         let p: String = p.to_str().unwrap().to_owned();
-        let p = p.replace(sep, "/");
+        let p = p.replace(SEP, "/");
         let p = p.substring(p.find("/./").unwrap() + 1, p.len());
         let p = p.substring(2, p.len()).to_owned();
         p.into()

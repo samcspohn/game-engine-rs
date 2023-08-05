@@ -435,24 +435,6 @@ impl Engine {
             job.unwrap()(&mut builder, vk.clone());
         }
 
-        // if !self.playing_game {
-        //     cam_data.update(editor_cam.pos, editor_cam.rot, 0.01f32, 10_000f32, 70f32);
-        //     cam_data.render(
-        //         vk.clone(),
-        //         &mut builder,
-        //         &mut transform_compute,
-        //         particles_system.clone(),
-        //         &transform_data,
-        //         rm.pipeline.clone(),
-        //         offset_vec,
-        //         &mut rm,
-        //         &mut rd,
-        //         image_num,
-        //         &model_manager.lock(),
-        //         &texture_manager,
-        //         &render_jobs,
-        //     );
-        // } else {
         for cam in cam_datas {
             cam.lock().render(
                 vk.clone(),

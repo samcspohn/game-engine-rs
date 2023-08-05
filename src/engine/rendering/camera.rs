@@ -3,7 +3,7 @@ use std::{collections::VecDeque, sync::Arc};
 use component_derive::ComponentID;
 use glm::{radians, vec1, Mat4, Quat, Vec3};
 use nalgebra_glm as glm;
-use parking_lot::{Mutex, MutexGuard, RwLockWriteGuard, RwLock, RwLockReadGuard};
+use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
 use serde::{Deserialize, Serialize};
 use vulkano::{
@@ -24,6 +24,7 @@ use crate::{
     editor::inspectable::{Inpsect, Ins, Inspectable},
     engine::{
         particles::particles::{ParticleCompute, ParticleRenderPipeline},
+        project::asset_manager::AssetsManager,
         rendering::renderer_component::ur,
         transform_compute::{cs::ty::Data, TransformCompute},
         world::{
@@ -31,7 +32,7 @@ use crate::{
             transform::{Transform, TransformData},
             Sys,
         },
-        RenderJobData, project::asset_manager::AssetsManager,
+        RenderJobData,
     },
 };
 
@@ -39,7 +40,7 @@ use super::{
     model::{ModelManager, ModelRenderer},
     pipeline::RenderPipeline,
     renderer_component::{buffer_usage_all, RendererData, SharedRendererData},
-    texture::{TextureManager, Texture},
+    texture::{Texture, TextureManager},
     vulkan_manager::VulkanManager,
 };
 
@@ -308,33 +309,35 @@ impl CameraData {
             let mut offset = 0;
 
             for (_ind_id, m_id) in rd.indirect_model.iter() {
-                if let Some(indr) = rd.model_indirect.get(m_id) {
-                    if let Some(mr) = mm.assets_id.get(m_id) {
-                        let mr = mr.lock();
-                        if indr.count == 0 {
-                            continue;
-                        }
-                        if let Some(indirect_buffer) =
-                            BufferSlice::from_typed_buffer_access(rm.indirect_buffer.clone())
-                                .slice(indr.id as u64..(indr.id + 1) as u64)
-                        {
-                            if let Some(renderer_buffer) =
-                                BufferSlice::from_typed_buffer_access(rm.renderers_gpu.clone())
-                                    .slice(offset..(offset + indr.count as u64))
+                if let Some(model_indr) = rd.model_indirect.get(m_id) {
+                    for (i,indr) in model_indr.iter().enumerate() {
+                        if let Some(mr) = mm.assets_id.get(m_id) {
+                            let mr = mr.lock();
+                            if indr.count == 0 {
+                                continue;
+                            }
+                            if let Some(indirect_buffer) =
+                                BufferSlice::from_typed_buffer_access(rm.indirect_buffer.clone())
+                                    .slice(indr.id as u64..(indr.id + 1) as u64)
                             {
-                                self.rend.bind_mesh(
-                                    &texture_manager,
-                                    builder,
-                                    vk.desc_alloc.clone(),
-                                    renderer_buffer.clone(),
-                                    transform_compute.mvp.clone(),
-                                    &mr.mesh,
-                                    indirect_buffer.clone(),
-                                );
+                                if let Some(renderer_buffer) =
+                                    BufferSlice::from_typed_buffer_access(rm.renderers_gpu.clone())
+                                        .slice(offset..(offset + indr.count as u64))
+                                {
+                                    self.rend.bind_mesh(
+                                        &texture_manager,
+                                        builder,
+                                        vk.desc_alloc.clone(),
+                                        renderer_buffer.clone(),
+                                        transform_compute.mvp.clone(),
+                                        &mr.meshes[i],
+                                        indirect_buffer.clone(),
+                                    );
+                                }
                             }
                         }
+                        offset += indr.count as u64;
                     }
-                    offset += indr.count as u64;
                 }
             }
         }

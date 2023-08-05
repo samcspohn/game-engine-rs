@@ -1,9 +1,6 @@
 // extern crate assimp;
 
-use std::{
-    ops::Sub,
-    sync::Arc,
-};
+use std::{ops::Sub, sync::Arc};
 
 // use ai::import::Importer;
 // use assimp as ai;
@@ -15,15 +12,16 @@ use parking_lot::{Mutex, RwLock};
 use nalgebra_glm as glm;
 // use rapier3d::na::Norm;
 use crate::{
-    editor::inspectable::Inspectable_,engine::{world::World, project::asset_manager::{self, Asset, AssetManagerBase}},
+    editor::inspectable::Inspectable_,
+    engine::{
+        project::asset_manager::{self, Asset, AssetManagerBase},
+        world::World,
+    },
 };
 use vulkano::memory::allocator::{MemoryAllocator, StandardMemoryAllocator};
-use vulkano::{
-    buffer::{CpuAccessibleBuffer},
-    device::Device,
-    impl_vertex,
-};
+use vulkano::{buffer::CpuAccessibleBuffer, device::Device, impl_vertex};
 
+mod mesh;
 // impl_vertex!(glm::Vec3, position);
 
 #[repr(C)]
@@ -90,35 +88,18 @@ impl Mesh {
         uvs: Vec<UV>,
         allocator: &(impl MemoryAllocator + ?Sized),
     ) -> Mesh {
-        let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            allocator,
-            buffer_usage_all(),
-            false,
-            vertices.clone(),
-        )
-        .unwrap();
-        let uvs_buffer = CpuAccessibleBuffer::from_iter(
-            allocator,
-            buffer_usage_all(),
-            false,
-            uvs.clone(),
-        )
-        .unwrap();
-        let normals_buffer = CpuAccessibleBuffer::from_iter(
-            allocator,
-            buffer_usage_all(),
-            false,
-            normals.clone(),
-        )
-        .unwrap();
-        let index_buffer = CpuAccessibleBuffer::from_iter(
-
-            allocator,
-            buffer_usage_all(),
-            false,
-            indeces.clone(),
-        )
-        .unwrap();
+        let vertex_buffer =
+            CpuAccessibleBuffer::from_iter(allocator, buffer_usage_all(), false, vertices.clone())
+                .unwrap();
+        let uvs_buffer =
+            CpuAccessibleBuffer::from_iter(allocator, buffer_usage_all(), false, uvs.clone())
+                .unwrap();
+        let normals_buffer =
+            CpuAccessibleBuffer::from_iter(allocator, buffer_usage_all(), false, normals.clone())
+                .unwrap();
+        let index_buffer =
+            CpuAccessibleBuffer::from_iter(allocator, buffer_usage_all(), false, indeces.clone())
+                .unwrap();
 
         Mesh {
             vertices,
@@ -130,7 +111,6 @@ impl Mesh {
             normals_buffer,
             index_buffer,
             texture: None,
-            // sampler: None,
         }
     }
 
@@ -138,17 +118,18 @@ impl Mesh {
         path: &str,
         texture_manager: Arc<Mutex<TextureManager>>,
         allocator: &(impl MemoryAllocator + ?Sized),
-    ) -> Mesh {
-        // let sub_path = path.split("/");
+    ) -> Vec<Mesh> {
         let _path = std::path::Path::new(path);
         let model = tobj::load_obj(path, &(tobj::GPU_LOAD_OPTIONS));
-        let (models, materials) = model.expect(format!("Failed to load OBJ file: {}",path).as_str());
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-        let mut normals = Vec::new();
-        let mut uvs = Vec::new();
+        let (meshes, materials) =
+            model.expect(format!("Failed to load OBJ file: {}", path).as_str());
+        let mut _meshes = Vec::new();
+        for (_i, m) in meshes.iter().enumerate() {
+            let mut vertices = Vec::new();
+            let mut indices = Vec::new();
+            let mut normals = Vec::new();
+            let mut uvs = Vec::new();
 
-        for (_i, m) in models.iter().enumerate() {
             let mesh = &m.mesh;
 
             for face in mesh.indices.chunks(3) {
@@ -171,61 +152,65 @@ impl Mesh {
             for uv in mesh.texcoords.chunks(2) {
                 uvs.push(UV { uv: [uv[0], uv[1]] });
             }
-        }
 
-        let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            allocator,
-            buffer_usage_all(),
-            false,
-            vertices.clone(),
-        )
-        .unwrap();
-        let uvs_buffer = CpuAccessibleBuffer::from_iter(
-            allocator,
-            buffer_usage_all(),
-            false,
-            uvs.clone(),
-        )
-        .unwrap();
-        let normals_buffer = CpuAccessibleBuffer::from_iter(
-            allocator,
-            buffer_usage_all(),
-            false,
-            normals.clone(),
-        )
-        .unwrap();
-        let index_buffer = CpuAccessibleBuffer::from_iter(
-            allocator,
-            buffer_usage_all(),
-            false,
-            indices.clone(),
-        )
-        .unwrap();
+            let vertex_buffer = CpuAccessibleBuffer::from_iter(
+                allocator,
+                buffer_usage_all(),
+                false,
+                vertices.clone(),
+            )
+            .unwrap();
+            let uvs_buffer =
+                CpuAccessibleBuffer::from_iter(allocator, buffer_usage_all(), false, uvs.clone())
+                    .unwrap();
+            let normals_buffer = CpuAccessibleBuffer::from_iter(
+                allocator,
+                buffer_usage_all(),
+                false,
+                normals.clone(),
+            )
+            .unwrap();
+            let index_buffer = CpuAccessibleBuffer::from_iter(
+                allocator,
+                buffer_usage_all(),
+                false,
+                indices.clone(),
+            )
+            .unwrap();
 
-        let mut texture = None;
-        for mat in materials.iter() {
-            for m in mat {
-                if m.diffuse_texture.is_none() {
-                    continue;
+            let mut texture = None;
+            // for mat in materials.iter() {
+            match &materials {
+                Ok(mat) => {
+                    if let Some(mat_id) = m.mesh.material_id {
+                        let m = &mat[mat_id];
+                        if let Some(diffuse) = &m.diffuse_texture {   
+                            let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string()
+                            + "/"
+                            + m.diffuse_texture.as_ref().unwrap());
+                            texture = Some(texture_manager.lock().from_file(diff_path));
+                            println!("{}, {:?}", diff_path, texture);
+                        }
+                    }
                 }
-                let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string()
-                    + "/"
-                    + m.diffuse_texture.as_ref().unwrap());
-                texture = Some(texture_manager.lock().from_file(diff_path));
+                Err(_) => {}
             }
+            // }
+
+            _meshes.push(Mesh {
+                vertices,
+                uvs,
+                indeces: indices,
+                normals,
+                vertex_buffer,
+                uvs_buffer,
+                normals_buffer,
+                index_buffer,
+                texture,
+            })
         }
 
-        Mesh {
-            vertices,
-            uvs,
-            indeces: indices,
-            normals,
-            vertex_buffer,
-            uvs_buffer,
-            normals_buffer,
-            index_buffer,
-            texture,
-        }
+        _meshes
     }
 }
 
@@ -235,30 +220,21 @@ use super::{renderer_component::buffer_usage_all, texture::TextureManager};
 #[derive(AssetID)]
 pub struct ModelRenderer {
     pub file: String,
-    pub mesh: Mesh,
+    pub meshes: Vec<Mesh>,
     pub count: u32,
 }
 
-impl
-    Asset<
-        ModelRenderer,
-        (
-            Arc<Mutex<TextureManager>>,
-            Arc<StandardMemoryAllocator>,
-        ),
-    > for ModelRenderer
+impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<StandardMemoryAllocator>)>
+    for ModelRenderer
 {
     fn from_file(
         file: &str,
-        params: &(
-            Arc<Mutex<TextureManager>>,
-            Arc<StandardMemoryAllocator>,
-        ),
+        params: &(Arc<Mutex<TextureManager>>, Arc<StandardMemoryAllocator>),
     ) -> ModelRenderer {
-        let mesh = Mesh::load_model(file, params.0.clone(), &params.1);
+        let meshes = Mesh::load_model(file, params.0.clone(), &params.1);
         ModelRenderer {
             file: file.into(),
-            mesh,
+            meshes,
             count: 1,
         }
     }
@@ -266,10 +242,7 @@ impl
     fn reload(
         &mut self,
         file: &str,
-        params: &(
-            Arc<Mutex<TextureManager>>,
-            Arc<StandardMemoryAllocator>,
-        ),
+        params: &(Arc<Mutex<TextureManager>>, Arc<StandardMemoryAllocator>),
     ) {
         let _mesh = Mesh::load_model(file, params.0.clone(), &params.1);
     }
@@ -281,11 +254,7 @@ impl Inspectable_ for ModelRenderer {
     }
 }
 
-
 pub type ModelManager = asset_manager::AssetManager<
-    (
-        Arc<Mutex<TextureManager>>,
-        Arc<StandardMemoryAllocator>,
-    ),
+    (Arc<Mutex<TextureManager>>, Arc<StandardMemoryAllocator>),
     ModelRenderer,
 >;

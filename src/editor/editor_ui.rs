@@ -13,7 +13,7 @@ use std::{
 
 
 use crate::{
-    editor::{inspectable::{Inspectable, Inspectable_}, drag_drop::drag_source, editor_ui::entity_inspector::_selected}, engine::{world::{World, transform::Transform, Sys }, project::{serialize, asset_manager::AssetsManager}},
+    editor::{inspectable::{Inspectable, Inspectable_}, drag_drop::drag_source, editor_ui::entity_inspector::_selected}, engine::{world::{World, transform::Transform, Sys }, project::{serialize, asset_manager::AssetsManager}, utils},
 };
 use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
@@ -436,11 +436,12 @@ pub fn editor_ui(
                             "Project" => {
                                 let world = world.lock();
                                 use substring::Substring;
-                                let cur_dir: PathBuf = "./test_project_rs".into();
+                                let cur_dir: PathBuf = ".".into();
                                 fn render_dir(ui: &mut egui::Ui, cur_dir: PathBuf, sys: &Sys, assets_manager: &Arc<AssetsManager>) {
                                     // let label = format!("{:?}", cur_dir);
                                     let label: String = cur_dir.clone().into_os_string().into_string().unwrap();
                                     let id = ui.make_persistent_id(label.clone());
+                                    let _cur_dir = cur_dir.clone();
                                     if let Ok(it) = fs::read_dir(cur_dir) {
                                         egui::collapsing_header::CollapsingState::load_with_default_open(
                                             ui.ctx(),
@@ -491,7 +492,7 @@ pub fn editor_ui(
                                         if let Some(last_slash) = label.rfind(path::MAIN_SEPARATOR_STR) {
                                             let _label: String = label.substring(last_slash + 1, label.len()).into();
                                             let item_id = egui::Id::new(label.clone());
-                                                let resp = drag_source(ui, item_id, label.clone(), move |ui| {
+                                                let resp = drag_source(ui, item_id, utils::path_format(&_cur_dir), move |ui| {
                                                     ui.add(egui::Label::new(_label.clone()).sense(egui::Sense::click()));
                                                 });
                                                 if resp.clicked() {

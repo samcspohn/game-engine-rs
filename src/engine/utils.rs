@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{sync::Arc, path::Path};
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
+use substring::Substring;
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
     SecondaryAutoCommandBuffer,
@@ -31,4 +32,13 @@ lazy_static! {
                 .unwrap(),
         )
     };
+}
+
+pub const SEP: char = std::path::MAIN_SEPARATOR;
+
+pub fn path_format(entry: &std::path::PathBuf) -> String {
+    let f_name = String::from(entry.to_string_lossy());
+    let f_name = f_name.replace(SEP, "/");
+    let f_name = f_name.substring(2, f_name.len()).to_owned();
+    f_name
 }

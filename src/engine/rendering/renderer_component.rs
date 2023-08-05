@@ -3,12 +3,24 @@ use parking_lot::RwLock;
 use puffin_egui::puffin;
 use std::{
     any::TypeId,
+    array,
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
+use thincollections::thin_vec::ThinVec;
 
 use crate::{
-    editor::inspectable::{Inpsect, Ins, Inspectable}, engine::{world::{transform::Transform, component::{ Component, _ComponentID}, Sys}, storage::_Storage, project::asset_manager::AssetInstance, transform_compute::TransformCompute },
+    editor::inspectable::{Inpsect, Ins, Inspectable},
+    engine::{
+        project::asset_manager::AssetInstance,
+        storage::_Storage,
+        transform_compute::TransformCompute,
+        world::{
+            component::{Component, _ComponentID},
+            transform::Transform,
+            Sys,
+        },
+    },
 };
 use bytemuck::{Pod, Zeroable};
 // use parking_lot::RwLock;
@@ -27,167 +39,114 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-use super::{model::{ModelManager, ModelRenderer}, vulkan_manager::VulkanManager};
+use super::{
+    model::{ModelManager, ModelRenderer},
+    vulkan_manager::VulkanManager,
+};
 
 #[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Renderer {
     model_id: AssetInstance<ModelRenderer>,
     #[serde(skip_serializing, skip_deserializing)]
-    id: i32,
+    id: ThinVec<i32>,
 }
-
 
 impl Component for Renderer {
     fn init(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
-        let rm = &mut sys.renderer_manager.write();
-        let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
-            ind.count += 1;
-            ind.id
+        let mut rm = sys.renderer_manager.write();
+        let mut model_indirect = rm.model_indirect.write();
+        let mut ind_id = if let Some(ind) = model_indirect.get_mut(&self.model_id.id) {
+            ind.iter_mut()
+                .map(|ind| {
+                    ind.count += 1;
+                    ind.id
+                })
+                .collect::<Vec<i32>>()
         } else {
-            -1
+            sys.get_model_manager()
+                .lock()
+                .as_any()
+                .downcast_ref::<ModelManager>()
+                .unwrap()
+                .assets_id
+                .get(&self.model_id.id)
+                .unwrap()
+                .lock()
+                .meshes
+                .iter()
+                .map(|mesh| {
+                    let id = rm
+                        .shr_data
+                        .write()
+                        .indirect
+                        .emplace(DrawIndexedIndirectCommand {
+                            index_count: mesh.indeces.len() as u32,
+                            instance_count: 0,
+                            first_index: 0,
+                            vertex_offset: 0,
+                            first_instance: 0,
+                        });
+                    model_indirect
+                        .entry(self.model_id.id)
+                        .or_default()
+                        .push(Indirect { id, count: 1 });
+                    rm.indirect_model.write().insert(id, self.model_id.id);
+                    id
+                })
+                .collect()
         };
+        drop(model_indirect);
 
-        if ind_id == -1 {
-            ind_id = rm
-                .shr_data
-                .write()
-                .indirect
-                .emplace(DrawIndexedIndirectCommand {
-                    index_count: sys
-                        .get_model_manager()
-                        .lock()
-                        .as_any()
-                        .downcast_ref::<ModelManager>()
-                        .unwrap()
-                        .assets_id
-                        .get(&self.model_id.id)
-                        .unwrap()
-                        .lock()
-                        .mesh
-                        .indeces
-                        .len() as u32,
-                    instance_count: 0,
-                    first_index: 0,
-                    vertex_offset: 0,
-                    first_instance: 0,
+        self.id = ind_id
+            .into_iter()
+            .map(|id| {
+                let _id = rm.transforms.emplace(TransformId {
+                    indirect_id: id,
+                    transform_id: transform.id,
                 });
-            rm.model_indirect.write().insert(
-                self.model_id.id,
-                Indirect {
-                    id: ind_id,
-                    count: 1,
-                },
-            );
-            rm.indirect_model.write().insert(ind_id, self.model_id.id);
-        }
-        self.id = rm.transforms.emplace(TransformId {
-            indirect_id: ind_id,
-            transform_id: transform.id,
-        });
-        rm.updates.insert(
-            self.id,
-            TransformId {
-                indirect_id: ind_id,
-                transform_id: transform.id,
-            },
-        );
+                rm.updates.insert(
+                    _id,
+                    TransformId {
+                        indirect_id: id,
+                        transform_id: transform.id,
+                    },
+                );
+                _id
+            })
+            .collect();
     }
     fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
-        sys.renderer_manager
-            .write()
-            .model_indirect
-            .write()
-            .get_mut(&self.model_id.id)
-            .unwrap()
-            .count -= 1;
-        sys.renderer_manager.write().updates.insert(
-            self.id,
-            TransformId {
-                indirect_id: -1,
-                transform_id: -1,
-            },
-        );
-        sys.renderer_manager.write().transforms.erase(self.id);
+        let mut rm = sys.renderer_manager.write();
+        // reduce count in indirect
+        if let Some(model_ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
+            for ind in model_ind {
+                ind.count -= 1;
+            }
+        }
+        for id in &self.id {
+            rm.updates.insert(
+                *id,
+                TransformId {
+                    indirect_id: -1,
+                    transform_id: -1,
+                },
+            );
+            rm.transforms.erase(*id);
+        }
     }
 }
 
-
 impl Inspectable for Renderer {
-    fn inspect(&mut self, transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
-        // ui.add(egui::Label::new("Renderer"));
-        // egui::CollapsingHeader::new(std::any::type_name::<Self>())
-        //     .default_open(true)
-        //     .show(ui, |ui| {
-        let m_id = self.model_id;
-        Ins(&mut self.model_id).inspect("model_id", ui, sys);
+    fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys) {
+        let mut m_id = self.model_id;
+        Ins(&mut m_id).inspect("model_id", ui, sys);
 
         if self.model_id.id != m_id.id {
-            // self.deinit(transform, id, sys);
-            let rm = &mut sys.renderer_manager.write();
-            rm.model_indirect.write().get_mut(&m_id.id).unwrap().count -= 1;
-            // sys.renderer_manager.write().updates.insert(
-            //     self.id,
-            //     TransformId {
-            //         indirect_id: -1,
-            //         transform_id: -1,
-            //     },
-            // );
-            // sys.renderer_manager.write().transforms.erase(self.id);
-
-            let mut ind_id = if let Some(ind) = rm.model_indirect.write().get_mut(&self.model_id.id)
-            {
-                ind.count += 1;
-                ind.id
-            } else {
-                -1
-            };
-
-            if ind_id == -1 {
-                ind_id = rm
-                    .shr_data
-                    .write()
-                    .indirect
-                    .emplace(DrawIndexedIndirectCommand {
-                        index_count: sys.get_model_manager()
-                            .lock()
-                            .as_any()
-                            .downcast_ref::<ModelManager>()
-                            .unwrap()
-                            .assets_id
-                            .get(&self.model_id.id)
-                            .unwrap()
-                            .lock()
-                            .mesh
-                            .indeces
-                            .len() as u32,
-                        instance_count: 0,
-                        first_index: 0,
-                        vertex_offset: 0,
-                        first_instance: 0,
-                    });
-                rm.model_indirect.write().insert(
-                    self.model_id.id,
-                    Indirect {
-                        id: ind_id,
-                        count: 1,
-                    },
-                );
-                rm.indirect_model.write().insert(ind_id, self.model_id.id);
-            }
-            rm.transforms.data[self.id as usize] = TransformId {
-                indirect_id: ind_id,
-                transform_id: transform.id,
-            };
-            rm.updates.insert(
-                self.id,
-                TransformId {
-                    indirect_id: ind_id,
-                    transform_id: transform.id,
-                },
-            );
+            self.deinit(transform, id, sys);
+            self.model_id = m_id;
+            self.init(transform, id, sys);
         }
-        // });
     }
 }
 // #[derive(Default)]
@@ -229,7 +188,7 @@ pub struct TransformId {
 }
 
 pub struct RendererData {
-    pub model_indirect: BTreeMap<i32, Indirect>,
+    pub model_indirect: BTreeMap<i32, Vec<Indirect>>,
     pub indirect_model: BTreeMap<i32, i32>,
     pub transforms_len: i32,
 
@@ -278,7 +237,7 @@ impl SharedRendererData {
                     false,
                 )
                 .unwrap();
-            self.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
+                self.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
                     &vk.mem_alloc,
                     max_len as u64,
                     buffer_usage_all(),
@@ -308,9 +267,11 @@ impl SharedRendererData {
         let mut offset_vec = Vec::new();
         let mut offset = 0;
         for (_, m_id) in rd.indirect_model.iter() {
-            offset_vec.push(offset);
-            if let Some(ind) = rd.model_indirect.get(m_id) {
-                offset += ind.count;
+            if let Some(model_ind) = rd.model_indirect.get(m_id) {
+                for ind in model_ind.iter() {
+                    offset_vec.push(offset);
+                    offset += ind.count;
+                }
             }
         }
         if !offset_vec.is_empty() {
@@ -387,7 +348,7 @@ impl SharedRendererData {
 }
 
 pub struct RendererManager {
-    pub model_indirect: RwLock<BTreeMap<i32, Indirect>>,
+    pub model_indirect: RwLock<BTreeMap<i32, Vec<Indirect>>>,
     pub indirect_model: RwLock<BTreeMap<i32, i32>>,
 
     pub transforms: _Storage<TransformId>,
@@ -494,7 +455,7 @@ impl RendererManager {
                 .model_indirect
                 .read()
                 .iter()
-                .map(|(k, v)| (*k, *v))
+                .map(|(k, v)| (*k, v.iter().copied().collect()))
                 .collect(),
             indirect_model: self
                 .indirect_model
@@ -516,7 +477,9 @@ impl RendererManager {
         self.transforms.clear();
         let mut m = self.model_indirect.write();
         for (_, m) in m.iter_mut() {
-            m.count = 0;
+            for i in m.iter_mut() {
+                i.count = 0;
+            }
         }
         // self.model_indirect.write().clear();
         // self.indirect_model.write().clear();
@@ -546,7 +509,7 @@ impl Renderer {
     pub fn new(model_id: i32) -> Renderer {
         Renderer {
             model_id: AssetInstance::<ModelRenderer>::new(model_id),
-            id: 0,
+            id: [0].into_iter().collect(),
         }
     }
 }

@@ -281,7 +281,6 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManage
                 None => false,
             })
             .any(|b| b);
-        // println!("can accept drop data:{}",can_accept_drop_data);
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             drop_target(ui, can_accept_drop_data, |ui| {
@@ -470,8 +469,15 @@ impl AssetsManager {
         r
     }
     pub fn deserialize(&self, val: &BTreeMap<String, serde_yaml::Value>) {
+        let a = unsafe { &*self.asset_managers_names.get() }
+            .get("texture")
+            .unwrap();
+        if let Some(libs) = val.get("texture") {
+            a.lock().regen(libs.clone());
+        }
+
         for (n, v) in val {
-            if n == "lib" {
+            if n == "lib" || n == "texture" {
                 continue;
             }
             let a = unsafe { &*self.asset_managers_names.get() }.get(n).unwrap();
