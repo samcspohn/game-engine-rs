@@ -39,12 +39,8 @@ impl Component for ParticleEmitter {
             template_id: self.template.id,
             e_id: id,
         };
-        match sys.particles_system.emitter_inits.try_push(d) {
-            None => {}
-            Some(i) => {
-                sys.particles_system.emitter_inits.push(i, d);
-            }
-        }
+
+        sys.particles_system.emitter_inits.push(d);
     }
     fn deinit(&mut self, transform: &Transform, id: i32, sys: &Sys) {
         let d = cs::ty::emitter_init {
@@ -54,11 +50,6 @@ impl Component for ParticleEmitter {
             e_id: id,
         };
 
-        match sys.particles_system.emitter_deinits.try_push(d) {
-            None => {}
-            Some(i) => {
-                sys.particles_system.emitter_deinits.push(i, d);
-            }
-        }
+        sys.particles_system.emitter_deinits.push(d);
     }
 }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
+use nalgebra_glm::Vec3;
 use parking_lot::{Mutex, RwLock};
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
@@ -10,8 +11,9 @@ use vulkano::command_buffer::{
 
 use crate::engine::{
     input::Input,
+    particles::{particle_asset::ParticleTemplate, particles::ParticleCompute},
     physics::Physics,
-    project::asset_manager::{AssetManagerBase, AssetsManager},
+    project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
     rendering::{
         model::ModelRenderer, renderer_component::RendererManager, vulkan_manager::VulkanManager,
     },
@@ -28,6 +30,7 @@ pub struct System<'a> {
     pub assets: &'a AssetsManager,
     pub vk: Arc<VulkanManager>,
     pub gpu_work: &'a GPUWork,
+    pub(crate) particle_system: &'a ParticleCompute,
 }
 impl<'a> System<'a> {
     pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
@@ -41,6 +44,22 @@ impl<'a> System<'a> {
     {
         self.gpu_work
             .push(unsafe { SendSync::new(Box::new(gpu_job)) });
+    }
+    pub fn emitter_burst(
+        &self,
+        template: &AssetInstance<ParticleTemplate>,
+        count: u32,
+        position: Vec3,
+    ) {
+        let burst = crate::engine::particles::shaders::cs::ty::burst {
+            pos: position.into(),
+            template_id: template.id,
+            rot: [0f32, 0f32, 0f32, 1f32],
+            count,
+            _dummy0: Default::default(),
+        };
+
+        self.particle_system.particle_burts.push(burst);
     }
 }
 

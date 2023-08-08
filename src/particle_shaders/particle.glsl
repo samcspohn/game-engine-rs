@@ -16,7 +16,7 @@ struct burst {
     vec3 pos;
     int template_id;
     vec4 rot;
-    int count;
+    uint count;
 };
 struct particle {
     vec3 vel;

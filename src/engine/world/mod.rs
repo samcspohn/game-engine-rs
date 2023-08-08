@@ -12,8 +12,11 @@ use std::{
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
-use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
-use rayon::Scope;
+use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockWriteGuard};
+use rayon::{
+    prelude::{IntoParallelIterator, ParallelIterator},
+    Scope,
+};
 use serde::{Deserialize, Serialize};
 use thincollections::thin_map::ThinMap;
 
@@ -27,7 +30,7 @@ use self::{
 
 use super::{
     input::Input,
-    particles::{particles::{ParticleCompute}, component::ParticleEmitter},
+    particles::{component::ParticleEmitter, particles::ParticleCompute},
     physics::Physics,
     project::asset_manager::{AssetManagerBase, AssetsManager},
     rendering::{
@@ -373,17 +376,65 @@ impl World {
     pub fn destroy(&self, g: i32) {
         self.to_destroy.push(g);
     }
+
+    // fn __destroy<'a>(
+    //     _self: &'a World,
+    //     trans: Transform,
+    //     entities: &'a RwLockWriteGuard<Vec<Mutex<Option<Entity>>>>,
+    //     s: &Scope<'a>,
+    // ) {
+    //     let g = trans.id;
+    //     let mut ent = entities[g as usize].lock();
+    //     if let Some(ent_mut) = ent.as_mut() {
+    //         for (t, id) in ent_mut.components.iter() {
+    //             let stor = &mut _self.components.get(t).unwrap().write();
+
+    //             stor.deinit(&trans, *id, &_self.sys);
+    //             stor.erase(*id);
+    //         }
+    //         // remove entity
+    //         *ent = None; // todo make read()
+    //     }
+
+    //     let children: Vec<i32> = trans.get_meta().children.iter().copied().collect();
+    //     for t in children {
+    //         let _self = _self.clone();
+    //         s.spawn(move |s| {
+    //             let t = _self.transforms.get(t);
+    //             Self::__destroy(_self, t, entities, s);
+    //         });
+    //     }
+
+    //     // remove transform
+    //     _self.transforms.remove(trans);
+    // }
+    // pub(crate) fn _destroy(&mut self) {
+    //     let ent = &self.entities.write();
+    //     let _self = Arc::new(&self);
+    //     rayon::scope(|s| {
+    //         while let Some(t) = _self.to_destroy.pop() {
+    //             let trans = _self.transforms.get(t);
+    //             Self::__destroy(&_self, trans, &ent, &s);
+    //         }
+    //     });
+    //     self.transforms.reduce_last();
+    //     for (id, c) in self.components.iter() {
+    //         c.read().reduce_last();
+    //     }
+    //     // remove/deinit components
+    // }
+
     fn __destroy<'a>(
         _self: &'a World,
-        trans: Transform,
-        entities: &'a RwLockWriteGuard<Vec<Mutex<Option<Entity>>>>,
-        s: &Scope<'a>,
+        trans: Transform<'a>,
+        entities: &'a parking_lot::RwLockReadGuard<Vec<Mutex<Option<Entity>>>>,
+        // s: &Scope<'a>,
     ) {
         let g = trans.id;
         let mut ent = entities[g as usize].lock();
         if let Some(ent_mut) = ent.as_mut() {
             for (t, id) in ent_mut.components.iter() {
-                let stor = &mut _self.components.get(t).unwrap().write();
+                let stor = &_self.components.get(t).unwrap().read();
 
                 stor.deinit(&trans, *id, &_self.sys);
                 stor.erase(*id);
@@ -394,23 +445,24 @@ impl World {
 
         let children: Vec<i32> = trans.get_meta().children.iter().copied().collect();
         for t in children {
-            let _self = _self.clone();
-            s.spawn(move |s| {
-                let t = _self.transforms.get(t);
-                Self::__destroy(_self, t, entities, s);
-            });
+            // _self.to_destroy.push(t);
+            // let _self = _self.clone();
+            let t = _self.transforms.get(t);
+            Self::__destroy(_self, t, entities);
         }
 
         // remove transform
         _self.transforms.remove(trans);
     }
     pub(crate) fn _destroy(&mut self) {
-        let ent = &self.entities.write();
+        let ent = &self.entities.read();
         let _self = Arc::new(&self);
-        rayon::scope(|s| {
-            while let Some(t) = _self.to_destroy.pop() {
+        let num_threads = num_cpus::get() - 1;
+        let len = _self.to_destroy.len();
+        (0..len).into_par_iter().for_each(|_| {
+            if let Some(t) = _self.to_destroy.pop() {
                 let trans = _self.transforms.get(t);
-                Self::__destroy(&_self, trans, &ent, &s);
+                Self::__destroy(&_self, trans, &ent);
             }
         });
         self.transforms.reduce_last();
@@ -455,11 +507,11 @@ impl World {
                 physics: &sys.physics.lock(),
                 defer: &sys.defer,
                 input,
-                // model_manager: &sys.model_manager,
                 rendering: &sys.renderer_manager,
                 assets: &sys.assets_manager,
                 vk: sys.vk.clone(),
                 gpu_work,
+                particle_system: &sys.particles_system,
             };
             for (_, stor) in self.components.iter() {
                 stor.write().update(&self.transforms, &sys, &self);
@@ -498,6 +550,7 @@ impl World {
             assets: &sys.assets_manager,
             vk: sys.vk.clone(),
             gpu_work,
+            particle_system: &sys.particles_system,
         };
         for (_, stor) in self.components.iter() {
             stor.write().editor_update(&self.transforms, &sys, input);

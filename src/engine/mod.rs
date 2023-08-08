@@ -369,7 +369,7 @@ impl Engine {
             cam_datas,
             main_cam_id,
             renderer_data: mut rd,
-            emitter_inits,
+            emitter_inits: particle_init_data,
             gpu_work,
         } = rd;
 
@@ -404,7 +404,7 @@ impl Engine {
         let inst = Instant::now();
         self.particles_system.update(
             &mut builder,
-            emitter_inits,
+            particle_init_data,
             &self.transform_compute,
             &self.input.time,
         );

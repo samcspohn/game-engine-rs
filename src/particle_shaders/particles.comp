@@ -27,7 +27,7 @@ layout(set = 0, binding = 11) buffer al { uint alive[]; };
 layout(set = 0, binding = 12) buffer al_c { int alive_count; };
 layout(set = 0, binding = 13) buffer i { DispatchIndirectCommand indirect[]; };
 layout(set = 0, binding = 14) buffer al_b { b alive_b[]; };
-layout(set = 0, binding = 14) buffer B { burst particle_bursts[]; };
+layout(set = 0, binding = 15) buffer B { burst particle_bursts[]; };
 
 // const int MAX_PARTICLES = 8 * 1024 * 1024;
 
@@ -44,58 +44,88 @@ layout(set = 0, binding = 8) uniform Data {
 //         vec3(rotate(cam_rot) * vec4(0.,1,0.,1)).xyz);
 
 // vec4 look_at =
-//     lookAt(rotate3(cam_rot) * vec3(0, 0, 1), rotate3(cam_rot) * vec3(0, 1, 0));
+//     lookAt(rotate3(cam_rot) * vec3(0, 0, 1), rotate3(cam_rot) * vec3(0, 1,
+//     0));
 
-float rand(float i) {
-    return sin(float(i) * 8.96 + time * 5.5) +
-           cos(float(i) * 13.45 + time * 9.5);
+// float rand(float i) {
+//     return sin(float(i) * 8.96 + time * 2.5) - 0.5f;
+// }
+
+uint rng_state;
+
+uint rand_lcg()
+{
+    // LCG values from Numerical Recipes
+    rng_state = 1664525 * rng_state + 1013904223;
+    return rng_state;
 }
 
+uint rand_xorshift()
+{
+    // Xorshift algorithm from George Marsaglia's paper
+    rng_state ^= (rng_state << 13);
+    rng_state ^= (rng_state >> 17);
+    rng_state ^= (rng_state << 5);
+    return rng_state;
+}
+
+uint wang_hash(uint seed)
+{
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return seed;
+}
+
+float rand() {
+    return float(rand_xorshift()) * (1.0 / 4294967296.0);
+}
 void update_particle(uint id) {
     // if (p_l[id].life > 0.0) {
-        p_l[id].pos += particles[id].vel * dt;
-        // particles[id].rot = lookAt(vec3(rotate(cam_rot) *
-        // vec4(0,0,-1,1)).xyz, vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
-        // particles[id].rot = look_at;
-        p_l[id].life -= dt * 1.0 / templates[template_ids[id]].life_time;
-        if (p_l[id].life < 0.0) {
-            int avail_id = atomicAdd(avail_count, -1);
-            avail[avail_id - 1] = id;
-            next[id] = -1;
-            alive_b[id].b = false;
-        }
+    p_l[id].pos += particles[id].vel * dt;
+    // particles[id].rot = lookAt(vec3(rotate(cam_rot) *
+    // vec4(0,0,-1,1)).xyz, vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
+    // particles[id].rot = look_at;
+    p_l[id].life -= dt * 1.0 / templates[template_ids[id]].life_time;
+    if (p_l[id].life < 0.0) {
+        int avail_id = atomicAdd(avail_count, -1);
+        avail[avail_id - 1] = id;
+        next[id] = -1;
+        alive_b[id].b = false;
+    }
     // }
 }
 
-void init_particle(uint i, int tId, vec3 pos) {
-    #define templ templates[tId]
+void init_particle(uint id, uint i, int tId, vec3 pos) {
+#define templ templates[tId]
 
-    particles[i].vel =
-    normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4),
-                    rand(id + i * 2.4))) *
-    templ.speed;
+    particles[i].vel = normalize(vec3(rand() - 0.5, rand() - 0.5,
+                                      rand() - 0.5)) *
+                       templ.speed;
     template_ids[i] = tId;
     p_l[i].pos = pos;
     p_l[i].life = 1.0;
     alive_b[i].b = true;
-    #undef templ
+#undef templ
 }
-void burst(uint id) {
-    int tId = particle_bursts[tId].template_id;
-    // #define templ templates[tId]
-    int start = min(atomicAdd(avail_count, emission), MAX_PARTICLES);
-    int end = min(start + particle_bursts[id].count, MAX_PARTICLES);
-    for (int _i = start; i != end; ++i) {
-
+void particle_burst(uint id) {
+#define brst particle_bursts[id]
+    int tId = brst.template_id;
+    int count = int(brst.count);
+    int start = min(atomicAdd(avail_count, count), MAX_PARTICLES);
+    int end = min(start + count, MAX_PARTICLES);
+    for (int _i = start; _i != end; ++_i) {
+        uint i = avail[_i];
+        init_particle(id, i, tId, brst.pos);
     }
-
-
+#undef brst
 }
-
 
 void update_emitter(uint id) {
     int tId = emitters[id].template_id;
-    #define templ templates[tId]
+#define templ templates[tId]
     if (emitters[id].alive == 0) return;
     if (emitters[id].emission >= 1.0) {
         int emission = int(emitters[id].emission);
@@ -103,10 +133,10 @@ void update_emitter(uint id) {
         int end = min(start + emission, MAX_PARTICLES);
         // if (avail_id == MAX_PARTICLES)
         //     return;
-        for (int _i = start; _i != end;
-             _i++) {
+        for (int _i = start; _i != end; _i++) {
             uint i = avail[_i];
-            init_particle(i, tId, transforms[emitters[id].transform_id].position);
+            init_particle(id, i, tId,
+                          transforms[emitters[id].transform_id].position);
             if (templ.trail == 1) {
                 int last = emitters[id].last;
                 if (last >= 0) {
@@ -119,7 +149,7 @@ void update_emitter(uint id) {
         emitters[id].emission -= float(emission);
     }
     emitters[id].emission += templ.emission_rate * dt;
-    #undef templ
+#undef templ
 }
 
 void init_emitters(uint id) {
@@ -158,26 +188,30 @@ void alive_particles(uint id) {
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
-    uint jobs = stage != 5 ? num_jobs : alive_count;
+    rng_state = floatBitsToUint(float(id) + time);
+    uint jobs = stage != 6 ? num_jobs : alive_count;
     if (id < jobs) {
         switch (stage) {
         case 0:
-            deinit_emitters(id);
+            particle_burst(id);
             break;
         case 1:
-            init_emitters(id);
+            deinit_emitters(id);
             break;
         case 2:
-            update_emitter(id);
+            init_emitters(id);
             break;
         case 3:
-            alive_particles(id);
+            update_emitter(id);
             break;
         case 4:
+            alive_particles(id);
+            break;
+        case 5:
             indirect[0].y = indirect[0].z = 1;
             indirect[0].x = alive_count / 1024 + 1;
             break;
-        case 5:
+        case 6:
             if (id == 0) {
                 atomicMin(avail_count, MAX_PARTICLES);
             }

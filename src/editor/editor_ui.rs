@@ -492,12 +492,13 @@ pub fn editor_ui(
                                         if let Some(last_slash) = label.rfind(path::MAIN_SEPARATOR_STR) {
                                             let _label: String = label.substring(last_slash + 1, label.len()).into();
                                             let item_id = egui::Id::new(label.clone());
-                                                let resp = drag_source(ui, item_id, utils::path_format(&_cur_dir), move |ui| {
+                                            let path = utils::path_format(&_cur_dir);
+                                                let resp = drag_source(ui, item_id, path.clone(), move |ui| {
                                                     ui.add(egui::Label::new(_label.clone()).sense(egui::Sense::click()));
                                                 });
                                                 if resp.clicked() {
                                                     
-                                                    unsafe { INSPECTABLE = assets_manager.inspect(label.as_str()) };
+                                                    unsafe { INSPECTABLE = assets_manager.inspect(&path) };
                                                 }
                                             // }
                                         }
