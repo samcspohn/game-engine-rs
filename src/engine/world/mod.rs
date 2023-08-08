@@ -462,11 +462,11 @@ impl World {
     pub(crate) fn _destroy(&mut self) {
         {
             let ent = &self.entities.read();
-            let _self = Arc::new(&self);
-            let mut to_destroy = _self.to_destroy.lock();
+            // let _self = Arc::new(&self);
+            let mut to_destroy = self.to_destroy.lock();
             to_destroy.par_iter().for_each(|t| {
-                let trans = _self.transforms.get(*t);
-                Self::__destroy(&_self, trans, &ent);
+                let trans = self.transforms.get(*t);
+                Self::__destroy(&self, trans, &ent);
             });
             to_destroy.clear();
         }

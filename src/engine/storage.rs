@@ -1,7 +1,7 @@
 use std::{
     any::{Any, TypeId},
     cmp::Reverse,
-    sync::atomic::{AtomicBool, AtomicI32, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, Ordering}, collections::BTreeSet,
 };
 
 use parking_lot::Mutex;
@@ -98,7 +98,7 @@ pub trait StorageBase {
 pub struct Storage<T> {
     pub data: Vec<Mutex<(i32, T)>>,
     pub valid: Vec<SyncUnsafeCell<bool>>,
-    avail: AtomicI32,
+    avail: Mutex<BTreeSet<i32>>,
     last: AtomicI32,
     extent: AtomicI32,
     has_update: bool,
@@ -107,18 +107,27 @@ pub struct Storage<T> {
 }
 impl<T: 'static> Storage<T> {
     pub fn get_next_id(&self) -> (bool, i32) {
-        let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
-        while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
-            i = self.avail.fetch_add(1, Ordering::Relaxed);
-        }
-        if i == self.extent.load(Ordering::Relaxed) { // push back
-            self.extent.fetch_add(1, Ordering::Relaxed);
-            self.last.store(i, Ordering::Relaxed);
-            (false, i)
-        } else { // insert
+        if let Some(i) = self.avail.lock().pop_first() {
             self.last.fetch_max(i, Ordering::Relaxed);
             (true, i)
+        } else {
+            let i = self.extent.fetch_add(1, Ordering::Relaxed);
+            self.last.store(i, Ordering::Relaxed);
+            (false, i)
         }
+        // let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
+        // while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
+        //     i = self.avail.fetch_add(1, Ordering::Relaxed);
+        // }
+        // if i == self.extent.load(Ordering::Relaxed) { // push back
+        //     self.extent.fetch_add(1, Ordering::Relaxed);
+        //     self.last.store(i, Ordering::Relaxed);
+        //     (false, i)
+        // } else { // insert
+        //     self.last.fetch_max(i, Ordering::Relaxed);
+        //     (true, i)
+        // }
+
         // let i = self.avail.load(Ordering::Relaxed);
         // // self.count.fetch_add(1, Ordering::Relaxed);
         // let extent = self.extent.load(Ordering::Relaxed);
@@ -172,7 +181,7 @@ impl<T: 'static> Storage<T> {
     }
     pub fn _erase(&self, id: i32) {
         // self.data[id as usize] = None;
-        self.avail.fetch_min(id, Ordering::Relaxed);
+        self.avail.lock().insert(id);
         // drop(&self.data[id as usize].lock().1);
         unsafe {
             *self.valid[id as usize].get() = false;
@@ -186,7 +195,7 @@ impl<T: 'static> Storage<T> {
         Storage::<T> {
             data: Vec::new(),
             valid: Vec::new(),
-            avail: AtomicI32::new(0),
+            avail: Mutex::new(BTreeSet::new()),
             last: AtomicI32::new(-1),
             extent: AtomicI32::new(0),
             has_update,
