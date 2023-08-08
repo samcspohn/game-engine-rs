@@ -108,7 +108,7 @@ impl<'a> EntityParBuilder<'a> {
     }
     pub fn build(mut self) {
         self.world
-            .to_instantiate
+            .to_instantiate.lock()
             .push(_EntityParBuilder::from(self));
     }
 }

@@ -1,4 +1,7 @@
-use crossbeam::{queue::SegQueue, channel::{Sender, Receiver}};
+use crossbeam::{
+    channel::{Receiver, Sender},
+    queue::SegQueue,
+};
 use force_send_sync::SendSync;
 use glm::{vec3, Vec3};
 use nalgebra_glm as glm;
@@ -25,13 +28,15 @@ use winit::{event::VirtualKeyCode, window::Window};
 use crate::{
     editor::editor_ui::PLAYING_GAME,
     editor::inspectable::{Inpsect, Ins, Inspectable},
-    engine::{input::Input, perf::Perf},
     engine::rendering::camera::CameraData,
     engine::world::{transform::TransformData, World},
+    engine::{input::Input, perf::Perf},
 };
 
-use super::{ rendering::renderer_component::RendererData,
-    utils::GPUWork, particles::shaders::cs::ty::{emitter_init, burst},
+use super::{
+    particles::shaders::cs::ty::{burst, emitter_init},
+    rendering::renderer_component::RendererData,
+    utils::GPUWork,
 };
 
 type GameComm = (
@@ -91,13 +96,24 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
                     phys_time -= phys_step;
                 }
                 phys_time += input.time.dt;
+                let inst = Instant::now();
                 world._update(&input, &gpu_work);
+                perf.update("world update".into(), Instant::now() - inst);
             }
             {
                 puffin::profile_scope!("defered");
+                let inst = Instant::now();
                 world.do_defered();
+                perf.update("world do defered".into(), Instant::now() - inst);
+
+                let inst = Instant::now();
                 world._destroy();
+                perf.update("world _destroy".into(), Instant::now() - inst);
+
+                let inst = Instant::now();                
                 world.defer_instantiate();
+                perf.update("world instantiate".into(), Instant::now() - inst);
+
             }
         } else {
             world._destroy();

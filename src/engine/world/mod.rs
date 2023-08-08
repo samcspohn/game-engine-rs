@@ -14,7 +14,7 @@ use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockWriteGuard};
 use rayon::{
-    prelude::{IntoParallelIterator, ParallelIterator},
+    prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
     Scope,
 };
 use serde::{Deserialize, Serialize};
@@ -71,8 +71,8 @@ pub struct World {
         HashMap<String, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) root: i32,
     pub sys: Sys,
-    pub(crate) to_destroy: SegQueue<i32>,
-    pub(crate) to_instantiate: SegQueue<_EntityParBuilder>,
+    pub(crate) to_destroy: Mutex<Vec<i32>>,
+    pub(crate) to_instantiate: Mutex<Vec<_EntityParBuilder>>,
 }
 
 //  T_ = 'static
@@ -110,12 +110,16 @@ impl World {
                 vk: vk,
                 defer: Defer::new(),
             },
-            to_destroy: SegQueue::new(),
-            to_instantiate: SegQueue::new(),
+            to_destroy: Mutex::new(Vec::new()),
+            to_instantiate: Mutex::new(Vec::new()),
         }
     }
     pub fn defer_instantiate(&mut self) {
-        while let Some(a) = self.to_instantiate.pop() {
+        let mut a = self.to_instantiate.lock();
+        let mut to_instantiate = Vec::new();
+        std::mem::swap(a.as_mut(), &mut to_instantiate);
+        drop(a);
+        for a in to_instantiate.into_iter() {
             if let Some(t_func) = a.t_func {
                 let t = self
                     .transforms
@@ -142,6 +146,7 @@ impl World {
                 }
             }
         }
+        // to_instantiate.clear();
     }
     pub fn instantiate_many(&self, count: i32, chunk: i32, parent: i32) -> EntityParBuilder {
         EntityParBuilder::new(parent, count, chunk, &self)
@@ -374,7 +379,7 @@ impl World {
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
     pub fn destroy(&self, g: i32) {
-        self.to_destroy.push(g);
+        self.to_destroy.lock().push(g);
     }
 
     // fn __destroy<'a>(
@@ -455,16 +460,16 @@ impl World {
         _self.transforms.remove(trans);
     }
     pub(crate) fn _destroy(&mut self) {
-        let ent = &self.entities.read();
-        let _self = Arc::new(&self);
-        let num_threads = num_cpus::get() - 1;
-        let len = _self.to_destroy.len();
-        (0..len).into_par_iter().for_each(|_| {
-            if let Some(t) = _self.to_destroy.pop() {
-                let trans = _self.transforms.get(t);
+        {
+            let ent = &self.entities.read();
+            let _self = Arc::new(&self);
+            let mut to_destroy = _self.to_destroy.lock();
+            to_destroy.par_iter().for_each(|t| {
+                let trans = _self.transforms.get(*t);
                 Self::__destroy(&_self, trans, &ent);
-            }
-        });
+            });
+            to_destroy.clear();
+        }
         self.transforms.reduce_last();
         for (id, c) in self.components.iter() {
             c.read().reduce_last();
