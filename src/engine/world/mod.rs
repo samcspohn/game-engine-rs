@@ -27,7 +27,7 @@ use self::{
 
 use super::{
     input::Input,
-    particles::particles::{ParticleCompute, ParticleEmitter},
+    particles::{particles::{ParticleCompute}, component::ParticleEmitter},
     physics::Physics,
     project::asset_manager::{AssetManagerBase, AssetsManager},
     rendering::{

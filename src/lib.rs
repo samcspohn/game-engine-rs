@@ -25,7 +25,7 @@ pub mod prelude {
         utils,
     };
     pub use inspectable::{Inpsect, Ins, Inspectable};
-    pub use crate::engine::particles::particles::ParticleEmitter;
+    pub use crate::engine::particles::component::ParticleEmitter;
     pub use crate::engine::rendering::renderer_component::Renderer;
 
     pub use crate::engine::rendering::vulkan_manager::VulkanManager;

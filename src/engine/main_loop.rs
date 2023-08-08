@@ -30,9 +30,8 @@ use crate::{
     engine::world::{transform::TransformData, World},
 };
 
-use super::{
-    particles::particles::cs::ty::emitter_init, rendering::renderer_component::RendererData,
-    utils::GPUWork,
+use super::{ rendering::renderer_component::RendererData,
+    utils::GPUWork, particles::shaders::cs::ty::emitter_init,
 };
 
 type GameComm = (
@@ -47,7 +46,7 @@ pub struct RenderingData {
     pub cam_datas: std::vec::Vec<Arc<Mutex<CameraData>>>,
     pub main_cam_id: i32,
     pub renderer_data: RendererData,
-    pub emitter_inits: (usize, std::vec::Vec<emitter_init>),
+    pub emitter_inits: (usize, std::vec::Vec<emitter_init>, std::vec::Vec<emitter_init>),
     pub gpu_work: GPUWork,
 }
 
@@ -113,7 +112,8 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
         let renderer_data = world.sys.renderer_manager.write().get_renderer_data();
         perf.update("get renderer data".into(), Instant::now() - inst);
         let emitter_len = world.get_emitter_len();
-        let v = world.sys.particles_system.emitter_inits.get_vec();
+        let emitter_inits = world.sys.particles_system.emitter_inits.get_vec();
+        let emitter_deinits = world.sys.particles_system.emitter_deinits.get_vec();
         let (main_cam_id, cam_datas) = world.get_cam_datas();
         drop(world);
         let data = RenderingData {
@@ -121,7 +121,7 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
             cam_datas,
             main_cam_id,
             renderer_data,
-            emitter_inits: (emitter_len, v),
+            emitter_inits: (emitter_len, emitter_inits, emitter_deinits),
             gpu_work,
         };
         let res = coms.0.send(data);

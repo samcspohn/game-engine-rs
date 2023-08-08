@@ -53,6 +53,7 @@ use winit::event::ModifiersState;
 use winit::event_loop::EventLoop;
 // use crate::{physics::Physics};
 
+use crate::engine::particles::component::ParticleEmitter;
 use crate::engine::project::asset_manager::AssetManagerBase;
 use crate::engine::rendering::model::ModelManager;
 
@@ -60,7 +61,7 @@ use self::input::Input;
 use self::main_loop::main_loop;
 use self::main_loop::RenderingData;
 use self::particles::particles::ParticleCompute;
-use self::particles::particles::ParticleEmitter;
+// use self::particles::particles::ParticleEmitter;
 use self::perf::Perf;
 use self::project::asset_manager::AssetsManager;
 use self::project::file_watcher;
@@ -97,6 +98,7 @@ pub mod main_loop;
 pub mod particles;
 pub mod physics;
 pub mod utils;
+mod prelude;
 
 #[repr(C)]
 pub struct RenderJobData<'a> {

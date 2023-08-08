@@ -12,6 +12,12 @@ struct emitter_init {
     int template_id;
     int e_id;
 };
+struct burst {
+    vec3 pos;
+    int template_id;
+    vec4 rot;
+    int count;
+};
 struct particle {
     vec3 vel;
     int emitter_id;

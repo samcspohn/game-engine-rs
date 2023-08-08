@@ -8,9 +8,7 @@ struct transform {
     vec4 rotation;
     vec3 scale;
 };
-// struct particle_emitter_prototype {
 
-// };
 struct b {
     bool b;
 };
@@ -29,6 +27,7 @@ layout(set = 0, binding = 11) buffer al { uint alive[]; };
 layout(set = 0, binding = 12) buffer al_c { int alive_count; };
 layout(set = 0, binding = 13) buffer i { DispatchIndirectCommand indirect[]; };
 layout(set = 0, binding = 14) buffer al_b { b alive_b[]; };
+layout(set = 0, binding = 14) buffer B { burst particle_bursts[]; };
 
 // const int MAX_PARTICLES = 8 * 1024 * 1024;
 
@@ -68,26 +67,46 @@ void update_particle(uint id) {
     // }
 }
 
-void update_emitter(uint id) {
+void init_particle(uint i, int tId, vec3 pos) {
+    #define templ templates[tId]
 
+    particles[i].vel =
+    normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4),
+                    rand(id + i * 2.4))) *
+    templ.speed;
+    template_ids[i] = tId;
+    p_l[i].pos = pos;
+    p_l[i].life = 1.0;
+    alive_b[i].b = true;
+    #undef templ
+}
+void burst(uint id) {
+    int tId = particle_bursts[tId].template_id;
+    // #define templ templates[tId]
+    int start = min(atomicAdd(avail_count, emission), MAX_PARTICLES);
+    int end = min(start + particle_bursts[id].count, MAX_PARTICLES);
+    for (int _i = start; i != end; ++i) {
+
+    }
+
+
+}
+
+
+void update_emitter(uint id) {
+    int tId = emitters[id].template_id;
+    #define templ templates[tId]
     if (emitters[id].alive == 0) return;
-    particle_template templ = templates[emitters[id].template_id];
     if (emitters[id].emission >= 1.0) {
         int emission = int(emitters[id].emission);
-        int avail_id = min(atomicAdd(avail_count, emission), MAX_PARTICLES);
+        int start = min(atomicAdd(avail_count, emission), MAX_PARTICLES);
+        int end = min(start + emission, MAX_PARTICLES);
         // if (avail_id == MAX_PARTICLES)
         //     return;
-        for (int _i = avail_id; _i < min(avail_id + emission, MAX_PARTICLES);
+        for (int _i = start; _i != end;
              _i++) {
             uint i = avail[_i];
-            particles[i].vel =
-                normalize(vec3(rand(id + i * 1.2), rand(id + i * 3.4),
-                               rand(id + i * 2.4))) *
-                templ.speed;
-            template_ids[i] = emitters[id].template_id;
-            p_l[i].pos = transforms[emitters[id].transform_id].position;
-            p_l[i].life = 1.0;
-            alive_b[i].b = true;
+            init_particle(i, tId, transforms[emitters[id].transform_id].position);
             if (templ.trail == 1) {
                 int last = emitters[id].last;
                 if (last >= 0) {
@@ -95,24 +114,35 @@ void update_emitter(uint id) {
                 }
                 next[i] = -int(emitters[id].transform_id) - 2;
                 emitters[id].last = int(i);
-            } else {
-                next[i] = -1;
             }
         }
         emitters[id].emission -= float(emission);
     }
     emitters[id].emission += templ.emission_rate * dt;
+    #undef templ
 }
 
 void init_emitters(uint id) {
     emitter_init init = emitter_inits[id];
     emitter e;
-    e.last = -1;
     emitter _e = emitters[init.e_id];
-    if (_e.last > -1 && -next[_e.last] - 2 == init.e_id) {
+    e.last = -1;
+    e.alive = 1;
+    e.transform_id = init.transform_id;
+    e.template_id = init.template_id;
+    e.emission = 1.f;
+    emitters[init.e_id] = e;
+}
+
+void deinit_emitters(uint id) {
+    emitter_init init = emitter_inits[id];
+    emitter e;
+    emitter _e = emitters[init.e_id];
+    if (_e.last > -1) {
         next[_e.last] = -1;
     }
-    e.alive = init.alive;
+    e.last = -1;
+    e.alive = 0;
     e.transform_id = init.transform_id;
     e.template_id = init.template_id;
     e.emission = 1.f;
@@ -128,24 +158,26 @@ void alive_particles(uint id) {
 
 void main() {
     uint id = gl_GlobalInvocationID.x;
-    uint jobs = stage != 4 ? num_jobs : alive_count;
+    uint jobs = stage != 5 ? num_jobs : alive_count;
     if (id < jobs) {
         switch (stage) {
         case 0:
-            init_emitters(id);
+            deinit_emitters(id);
             break;
         case 1:
+            init_emitters(id);
+            break;
+        case 2:
             update_emitter(id);
             break;
-        // reset alive_count
-        case 2:
+        case 3:
             alive_particles(id);
             break;
-        case 3:
+        case 4:
             indirect[0].y = indirect[0].z = 1;
             indirect[0].x = alive_count / 1024 + 1;
             break;
-        case 4:
+        case 5:
             if (id == 0) {
                 atomicMin(avail_count, MAX_PARTICLES);
             }

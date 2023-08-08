@@ -7,7 +7,7 @@ mod terrain_eng;
 use crate::editor::editor_ui::EDITOR_ASPECT_RATIO;
 use crate::engine::input::Input;
 use crate::engine::main_loop::{main_loop, RenderingData};
-use crate::engine::particles::particles::{ParticleCompute, ParticleEmitter};
+use crate::engine::particles::{component::ParticleEmitter, particles::ParticleCompute};
 use crate::engine::perf::Perf;
 use crate::engine::project::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::engine::project::{file_watcher, Project};

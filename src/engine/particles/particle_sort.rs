@@ -20,29 +20,17 @@ use crate::engine::{
     rendering::renderer_component::buffer_usage_all, transform_compute::cs::ty::transform,
 };
 
-use super::particles::{ParticleBuffers, _MAX_PARTICLES};
-
-pub mod cs {
-    vulkano_shaders::shader! {
-        ty: "compute",
-        path: "src/particle_shaders/particle_sort.comp",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
-
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        },
-    }
-}
+use super::{particles::{ParticleBuffers, _MAX_PARTICLES}, shaders::scs};
 
 pub struct ParticleSort {
-    pub a1: Arc<DeviceLocalBuffer<[cs::ty::_a]>>,
+    pub a1: Arc<DeviceLocalBuffer<[scs::ty::_a]>>,
     pub a2: Arc<DeviceLocalBuffer<[u32]>>,
     pub buckets: Arc<DeviceLocalBuffer<[u32]>>,
     pub avail_count: Arc<DeviceLocalBuffer<i32>>,
     // pub sort_jobs: Arc<DeviceLocalBuffer<i32>>,
     pub indirect: Vec<Arc<DeviceLocalBuffer<[DispatchIndirectCommand]>>>,
     pub draw: Arc<DeviceLocalBuffer<[DrawIndirectCommand]>>,
-    pub uniforms: CpuBufferPool<cs::ty::Data>,
+    pub uniforms: CpuBufferPool<scs::ty::Data>,
     pub compute_pipeline: Arc<ComputePipeline>,
 }
 
@@ -65,7 +53,7 @@ impl ParticleSort {
         .unwrap();
         let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
 
-        let a1 = DeviceLocalBuffer::<[cs::ty::_a]>::array(
+        let a1 = DeviceLocalBuffer::<[scs::ty::_a]>::array(
             &mem,
             MAX_PARTICLES as vulkano::DeviceSize,
             buffer_usage_all(),
@@ -149,7 +137,7 @@ impl ParticleSort {
             .unwrap();
 
         let uniforms =
-            CpuBufferPool::<cs::ty::Data>::new(mem, buffer_usage_all(), MemoryUsage::Upload);
+            CpuBufferPool::<scs::ty::Data>::new(mem, buffer_usage_all(), MemoryUsage::Upload);
 
         // build buffer
         let command_buffer = builder.build().unwrap();
@@ -173,10 +161,10 @@ impl ParticleSort {
             }
         };
 
-        let cs = cs::load(device.clone()).unwrap();
+        let scs = scs::load(device.clone()).unwrap();
         let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
             device,
-            cs.entry_point("main").unwrap(),
+            scs.entry_point("main").unwrap(),
             &(),
             None,
             |_| {},
@@ -214,7 +202,7 @@ impl ParticleSort {
     ) {
         let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
 
-        let mut uniform_data = cs::ty::Data {
+        let mut uniform_data = scs::ty::Data {
             num_jobs: MAX_PARTICLES,
             stage: 0,
             view,

@@ -28,8 +28,8 @@ use serde::{Deserialize, Serialize};
 use sync_unsafe_cell::SyncUnsafeCell;
 use vulkano::{
     buffer::{
-        cpu_pool::CpuBufferPoolSubbuffer, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer,
-        TypedBufferAccess,
+        cpu_pool::CpuBufferPoolSubbuffer, BufferAccess, CpuAccessibleBuffer, CpuBufferPool,
+        DeviceLocalBuffer, TypedBufferAccess,
     },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
@@ -59,48 +59,7 @@ use vulkano::{
     DeviceSize,
 };
 
-use self::cs::ty::{emitter_init, particle_template};
-
-pub mod cs {
-    vulkano_shaders::shader! {
-        ty: "compute",
-        path: "src/particle_shaders/particles.comp",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
-
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        },
-    }
-}
-pub mod vs {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/particle_shaders/particles.vert",
-        types_meta: {
-
-
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        },
-    }
-}
-pub mod gs {
-    vulkano_shaders::shader! {
-        ty: "geometry",
-        path: "src/particle_shaders/particles.geom",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
-
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        },
-    }
-}
-
-pub mod fs {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "src/particle_shaders/particles.frag"
-    }
-}
+// use super::cs::{ty::{emitter_init, particle_template}, self};
 
 use lazy_static::lazy_static;
 
@@ -112,210 +71,20 @@ lazy_static! {
         .unwrap();
 }
 
-// #[component]
-#[derive(ComponentID, Clone, Deserialize, Serialize)]
-#[serde(default)]
-#[repr(C)]
-
-pub struct ParticleEmitter {
-    template: AssetInstance<ParticleTemplate>,
-}
-impl Default for ParticleEmitter {
-    fn default() -> Self {
-        Self {
-            template: AssetInstance::new(0),
-        }
-    }
-}
-
-// impl Default for cs::ty::particle_template {
-//     fn default() -> Self {
-//         gen_particle_template(&ParticleTemplate::default())
-//     }
-// }
-
-impl Inspectable for ParticleEmitter {
-    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
-        // ui.add(egui::DragValue::new(&mut self.template));
-        // ui.add(egui::Label::new("Particle Emitter"));
-        // egui::CollapsingHeader::new("Particle Emitter")
-        //     .default_open(true)
-        //     .show(ui, |ui| {
-        Ins(&mut self.template).inspect("template", ui, sys);
-        // });
-    }
-}
-impl ParticleEmitter {
-    pub fn new(template: i32) -> ParticleEmitter {
-        let inst = AssetInstance::<ParticleTemplate>::new(template);
-        ParticleEmitter { template: inst }
-    }
-}
-
-impl Component for ParticleEmitter {
-    fn init(&mut self, transform: &Transform, id: i32, sys: &Sys) {
-        let d = cs::ty::emitter_init {
-            transform_id: transform.id,
-            alive: 1,
-            template_id: self.template.id,
-            e_id: id,
-        };
-        match sys.particles_system.emitter_inits.try_push(d) {
-            None => {}
-            Some(i) => {
-                sys.particles_system.emitter_inits.push(i, d);
-            }
-        }
-    }
-    fn deinit(&mut self, transform: &Transform, id: i32, sys: &Sys) {
-        let d = cs::ty::emitter_init {
-            transform_id: transform.id,
-            alive: 0,
-            template_id: self.template.id,
-            e_id: id,
-        };
-
-        match sys.particles_system.emitter_inits.try_push(d) {
-            None => {}
-            Some(i) => {
-                sys.particles_system.emitter_inits.push(i, d);
-            }
-        }
-    }
-}
-
 use crate::engine::project::asset_manager::_AssetID;
 
-use super::particle_sort::ParticleSort;
-#[derive(AssetID, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ParticleTemplate {
-    color: [f32; 4],
-    speed: f32,
-    emission_rate: f32,
-    life_time: f32,
-    color_over_life: ColorGradient,
-    trail: bool,
-}
-
-impl Default for ParticleTemplate {
-    fn default() -> Self {
-        Self {
-            color: [1.; 4],
-            speed: 1.,
-            emission_rate: 10.,
-            life_time: 1.,
-            color_over_life: ColorGradient::new(),
-            trail: false,
-        }
-    }
-}
-
-fn gen_particle_template(t: &ParticleTemplate) -> particle_template {
-    particle_template {
-        color: t.color,
-        speed: t.speed,
-        emission_rate: t.emission_rate,
-        life_time: t.life_time,
-        // color_life: [[f32;4];200],
-        color_life: t.color_over_life.to_color_array(),
-        trail: if t.trail { 1 } else { 0 },
-        _dummy0: Default::default(),
-        size: 1f32,
-    }
-}
-
-fn field<F>(ui: &mut egui::Ui, name: &str, func: F)
-where
-    F: FnOnce(&mut egui::Ui),
-{
-    ui.horizontal(|ui| {
-        ui.add(egui::Label::new(name));
-        func(ui);
-        // ui.add(egui::DragValue::new(self.0));s
-    });
-}
-impl Inspectable_ for ParticleTemplate {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &parking_lot::Mutex<World>) {
-        field(ui, "color", |ui| {
-            ui.color_edit_button_rgba_premultiplied(&mut self.color);
-        });
-        field(ui, "emission rate", |ui| {
-            ui.add(egui::DragValue::new(&mut self.emission_rate));
-        });
-        field(ui, "speed", |ui| {
-            ui.add(egui::DragValue::new(&mut self.speed));
-        });
-        field(ui, "life time", |ui| {
-            ui.add(egui::DragValue::new(&mut self.life_time));
-        });
-        field(ui, "color over life", |ui| {
-            // static mut  cg: Lazy<ColorGradient> = Lazy::new( || ColorGradient::new());
-            self.color_over_life.edit(ui);
-        });
-        // ui.add()
-        // field(ui, "trail", |ui| {
-        ui.checkbox(&mut self.trail, "trail");
-        // })
-        // ui.color_edit_button_rgba_premultiplied(&mut self.color);
-        // ui.add(egui::DragValue::new(&mut self.emission_rate));
-        // ui.add(egui::DragValue::new(&mut self.speed));
-        // ui.label(self.color)
-    }
-}
-
-impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>> for ParticleTemplate {
-    fn from_file(file: &str, params: &Arc<Mutex<_Storage<particle_template>>>) -> ParticleTemplate {
-        let mut t = ParticleTemplate::default();
-        if let Ok(s) = std::fs::read_to_string(file) {
-            t = serde_yaml::from_str(s.as_str()).unwrap();
-        }
-        // let p_t = particle_template { color: t.color, speed: t.speed, emission_rate: t.emission_rate, _dummy0: Default::default() };
-        let p_t = gen_particle_template(&t);
-        params.lock().emplace(p_t);
-        t
-    }
-
-    fn reload(&mut self, file: &str, _params: &Arc<Mutex<_Storage<particle_template>>>) {
-        // let mut t = ParticleTemplate::default();
-        if let Ok(s) = std::fs::read_to_string(file) {
-            *self = serde_yaml::from_str(s.as_str()).unwrap();
-        }
-        // let id = self.id;
-        // *params.lock().get_mut(&id) = gen_particle_template(&t);
-        // *self = t;
-        // self.id = id;
-        // let p_t = particle_template { color: t.color, speed: t.speed, emission_rate: t.emission_rate, _dummy0: Default::default() };
-        // t.id = params.emplace(p_t);
-        // t
-    }
-    fn save(&mut self, file: &str, _params: &Arc<Mutex<_Storage<particle_template>>>) {
-        if let Ok(s) = serde_yaml::to_string(self) {
-            match std::fs::write(file, s.as_bytes()) {
-                Ok(_) => (),
-                Err(a) => {
-                    println!("{}: failed for file: {}", a, file)
-                }
-            }
-        }
-    }
-    fn new(
-        _file: &str,
-        params: &Arc<Mutex<_Storage<cs::ty::particle_template>>>,
-    ) -> Option<ParticleTemplate> {
-        let t = ParticleTemplate::default();
-        // if let Ok(s) = std::fs::read_to_string(file) {
-        //     t = serde_yaml::from_str(s.as_str()).unwrap();
-        // }
-        // let p_t = particle_template { color: t.color, speed: t.speed, emission_rate: t.emission_rate, _dummy0: Default::default() };
-        let p_t = gen_particle_template(&t);
-        params.lock().emplace(p_t);
-        Some(t)
-    }
-}
-
-pub type ParticleTemplateManager =
-    AssetManager<Arc<Mutex<_Storage<cs::ty::particle_template>>>, ParticleTemplate>;
+use super::{
+    particle_asset::ParticleTemplateManager,
+    particle_sort::ParticleSort,
+    shaders::{
+        self,
+        cs::{
+            self,
+            ty::{emitter_init, particle_template, Data},
+        },
+        gs,
+    },
+};
 
 pub struct PerformanceCounters {
     pub update_particles: i32,
@@ -414,12 +183,13 @@ impl<T: Copy> AtomicVec<T> {
 pub struct ParticleCompute {
     pub sort: ParticleSort,
     pub emitter_inits: AtomicVec<cs::ty::emitter_init>,
+    pub emitter_deinits: AtomicVec<cs::ty::emitter_init>,
     pub particle_templates: Arc<Mutex<_Storage<cs::ty::particle_template>>>,
     pub particle_template_manager: Arc<Mutex<ParticleTemplateManager>>,
     pub particle_buffers: ParticleBuffers,
     pub compute_pipeline: Arc<ComputePipeline>,
     pub compute_uniforms: CpuBufferPool<cs::ty::Data>,
-    pub render_uniforms: CpuBufferPool<gs::ty::Data>,
+    pub render_uniforms: CpuBufferPool<shaders::gs::ty::Data>,
     pub def_texture: Arc<ImageView<ImmutableImage>>,
     pub def_sampler: Arc<Sampler>,
     pub vk: Arc<VulkanManager>,
@@ -430,9 +200,9 @@ pub struct ParticleRenderPipeline {
 }
 impl ParticleRenderPipeline {
     pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>) -> Self {
-        let vs = vs::load(vk.device.clone()).unwrap();
-        let fs = fs::load(vk.device.clone()).unwrap();
-        let gs = gs::load(vk.device.clone()).unwrap();
+        let vs = shaders::vs::load(vk.device.clone()).unwrap();
+        let fs = shaders::fs::load(vk.device.clone()).unwrap();
+        let gs = shaders::gs::load(vk.device.clone()).unwrap();
         let subpass = Subpass::from(render_pass, 0).unwrap();
         let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
         let mut depth_stencil_state = DepthStencilState::simple_depth_test();
@@ -471,10 +241,10 @@ impl ParticleCompute {
             init_emitters: vk.new_query(),
             sort_particles: vk.new_query(),
         };
-        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+        let max_particles: i32 = *_MAX_PARTICLES;
         let particles = DeviceLocalBuffer::<[cs::ty::particle]>::array(
             &vk.mem_alloc,
-            MAX_PARTICLES as vulkano::DeviceSize,
+            max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
             device.active_queue_family_indices().iter().copied(),
         )
@@ -482,7 +252,7 @@ impl ParticleCompute {
 
         let particle_template_ids = DeviceLocalBuffer::<[i32]>::array(
             &vk.mem_alloc,
-            MAX_PARTICLES as vulkano::DeviceSize,
+            max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
             device.active_queue_family_indices().iter().copied(),
         )
@@ -498,7 +268,7 @@ impl ParticleCompute {
         println!("pos_lif: {}", std::mem::size_of::<cs::ty::pos_lif>());
         println!("b: {}", std::mem::size_of::<cs::ty::b>());
 
-        let particle_positions_lifes: Vec<cs::ty::pos_lif> = (0..MAX_PARTICLES)
+        let particle_positions_lifes: Vec<cs::ty::pos_lif> = (0..max_particles)
             .map(|_| cs::ty::pos_lif {
                 pos: [0., 0., 0.],
                 life: 0.,
@@ -513,7 +283,7 @@ impl ParticleCompute {
         .unwrap();
         let particle_positions_lifes = DeviceLocalBuffer::<[cs::ty::pos_lif]>::array(
             &vk.mem_alloc,
-            MAX_PARTICLES as vulkano::DeviceSize,
+            max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
             vk.device.active_queue_family_indices().iter().copied(),
         )
@@ -528,7 +298,7 @@ impl ParticleCompute {
 
         let particle_next = DeviceLocalBuffer::<[i32]>::array(
             &vk.mem_alloc,
-            MAX_PARTICLES as vulkano::DeviceSize,
+            max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
             device.active_queue_family_indices().iter().copied(),
         )
@@ -539,12 +309,12 @@ impl ParticleCompute {
             &vk.mem_alloc,
             buffer_usage_all(),
             false,
-            0..MAX_PARTICLES,
+            0..max_particles,
         )
         .unwrap();
         let avail = DeviceLocalBuffer::<[u32]>::array(
             &vk.mem_alloc,
-            MAX_PARTICLES as vulkano::DeviceSize,
+            max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
             device.active_queue_family_indices().iter().copied(),
         )
@@ -558,12 +328,12 @@ impl ParticleCompute {
             &vk.mem_alloc,
             buffer_usage_all(),
             false,
-            (0..MAX_PARTICLES).map(|_| 0),
+            (0..max_particles).map(|_| 0),
         )
         .unwrap();
         let alive_b = DeviceLocalBuffer::<[cs::ty::b]>::array(
             &vk.mem_alloc,
-            MAX_PARTICLES as vulkano::DeviceSize,
+            max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
             device.active_queue_family_indices().iter().copied(),
         )
@@ -573,7 +343,7 @@ impl ParticleCompute {
             .unwrap();
         let alive = DeviceLocalBuffer::<[u32]>::array(
             &vk.mem_alloc,
-            MAX_PARTICLES as vulkano::DeviceSize,
+            max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
             device.active_queue_family_indices().iter().copied(),
         )
@@ -755,6 +525,7 @@ impl ParticleCompute {
                 vk.desc_alloc.clone(),
             ),
             emitter_inits: AtomicVec::new(),
+            emitter_deinits: AtomicVec::new(),
             particle_templates,
             particle_template_manager,
             particle_buffers: ParticleBuffers {
@@ -782,20 +553,66 @@ impl ParticleCompute {
             performance,
         }
     }
+    fn get_descriptors(
+        &self,
+        transform: Arc<DeviceLocalBuffer<[transform]>>,
+        uniform_sub_buffer: Arc<CpuBufferPoolSubbuffer<Data>>,
+        emitter_inits: Arc<dyn BufferAccess>,
+    ) -> Arc<PersistentDescriptorSet> {
+        let pb = &self.particle_buffers;
+
+        let descriptor_set = PersistentDescriptorSet::new(
+            &self.vk.desc_alloc,
+            self.compute_pipeline
+                .layout()
+                .set_layouts()
+                .get(0) // 0 is the index of the descriptor set.
+                .unwrap()
+                .clone(),
+            [
+                WriteDescriptorSet::buffer(0, transform),
+                WriteDescriptorSet::buffer(1, pb.particles.clone()),
+                WriteDescriptorSet::buffer(2, pb.particle_positions_lifes.clone()),
+                WriteDescriptorSet::buffer(3, pb.particle_next.clone()),
+                WriteDescriptorSet::buffer(4, pb.avail.clone()),
+                WriteDescriptorSet::buffer(5, pb.emitters.lock().clone()),
+                WriteDescriptorSet::buffer(6, pb.avail_count.clone()),
+                WriteDescriptorSet::buffer(7, pb.particle_template.lock().clone()),
+                WriteDescriptorSet::buffer(8, uniform_sub_buffer),
+                WriteDescriptorSet::buffer(9, pb.particle_template_ids.clone()),
+                WriteDescriptorSet::buffer(10, emitter_inits.clone()),
+                WriteDescriptorSet::buffer(11, pb.alive.clone()),
+                WriteDescriptorSet::buffer(12, pb.alive_count.clone()),
+                WriteDescriptorSet::buffer(13, pb.indirect.clone()),
+                WriteDescriptorSet::buffer(14, pb.alive_b.clone()),
+            ],
+        )
+        .unwrap();
+        descriptor_set
+    }
     pub fn update(
         &self,
         builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
-        emitter_inits: (usize, Vec<emitter_init>),
+        emitter_inits: (usize, Vec<emitter_init>, Vec<emitter_init>),
         transform_compute: &TransformCompute,
         time: &Time,
     ) {
+        builder
+        .bind_pipeline_compute(self.compute_pipeline.clone());
+        self.emitter_deinit(
+            builder,
+            transform_compute.gpu_transforms.clone(),
+            emitter_inits.2,
+            emitter_inits.0,
+            time,
+        );
         self.emitter_init(
             builder,
             transform_compute.gpu_transforms.clone(),
-            emitter_inits.1.clone(),
+            emitter_inits.1,
             emitter_inits.0,
             time,
         );
@@ -807,25 +624,24 @@ impl ParticleCompute {
         );
         self.particle_update(builder, transform_compute.gpu_transforms.clone(), time);
     }
-    pub fn emitter_init(
+
+    pub fn emitter_deinit(
         &self,
         builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
         transform: Arc<DeviceLocalBuffer<[transform]>>,
-        emitter_inits: Vec<cs::ty::emitter_init>,
+        emitter_deinits: Vec<cs::ty::emitter_init>,
         emitter_len: usize,
         time: &Time,
     ) {
-        // let mut emitter_inits = emitter_inits.lock();
-
         let pb = &self.particle_buffers;
         {
             let mut pt = self.particle_templates.lock();
             for (id, a) in self.particle_template_manager.lock().assets_id.iter() {
                 let a = a.lock();
-                *pt.get_mut(id) = gen_particle_template(&a);
+                *pt.get_mut(id) = a.gen_particle_template();
             }
         }
 
@@ -853,12 +669,124 @@ impl ParticleCompute {
             ))
             .unwrap();
 
+        if emitter_deinits.is_empty() {
+            return;
+        };
+        let len = emitter_deinits.len();
+
+        let copy_buffer = CpuAccessibleBuffer::from_iter(
+            &self.vk.mem_alloc,
+            buffer_usage_all(),
+            false,
+            emitter_deinits,
+        )
+        .unwrap();
+        let emitter_deinits = DeviceLocalBuffer::<[cs::ty::emitter_init]>::array(
+            &self.vk.mem_alloc,
+            len as vulkano::DeviceSize,
+            buffer_usage_all(),
+            self.vk.device.active_queue_family_indices().iter().copied(),
+        )
+        .unwrap(); // TODO: cache
+
+        builder
+            .copy_buffer(CopyBufferInfo::buffers(
+                copy_buffer,
+                emitter_deinits.clone(),
+            ))
+            .unwrap();
+
+        let max_len = emitter_len.next_power_of_two();
+        if pb.emitters.lock().len() < max_len as u64 {
+            let emitters = DeviceLocalBuffer::<[cs::ty::emitter]>::array(
+                &self.vk.mem_alloc,
+                max_len as vulkano::DeviceSize,
+                buffer_usage_all(),
+                self.vk.device.active_queue_family_indices().iter().copied(),
+            )
+            .unwrap();
+
+            builder
+                .copy_buffer(CopyBufferInfo::buffers(
+                    pb.emitters.lock().clone(),
+                    emitters.clone(),
+                ))
+                .unwrap();
+            *pb.emitters.lock() = emitters;
+        }
+        let max_particles: i32 = *_MAX_PARTICLES;
+        let uniform_sub_buffer = {
+            let uniform_data = cs::ty::Data {
+                num_jobs: len as i32,
+                dt: time.dt,
+                time: time.time,
+                stage: 0,
+                MAX_PARTICLES: max_particles,
+            };
+            self.compute_uniforms.from_data(uniform_data).unwrap()
+        };
+        let descriptor_set = self.get_descriptors(transform, uniform_sub_buffer, emitter_deinits);
+
+        builder
+            .bind_descriptor_sets(
+                PipelineBindPoint::Compute,
+                self.compute_pipeline.layout().clone(),
+                0, // Bind this descriptor set to index 0.
+                descriptor_set,
+            );
+        // self.vk.query(&self.performance.init_emitters, builder);
+        builder.dispatch([len as u32 / 1024 + 1, 1, 1]).unwrap();
+        // self.vk.end_query(&self.performance.init_emitters, builder)
+    }
+
+    pub fn emitter_init(
+        &self,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
+        transform: Arc<DeviceLocalBuffer<[transform]>>,
+        emitter_inits: Vec<cs::ty::emitter_init>,
+        emitter_len: usize,
+        time: &Time,
+    ) {
+        let pb = &self.particle_buffers;
+        {
+            let mut pt = self.particle_templates.lock();
+            for (id, a) in self.particle_template_manager.lock().assets_id.iter() {
+                let a = a.lock();
+                *pt.get_mut(id) = a.gen_particle_template();
+            }
+        }
+
+        let copy_buffer = CpuAccessibleBuffer::from_iter(
+            &self.vk.mem_alloc,
+            buffer_usage_all(),
+            false,
+            self.particle_templates.lock().data.iter().copied(),
+        )
+        .unwrap();
+
+        if copy_buffer.len() > pb.particle_template.lock().len() {
+            *pb.particle_template.lock() = DeviceLocalBuffer::<[cs::ty::particle_template]>::array(
+                &self.vk.mem_alloc,
+                copy_buffer.len() as vulkano::DeviceSize,
+                buffer_usage_all(),
+                self.vk.device.active_queue_family_indices().iter().copied(),
+            )
+            .unwrap();
+        }
+        builder
+            .copy_buffer(CopyBufferInfo::buffers(
+                copy_buffer,
+                pb.particle_template.lock().clone(),
+            ))
+            .unwrap();
+
         if emitter_inits.is_empty() {
             return;
         };
         let len = emitter_inits.len();
-        // let mut ei = Vec::<emitter_init>::new();
-        // std::mem::swap(&mut ei, &mut emitter_inits);
 
         let copy_buffer = CpuAccessibleBuffer::from_iter(
             &self.vk.mem_alloc,
@@ -879,9 +807,7 @@ impl ParticleCompute {
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, emitter_inits.clone()))
             .unwrap();
 
-        // let max_len = (emitter_len as f32 + 1.).log2().ceil();
         let max_len = emitter_len.next_power_of_two();
-        // let mut self_emitters = self.emitters.clone();
         if pb.emitters.lock().len() < max_len as u64 {
             let emitters = DeviceLocalBuffer::<[cs::ty::emitter]>::array(
                 &self.vk.mem_alloc,
@@ -899,47 +825,20 @@ impl ParticleCompute {
                 .unwrap();
             *pb.emitters.lock() = emitters;
         }
-        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+        let max_particles: i32 = *_MAX_PARTICLES;
         let uniform_sub_buffer = {
             let uniform_data = cs::ty::Data {
                 num_jobs: len as i32,
                 dt: time.dt,
                 time: time.time,
-                stage: 0,
-                MAX_PARTICLES,
+                stage: 1,
+                MAX_PARTICLES: max_particles,
             };
             self.compute_uniforms.from_data(uniform_data).unwrap()
         };
-        let descriptor_set = PersistentDescriptorSet::new(
-            &self.vk.desc_alloc,
-            self.compute_pipeline
-                .layout()
-                .set_layouts()
-                .get(0) // 0 is the index of the descriptor set.
-                .unwrap()
-                .clone(),
-            [
-                WriteDescriptorSet::buffer(0, transform),
-                WriteDescriptorSet::buffer(1, pb.particles.clone()),
-                WriteDescriptorSet::buffer(2, pb.particle_positions_lifes.clone()),
-                WriteDescriptorSet::buffer(3, pb.particle_next.clone()),
-                WriteDescriptorSet::buffer(4, pb.avail.clone()),
-                WriteDescriptorSet::buffer(5, pb.emitters.lock().clone()),
-                WriteDescriptorSet::buffer(6, pb.avail_count.clone()),
-                WriteDescriptorSet::buffer(7, pb.particle_template.lock().clone()),
-                WriteDescriptorSet::buffer(8, uniform_sub_buffer),
-                WriteDescriptorSet::buffer(9, pb.particle_template_ids.clone()),
-                WriteDescriptorSet::buffer(10, emitter_inits),
-                WriteDescriptorSet::buffer(11, pb.alive.clone()),
-                WriteDescriptorSet::buffer(12, pb.alive_count.clone()),
-                WriteDescriptorSet::buffer(13, pb.indirect.clone()),
-                WriteDescriptorSet::buffer(14, pb.alive_b.clone()),
-            ],
-        )
-        .unwrap();
+        let descriptor_set = self.get_descriptors(transform, uniform_sub_buffer, emitter_inits);
 
         builder
-            .bind_pipeline_compute(self.compute_pipeline.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.compute_pipeline.layout().clone(),
@@ -964,6 +863,7 @@ impl ParticleCompute {
         let pb = &self.particle_buffers;
 
         let emitter_len = emitter_len.max(1);
+        // TODOD: dont
         let emitter_inits = DeviceLocalBuffer::<[cs::ty::emitter_init]>::array(
             &self.vk.mem_alloc,
             1 as vulkano::DeviceSize,
@@ -971,48 +871,21 @@ impl ParticleCompute {
             self.vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
-        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+        let max_particles: i32 = *_MAX_PARTICLES;
 
         let uniform_sub_buffer = {
             let uniform_data = cs::ty::Data {
                 num_jobs: emitter_len as i32,
                 dt: time.dt,
                 time: time.time,
-                stage: 1,
-                MAX_PARTICLES,
+                stage: 2,
+                MAX_PARTICLES: max_particles,
             };
             self.compute_uniforms.from_data(uniform_data).unwrap()
         };
-        let descriptor_set = PersistentDescriptorSet::new(
-            &self.vk.desc_alloc,
-            self.compute_pipeline
-                .layout()
-                .set_layouts()
-                .get(0) // 0 is the index of the descriptor set.
-                .unwrap()
-                .clone(),
-            [
-                WriteDescriptorSet::buffer(0, transform),
-                WriteDescriptorSet::buffer(1, pb.particles.clone()),
-                WriteDescriptorSet::buffer(2, pb.particle_positions_lifes.clone()),
-                WriteDescriptorSet::buffer(3, pb.particle_next.clone()),
-                WriteDescriptorSet::buffer(4, pb.avail.clone()),
-                WriteDescriptorSet::buffer(5, pb.emitters.lock().clone()),
-                WriteDescriptorSet::buffer(6, pb.avail_count.clone()),
-                WriteDescriptorSet::buffer(7, pb.particle_template.lock().clone()),
-                WriteDescriptorSet::buffer(8, uniform_sub_buffer),
-                WriteDescriptorSet::buffer(9, pb.particle_template_ids.clone()),
-                WriteDescriptorSet::buffer(10, emitter_inits),
-                WriteDescriptorSet::buffer(11, pb.alive.clone()),
-                WriteDescriptorSet::buffer(12, pb.alive_count.clone()),
-                WriteDescriptorSet::buffer(13, pb.indirect.clone()),
-                WriteDescriptorSet::buffer(14, pb.alive_b.clone()),
-            ],
-        )
-        .unwrap();
+        let descriptor_set = self.get_descriptors(transform, uniform_sub_buffer, emitter_inits);
 
         builder
-            .bind_pipeline_compute(self.compute_pipeline.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.compute_pipeline.layout().clone(),
@@ -1034,6 +907,7 @@ impl ParticleCompute {
     ) {
         let pb = &self.particle_buffers;
 
+        // TODOD: dont
         let emitter_inits = DeviceLocalBuffer::<[cs::ty::emitter_init]>::array(
             &self.vk.mem_alloc,
             1 as vulkano::DeviceSize,
@@ -1041,48 +915,19 @@ impl ParticleCompute {
             self.vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
-        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+        let max_particles: i32 = *_MAX_PARTICLES;
 
         let mut uniform_data = cs::ty::Data {
-            num_jobs: MAX_PARTICLES,
+            num_jobs: max_particles,
             dt: time.dt,
             time: time.time,
-            stage: 2,
-            MAX_PARTICLES,
+            stage: 3,
+            MAX_PARTICLES: max_particles,
         };
         let uniform_sub_buffer = self.compute_uniforms.from_data(uniform_data).unwrap();
-        let get_descriptors = |ub: Arc<CpuBufferPoolSubbuffer<cs::ty::Data>>| {
-            [
-                WriteDescriptorSet::buffer(0, transform.clone()),
-                WriteDescriptorSet::buffer(1, pb.particles.clone()),
-                WriteDescriptorSet::buffer(2, pb.particle_positions_lifes.clone()),
-                WriteDescriptorSet::buffer(3, pb.particle_next.clone()),
-                WriteDescriptorSet::buffer(4, pb.avail.clone()),
-                WriteDescriptorSet::buffer(5, pb.emitters.lock().clone()),
-                WriteDescriptorSet::buffer(6, pb.avail_count.clone()),
-                WriteDescriptorSet::buffer(7, pb.particle_template.lock().clone()),
-                WriteDescriptorSet::buffer(8, ub),
-                WriteDescriptorSet::buffer(9, pb.particle_template_ids.clone()),
-                WriteDescriptorSet::buffer(10, emitter_inits.clone()),
-                WriteDescriptorSet::buffer(11, pb.alive.clone()),
-                WriteDescriptorSet::buffer(12, pb.alive_count.clone()),
-                WriteDescriptorSet::buffer(13, pb.indirect.clone()),
-                WriteDescriptorSet::buffer(14, pb.alive_b.clone()),
-            ]
-        };
-        // count alive particles
-        let descriptor_set = PersistentDescriptorSet::new(
-            &self.vk.desc_alloc,
-            self.compute_pipeline
-                .layout()
-                .set_layouts()
-                .get(0) // 0 is the index of the descriptor set.
-                .unwrap()
-                .clone(),
-            get_descriptors(uniform_sub_buffer),
-        )
-        .unwrap();
-        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+
+        let descriptor_set =
+            self.get_descriptors(transform.clone(), uniform_sub_buffer, emitter_inits.clone());
 
         builder
             .copy_buffer(CopyBufferInfo::buffers(
@@ -1090,32 +935,22 @@ impl ParticleCompute {
                 pb.alive_count.clone(),
             ))
             .unwrap()
-            .bind_pipeline_compute(self.compute_pipeline.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.compute_pipeline.layout().clone(),
                 0, // Bind this descriptor set to index 0.
                 descriptor_set,
             )
-            .dispatch([MAX_PARTICLES as u32 / 1024 + 1, 1, 1])
+            .dispatch([max_particles as u32 / 1024 + 1, 1, 1])
             .unwrap();
         // set indirect
         uniform_data.num_jobs = 1;
-        uniform_data.stage = 3;
+        uniform_data.stage = 4;
         let uniform_sub_buffer = self.compute_uniforms.from_data(uniform_data).unwrap();
-        let descriptor_set = PersistentDescriptorSet::new(
-            &self.vk.desc_alloc,
-            self.compute_pipeline
-                .layout()
-                .set_layouts()
-                .get(0)
-                .unwrap()
-                .clone(),
-            get_descriptors(uniform_sub_buffer),
-        )
-        .unwrap();
+        let descriptor_set =
+            self.get_descriptors(transform.clone(), uniform_sub_buffer, emitter_inits.clone());
+
         builder
-            .bind_pipeline_compute(self.compute_pipeline.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.compute_pipeline.layout().clone(),
@@ -1126,25 +961,16 @@ impl ParticleCompute {
             .unwrap();
         // dispatch indirect particle update
         uniform_data.num_jobs = -1;
-        uniform_data.stage = 4;
+        uniform_data.stage = 5;
         let uniform_sub_buffer = self.compute_uniforms.from_data(uniform_data).unwrap();
-        let descriptor_set = PersistentDescriptorSet::new(
-            &self.vk.desc_alloc,
-            self.compute_pipeline
-                .layout()
-                .set_layouts()
-                .get(0) // 0 is the index of the descriptor set.
-                .unwrap()
-                .clone(),
-            get_descriptors(uniform_sub_buffer),
-        )
-        .unwrap();
+        let descriptor_set =
+            self.get_descriptors(transform.clone(), uniform_sub_buffer, emitter_inits.clone());
+
         builder
-            .bind_pipeline_compute(self.compute_pipeline.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.compute_pipeline.layout().clone(),
-                0, // Bind this descriptor set to index 0.
+                0,
                 descriptor_set,
             )
             .dispatch_indirect(pb.indirect.clone())
@@ -1162,20 +988,8 @@ impl ParticleCompute {
         cam_rot: [f32; 4],
         cam_pos: [f32; 3],
         transform: Arc<DeviceLocalBuffer<[transform]>>,
-        _mem: Arc<StandardMemoryAllocator>,
-        _command_allocator: &StandardCommandBufferAllocator,
-        desc_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
         let pb = &self.particle_buffers;
-
-        let layout = particle_render_pipeline
-            .arc
-            .layout()
-            .set_layouts()
-            .get(0)
-            .unwrap();
-
-        let mut descriptors = Vec::new();
         let uniform_sub_buffer = {
             let uniform_data = gs::ty::Data {
                 view: view.into(),
@@ -1186,42 +1000,26 @@ impl ParticleCompute {
             };
             self.render_uniforms.from_data(uniform_data).unwrap()
         };
-
-        descriptors.push(WriteDescriptorSet::buffer(
-            0,
-            pb.particle_positions_lifes.clone(),
-        ));
-        // descriptors.push(WriteDescriptorSet::buffer(2, self.particles.clone()));
-        descriptors.push(WriteDescriptorSet::buffer(
-            3,
-            pb.particle_template.lock().clone(),
-        ));
-        descriptors.push(WriteDescriptorSet::buffer(4, uniform_sub_buffer));
-        descriptors.push(WriteDescriptorSet::buffer(5, self.sort.a2.clone()));
-        descriptors.push(WriteDescriptorSet::buffer(
-            6,
-            pb.particle_template_ids.clone(),
-        ));
-        descriptors.push(WriteDescriptorSet::buffer(7, pb.particle_next.clone()));
-        descriptors.push(WriteDescriptorSet::buffer(8, transform));
-
-        // if let Some(texture) = mesh.texture.as_ref() {
-        //     descriptors.push(WriteDescriptorSet::image_view_sampler(
-        //         1,
-        //         texture.image.clone(),
-        //         texture.sampler.clone(),
-        //     ));
-        // } else {
-        //     descriptors.push(WriteDescriptorSet::image_view_sampler(
-        //         1,
-        //         self.def_texture.clone(),
-        //         self.def_sampler.clone(),
-        //     ));
-        // }
-        // descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer.clone()));
-        let set =
-            PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors).unwrap();
-
+        let set = PersistentDescriptorSet::new(
+            &self.vk.desc_alloc,
+            particle_render_pipeline
+                .arc
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap()
+                .clone(),
+            [
+                WriteDescriptorSet::buffer(0, pb.particle_positions_lifes.clone()),
+                WriteDescriptorSet::buffer(3, pb.particle_template.lock().clone()),
+                WriteDescriptorSet::buffer(4, uniform_sub_buffer),
+                WriteDescriptorSet::buffer(5, self.sort.a2.clone()),
+                WriteDescriptorSet::buffer(6, pb.particle_template_ids.clone()),
+                WriteDescriptorSet::buffer(7, pb.particle_next.clone()),
+                WriteDescriptorSet::buffer(8, transform),
+            ],
+        )
+        .unwrap();
         builder
             .bind_pipeline_graphics(particle_render_pipeline.arc.clone())
             .bind_descriptor_sets(
@@ -1232,11 +1030,5 @@ impl ParticleCompute {
             )
             .draw_indirect(self.sort.draw.clone())
             .unwrap();
-        // .draw(MAX_PARTICLES as u32, 1, 0, 0)
-        // .unwrap();
-
-        // let temp = self.sort.a1.clone();
-        // self.sort.a1 = self.sort.a2.clone();
-        // self.sort.a2 = temp.clone();
     }
 }

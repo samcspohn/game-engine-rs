@@ -21,10 +21,11 @@ game-engine:
     ☐ size over life
     ☐ particle count display
     ☐ fix culling @started(23-04-30 16:13)
-    ☐ active particles list
+    ✔ active particles list @done(23-08-07 16:02)
     ☐ seperate buffers for emitter init/de-init
     ☐ textures
     ☐ texture for color over live
+    ☐ rotations
   lights:
     ☐ lights
     ☐ shadows

@@ -363,9 +363,6 @@ impl CameraData {
             cvd.cam_rot.coords.into(),
             cvd.cam_pos.into(),
             transform_compute.gpu_transforms.clone(),
-            vk.mem_alloc.clone(),
-            &vk.comm_alloc,
-            vk.desc_alloc.clone(),
         );
         builder.end_render_pass().unwrap();
         self.camera_view_data.pop_front();

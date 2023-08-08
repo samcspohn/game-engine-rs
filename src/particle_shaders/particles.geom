@@ -27,7 +27,6 @@ layout(set = 0, binding = 4) uniform Data {
     vec3 cam_pos;
     vec4 cam_rot;
 };
-#define templ templates[template_ids[i]]
 vec4 look_at =
     lookAt(rotate3(cam_rot) * vec3(0, 0, 1), rotate3(cam_rot) * vec3(0, 1, 0));
 
@@ -42,6 +41,8 @@ void main() {
     int _i = id[0];
     int i = sorted[_i];
     // particle_template templ = templates[template_ids[i]];
+    int _templ_id = template_ids[i];
+    #define templ templates[_templ_id]
 
     mat4 model;
     float color1;
