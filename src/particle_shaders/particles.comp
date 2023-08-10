@@ -53,15 +53,13 @@ layout(set = 0, binding = 8) uniform Data {
 
 uint rng_state;
 
-uint rand_lcg()
-{
+uint rand_lcg() {
     // LCG values from Numerical Recipes
     rng_state = 1664525 * rng_state + 1013904223;
     return rng_state;
 }
 
-uint rand_xorshift()
-{
+uint rand_xorshift() {
     // Xorshift algorithm from George Marsaglia's paper
     rng_state ^= (rng_state << 13);
     rng_state ^= (rng_state >> 17);
@@ -69,8 +67,7 @@ uint rand_xorshift()
     return rng_state;
 }
 
-uint wang_hash(uint seed)
-{
+uint wang_hash(uint seed) {
     seed = (seed ^ 61) ^ (seed >> 16);
     seed *= 9;
     seed = seed ^ (seed >> 4);
@@ -79,36 +76,40 @@ uint wang_hash(uint seed)
     return seed;
 }
 
-float rand() {
-    return float(rand_xorshift()) * (1.0 / 4294967296.0);
-}
+float rand() { return float(rand_xorshift()) * (1.0 / 4294967296.0); }
 void update_particle(uint id) {
-    // if (p_l[id].life > 0.0) {
-    p_l[id].pos += particles[id].vel * dt;
-    // particles[id].rot = lookAt(vec3(rotate(cam_rot) *
-    // vec4(0,0,-1,1)).xyz, vec3(rotate(cam_rot) * vec4(0,1,0,1)).xyz);
-    // particles[id].rot = look_at;
-    p_l[id].life -= dt * 1.0 / templates[template_ids[id]].life_time;
-    if (p_l[id].life < 0.0) {
+#define p particles[id]
+    p_l[id].pos += p.vel * dt;
+    p_l[id].life -= dt / p.l;
+    if (p_l[id].life <= 0.0) {
         int avail_id = atomicAdd(avail_count, -1);
         avail[avail_id - 1] = id;
         next[id] = -1;
         alive_b[id].b = false;
     }
-    // }
+#undef p
 }
 
-void init_particle(uint id, uint i, int tId, vec3 pos) {
+void init_particle(uint i, int tId, vec3 pos, vec4 rot, vec3 scale) {
 #define templ templates[tId]
+#define p     particles[i]
+    vec3 random = rotate(
+        vec3(1, 0, 0), 
+        rand() * templ.dispersion * M_PI,
+        vec3(0, 0, templ.min_speed + rand() * (templ.max_speed - templ.min_speed)));
+    random = rotate(vec3(0, 0, 1), rand() * 2 * M_PI, random);
+    vec3 vel = vec3(rotate(rot) * vec4(random * scale, 1));
 
-    particles[i].vel = normalize(vec3(rand() - 0.5, rand() - 0.5,
-                                      rand() - 0.5)) *
-                       templ.speed;
+    p.vel = vel;
+    p.l = max(templ.min_lifetime +
+                  rand() * abs(templ.max_lifetime - templ.min_lifetime),
+              0.0001f);
     template_ids[i] = tId;
     p_l[i].pos = pos;
     p_l[i].life = 1.0;
     alive_b[i].b = true;
 #undef templ
+#undef p
 }
 void particle_burst(uint id) {
 #define brst particle_bursts[id]
@@ -118,38 +119,42 @@ void particle_burst(uint id) {
     int end = min(start + count, MAX_PARTICLES);
     for (int _i = start; _i != end; ++_i) {
         uint i = avail[_i];
-        init_particle(id, i, tId, brst.pos);
+        vec4 rot = lookAt(brst.dir,vec3(0,1,0.000001));
+        init_particle(i, tId, brst.pos, rot, vec3(1));
     }
 #undef brst
 }
 
 void update_emitter(uint id) {
-    int tId = emitters[id].template_id;
+#define e emitters[id]
+    int tId = e.template_id;
 #define templ templates[tId]
-    if (emitters[id].alive == 0) return;
-    if (emitters[id].emission >= 1.0) {
-        int emission = int(emitters[id].emission);
+#define trans transforms[e.transform_id]
+    if (e.alive == 0) return;
+    if (e.emission >= 1.0) {
+        int emission = int(e.emission);
         int start = min(atomicAdd(avail_count, emission), MAX_PARTICLES);
         int end = min(start + emission, MAX_PARTICLES);
         // if (avail_id == MAX_PARTICLES)
         //     return;
         for (int _i = start; _i != end; _i++) {
             uint i = avail[_i];
-            init_particle(id, i, tId,
-                          transforms[emitters[id].transform_id].position);
+            init_particle(i, tId, trans.position, trans.rotation, trans.scale);
             if (templ.trail == 1) {
-                int last = emitters[id].last;
+                int last = e.last;
                 if (last >= 0) {
                     next[last] = int(i);
                 }
-                next[i] = -int(emitters[id].transform_id) - 2;
-                emitters[id].last = int(i);
+                next[i] = -int(e.transform_id) - 2;
+                e.last = int(i);
             }
         }
-        emitters[id].emission -= float(emission);
+        e.emission -= float(emission);
     }
-    emitters[id].emission += templ.emission_rate * dt;
+    e.emission += templ.emission_rate * dt;
+#undef e
 #undef templ
+#undef trans
 }
 
 void init_emitters(uint id) {

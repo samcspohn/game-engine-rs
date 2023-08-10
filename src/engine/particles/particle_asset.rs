@@ -13,9 +13,14 @@ use component_derive::AssetID;
 #[serde(default)]
 pub struct ParticleTemplate {
     color: [f32; 4],
-    speed: f32,
     emission_rate: f32,
-    life_time: f32,
+    emission_radius: f32,
+    dispersion: f32,
+    min_speed: f32,
+    max_speed: f32,
+    min_lifetime: f32,
+    max_lifetime: f32,
+    size: f32,
     color_over_life: ColorGradient,
     trail: bool,
 }
@@ -24,11 +29,16 @@ impl Default for ParticleTemplate {
     fn default() -> Self {
         Self {
             color: [1.; 4],
-            speed: 1.,
             emission_rate: 10.,
-            life_time: 1.,
+            emission_radius: 0.,
+            min_speed: 1.,
+            max_speed: 1.,
+            min_lifetime: 1.,
+            max_lifetime: 1.,
+            size: 1.,
             color_over_life: ColorGradient::new(),
             trail: false,
+            dispersion: 1.,
         }
     }
 }
@@ -37,13 +47,17 @@ impl ParticleTemplate {
     pub fn gen_particle_template(&self) -> particle_template {
         particle_template {
             color: self.color,
-            speed: self.speed,
             emission_rate: self.emission_rate,
-            life_time: self.life_time,
+            emission_radius: self.emission_radius,
+            dispersion: self.dispersion,
+            min_speed: self.min_speed,
+            max_speed: self.max_speed,
+            min_lifetime: self.min_lifetime,
+            max_lifetime: self.max_lifetime,
             color_life: self.color_over_life.to_color_array(),
             trail: if self.trail { 1 } else { 0 },
             _dummy0: Default::default(),
-            size: 1f32,
+            size: self.size,
         }
     }
 }
@@ -66,11 +80,26 @@ impl Inspectable_ for ParticleTemplate {
         field(ui, "emission rate", |ui| {
             ui.add(egui::DragValue::new(&mut self.emission_rate));
         });
-        field(ui, "speed", |ui| {
-            ui.add(egui::DragValue::new(&mut self.speed));
+        field(ui, "emission radius", |ui| {
+            ui.add(egui::DragValue::new(&mut self.emission_radius));
+        });
+        field(ui, "dispersion", |ui| {
+            ui.add(egui::DragValue::new(&mut self.dispersion));
         });
         field(ui, "life time", |ui| {
-            ui.add(egui::DragValue::new(&mut self.life_time));
+            ui.add(egui::DragValue::new(&mut self.min_lifetime));
+        });
+        field(ui, "life time", |ui| {
+            ui.add(egui::DragValue::new(&mut self.max_lifetime));
+        });
+        field(ui, "min speed", |ui| {
+            ui.add(egui::DragValue::new(&mut self.min_speed));
+        });
+        field(ui, "max speed", |ui| {
+            ui.add(egui::DragValue::new(&mut self.max_speed));
+        });
+        field(ui, "size", |ui| {
+            ui.add(egui::DragValue::new(&mut self.size));
         });
         field(ui, "color over life", |ui| {
             self.color_over_life.edit(ui);

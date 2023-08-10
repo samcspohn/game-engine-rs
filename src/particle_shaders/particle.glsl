@@ -15,23 +15,31 @@ struct emitter_init {
 struct burst {
     vec3 pos;
     int template_id;
-    vec4 rot;
+    vec3 dir;
     uint count;
 };
 struct particle {
     vec3 vel;
     int emitter_id;
     vec4 rot;
-    int sorted;
+    float l;
 };
 struct particle_template {
     vec4 color;
-    float speed;
+
     float emission_rate;
-    float life_time;
+    float emission_radius;
+    float min_speed;
+    float max_speed;
+
+    float min_lifetime;
+    float max_lifetime;
     float size;
-    vec4 color_life[200];
     int trail;
+    
+    float dispersion;
+    vec4 color_life[200];
+
 };
 struct pos_lif {
     vec3 pos; // 12

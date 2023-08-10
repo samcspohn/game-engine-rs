@@ -42,7 +42,7 @@ void main() {
     int i = sorted[_i];
     // particle_template templ = templates[template_ids[i]];
     int _templ_id = template_ids[i];
-    #define templ templates[_templ_id]
+#define templ templates[_templ_id]
 
     mat4 model;
     float color1;
@@ -65,10 +65,11 @@ void main() {
         x = cross(x, v);
         vec4 l = lookAt(x, v);
         model = translate(p_l[i].pos + v / 2.f) * rotate(l) *
-                scale(vec3(1, length(v) / 2, 1));
+                scale(vec3(templ.size, length(v) / 2, templ.size));
     } else {
         color1 = color2 = 1. - p_l[i].life;
-        model = translate(p_l[i].pos) * rotate(look_at);
+        model =
+            translate(p_l[i].pos) * rotate(look_at) * scale(vec3(templ.size));
     }
     mat4 mvp = proj * view * model;
     templ_id = template_ids[i];
@@ -94,8 +95,8 @@ void main() {
     // EndPrimitive();
 
     // // DEBUG POINT
-    // model = translate(p_l[i].pos) * rotate(look_at) * scale(vec3(0.5,0.5,0.5));
-    // mvp = proj * view * model;
+    // model = translate(p_l[i].pos) * rotate(look_at) *
+    // scale(vec3(0.5,0.5,0.5)); mvp = proj * view * model;
 
     // gl_Position = get_position(mvp, 0);
     // life = 0;

@@ -2,19 +2,24 @@ use force_send_sync::SendSync;
 use serde::{Deserialize, Serialize};
 use thincollections::thin_map::ThinMap;
 
-use crate::{editor::inspectable::Inspectable, engine::storage::{Storage, StorageBase}};
+use crate::{
+    editor::inspectable::Inspectable,
+    engine::storage::{Storage, StorageBase},
+};
 
 use super::{
     component::{Component, _ComponentID},
-    {World, transform::_Transform}
+    {transform::_Transform, World},
 };
 
 pub struct Entity {
-    pub components: SendSync<ThinMap<u64, i32>>
+    pub components: SendSync<ThinMap<u64, i32>>,
 }
 impl Entity {
     pub fn new() -> Self {
-        Self { components: unsafe { SendSync::new(ThinMap::with_capacity(2)) } }
+        Self {
+            components: unsafe { SendSync::new(ThinMap::with_capacity(2)) },
+        }
     }
 }
 pub struct EntityBuilder {}
@@ -83,20 +88,20 @@ impl<'a> EntityParBuilder<'a> {
         f: &'static (dyn Fn() -> T + Send + Sync),
     ) -> Self {
         self.comp_funcs
-            .push(Box::new(|world: &mut World, t_: &Vec<i32>| {
+            .push(Box::new(move |world: &mut World, t_: &Vec<i32>| {
                 let key = T::ID;
                 if let Some(stor) = world.components.get(&key) {
                     let mut stor_lock = stor.write();
                     let mut src = stor_lock.as_mut();
                     let stor: &mut &mut Storage<T> = unsafe { std::mem::transmute(&mut src) };
                     // if key == TypeId::of::<ParticleEmitter>() {}
+                    // (*stor).insert_multi(t_, world, f);
+                    let entities = world.entities.read();
                     for g in t_ {
                         let c_id = (*stor).emplace(*g, f());
                         let trans = world.transforms.get(*g);
                         (*stor).init(&trans, c_id, &mut world.sys);
-                        if let Some(ent) =
-                            world.entities.read()[*g as usize].lock().as_mut()
-                        {
+                        if let Some(ent) = entities[*g as usize].lock().as_mut() {
                             ent.components.insert(key.clone(), c_id);
                         }
                     }
@@ -108,7 +113,8 @@ impl<'a> EntityParBuilder<'a> {
     }
     pub fn build(mut self) {
         self.world
-            .to_instantiate.lock()
+            .to_instantiate
+            .lock()
             .push(_EntityParBuilder::from(self));
     }
 }

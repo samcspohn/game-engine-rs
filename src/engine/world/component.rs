@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
-use nalgebra_glm::Vec3;
+use nalgebra_glm::{Vec3, Quat};
 use parking_lot::{Mutex, RwLock};
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
@@ -50,13 +50,14 @@ impl<'a> System<'a> {
         template: &AssetInstance<ParticleTemplate>,
         count: u32,
         position: Vec3,
+        direction: Vec3
     ) {
+        // let r = rotation;
         let burst = crate::engine::particles::shaders::cs::ty::burst {
             pos: position.into(),
             template_id: template.id,
-            rot: [0f32, 0f32, 0f32, 1f32],
+            dir: direction.into(),
             count,
-            _dummy0: Default::default(),
         };
 
         self.particle_system.particle_burts.push(burst);
