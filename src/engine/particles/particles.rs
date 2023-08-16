@@ -8,7 +8,11 @@ use crate::{
     engine::{
         color_gradient::ColorGradient,
         project::asset_manager::{Asset, AssetInstance, AssetManager, AssetManagerBase},
-        rendering::{renderer_component::buffer_usage_all, vulkan_manager::VulkanManager},
+        rendering::{
+            renderer_component::buffer_usage_all,
+            texture::{Texture, TextureManager},
+            vulkan_manager::VulkanManager,
+        },
         storage::_Storage,
         time::Time,
         transform_compute::{self, cs::ty::transform, TransformCompute},
@@ -38,7 +42,11 @@ use vulkano::{
         CopyBufferInfo, DispatchIndirectCommand, PrimaryAutoCommandBuffer,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator,
+        layout::{
+            DescriptorSetLayout, DescriptorSetLayoutCreateInfo, DescriptorSetLayoutCreationError,
+        },
+        PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::Device,
     format::Format,
@@ -53,7 +61,8 @@ use vulkano::{
             vertex_input::BuffersDefinition,
             viewport::ViewportState,
         },
-        ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint, StateMode,
+        layout::PipelineLayoutCreateInfo,
+        ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout, StateMode,
     },
     render_pass::{RenderPass, Subpass},
     sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
@@ -76,8 +85,9 @@ lazy_static! {
 use crate::engine::project::asset_manager::_AssetID;
 
 use super::{
-    particle_asset::ParticleTemplateManager,
+    particle_asset::{ParticleTemplateManager, TEMPLATE_UPDATE},
     particle_sort::ParticleSort,
+    particle_textures::ParticleTextures,
     shaders::{
         self,
         cs::{
@@ -104,7 +114,7 @@ pub struct ParticleBuffers {
     pub emitters: Mutex<Arc<DeviceLocalBuffer<[cs::ty::emitter]>>>,
     emitter_init_dummy: Arc<DeviceLocalBuffer<[cs::ty::emitter_init]>>,
     particle_burst_dummy: Arc<DeviceLocalBuffer<[cs::ty::burst]>>,
-    pub particle_template: Mutex<Arc<DeviceLocalBuffer<[cs::ty::particle_template]>>>,
+    pub particle_templates: Mutex<Arc<DeviceLocalBuffer<[cs::ty::particle_template]>>>,
     pub avail: Arc<DeviceLocalBuffer<[u32]>>,
     pub avail_count: Arc<DeviceLocalBuffer<i32>>,
     pub buffer_0: Arc<DeviceLocalBuffer<i32>>,
@@ -165,6 +175,7 @@ impl<T: Copy> AtomicVec<T> {
     }
     pub fn push(&self, d: T) {
         if let Some((id, d)) = self.try_push(d) {
+            // let _ = self.lock.lock();
             self._push(id, d);
         }
     }
@@ -181,6 +192,10 @@ impl<T: Copy> AtomicVec<T> {
         // }
         // v
         let mut v = Vec::with_capacity(len);
+        // std::mem::swap(&mut v, unsafe { &mut *self.data.get() });
+        // unsafe {
+        //     unsafe { &mut *self.data.get() }.set_len(len.next_power_of_two());
+        // }
         for i in (0..len).into_iter() {
             unsafe { v.push((*self.data.get())[i]) };
         }
@@ -204,6 +219,7 @@ pub struct ParticleCompute {
     pub def_sampler: Arc<Sampler>,
     pub vk: Arc<VulkanManager>,
     pub performance: PerformanceCounters,
+    pub particle_textures: Arc<Mutex<ParticleTextures>>,
 }
 pub struct ParticleRenderPipeline {
     pub arc: Arc<GraphicsPipeline>,
@@ -213,6 +229,7 @@ impl ParticleRenderPipeline {
         let vs = shaders::vs::load(vk.device.clone()).unwrap();
         let fs = shaders::fs::load(vk.device.clone()).unwrap();
         let gs = shaders::gs::load(vk.device.clone()).unwrap();
+
         let subpass = Subpass::from(render_pass, 0).unwrap();
         let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
         let mut depth_stencil_state = DepthStencilState::simple_depth_test();
@@ -235,8 +252,16 @@ impl ParticleRenderPipeline {
             .depth_stencil_state(depth_stencil_state)
             .color_blend_state(blend_state)
             .render_pass(subpass)
-            .build(vk.device.clone())
+            .with_auto_layout(vk.device.clone(), |layout_create_infos| {
+                let binding = layout_create_infos[0].bindings.get_mut(&11).unwrap();
+                binding.variable_descriptor_count = true;
+                binding.descriptor_count = 16;
+            })
+            // .with_pipeline_layout(vk.device.clone(), layout)
             .unwrap();
+        // .build(vk.device.clone())
+        // .unwrap();
+
         Self {
             arc: render_pipeline,
         }
@@ -244,7 +269,7 @@ impl ParticleRenderPipeline {
 }
 
 impl ParticleCompute {
-    pub fn new(device: Arc<Device>, vk: Arc<VulkanManager>) -> ParticleCompute {
+    pub fn new(vk: Arc<VulkanManager>, tex_man: Arc<Mutex<TextureManager>>) -> ParticleCompute {
         let performance = PerformanceCounters {
             update_particles: vk.new_query(),
             update_emitters: vk.new_query(),
@@ -256,7 +281,7 @@ impl ParticleCompute {
             &vk.mem_alloc,
             max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
 
@@ -264,7 +289,7 @@ impl ParticleCompute {
             &vk.mem_alloc,
             max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
 
@@ -310,7 +335,7 @@ impl ParticleCompute {
             &vk.mem_alloc,
             max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
 
@@ -326,7 +351,7 @@ impl ParticleCompute {
             &vk.mem_alloc,
             max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
         builder
@@ -345,7 +370,7 @@ impl ParticleCompute {
             &vk.mem_alloc,
             max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
         builder
@@ -355,7 +380,7 @@ impl ParticleCompute {
             &vk.mem_alloc,
             max_particles as vulkano::DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
 
@@ -365,13 +390,13 @@ impl ParticleCompute {
         let avail_count = DeviceLocalBuffer::<i32>::new(
             &vk.mem_alloc,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
         let alive_count = DeviceLocalBuffer::<i32>::new(
             &vk.mem_alloc,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
 
@@ -379,7 +404,7 @@ impl ParticleCompute {
         let buffer_0 = DeviceLocalBuffer::<i32>::new(
             &vk.mem_alloc,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
 
@@ -404,7 +429,7 @@ impl ParticleCompute {
             &vk.mem_alloc,
             1 as vulkano::DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
 
@@ -420,17 +445,26 @@ impl ParticleCompute {
             &vk.mem_alloc,
             1 as DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
         builder
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, indirect.clone()))
             .unwrap();
 
+        unsafe {
+            *super::particle_asset::DEFAULT_TEXTURE.get() =
+                AssetInstance::<Texture>::new(tex_man.lock().from_file("eng_res/particle.png"));
+        }
+        let particle_textures = Arc::new(Mutex::new(ParticleTextures::new(
+            tex_man,
+            ParticleTextures::color_tex(&[[[255u8; 4]; 256]], &vk, &mut builder),
+        )));
+
         let particle_templates = _Storage::new();
         let particle_templates = Arc::new(Mutex::new(particle_templates));
         let particle_template_manager = Arc::new(Mutex::new(ParticleTemplateManager::new(
-            particle_templates.clone(),
+            (particle_templates.clone(), particle_textures.clone()),
             &["ptem"],
         )));
         particle_template_manager
@@ -448,7 +482,7 @@ impl ParticleCompute {
             &vk.mem_alloc,
             copy_buffer.len() as vulkano::DeviceSize,
             buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
+            vk.device.active_queue_family_indices().iter().copied(),
         )
         .unwrap();
 
@@ -476,7 +510,7 @@ impl ParticleCompute {
             ImageView::new_default(image).unwrap()
         };
         let def_sampler = Sampler::new(
-            device.clone(),
+            vk.device.clone(),
             SamplerCreateInfo {
                 mag_filter: Filter::Linear,
                 min_filter: Filter::Linear,
@@ -489,7 +523,7 @@ impl ParticleCompute {
         // build buffer
         let command_buffer = builder.build().unwrap();
 
-        let execute = sync::now(device.clone())
+        let execute = sync::now(vk.device.clone())
             .boxed()
             .then_execute(vk.queue.clone(), command_buffer);
 
@@ -506,9 +540,9 @@ impl ParticleCompute {
                 println!("Failed to flush future: {:?}", e);
             }
         };
-        let cs = cs::load(device.clone()).unwrap();
+        let cs = cs::load(vk.device.clone()).unwrap();
         let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
-            device.clone(),
+            vk.device.clone(),
             cs.entry_point("main").unwrap(),
             &(),
             None,
@@ -542,7 +576,7 @@ impl ParticleCompute {
         .unwrap();
         ParticleCompute {
             sort: ParticleSort::new(
-                device,
+                vk.device.clone(),
                 vk.queue.clone(),
                 vk.mem_alloc.clone(),
                 &vk.comm_alloc,
@@ -561,7 +595,7 @@ impl ParticleCompute {
                 emitter_init_dummy,
                 particle_burst_dummy,
                 emitters: Mutex::new(emitters),
-                particle_template: Mutex::new(templates),
+                particle_templates: Mutex::new(templates),
                 alive,
                 alive_count,
                 avail,
@@ -578,6 +612,7 @@ impl ParticleCompute {
             def_sampler,
             vk,
             performance,
+            particle_textures,
         }
     }
     fn get_descriptors2(
@@ -617,7 +652,7 @@ impl ParticleCompute {
                 WriteDescriptorSet::buffer(4, pb.avail.clone()),
                 WriteDescriptorSet::buffer(5, pb.emitters.lock().clone()),
                 WriteDescriptorSet::buffer(6, pb.avail_count.clone()),
-                WriteDescriptorSet::buffer(7, pb.particle_template.lock().clone()),
+                WriteDescriptorSet::buffer(7, pb.particle_templates.lock().clone()),
                 WriteDescriptorSet::buffer(8, uniform_sub_buffer),
                 WriteDescriptorSet::buffer(9, pb.particle_template_ids.clone()),
                 WriteDescriptorSet::buffer(10, emitter_inits.clone()),
@@ -673,11 +708,20 @@ impl ParticleCompute {
 
     fn update_templates(&self, builder: &mut PrimaryCommandBuffer) {
         let pb = &self.particle_buffers;
-
         let mut pt = self.particle_templates.lock();
-        for (id, a) in self.particle_template_manager.lock().assets_id.iter() {
-            let a = a.lock();
-            *pt.get_mut(id) = a.gen_particle_template();
+        if TEMPLATE_UPDATE.load(Ordering::Relaxed) {
+            let mut ptex = self.particle_textures.lock();
+            let mut colors: Vec<[[u8; 4]; 256]> = Vec::new();
+            // colors.push([[255u8;4];256]);
+            for (id, a) in self.particle_template_manager.lock().assets_id.iter() {
+                let a = a.lock();
+                *pt.get_mut(id) = a.gen_particle_template(&mut ptex);
+                colors.push(a.color_over_life.to_color_array());
+            }
+            println!("colors len: {}", colors.len());
+            println!("template len: {}", pt.data.len());
+
+            ptex.color_tex = ParticleTextures::color_tex(colors.as_slice(), &self.vk, builder);
         }
 
         let copy_buffer = CpuAccessibleBuffer::from_iter(
@@ -689,21 +733,23 @@ impl ParticleCompute {
         .unwrap();
         drop(pt);
 
-        if copy_buffer.len() > pb.particle_template.lock().len() {
-            *pb.particle_template.lock() = DeviceLocalBuffer::<[cs::ty::particle_template]>::array(
-                &self.vk.mem_alloc,
-                copy_buffer.len() as vulkano::DeviceSize,
-                buffer_usage_all(),
-                self.vk.device.active_queue_family_indices().iter().copied(),
-            )
-            .unwrap();
+        if copy_buffer.len() > pb.particle_templates.lock().len() {
+            *pb.particle_templates.lock() =
+                DeviceLocalBuffer::<[cs::ty::particle_template]>::array(
+                    &self.vk.mem_alloc,
+                    copy_buffer.len() as vulkano::DeviceSize,
+                    buffer_usage_all(),
+                    self.vk.device.active_queue_family_indices().iter().copied(),
+                )
+                .unwrap();
         }
         builder
             .copy_buffer(CopyBufferInfo::buffers(
                 copy_buffer,
-                pb.particle_template.lock().clone(),
+                pb.particle_templates.lock().clone(),
             ))
             .unwrap();
+        TEMPLATE_UPDATE.store(false, Ordering::Relaxed);
     }
     fn update_emitter_len(&self, builder: &mut PrimaryCommandBuffer, num_emitters: usize) {
         let pb = &self.particle_buffers;
@@ -842,38 +888,6 @@ impl ParticleCompute {
         time: &Time,
     ) {
         let pb = &self.particle_buffers;
-        {
-            let mut pt = self.particle_templates.lock();
-            for (id, a) in self.particle_template_manager.lock().assets_id.iter() {
-                let a = a.lock();
-                *pt.get_mut(id) = a.gen_particle_template();
-            }
-        }
-
-        let copy_buffer = CpuAccessibleBuffer::from_iter(
-            &self.vk.mem_alloc,
-            buffer_usage_all(),
-            false,
-            self.particle_templates.lock().data.iter().copied(),
-        )
-        .unwrap();
-
-        if copy_buffer.len() > pb.particle_template.lock().len() {
-            *pb.particle_template.lock() = DeviceLocalBuffer::<[cs::ty::particle_template]>::array(
-                &self.vk.mem_alloc,
-                copy_buffer.len() as vulkano::DeviceSize,
-                buffer_usage_all(),
-                self.vk.device.active_queue_family_indices().iter().copied(),
-            )
-            .unwrap();
-        }
-        builder
-            .copy_buffer(CopyBufferInfo::buffers(
-                copy_buffer,
-                pb.particle_template.lock().clone(),
-            ))
-            .unwrap();
-
         if emitter_inits.is_empty() {
             return;
         };
@@ -1053,11 +1067,13 @@ impl ParticleCompute {
                 proj: proj.into(),
                 cam_rot,
                 cam_pos,
+                num_templates: pb.particle_templates.lock().len() as u32,
                 _dummy0: Default::default(),
             };
             self.render_uniforms.from_data(uniform_data).unwrap()
         };
-        let set = PersistentDescriptorSet::new(
+        let pt = self.particle_textures.lock();
+        let set = PersistentDescriptorSet::new_variable(
             &self.vk.desc_alloc,
             particle_render_pipeline
                 .arc
@@ -1066,14 +1082,26 @@ impl ParticleCompute {
                 .get(0)
                 .unwrap()
                 .clone(),
+            pt.samplers.len() as u32,
             [
                 WriteDescriptorSet::buffer(0, pb.particle_positions_lifes.clone()),
-                WriteDescriptorSet::buffer(3, pb.particle_template.lock().clone()),
+                WriteDescriptorSet::buffer(3, pb.particle_templates.lock().clone()),
                 WriteDescriptorSet::buffer(4, uniform_sub_buffer),
                 WriteDescriptorSet::buffer(5, self.sort.a2.clone()),
                 WriteDescriptorSet::buffer(6, pb.particle_template_ids.clone()),
                 WriteDescriptorSet::buffer(7, pb.particle_next.clone()),
                 WriteDescriptorSet::buffer(8, transform),
+                WriteDescriptorSet::buffer(9, pb.particles.clone()),
+                WriteDescriptorSet::image_view_sampler(
+                    10,
+                    pt.color_tex.0.clone(),
+                    pt.color_tex.1.clone(),
+                ),
+                WriteDescriptorSet::image_view_sampler_array(
+                    11,
+                    0,
+                    pt.samplers.iter().map(|a| (a.0.clone() as _, a.1.clone())),
+                ),
             ],
         )
         .unwrap();

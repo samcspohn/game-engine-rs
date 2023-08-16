@@ -1,6 +1,6 @@
 use nalgebra_glm as glm;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ColorGradient {
@@ -17,6 +17,14 @@ impl Default for ColorGradient {
     }
 }
 
+fn f4_u4(a: [f32; 4]) -> [u8; 4] {
+    [
+        (a[0] * 255.) as u8,
+        (a[1] * 255.) as u8,
+        (a[2] * 255.) as u8,
+        (a[3] * 255.) as u8,
+    ]
+}
 impl ColorGradient {
     pub fn new() -> Self {
         let mut a = Self {
@@ -26,10 +34,12 @@ impl ColorGradient {
         a.nodes.insert(0, (0., [1., 1., 1., 1.]));
         a
     }
-    pub fn to_color_array(&self) -> [[f32; 4]; 200] {
-        let mut a = [[0.0; 4]; 200];
+    pub fn to_color_array<const N: usize>(&self) -> [[u8; 4]; N] {
+        let mut a = [[255u8; 4]; N];
         let mut sorted = self
-            .nodes.values().map(|n| (n.0, n.1))
+            .nodes
+            .values()
+            .map(|n| (n.0, n.1))
             .collect::<Vec<(f32, [f32; 4])>>();
         sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
@@ -37,25 +47,25 @@ impl ColorGradient {
             return a;
         }
         if sorted.len() == 1 {
-            return [sorted[0].1; 200];
+            return [f4_u4(sorted[0].1); N];
         }
         for x in sorted.windows(2) {
-            let b = (x[0].0 * 200.) as usize;
-            let e = (x[1].0 * 200.) as usize;
+            let b = (x[0].0 * N as f32) as usize;
+            let e = (x[1].0 * N as f32) as usize;
             let mut start = glm::make_vec4(&x[0].1);
             let step = (glm::make_vec4(&x[1].1) - start) / (e - b) as f32;
             for i in b..e {
-                a[i] = start.into();
+                a[i] = f4_u4(start.into());
                 start += step;
             }
         }
         let last = sorted.last().unwrap();
-        let b = (last.0 * 200.) as usize;
-        let e = 200_usize;
+        let b = (last.0 * N as f32) as usize;
+        let e = N;
         let start = glm::make_vec4(&last.1);
         // let step = glm::make_vec4(&x[1].1) - start;
         for i in b..e {
-            a[i] = start.into();
+            a[i] = f4_u4(start.into());
             // start += step;
         }
         a
@@ -203,10 +213,11 @@ impl ColorGradient {
             }
         } else if response.drag_released() {
             unsafe { key = -1 }
+            response.mark_changed();
         } else if response.dragged() {
             if let Some(a) = unsafe { self.nodes.get_mut(&key) } {
                 a.0 += response.drag_delta().x / rect.width();
-                a.0 = a.0.clamp(0.0, 1.0);
+                a.0 = a.0.clamp(0.0, 255. / 256.);
             }
         }
 

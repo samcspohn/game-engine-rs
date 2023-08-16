@@ -140,9 +140,7 @@ impl Component for Renderer {
 impl Inspectable for Renderer {
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys) {
         let mut m_id = self.model_id;
-        Ins(&mut m_id).inspect("model_id", ui, sys);
-
-        if self.model_id.id != m_id.id {
+        if Ins(&mut m_id).inspect("model_id", ui, sys) {
             self.deinit(transform, id, sys);
             self.model_id = m_id;
             self.init(transform, id, sys);

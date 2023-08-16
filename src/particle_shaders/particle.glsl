@@ -1,5 +1,6 @@
 struct emitter {
-    // vec3 pos;
+    vec3 prev_pos;
+    vec4 prev_rot;
     int alive;
     int transform_id;
     float emission;
@@ -34,11 +35,14 @@ struct particle_template {
 
     float min_lifetime;
     float max_lifetime;
-    float size;
-    int trail;
+    vec2 scale;
     
+    int trail;
+    int billboard;
+    int align_vel;
     float dispersion;
-    vec4 color_life[200];
+    uint tex_id;
+    // vec4 color_life[256];
 
 };
 struct pos_lif {

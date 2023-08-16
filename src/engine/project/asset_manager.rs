@@ -2,7 +2,7 @@ use egui::Ui;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{
-    any::{Any},
+    any::Any,
     collections::{BTreeMap, HashMap},
     fs,
     marker::PhantomData,
@@ -12,7 +12,10 @@ use std::{
 use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::{
-    editor::{inspectable::{Inpsect, Ins, Inspectable, Inspectable_}, drag_drop::{self, drop_target}}, engine::world::{Sys, World},
+    editor::{
+        inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
+    },
+    engine::world::{Sys, World},
 };
 
 #[derive(Deserialize, Serialize)]
@@ -50,8 +53,8 @@ impl<T> Clone for AssetInstance<T> {
 impl<T> Copy for AssetInstance<T> {}
 
 impl<'a, T: 'static + _AssetID> Inpsect for Ins<'a, AssetInstance<T>> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) {
-        let drop_data = drag_drop::DRAG_DROP_DATA.lock();
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) -> bool {
+        let drop_data = sys.assets_manager.drag_drop_data.lock().clone();
         sys.assets_manager
             .inspect_instance::<T>(name, &drop_data, &mut self.0.id, ui)
     }
@@ -80,7 +83,7 @@ pub struct AssetManager<P, T: Inspectable_ + Asset<T, P> + _AssetID> {
     #[serde(skip_serializing, skip_deserializing)]
     pub assets_r: BTreeMap<i32, String>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub assets_id: HashMap<i32, Arc<Mutex<T>>>,
+    pub assets_id: HashMap<i32, Arc<Mutex<T>>, nohash_hasher::BuildNoHashHasher<i32>>,
     pub id_gen: i32,
     #[serde(skip_serializing, skip_deserializing)]
     pub const_params: P,
@@ -117,7 +120,7 @@ impl<P: 'static, T: Inspectable_ + Asset<T, P> + _AssetID> AssetManager<P, T> {
         Self {
             assets: BTreeMap::new(),
             assets_r: BTreeMap::new(),
-            assets_id: HashMap::new(),
+            assets_id: HashMap::default(),
             id_gen: 0,
             const_params,
             ext: ext.iter().map(|s| s.to_string()).collect(),
@@ -129,7 +132,56 @@ impl<P: 'static, T: Inspectable_ + Asset<T, P> + _AssetID> AssetManager<P, T> {
     }
 }
 
-impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManagerBase for AssetManager<P, T> {
+
+pub fn drop_target<R>(
+    ui: &mut Ui,
+    can_accept_what_is_being_dragged: bool,
+    body: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<R> {
+    let is_being_dragged = ui.memory().is_anything_being_dragged();
+
+    let margin = egui::Vec2::splat(4.0);
+
+    let outer_rect_bounds = ui.available_rect_before_wrap();
+    let inner_rect = outer_rect_bounds.shrink2(margin);
+    let where_to_put_background = ui.painter().add(egui::Shape::Noop);
+    let mut content_ui = ui.child_ui(inner_rect, *ui.layout());
+    let ret = body(&mut content_ui);
+    let outer_rect =
+        egui::Rect::from_min_max(outer_rect_bounds.min, content_ui.min_rect().max + margin);
+    let (rect, response) = ui.allocate_at_least(outer_rect.size(), egui::Sense::hover());
+
+    let style = if is_being_dragged && can_accept_what_is_being_dragged && response.hovered() {
+        ui.visuals().widgets.active
+    } else {
+        ui.visuals().widgets.inactive
+    };
+
+    let fill = style.bg_fill;
+    let stroke = style.bg_stroke;
+    if is_being_dragged && !can_accept_what_is_being_dragged {
+        // gray out:
+        // fill = egui::Color32::tint_color_towards(fill, ui.visuals().window_fill());
+        // stroke.color = egui::Color32::tint_color_towards(stroke.color, ui.visuals().window_fill());
+    }
+
+    ui.painter().set(
+        where_to_put_background,
+        egui::epaint::RectShape {
+            rounding: style.rounding,
+            fill,
+            stroke,
+            rect,
+        },
+    );
+
+    egui::InnerResponse::new(ret, response)
+}
+
+
+impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManagerBase
+    for AssetManager<P, T>
+{
     fn inspect(&mut self, file: &str, ui: &mut Ui, world: &Mutex<World>) {
         // let file = std::path::Path::new(file);
         if let Some(a) = self.assets.get(file) {
@@ -160,14 +212,18 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManage
     }
     fn regen(&mut self, meta: serde_yaml::Value) {
         let m = meta.get("assets").unwrap().as_mapping().unwrap();
+        let mut id_counter = 0;
         for i in m.into_iter() {
             println!("{:?}", i);
             // let (f, id) = i;
             let f: String = i.0.as_str().unwrap().into();
-            if !Path::new(f.as_str()).exists() {
+            let id = i.1.as_i64().unwrap() as i32;
+            if !Path::new(f.as_str()).exists()
+                || (self.assets_id.contains_key(&id) && self.assets_r.get(&id).unwrap().eq(&f))
+            {
                 continue;
             }
-            let id = i.1.as_i64().unwrap() as i32;
+            id_counter += 1;
             self.assets_id.insert(
                 id,
                 Arc::new(Mutex::new(<T as Asset<T, P>>::from_file(
@@ -178,7 +234,12 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManage
             self.assets.insert(f.clone(), id);
             self.assets_r.insert(id, f);
         }
-        self.id_gen = meta.get("id_gen").unwrap().as_i64().unwrap() as i32;
+        let id_gen = meta.get("id_gen").unwrap().as_i64().unwrap() as i32;
+        if self.id_gen + id_counter > id_gen {
+            self.id_gen += id_counter;
+        } else {
+            self.id_gen = id_gen;
+        }
     }
     fn reload(&mut self, path: &str) {
         // let _file = std::path::Path::new(path);
@@ -263,12 +324,13 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManage
         T::ID
     }
 
-    fn inspect_instance(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) {
+    fn inspect_instance(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) -> bool {
         // let drop_data = drag_drop::DRAG_DROP_DATA.lock();
 
         // let asset_manager = sys.assets_manager.asset_managers_type.get(&TypeId::of::<T>()).unwrap();
 
         // let label = id.to_string();
+        let mut ret = false;
         let label: String = match self.assets_r.get(&id) {
             Some(file) => file.clone(),
             None => "".into(),
@@ -290,10 +352,12 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManage
 
                     if let Some(_id) = self.assets.get(&model_file) {
                         *id = *_id;
+                        ret = true;
                     }
                 }
             });
         });
+        ret
     }
     fn get_ext(&self) -> &[String] {
         self.ext.as_slice()
@@ -318,7 +382,7 @@ pub trait AssetManagerBase {
     fn save(&self);
     fn move_file(&mut self, from: &str, to: &str);
     fn get_type(&self) -> u64;
-    fn inspect_instance(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui);
+    fn inspect_instance(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) -> bool;
     fn get_ext(&self) -> &[String];
     fn as_any(&self) -> &dyn std::any::Any;
     // fn get_id<T>(&self, id: &i32) -> Option<&Arc<Mutex<T>>> {None}
@@ -331,9 +395,54 @@ pub struct AssetsManager {
         SyncUnsafeCell<HashMap<String, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>>,
     pub asset_managers_type:
         SyncUnsafeCell<HashMap<u64, Arc<Mutex<dyn AssetManagerBase + Send + Sync>>>>,
+    pub drag_drop_data: Mutex<String>,
 }
 
 impl AssetsManager {
+    // stolen from egui demo
+    pub fn drag_source(
+        &self,
+        ui: &mut Ui,
+        id: egui::Id,
+        drag_data: String,
+        body: impl Fn(&mut Ui),
+    ) -> egui::Response {
+        let is_being_dragged = ui.memory().is_being_dragged(id);
+
+        let response = ui.scope(&body).response;
+
+        // Check for drags:
+        let response = ui.interact(response.rect, id, egui::Sense::drag());
+        if response.hovered() {
+            // ui.output().cursor_icon = egui::CursorIcon::Grab;
+        }
+        if response.drag_started() {
+            *self.drag_drop_data.lock() = drag_data;
+        }
+
+        if is_being_dragged {
+            ui.output().cursor_icon = egui::CursorIcon::Grabbing;
+
+            // Paint the body to a new layer:
+            let layer_id = egui::LayerId::new(egui::Order::Tooltip, id);
+            let response = ui.with_layer_id(layer_id, body).response;
+
+            // Now we move the visuals of the body to where the mouse is.
+            // Normally you need to decide a location for a widget first,
+            // because otherwise that widget cannot interact with the mouse.
+            // However, a dragged component cannot be interacted with anyway
+            // (anything with `Order::Tooltip` always gets an empty [`Response`])
+            // So this is fine!
+
+            if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
+                let delta = pointer_pos - response.rect.center();
+                ui.ctx().translate_layer(layer_id, delta);
+            }
+        }
+        response
+    }
+
+   
     // pub fn get(&self, ext: &str) -> Option<Arc<dyn AssetManagerBase>> {
     //     if let Some(o) = self.asset_managers.get(ext) {
     //         Some(o.clone())
@@ -341,7 +450,9 @@ impl AssetsManager {
     //         None
     //     }
     // }
-    pub fn get_manager<T: 'static + _AssetID>(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
+    pub fn get_manager<T: 'static + _AssetID>(
+        &self,
+    ) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
         unsafe { &*self.asset_managers_type.get() }
             .get(&T::ID)
             .unwrap()
@@ -356,17 +467,24 @@ impl AssetsManager {
     //         .unwrap()
     //         .clone()
     // }
-    pub fn inspect_instance<T: 'static + _AssetID>(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) {
+    pub fn inspect_instance<T: 'static + _AssetID>(
+        &self,
+        name: &str,
+        path: &str,
+        id: &mut i32,
+        ui: &mut Ui,
+    ) -> bool {
         let asset_manager = unsafe { &*self.asset_managers_type.get() }
             .get(&T::ID)
             .unwrap();
-        asset_manager.lock().inspect_instance(name, path, id, ui);
+        asset_manager.lock().inspect_instance(name, path, id, ui)
     }
     pub fn new() -> Self {
         Self {
             asset_managers_names: SyncUnsafeCell::new(HashMap::new()),
             asset_managers_ext: SyncUnsafeCell::new(HashMap::new()),
             asset_managers_type: SyncUnsafeCell::new(HashMap::new()),
+            drag_drop_data: Mutex::new(String::from("")),
         }
     }
     pub unsafe fn add_asset_manager(

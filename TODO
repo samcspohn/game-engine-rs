@@ -14,18 +14,24 @@ game-engine:
   ☐ implement gui in game
   ☐ rework autocompilation
   ☐ add priority to asset loading
+  optimizations:
+    ☐ write transform update data using ptr(&[],&[])
+      let m_slice = &mut mapping[offset..offset + i.len()];
+      m_slice.copy_from_slice((*i.v.get()).as_slice());
   particles:
     ☐ different rng type for particle emission
-    ☐ color over life @started(23-04-24 17:13)
+    ✔ color over life @started(23-04-24 17:13) @done(23-08-11 20:48) @lasted(15w4d3h35m16s)
     ☐ color over emission
     ☐ size over life
     ☐ particle count display
     ☐ fix culling @started(23-04-30 16:13)
     ✔ active particles list @done(23-08-07 16:02)
-    ☐ seperate buffers for emitter init/de-init
-    ☐ textures
-    ☐ texture for color over live
-    ☐ rotations
+    ✔ seperate buffers for emitter init/de-init @done(23-08-11 20:47)
+    ✔ textures @started(23-08-11 20:47) @done(23-08-14 12:51) @lasted(2d16h4m33s)
+    ✔ texture for color over live @started(23-08-14 12:51) @done(23-08-16 09:06) @lasted(1d20h15m7s)
+    ☐ animated textures
+    ✔ rotations @done(23-08-16 09:06)
+    ✔ only update templates after change @done(23-08-16 09:06)
   lights:
     ☐ lights
     ☐ shadows
@@ -60,4 +66,7 @@ refactor:
   ✘ fix multiple meshes in model @cancelled(23-08-05 09:38)
   ✘ optimize parallel instantiate/de-instantiate @cancelled(23-07-25 10:25)
   ✔ implement Engine struct to contain all functionality/state @done(23-08-05 09:39)
+revamp:
+  ☐ editor ui
+  ☐ auto-compilation
   

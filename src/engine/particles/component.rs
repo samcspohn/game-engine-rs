@@ -20,8 +20,13 @@ impl Default for ParticleEmitter {
 }
 
 impl Inspectable for ParticleEmitter {
-    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
-        Ins(&mut self.template).inspect("template", ui, sys);
+    fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys) {
+        let mut temp = self.template;
+        if Ins(&mut temp).inspect("template", ui, sys) {
+            self.deinit(transform, id, sys);
+            self.template = temp;
+            self.init(transform, id, sys);
+        }
     }
 }
 impl ParticleEmitter {

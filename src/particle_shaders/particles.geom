@@ -14,6 +14,8 @@ layout(triangle_strip, max_vertices = 4) out;
 layout(location = 0) in int[] id;
 layout(location = 0) out float life;
 layout(location = 1) out int templ_id;
+layout(location = 2) out vec2 uv;
+layout(location = 3) out vec2 uv2;
 
 layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
 layout(set = 0, binding = 3) buffer pt { particle_template templates[]; };
@@ -21,17 +23,20 @@ layout(set = 0, binding = 5) buffer a { int sorted[]; };
 layout(set = 0, binding = 6) buffer pti { int template_ids[]; };
 layout(set = 0, binding = 7) buffer _n { int next[]; };
 layout(set = 0, binding = 8) buffer t { transform transforms[]; };
+layout(set = 0, binding = 9) buffer p { particle particles[]; };
 layout(set = 0, binding = 4) uniform Data {
     mat4 view;
     mat4 proj;
     vec3 cam_pos;
     vec4 cam_rot;
+    uint num_templates;
 };
 vec4 look_at =
     lookAt(rotate3(cam_rot) * vec3(0, 0, 1), rotate3(cam_rot) * vec3(0, 1, 0));
 
 const vec4 vert_pos[4] = {vec4(-1., 1., 0.0, 1.0), vec4(-1., -1., 0.0, 1.0),
                           vec4(1, 1., 0.0, 1.0), vec4(1., -1., 0.0, 1.0)};
+const vec2 vert_uv[4] = {vec2(0., 1.), vec2(1, 1.), vec2(0., 0.), vec2(1., 0.)};
 vec4 get_position(in mat4 mvp, int vert_id) {
     vec4 vert = vert_pos[vert_id];
     return mvp * vert;   // vec4(-.5, .5, 0.0, 1.0);
@@ -40,56 +45,99 @@ vec4 get_position(in mat4 mvp, int vert_id) {
 void main() {
     int _i = id[0];
     int i = sorted[_i];
-    // particle_template templ = templates[template_ids[i]];
     int _templ_id = template_ids[i];
 #define templ templates[_templ_id]
+#define p     particles[i]
 
     mat4 model;
-    float color1;
-    float color2;
-    if (templ.trail == 1) {
+    float l1;
+    float l2;
+    if (templ.trail == 1) {   // trail
         vec3 next_pos;
-        color2 = 1. - p_l[i].life;
+        l2 = 1. - p_l[i].life;
         if (next[i] >= 0) {   // next is particle
             next_pos = p_l[next[i]].pos;
-            color1 = 1. - p_l[next[i]].life;
+            l1 = 1. - p_l[next[i]].life;
         } else if (next[i] < -1) {   // next is emitter / transform
             next_pos = transforms[-next[i] - 2].position;
-            color1 = 0.;
+            l1 = 0.;
         } else {   // next is invalid
             next_pos = p_l[i].pos;
-            color1 = color2;
+            l1 = l2;
         }
         vec3 v = next_pos - p_l[i].pos;
         vec3 x = cross(v, cam_pos - p_l[i].pos);
         x = cross(x, v);
         vec4 l = lookAt(x, v);
         model = translate(p_l[i].pos + v / 2.f) * rotate(l) *
-                scale(vec3(templ.size, length(v) / 2, templ.size));
-    } else {
-        color1 = color2 = 1. - p_l[i].life;
-        model =
-            translate(p_l[i].pos) * rotate(look_at) * scale(vec3(templ.size));
+                scale(vec3(templ.scale.x, length(v) / 2 * templ.scale.y, 1));
+    } else {   // not trail / billboard / aligned to velocity
+        l1 = l2 = 1. - p_l[i].life;
+        vec4 rot;
+        // uint a = templ.billboard & templ.align_vel << 1;
+        // switch (a) {
+        // case 1:   // billboard
+        //     rot = look_at;
+        //     break;
+        // // case 002: // align_vel
+        // //     rot =
+        // case 3:   // billboard & align_vel
+        //     rot = lookAt(cam_pos, p.vel);
+        //     break;
+        // default:
+        //     rot = p.rot;
+        //     break;
+        // }
+        if (templ.billboard == 1 && templ.align_vel == 1) {
+            vec3 a = cam_pos - p_l[i].pos;
+            vec3 b = cross(p.vel, a);
+            vec3 c = cross(p.vel, b);
+
+            // mat3 m;
+            // m[0] = b;
+            // m[1] = p.vel;
+            // m[2] = c;
+            // m = transpose(m);
+
+            rot = lookAt(c,p.vel);
+        } else if (templ.billboard == 1) {
+            rot = look_at;
+        } else {
+            rot = particles[i].rot;
+        }
+        model = translate(p_l[i].pos) * rotate(rot) *
+                scale(vec3(templ.scale.x, templ.scale.y, 1));
     }
+    // float offset = 0.5 / float(num_templates);
+    float tid = float(_templ_id + 0.5);
+    float color_id = tid / float(num_templates);
     mat4 mvp = proj * view * model;
     templ_id = template_ids[i];
     gl_Position = get_position(mvp, 0);
-    life = color1;
+    uv = vert_uv[0];
+    uv2 = vec2(l1, color_id);
+    life = l1;
     EmitVertex();
 
     gl_Position = get_position(mvp, 1);
     templ_id = template_ids[i];
-    life = color2;
+    uv = vert_uv[1];
+    uv2 = vec2(l2, color_id);
+    life = l2;
     EmitVertex();
 
     gl_Position = get_position(mvp, 2);
     templ_id = template_ids[i];
-    life = color1;
+    uv = vert_uv[2];
+    uv2 = vec2(l1, color_id);
+    life = l1;
     EmitVertex();
 
     gl_Position = get_position(mvp, 3);
     templ_id = template_ids[i];
-    life = color2;
+    uv = vert_uv[3];
+    uv2 = vec2(l2, color_id);
+    life = l2;
     EmitVertex();
 
     // EndPrimitive();

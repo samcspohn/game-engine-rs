@@ -5,6 +5,7 @@ use std::{
 
 
 use component_derive::AssetID;
+use egui::TextureId;
 use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
@@ -26,10 +27,14 @@ pub struct Texture {
     pub file: String,
     pub image: Arc<ImageView<ImmutableImage>>,
     pub sampler: Arc<Sampler>,
+    ui_id: Option<TextureId>,
 }
 impl Inspectable_ for Texture {
     fn inspect(&mut self, _ui: &mut egui::Ui, _world: &parking_lot::Mutex<World>) {
-        
+        if let Some(id) = &self.ui_id {
+            _ui.image(*id, egui::vec2(200., 200.));
+        } else {
+        }
     }
 }
 impl Asset<Texture, (Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)> for Texture {
@@ -107,7 +112,7 @@ impl Asset<Texture, (Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)> for T
         )
         .unwrap();
 
-        Texture { file: path.into(), image, sampler }
+        Texture { file: path.into(), image, sampler, ui_id: None }
     }
 
     fn reload(&mut self, file: &str, params: &(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)) {

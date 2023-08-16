@@ -1,11 +1,33 @@
-use std::sync::Arc;
+use std::{
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
+use lazy_static::lazy_static;
+use nalgebra_glm::{Vec2, vec2};
 use parking_lot::Mutex;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use sync_unsafe_cell::SyncUnsafeCell;
 
-use crate::engine::{color_gradient::ColorGradient, project::asset_manager::{Asset, AssetManager}, storage::_Storage, prelude::Inspectable_, world::World};
+use crate::{
+    editor::inspectable::{Inpsect, Ins},
+    engine::{
+        color_gradient::ColorGradient,
+        prelude::Inspectable_,
+        project::asset_manager::{Asset, AssetInstance, AssetManager},
+        rendering::texture::{Texture, TextureManager},
+        storage::_Storage,
+        world::World,
+    },
+};
 
-use super::shaders::cs::{ty::particle_template, self};
+use super::{
+    particle_textures::ParticleTextures,
+    shaders::cs::{self, ty::particle_template},
+};
 use crate::engine::project::asset_manager::_AssetID;
 use component_derive::AssetID;
 
@@ -20,11 +42,19 @@ pub struct ParticleTemplate {
     max_speed: f32,
     min_lifetime: f32,
     max_lifetime: f32,
-    size: f32,
-    color_over_life: ColorGradient,
+    size: Vec2,
+    pub(super) color_over_life: ColorGradient,
     trail: bool,
+    billboard: bool,
+    align_vel: bool,
+    texture: AssetInstance<Texture>,
 }
 
+lazy_static! {
+    pub(super) static ref DEFAULT_TEXTURE: SyncUnsafeCell<AssetInstance::<Texture>> =
+        SyncUnsafeCell::new(AssetInstance::<Texture>::new(0));
+    pub(super) static ref TEMPLATE_UPDATE: AtomicBool = AtomicBool::new(true);
+}
 impl Default for ParticleTemplate {
     fn default() -> Self {
         Self {
@@ -35,16 +65,19 @@ impl Default for ParticleTemplate {
             max_speed: 1.,
             min_lifetime: 1.,
             max_lifetime: 1.,
-            size: 1.,
+            size: vec2(1.,1.),
             color_over_life: ColorGradient::new(),
             trail: false,
+            billboard: true,
+            align_vel: false,
             dispersion: 1.,
+            texture: unsafe { *DEFAULT_TEXTURE.get() },
         }
     }
 }
 
 impl ParticleTemplate {
-    pub fn gen_particle_template(&self) -> particle_template {
+    pub fn gen_particle_template(&self, textures: &mut ParticleTextures) -> particle_template {
         particle_template {
             color: self.color,
             emission_rate: self.emission_rate,
@@ -54,10 +87,14 @@ impl ParticleTemplate {
             max_speed: self.max_speed,
             min_lifetime: self.min_lifetime,
             max_lifetime: self.max_lifetime,
-            color_life: self.color_over_life.to_color_array(),
+            // color_life: self.color_over_life.to_color_array(),
             trail: if self.trail { 1 } else { 0 },
+            align_vel: if self.align_vel { 1 } else { 0 },
+            billboard: if self.billboard { 1 } else { 0 },
+            scale: self.size.into(),
+            tex_id: textures.get_tex_id(&self.texture),
             _dummy0: Default::default(),
-            size: self.size,
+
         }
     }
 }
@@ -75,56 +112,121 @@ where
 impl Inspectable_ for ParticleTemplate {
     fn inspect(&mut self, ui: &mut egui::Ui, _world: &Mutex<World>) {
         field(ui, "color", |ui| {
-            ui.color_edit_button_rgba_premultiplied(&mut self.color);
+            if ui
+                .color_edit_button_rgba_premultiplied(&mut self.color)
+                .changed()
+            {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
         });
         field(ui, "emission rate", |ui| {
-            ui.add(egui::DragValue::new(&mut self.emission_rate));
+            if ui
+                .add(egui::DragValue::new(&mut self.emission_rate))
+                .changed()
+            {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
         });
         field(ui, "emission radius", |ui| {
-            ui.add(egui::DragValue::new(&mut self.emission_radius));
+            if ui
+                .add(egui::DragValue::new(&mut self.emission_radius))
+                .changed()
+            {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
         });
         field(ui, "dispersion", |ui| {
-            ui.add(egui::DragValue::new(&mut self.dispersion));
+            if ui.add(egui::DragValue::new(&mut self.dispersion)).changed() {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
         });
-        field(ui, "life time", |ui| {
-            ui.add(egui::DragValue::new(&mut self.min_lifetime));
+        field(ui, "min lifetime", |ui| {
+            if ui
+                .add(egui::DragValue::new(&mut self.min_lifetime).speed(0.1))
+                .changed()
+            {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
+            if self.min_lifetime > self.max_lifetime {
+                self.max_lifetime = self.min_lifetime;
+            }
         });
-        field(ui, "life time", |ui| {
-            ui.add(egui::DragValue::new(&mut self.max_lifetime));
+        field(ui, "max lifetime", |ui| {
+            if ui
+                .add(egui::DragValue::new(&mut self.max_lifetime).speed(0.1))
+                .changed()
+            {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
+            if self.max_lifetime < self.min_lifetime {
+                self.min_lifetime = self.max_lifetime;
+            }
         });
         field(ui, "min speed", |ui| {
-            ui.add(egui::DragValue::new(&mut self.min_speed));
+            if ui.add(egui::DragValue::new(&mut self.min_speed)).changed() {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
+            if self.min_speed > self.max_speed {
+                self.max_speed = self.min_speed;
+            }
         });
         field(ui, "max speed", |ui| {
-            ui.add(egui::DragValue::new(&mut self.max_speed));
+            if ui.add(egui::DragValue::new(&mut self.max_speed)).changed() {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
+            if self.max_speed < self.min_speed {
+                self.min_speed = self.max_speed;
+            }
         });
-        field(ui, "size", |ui| {
-            ui.add(egui::DragValue::new(&mut self.size));
-        });
+        if Ins(&mut self.size).inspect("scale", ui, &_world.lock().sys) {
+            TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+        }
+        // field(ui, "size", |ui| {
+        //     if ui.add(egui::DragValue::new(&mut self.size)).changed() {
+        //         TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+        //     }
+        // });
         field(ui, "color over life", |ui| {
-            self.color_over_life.edit(ui);
+            if self.color_over_life.edit(ui).changed() {
+                TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+            }
         });
-        ui.checkbox(&mut self.trail, "trail");
+        if Ins(&mut self.texture).inspect("texture", ui, &_world.lock().sys) {
+            TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+        }
+        if ui.checkbox(&mut self.trail, "trail").changed() {
+            TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+        }
+        if ui.checkbox(&mut self.billboard, "billboard").changed() {
+            TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+        }
+        if ui.checkbox(&mut self.align_vel, "align to velocity").changed() {
+            TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+        }
     }
 }
 
-impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>> for ParticleTemplate {
-    fn from_file(file: &str, params: &Arc<Mutex<_Storage<particle_template>>>) -> ParticleTemplate {
+type param = (
+    Arc<Mutex<_Storage<cs::ty::particle_template>>>,
+    Arc<Mutex<ParticleTextures>>,
+);
+impl Asset<ParticleTemplate, param> for ParticleTemplate {
+    fn from_file(file: &str, params: &param) -> ParticleTemplate {
         let mut t = ParticleTemplate::default();
         if let Ok(s) = std::fs::read_to_string(file) {
             t = serde_yaml::from_str(s.as_str()).unwrap();
         }
-        let p_t = t.gen_particle_template();
-        params.lock().emplace(p_t);
+        let p_t = t.gen_particle_template(&mut params.1.lock());
+        params.0.lock().emplace(p_t);
         t
     }
 
-    fn reload(&mut self, file: &str, _params: &Arc<Mutex<_Storage<particle_template>>>) {
+    fn reload(&mut self, file: &str, _params: &param) {
         if let Ok(s) = std::fs::read_to_string(file) {
             *self = serde_yaml::from_str(s.as_str()).unwrap();
         }
     }
-    fn save(&mut self, file: &str, _params: &Arc<Mutex<_Storage<particle_template>>>) {
+    fn save(&mut self, file: &str, _params: &param) {
         if let Ok(s) = serde_yaml::to_string(self) {
             match std::fs::write(file, s.as_bytes()) {
                 Ok(_) => (),
@@ -134,16 +236,12 @@ impl Asset<ParticleTemplate, Arc<Mutex<_Storage<cs::ty::particle_template>>>> fo
             }
         }
     }
-    fn new(
-        _file: &str,
-        params: &Arc<Mutex<_Storage<cs::ty::particle_template>>>,
-    ) -> Option<ParticleTemplate> {
+    fn new(_file: &str, params: &param) -> Option<ParticleTemplate> {
         let t = ParticleTemplate::default();
-        let p_t = t.gen_particle_template();
-        params.lock().emplace(p_t);
+        let p_t = t.gen_particle_template(&mut params.1.lock());
+        params.0.lock().emplace(p_t);
         Some(t)
     }
 }
 
-pub type ParticleTemplateManager =
-    AssetManager<Arc<Mutex<_Storage<cs::ty::particle_template>>>, ParticleTemplate>;
+pub type ParticleTemplateManager = AssetManager<param, ParticleTemplate>;

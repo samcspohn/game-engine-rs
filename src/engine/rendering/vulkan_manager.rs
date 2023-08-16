@@ -1,10 +1,10 @@
 use std::{
-    collections::{HashMap},
+    collections::HashMap,
     hash::BuildHasherDefault,
     sync::{
         atomic::{AtomicI32, Ordering},
         Arc,
-    }
+    },
 };
 
 use nohash_hasher::NoHashHasher;
@@ -12,6 +12,7 @@ use parking_lot::Mutex;
 use sync_unsafe_cell::SyncUnsafeCell;
 use thincollections::thin_map::ThinMap;
 use vulkano::{
+    buffer::CpuAccessibleBuffer,
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         PrimaryAutoCommandBuffer,
@@ -26,13 +27,13 @@ use vulkano::{
     memory::allocator::StandardMemoryAllocator,
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
-    VulkanLibrary, buffer::CpuAccessibleBuffer,
+    VulkanLibrary,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
     dpi::LogicalSize,
     event_loop::EventLoop,
-    window::{Window, WindowBuilder, self},
+    window::{self, Window, WindowBuilder},
 };
 
 #[repr(C)]
@@ -54,18 +55,19 @@ pub struct VulkanManager {
 
 impl VulkanManager {
     pub fn window(&self) -> &Window {
-        self
-        .surface
-        .object()
-        .unwrap()
-        .downcast_ref::<Window>()
-        .unwrap()
+        self.surface
+            .object()
+            .unwrap()
+            .downcast_ref::<Window>()
+            .unwrap()
     }
     pub fn swapchain(&self) -> Arc<Swapchain> {
         unsafe { &*self.swapchain.get() }.clone()
     }
     pub fn update_swapchain(&self, swapchain: Arc<Swapchain>) {
-        unsafe { *self.swapchain.get() = swapchain; }
+        unsafe {
+            *self.swapchain.get() = swapchain;
+        }
     }
     pub fn new(event_loop: &EventLoop<()>) -> Arc<Self> {
         // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
@@ -137,6 +139,8 @@ impl VulkanManager {
 
         let features = Features {
             geometry_shader: true,
+            runtime_descriptor_array: true,
+            descriptor_binding_variable_descriptor_count: true,
             ..Default::default()
         };
         let (device, mut queues) = Device::new(
@@ -154,6 +158,11 @@ impl VulkanManager {
             },
         )
         .unwrap();
+        std::fs::write(
+            "device-properties.ron",
+            format!("{:#?}", device.physical_device().properties()),
+        );
+        // println!("{:#?}", device.physical_device().properties());
 
         // Since we can request multiple queues, the `queues` variable is in fact an iterator. We
         // only use one queue in this example, so we just retrieve the first and only element of the
@@ -180,7 +189,11 @@ impl VulkanManager {
                     .0,
             );
             let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
-            let min_image_count = surface_capabilities.max_image_count.unwrap_or(3).min(3).max(surface_capabilities.min_image_count);
+            let min_image_count = surface_capabilities
+                .max_image_count
+                .unwrap_or(3)
+                .min(3)
+                .max(surface_capabilities.min_image_count);
             // let min_image_count = surface_capabilities.min_image_count;
             let mut swapchain_create_info = SwapchainCreateInfo {
                 min_image_count,
@@ -201,17 +214,13 @@ impl VulkanManager {
             match Swapchain::new(
                 device.clone(),
                 surface.clone(),
-               swapchain_create_info.clone(),
+                swapchain_create_info.clone(),
             ) {
                 Ok(sc) => sc,
                 Err(_) => {
                     swapchain_create_info.present_mode = vulkano::swapchain::PresentMode::Immediate;
-                    Swapchain::new(
-                        device.clone(),
-                        surface.clone(),
-                        swapchain_create_info,
-                    ).unwrap()
-                },
+                    Swapchain::new(device.clone(), surface.clone(), swapchain_create_info).unwrap()
+                }
             }
         };
         // self.swapchain = swapchain.clone();
@@ -306,7 +315,7 @@ impl VulkanManager {
             )
             .unwrap();
         }
-        
+
         todo!();
         query_results[0]
     }

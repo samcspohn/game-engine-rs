@@ -257,7 +257,7 @@ impl ParticleSort {
                     WriteDescriptorSet::buffer(7, self.buckets.clone()),
                     WriteDescriptorSet::buffer(8, self.draw.clone()),
                     WriteDescriptorSet::buffer(9, pb.particle_next.clone()),
-                    WriteDescriptorSet::buffer(10, pb.particle_template.lock().clone()),
+                    WriteDescriptorSet::buffer(10, pb.particle_templates.lock().clone()),
                     WriteDescriptorSet::buffer(11, pb.emitters.lock().clone()),
                     WriteDescriptorSet::buffer(12, transform.clone()),
                     WriteDescriptorSet::buffer(13, pb.alive.clone()),

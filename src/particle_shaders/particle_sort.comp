@@ -60,13 +60,12 @@ void main() {
             // add particles to sort buffer / update particle keys
             // float z = (view * vec4(p_l[id].pos, 1.0)).z;
             // int i = particles[id].sorted;
-            // if (p_l[id].life > 0.f) 
+            // if (p_l[id].life > 0.f)
             {   // add to sort or update
                 id = alive[id];
-                // if (id == 0)
-                //     return;
-                // if(p_l[id].life <= 0.f)
-                //     return;
+                if (id == -1) {
+                    return;
+                }
                 float z = (view * vec4(p_l[id].pos, 1.0)).z;
                 vec4 _vp_pos = (proj * view * vec4(p_l[id].pos, 1.0));
                 vec3 vp_pos = _vp_pos.xyz / _vp_pos.w;

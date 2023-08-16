@@ -202,9 +202,11 @@ impl Engine {
         model_manager
             .lock()
             .from_file("eng_res/cube/cube.obj");
+        
+        texture_manager.lock().from_file("eng_res/particle.png");
         assert!(env::set_current_dir(&Path::new(project_dir)).is_ok());
-
-        let particles_system = Arc::new(ParticleCompute::new(vk.device.clone(), vk.clone()));
+        
+        let particles_system = Arc::new(ParticleCompute::new(vk.clone(), texture_manager.clone()));
 
         let world = Arc::new(Mutex::new(World::new(
             particles_system.clone(),

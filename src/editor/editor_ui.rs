@@ -13,7 +13,7 @@ use std::{
 
 
 use crate::{
-    editor::{inspectable::{Inspectable, Inspectable_}, drag_drop::drag_source, editor_ui::entity_inspector::_selected}, engine::{world::{World, transform::Transform, Sys }, project::{serialize, asset_manager::AssetsManager}, utils},
+    editor::{inspectable::{Inspectable, Inspectable_}, editor_ui::entity_inspector::_selected}, engine::{world::{World, transform::Transform, Sys }, project::{serialize, asset_manager::AssetsManager}, utils},
 };
 use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
@@ -493,7 +493,7 @@ pub fn editor_ui(
                                             let _label: String = label.substring(last_slash + 1, label.len()).into();
                                             let item_id = egui::Id::new(label.clone());
                                             let path = utils::path_format(&_cur_dir);
-                                                let resp = drag_source(ui, item_id, path.clone(), move |ui| {
+                                                let resp = assets_manager.drag_source(ui, item_id, path.clone(), move |ui| {
                                                     ui.add(egui::Label::new(_label.clone()).sense(egui::Sense::click()));
                                                 });
                                                 if resp.clicked() {

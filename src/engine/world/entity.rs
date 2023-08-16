@@ -72,7 +72,7 @@ impl<'a> EntityParBuilder<'a> {
         self.transform_func = Some(Box::new(f));
         self
     }
-    pub fn with_com<
+    pub fn with_com<D,
         T: 'static
             + Send
             + Sync
@@ -85,8 +85,11 @@ impl<'a> EntityParBuilder<'a> {
             + for<'b> Deserialize<'b>,
     >(
         mut self,
-        f: &'static (dyn Fn() -> T + Send + Sync),
-    ) -> Self {
+        f: D,
+    ) -> Self
+    where
+        D: Fn() -> T + 'static + Send + Sync,
+    {
         self.comp_funcs
             .push(Box::new(move |world: &mut World, t_: &Vec<i32>| {
                 let key = T::ID;

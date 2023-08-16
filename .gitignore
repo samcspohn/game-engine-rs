@@ -3,3 +3,4 @@
 /.vscode/settings.json
 /runtime
 Cargo.lock
+device-properties.ron
