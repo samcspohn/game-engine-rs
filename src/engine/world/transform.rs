@@ -41,24 +41,7 @@ impl TransformMeta {
         }
     }
 }
-pub struct Transforms {
-    self_lock: Mutex<()>,
-    mutex: Vec<SyncUnsafeCell<Mutex<()>>>,
-    positions: Vec<SyncUnsafeCell<glm::Vec3>>,
-    rotations: Vec<SyncUnsafeCell<glm::Quat>>,
-    scales: Vec<SyncUnsafeCell<glm::Vec3>>,
-    valid: Vec<SyncUnsafeCell<bool>>,
-    meta: Vec<SyncUnsafeCell<TransformMeta>>,
-    last: AtomicI32,
-    avail: AtomicI32,
-    count: AtomicI32,
-    updates: Vec<SyncUnsafeCell<[bool; 3]>>,
-    extent: AtomicI32,
-    ids_cache: VecCache<i32>,
-    pos_cache: VecCache<[f32; 3]>,
-    rot_cache: VecCache<[f32; 4]>,
-    scl_cache: VecCache<[f32; 3]>,
-}
+
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct _Transform {
@@ -253,6 +236,25 @@ pub struct TransformData {
     pub scl_data: Vec<CacheVec<[f32; 3]>>,
     pub extent: usize,
 }
+use segvec::SegVec;
+pub struct Transforms {
+    self_lock: Mutex<()>,
+    mutex: SegVec<SyncUnsafeCell<Mutex<()>>>,
+    positions: SegVec<SyncUnsafeCell<glm::Vec3>>,
+    rotations: SegVec<SyncUnsafeCell<glm::Quat>>,
+    scales: SegVec<SyncUnsafeCell<glm::Vec3>>,
+    valid: SegVec<SyncUnsafeCell<bool>>,
+    meta: SegVec<SyncUnsafeCell<TransformMeta>>,
+    last: AtomicI32,
+    avail: AtomicI32,
+    count: AtomicI32,
+    updates: SegVec<SyncUnsafeCell<[bool; 3]>>,
+    extent: AtomicI32,
+    ids_cache: VecCache<i32>,
+    pos_cache: VecCache<[f32; 3]>,
+    rot_cache: VecCache<[f32; 4]>,
+    scl_cache: VecCache<[f32; 3]>,
+}
 
 #[allow(dead_code)]
 impl Transforms {
@@ -281,13 +283,13 @@ impl Transforms {
     pub fn new() -> Transforms {
         Transforms {
             self_lock: Mutex::new(()),
-            mutex: Vec::new(),
-            positions: Vec::new(),
-            rotations: Vec::new(),
-            scales: Vec::new(),
-            meta: Vec::new(),
-            updates: Vec::new(),
-            valid: Vec::new(),
+            mutex: SegVec::new(),
+            positions: SegVec::new(),
+            rotations: SegVec::new(),
+            scales: SegVec::new(),
+            meta: SegVec::new(),
+            updates: SegVec::new(),
+            valid: SegVec::new(),
             last: AtomicI32::new(-1),
             avail: AtomicI32::new(0),
             count: AtomicI32::new(0),
@@ -737,11 +739,11 @@ impl Transforms {
 
     pub fn get_transform_data_updates(&mut self) -> TransformData {
         let last = self.last.load(Ordering::Relaxed) as usize + 1;
-        let _positions = &self.positions[0..last];
-        let _rotations = &self.rotations[0..last];
-        let _scales = &self.scales[0..last];
-        let _updates = &self.updates[0..last];
-        let len = _updates.len();
+        // let _positions = &self.positions[0..last];
+        // let _rotations = &self.rotations[0..last];
+        // let _scales = &self.scales[0..last];
+        // let _updates = &self.updates[0..last];
+        let len = last;
         let transform_data = Arc::new(Mutex::new(TransformData {
             pos_id: Vec::new(),
             rot_id: Vec::new(),
@@ -788,16 +790,17 @@ impl Transforms {
                         let mut rot = _rot.get();
                         let mut scl = _scl.get();
 
-                        let p = &_positions;
-                        let r = &_rotations;
-                        let s = &_scales;
+                        let p = &self_.positions;
+                        let r = &self_.rotations;
+                        let s = &self_.scales;
+                        let _u = &self_.updates;
 
                         for i in start..end {
                             unsafe {
                                 if !*self_.valid[i].get() {
                                     continue;
                                 }
-                                let u = &mut *_updates[i].get();
+                                let u = &mut *_u[i].get();
                                 if u[POS_U] {
                                     p_ids.push(i as i32);
                                     let p = &*p[i].get();

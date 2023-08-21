@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sync_unsafe_cell::SyncUnsafeCell;
+use segvec::SegVec;
 
 use crate::editor::inspectable::Inspectable;
 
@@ -96,8 +97,8 @@ pub trait StorageBase {
 // use pqueue::Queue;
 #[repr(C)]
 pub struct Storage<T> {
-    pub data: Vec<Mutex<(i32, T)>>,
-    pub valid: Vec<SyncUnsafeCell<bool>>,
+    pub data: SegVec<Mutex<(i32, T)>>,
+    pub valid: SegVec<SyncUnsafeCell<bool>>,
     avail: AtomicI32,
     last: AtomicI32,
     extent: AtomicI32,
@@ -184,8 +185,8 @@ impl<T: 'static> Storage<T> {
     // }
     pub fn new(has_update: bool, has_late_update: bool, has_render: bool) -> Storage<T> {
         Storage::<T> {
-            data: Vec::new(),
-            valid: Vec::new(),
+            data: SegVec::new(),
+            valid: SegVec::new(),
             avail: AtomicI32::new(0),
             last: AtomicI32::new(-1),
             extent: AtomicI32::new(0),
@@ -220,11 +221,12 @@ impl<
             return;
         }
         let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
-        let data = &self.data[0..last];
-        let valid = &self.valid[0..last];
-        data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
-            if unsafe { *v.get() } {
-                let mut d = d.lock();
+        // let data = &self.data[0..last];
+        // let valid = &self.valid[0..last];
+        // data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
+        (0..last).into_par_iter().for_each(|i| {
+            if unsafe { *self.valid[i].get() } {
+                let mut d = self.data[i].lock();
                 let trans = transforms.get(d.0);
                 d.1.update(&trans, &sys, world);
             }
@@ -235,11 +237,9 @@ impl<
             return;
         }
         let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
-        let data = &self.data[0..last];
-        let valid = &self.valid[0..last];
-        data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
-            if unsafe { *v.get() } {
-                let mut d = d.lock();
+        (0..last).into_par_iter().for_each(|i| {
+            if unsafe { *self.valid[i].get() } {
+                let mut d = self.data[i].lock();
                 let trans = transforms.get(d.0);
                 d.1.late_update(&trans, &sys);
             }
@@ -285,11 +285,9 @@ impl<
     }
     fn clear(&mut self, transforms: &Transforms, sys: &Sys) {
         let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
-        let data = &self.data[0..last];
-        let valid = &self.valid[0..last];
-        data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
-            if unsafe { *v.get() } {
-                let mut d = d.lock();
+        (0..last).into_par_iter().for_each(|i| {
+            if unsafe { *self.valid[i].get() } {
+                let mut d = self.data[i].lock();
                 let id: i32 = d.0;
                 let trans = transforms.get(d.0);
                 d.1.deinit(&trans, id, sys);
@@ -308,11 +306,9 @@ impl<
             return;
         }
         let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
-        let data = &self.data[0..last];
-        let valid = &self.valid[0..last];
-        data.iter().zip(valid.iter()).for_each(|(d, v)| {
-            if unsafe { *v.get() } {
-                let mut d = d.lock();
+        (0..last).into_iter().for_each(|i| {
+            if unsafe { *self.valid[i].get() } {
+                let mut d = self.data[i].lock();
                 let t_id = d.0;
                 render_jobs.push(d.1.on_render(t_id));
             }
@@ -325,11 +321,9 @@ impl<
         }
 
         let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
-        let data = &self.data[0..last];
-        let valid = &self.valid[0..last];
-        data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
-            if unsafe { *v.get() } {
-                let mut d = d.lock();
+        (0..last).into_par_iter().for_each(|i| {
+            if unsafe { *self.valid[i].get() } {
+                let mut d = self.data[i].lock();
                 let trans = transforms.get(d.0);
                 d.1.editor_update(&trans, &sys);
             }
