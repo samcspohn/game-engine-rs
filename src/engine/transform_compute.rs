@@ -254,17 +254,8 @@ impl TransformCompute {
                 let u_w = uninitialized.write();
                 if let Ok(mut mapping) = u_w {
                     for i in ids {
-                        // let j = &i.v;
-                        let j_iter = i.iter();
-                        let m_iter = mapping[offset..offset + i.len()].iter_mut();
-                        j_iter.zip(m_iter).for_each(|(j, m)| {
-                            // for  in slice {
-                            ptr::write(m, *j);
-                            // }
-                        });
-
-                        // let m_slice = &mut mapping[offset..offset + i.len()];
-                        // m_slice.copy_from_slice((*i.v.get()).as_slice());
+                        let m_slice = &mut mapping[offset..offset + i.len()];
+                        m_slice.copy_from_slice((*i.v.get()).as_slice());
                         offset += i.len();
                     }
                     break;
@@ -290,17 +281,8 @@ impl TransformCompute {
                 let u_w = uninitialized.write();
                 if let Ok(mut mapping) = u_w {
                     for i in data {
-                        // let j = &i.v;
-                        let j_iter = i.iter();
-                        let m_iter = mapping[offset..offset + i.len()].iter_mut();
-                        j_iter.zip(m_iter).for_each(|(j, m)| {
-                            // for  in slice {
-                            ptr::write(m, *j);
-                            // }
-                        });
-
-                        // let m_slice = &mut mapping[offset..offset + i.len()];
-                        // m_slice.copy_from_slice((*i.v.get()).as_slice());
+                        let m_slice = &mut mapping[offset..offset + i.len()];
+                        m_slice.copy_from_slice((*i.v.get()).as_slice());
                         offset += i.len();
                     }
                     break;
