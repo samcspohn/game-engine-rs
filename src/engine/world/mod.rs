@@ -431,12 +431,25 @@ impl World {
 
     fn __destroy<'a>(
         _self: &'a World,
-        trans: Transform<'a>,
+        _t: i32,
         entities: &'a parking_lot::RwLockReadGuard<Vec<Mutex<Option<Entity>>>>,
         // s: &Scope<'a>,
     ) {
-        let g = trans.id;
+        let g = _t;
         let mut ent = entities[g as usize].lock();
+
+        // delete children first
+        let trans = _self.transforms.get(_t);
+        let children: Vec<i32> = trans.get_meta().children.iter().copied().collect();
+        drop(trans);
+        for t in children {
+            // _self.to_destroy.push(t);
+            // let _self = _self.clone();
+            // let t = _self.transforms.get(t);
+            Self::__destroy(_self, t, entities);
+        }
+        let trans = _self.transforms.get(_t);
+
         if let Some(ent_mut) = ent.as_mut() {
             for (t, id) in ent_mut.components.iter() {
                 let stor = &_self.components.get(t).unwrap().read();
@@ -445,15 +458,7 @@ impl World {
                 stor.erase(*id);
             }
             // remove entity
-            *ent = None; // todo make read()
-        }
-
-        let children: Vec<i32> = trans.get_meta().children.iter().copied().collect();
-        for t in children {
-            // _self.to_destroy.push(t);
-            // let _self = _self.clone();
-            let t = _self.transforms.get(t);
-            Self::__destroy(_self, t, entities);
+            *ent = None;
         }
 
         // remove transform
@@ -465,8 +470,8 @@ impl World {
             // let _self = Arc::new(&self);
             let mut to_destroy = self.to_destroy.lock();
             to_destroy.par_iter().for_each(|t| {
-                let trans = self.transforms.get(*t);
-                Self::__destroy(&self, trans, &ent);
+                // let trans = self.transforms.get(*t);
+                Self::__destroy(&self, *t, &ent);
             });
             to_destroy.clear();
         }
