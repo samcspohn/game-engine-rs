@@ -147,10 +147,7 @@ impl World {
                     }
                 }
                 drop(ent);
-                perf.update(
-                    format!("world instantiate entities"),
-                    Instant::now() - inst,
-                );
+                perf.update(format!("world instantiate entities"), Instant::now() - inst);
 
                 for b in a.comp_funcs.iter() {
                     b(self, t.get(), perf);
@@ -299,7 +296,7 @@ impl World {
         let key = T::ID;
         if let Some(stor) = self.components.get(&key) {
             let stor: &mut Storage<T> = unsafe { std::mem::transmute(&mut stor.write()) };
-            let c_id = stor.emplace(g, d);
+            let c_id = stor.insert(g, d);
             let trans = self.transforms.get(g);
             stor.init(&trans, c_id, &self.sys);
             if let Some(ent) = self.entities.read()[g as usize].lock().as_mut() {
@@ -537,7 +534,7 @@ impl World {
             .iter()
             .zip(camera_storage.data.iter())
             .for_each(|(v, d)| {
-                if *v {
+                if unsafe { *v.get() } {
                     let mut d = d.lock();
                     let id: i32 = d.0;
                     d.1._update(&self.transforms.get(id));
@@ -579,7 +576,7 @@ impl World {
             .iter()
             .zip(camera_storage.data.iter())
             .map(|(v, d)| {
-                if *v {
+                if unsafe { *v.get() } {
                     let d = d.lock();
                     main_cam_id = d.0;
                     d.1.get_data()

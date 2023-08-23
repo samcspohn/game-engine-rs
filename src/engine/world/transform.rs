@@ -188,7 +188,7 @@ impl<T: Send + Sync> CacheVec<T> {
         self.get().push(d);
     }
 }
-struct VecCache<T: Send + Sync> {
+pub struct VecCache<T: Send + Sync> {
     avail: Arc<SegQueue<CacheVec<T>>>,
     // store: Arc<Mutex<Vec<Arc<Mutex<Vec<T>>>>>>,
 }
@@ -249,7 +249,7 @@ pub struct Transforms {
     meta: SegVec<SyncUnsafeCell<TransformMeta>>,
     last: i32,
     avail: Avail,
-    count: i32,
+    // count: i32,
     updates: SegVec<SyncUnsafeCell<[bool; 3]>>,
     extent: i32,
     ids_cache: VecCache<i32>,
@@ -262,7 +262,8 @@ pub struct Transforms {
 #[allow(dead_code)]
 impl Transforms {
     pub fn active(&self) -> usize {
-        self.count as usize
+        self.meta.len() - self.avail.len()
+        // self.count as usize
     }
     pub fn get<'a>(&self, t: i32) -> Transform {
         // TODO: make option
@@ -295,7 +296,7 @@ impl Transforms {
             valid: SegVec::new(),
             last: -1,
             avail: Avail::new(),
-            count: 0,
+            // count: 0,
             extent: 0,
             ids_cache: VecCache::new(),
             pos_cache: VecCache::new(),
@@ -330,7 +331,7 @@ impl Transforms {
         self.updates.push(SyncUnsafeCell::new([true, true, true]));
     }
     fn get_next_id(&mut self) -> (bool, i32) {
-        self.count += 1;
+        // self.count += 1;
         // let mut i = self.avail;
         // self.avail += 1;
         // while i < self.extent && self.valid[i as usize] {
@@ -470,7 +471,7 @@ impl Transforms {
                 r.push(i);
             }
         }
-        self.count += c as i32;
+        // self.count += c as i32;
         self.last = self.last.max(max);
 
         r.get().par_iter().for_each(|id| {
@@ -548,7 +549,7 @@ impl Transforms {
     pub fn remove(&mut self, t: i32) {
         self.avail.push(t);
         // self.avail = self.avail.min(t);
-        self.count -= 1;
+        // self.count -= 1;
         // self.reduce_last(id);
 
         unsafe {
@@ -646,7 +647,7 @@ impl Transforms {
         //     self.positions.iter().for_each(|a| *a.get() = )
         // }
         // self.avail = ;
-        self.count = 0;
+        // self.count = 0;
         self.last = -1;
     }
     fn u_pos(&self, t: i32) {

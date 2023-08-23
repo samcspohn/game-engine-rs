@@ -104,16 +104,24 @@ impl<'a> EntityParBuilder<'a> {
                     let mut stor_lock = stor.write();
                     let stor: &mut Storage<T> =
                         unsafe { stor_lock.as_any_mut().downcast_mut_unchecked() };
-                    // stor.insert_multi(t_, f);
                     let entities = world.entities.read();
-                    for g in t_ {
-                        let c_id = stor.emplace(*g, f());
-                        let trans = world.transforms.get(*g);
-                        stor.init(&trans, c_id, &mut world.sys);
-                        if let Some(ent) = entities[*g as usize].lock().as_mut() {
-                            ent.components.insert(key.clone(), c_id);
-                        }
-                    }
+                    assert!(self.count as usize == t_.len());
+                    stor.insert_multi(
+                        self.count,
+                        &t_,
+                        &world.transforms,
+                        &mut world.sys,
+                        &entities,
+                        &f,
+                    );
+                    // for g in t_ {
+                    //     let c_id = stor.insert(*g, f());
+                    //     let trans = world.transforms.get(*g);
+                    //     stor.init(&trans, c_id, &mut world.sys);
+                    //     if let Some(ent) = entities[*g as usize].lock().as_mut() {
+                    //         ent.components.insert(key.clone(), c_id);
+                    //     }
+                    // }
                     perf.update(
                         format!("world instantiate {}", stor.get_name()),
                         Instant::now() - inst,
