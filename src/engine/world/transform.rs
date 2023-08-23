@@ -249,7 +249,7 @@ pub struct Transforms {
     valid: SegVec<SyncUnsafeCell<bool>>,
     meta: SegVec<SyncUnsafeCell<TransformMeta>>,
     last: i32,
-    avail: Avail,
+    avail: i32,
     count: i32,
     updates: SegVec<SyncUnsafeCell<[bool; 3]>>,
     extent: i32,
@@ -294,7 +294,7 @@ impl Transforms {
             updates: SegVec::new(),
             valid: SegVec::new(),
             last: -1,
-            avail: Avail::new(),
+            avail: 0,
             count: 0,
             extent: 0,
             ids_cache: VecCache::new(),
@@ -329,15 +329,31 @@ impl Transforms {
     }
     fn get_next_id(&mut self) -> (bool, i32) {
         self.count += 1;
-        if let Some(i) = self.avail.pop() {
-            self.last = self.last.max(i);
-            (true, i)
-        } else {
-            let i = self.extent;
+        let mut i = self.avail;
+        self.avail += 1;
+        while i < self.extent && unsafe { *self.valid[i as usize].get() } {
+            i = self.avail;
+            self.avail += 1;
+        }
+        if i == self.extent {
+            // push back
             self.extent += 1;
             self.last = i;
             (false, i)
+        } else {
+            // insert
+            self.last = self.last.max(i);
+            (true, i)
         }
+        // if let Some(i) = self.avail.pop() {
+        //     self.last = self.last.max(i);
+        //     (true, i)
+        // } else {
+        //     let i = self.extent;
+        //     self.extent += 1;
+        //     self.last = i;
+        //     (false, i)
+        // }
         // self.count.fetch_add(1, Ordering::Acquire);
         // let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
         // while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
@@ -378,7 +394,7 @@ impl Transforms {
     pub(crate) fn reduce_last(&mut self) {
         // let i = self.last.fetch_add(-1, Ordering::Relaxed);
         // println!("data: {}, to commit: {}", self.avail.data.len(), self.avail.new_elem.len());
-        self.avail.commit();
+        // self.avail.commit();
         let mut id = self.last;
         while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
             // not thread safe!
@@ -512,7 +528,8 @@ impl Transforms {
         // r
     }
     pub fn remove(&mut self, t: i32) {
-        self.avail.push(t);
+        // self.avail.push(t);
+        self.avail = self.avail.min(t);
         self.count -= 1;
         // self.reduce_last(id);
 

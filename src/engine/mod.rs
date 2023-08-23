@@ -254,21 +254,7 @@ impl Engine {
             ..Default::default()
         };
 
-        let mut perf = Perf {
-            data: BTreeMap::<String, SegQueue<Duration>>::new(),
-        };
-
-        // let _loops = 0;
-
-        // let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
-        //     &event_loop,
-        //     vk.surface.clone(),
-        //     Some(vk.swapchain().image_format()),
-        //     vk.queue.clone(),
-        //     Subpass::from(render_pass.clone(), 0).unwrap(),
-        // );
-
-        // let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
+        let mut perf = Perf::new();
 
         let mut frame_time = Instant::now();
 

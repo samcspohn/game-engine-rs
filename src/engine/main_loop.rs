@@ -57,9 +57,7 @@ pub struct RenderingData {
 
 pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBool>) {
     let gravity = vector![0.0, -9.81, 0.0];
-    let mut perf = Perf {
-        data: BTreeMap::new(),
-    };
+    let mut perf = Perf::new();
     let mut phys_time = 0f32;
     let phys_step = 1. / 30.;
     println!("game thread id: {:?}", std::thread::current().id());
