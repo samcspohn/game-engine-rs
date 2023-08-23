@@ -169,7 +169,7 @@ impl Avail {
 pub struct Storage<T> {
     pub data: SegVec<Mutex<(i32, T)>>,
     pub valid: BitVec,
-    avail: i32,
+    avail: Avail,
     last: i32,
     extent: i32,
     has_update: bool,
@@ -178,32 +178,32 @@ pub struct Storage<T> {
 }
 impl<T: 'static> Storage<T> {
     pub fn get_next_id(&mut self) -> (bool, i32) {
-        // if let Some(i) = self.avail.pop() {
-        //     self.last = self.last.max(i);
-        //     (true, i)
-        // } else {
-        //     let i = self.extent;
-        //     self.extent += 1;
-        //     self.last = i;
-        //     (false, i)
-        // }
-
-        let mut i = self.avail;
-        self.avail += 1;
-        while i < self.extent && self.valid[i as usize] {
-            i = self.avail;
-            self.avail += 1;
-        }
-        if i == self.extent {
-            // push back
+        if let Some(i) = self.avail.pop() {
+            self.last = self.last.max(i);
+            (true, i)
+        } else {
+            let i = self.extent;
             self.extent += 1;
             self.last = i;
             (false, i)
-        } else {
-            // insert
-            self.last = self.last.max(i);
-            (true, i)
         }
+
+        // let mut i = self.avail;
+        // self.avail += 1;
+        // while i < self.extent && self.valid[i as usize] {
+        //     i = self.avail;
+        //     self.avail += 1;
+        // }
+        // if i == self.extent {
+        //     // push back
+        //     self.extent += 1;
+        //     self.last = i;
+        //     (false, i)
+        // } else {
+        //     // insert
+        //     self.last = self.last.max(i);
+        //     (true, i)
+        // }
     }
     pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
         let (b, id) = self.get_next_id();
@@ -235,8 +235,8 @@ impl<T: 'static> Storage<T> {
         // }
     }
     pub fn _erase(&mut self, id: i32) {
-        self.avail = self.avail.min(id);
-        // self.avail.push(id);
+        // self.avail = self.avail.min(id);
+        self.avail.push(id);
         self.valid.set(id as usize, false);
 
         // self.reduce_last(id);
@@ -248,7 +248,7 @@ impl<T: 'static> Storage<T> {
         Storage::<T> {
             data: SegVec::new(),
             valid: BitVec::new(),
-            avail: 0,
+            avail: Avail::new(),
             last: -1,
             extent: 0,
             has_update,

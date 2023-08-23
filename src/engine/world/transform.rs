@@ -248,7 +248,7 @@ pub struct Transforms {
     valid: BitVec,
     meta: SegVec<SyncUnsafeCell<TransformMeta>>,
     last: i32,
-    avail: i32,
+    avail: Avail,
     count: i32,
     updates: SegVec<SyncUnsafeCell<[bool; 3]>>,
     extent: i32,
@@ -294,7 +294,7 @@ impl Transforms {
             updates: SegVec::new(),
             valid: BitVec::new(),
             last: -1,
-            avail: 0,
+            avail: Avail::new(),
             count: 0,
             extent: 0,
             ids_cache: VecCache::new(),
@@ -331,31 +331,31 @@ impl Transforms {
     }
     fn get_next_id(&mut self) -> (bool, i32) {
         self.count += 1;
-        let mut i = self.avail;
-        self.avail += 1;
-        while i < self.extent && self.valid[i as usize] {
-            i = self.avail;
-            self.avail += 1;
-        }
-        if i == self.extent {
-            // push back
-            self.extent += 1;
-            self.last = i;
-            (false, i)
-        } else {
-            // insert
-            self.last = self.last.max(i);
-            (true, i)
-        }
-        // if let Some(i) = self.avail.pop() {
-        //     self.last = self.last.max(i);
-        //     (true, i)
-        // } else {
-        //     let i = self.extent;
+        // let mut i = self.avail;
+        // self.avail += 1;
+        // while i < self.extent && self.valid[i as usize] {
+        //     i = self.avail;
+        //     self.avail += 1;
+        // }
+        // if i == self.extent {
+        //     // push back
         //     self.extent += 1;
         //     self.last = i;
         //     (false, i)
+        // } else {
+        //     // insert
+        //     self.last = self.last.max(i);
+        //     (true, i)
         // }
+        if let Some(i) = self.avail.pop() {
+            self.last = self.last.max(i);
+            (true, i)
+        } else {
+            let i = self.extent;
+            self.extent += 1;
+            self.last = i;
+            (false, i)
+        }
         // self.count.fetch_add(1, Ordering::Acquire);
         // let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
         // while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
@@ -443,7 +443,7 @@ impl Transforms {
                 let meta = &mut *self.meta[id as usize].get();
                 meta.parent = parent;
                 meta.child_id =
-                SendSync::new((*self.meta[parent as usize].get()).children.push_tail(id));
+                    SendSync::new((*self.meta[parent as usize].get()).children.push_tail(id));
             }
         }
         id
@@ -532,8 +532,8 @@ impl Transforms {
         // r
     }
     pub fn remove(&mut self, t: i32) {
-        // self.avail.push(t);
-        self.avail = self.avail.min(t);
+        self.avail.push(t);
+        // self.avail = self.avail.min(t);
         self.count -= 1;
         // self.reduce_last(id);
 
@@ -618,12 +618,17 @@ impl Transforms {
         }
     }
     pub(crate) fn clear(&mut self) {
-        self.valid.iter_mut().for_each(|mut a| a.set(false));
-        // for 
+        self.valid.iter_mut().enumerate().for_each(|(i, mut a)| {
+            if *a {
+                self.avail.push(i as i32);
+            }
+            a.set(false)
+        });
+        // for
         // unsafe {
         //     self.positions.iter().for_each(|a| *a.get() = )
         // }
-        self.avail = 0;
+        // self.avail = ;
         self.count = 0;
         self.last = -1;
     }
