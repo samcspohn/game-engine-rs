@@ -1,3 +1,4 @@
+use bitvec::vec::BitVec;
 use core::panic;
 use crossbeam::{atomic::AtomicConsume, queue::SegQueue};
 use deepmesa::lists::{
@@ -41,7 +42,6 @@ impl TransformMeta {
         }
     }
 }
-
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct _Transform {
@@ -184,9 +184,11 @@ impl<T: Send + Sync> CacheVec<T> {
     pub fn get(&self) -> &mut Vec<T> {
         unsafe { &mut *self.v.get() }
     }
+    pub fn push(&self, d: T) {
+        self.get().push(d);
+    }
 }
 struct VecCache<T: Send + Sync> {
-    count: AtomicUsize,
     avail: Arc<SegQueue<CacheVec<T>>>,
     // store: Arc<Mutex<Vec<Arc<Mutex<Vec<T>>>>>>,
 }
@@ -202,21 +204,18 @@ impl<'a, T: Send + Sync> VecCache<T> {
     pub fn new() -> Self {
         Self {
             avail: Arc::new(SegQueue::new()),
-            count: AtomicUsize::new(0),
             // store: Arc::new(Mutex::new(Vec::new())),
         }
     }
     pub fn get_vec(&self, capacity: usize) -> CacheVec<T> {
         if let Some(mut a) = self.avail.pop() {
             let b = unsafe { &mut *a.v.get() };
-            let len = b.len();
             b.clear();
             b.reserve(capacity);
             a
         } else {
             // let mut a = self.store.lock();
             let c = Arc::new(SyncUnsafeCell::new(Vec::with_capacity(capacity)));
-            self.count.fetch_add(1, Ordering::Relaxed);
             let b = CacheVec {
                 r: self.avail.clone(),
                 v: c,
@@ -236,8 +235,8 @@ pub struct TransformData {
     pub scl_data: Vec<CacheVec<[f32; 3]>>,
     pub extent: usize,
 }
-use segvec::SegVec;
 use dary_heap::DaryHeap;
+use segvec::SegVec;
 
 use crate::engine::storage::Avail;
 pub struct Transforms {
@@ -246,7 +245,7 @@ pub struct Transforms {
     positions: SegVec<SyncUnsafeCell<glm::Vec3>>,
     rotations: SegVec<SyncUnsafeCell<glm::Quat>>,
     scales: SegVec<SyncUnsafeCell<glm::Vec3>>,
-    valid: SegVec<SyncUnsafeCell<bool>>,
+    valid: BitVec,
     meta: SegVec<SyncUnsafeCell<TransformMeta>>,
     last: i32,
     avail: i32,
@@ -257,6 +256,7 @@ pub struct Transforms {
     pos_cache: VecCache<[f32; 3]>,
     rot_cache: VecCache<[f32; 4]>,
     scl_cache: VecCache<[f32; 3]>,
+    new_trans_cache: VecCache<i32>,
 }
 
 #[allow(dead_code)]
@@ -272,17 +272,17 @@ impl Transforms {
             transforms: self,
         }
     }
-    pub fn clear(&mut self) {
-        *self = Self::new();
-        // self.positions.clear();
-        // self.rotations.clear();
-        // self.scales.clear();
-        // self.meta.clear();
-        // self.updates.clear();
-        // self.avail = AtomicI32::new(0);
-        // self.count = AtomicI32::new(0);
-        // self.extent = 0;
-    }
+    // pub fn clear(&mut self) {
+    //     *self = Self::new();
+    //     // self.positions.clear();
+    //     // self.rotations.clear();
+    //     // self.scales.clear();
+    //     // self.meta.clear();
+    //     // self.updates.clear();
+    //     // self.avail = AtomicI32::new(0);
+    //     // self.count = AtomicI32::new(0);
+    //     // self.extent = 0;
+    // }
     pub fn new() -> Transforms {
         Transforms {
             self_lock: Mutex::new(()),
@@ -292,7 +292,7 @@ impl Transforms {
             scales: SegVec::new(),
             meta: SegVec::new(),
             updates: SegVec::new(),
-            valid: SegVec::new(),
+            valid: BitVec::new(),
             last: -1,
             avail: 0,
             count: 0,
@@ -301,17 +301,19 @@ impl Transforms {
             pos_cache: VecCache::new(),
             rot_cache: VecCache::new(),
             scl_cache: VecCache::new(),
+            new_trans_cache: VecCache::new(),
         }
     }
 
-    fn write_transform(&self, i: i32, t: _Transform) {
+    fn write_transform(&mut self, i: i32, t: _Transform) {
         unsafe {
             *self.mutex[i as usize].get() = Mutex::new(());
             *self.positions[i as usize].get() = t.position;
             *self.rotations[i as usize].get() = t.rotation;
             *self.scales[i as usize].get() = t.scale;
             *self.meta[i as usize].get() = TransformMeta::new();
-            *self.valid[i as usize].get() = true;
+            // self.valid[i as usize] = true;
+            self.valid.set(i as usize, true);
             let u = &mut *self.updates[i as usize].get();
             u[POS_U] = true;
             u[ROT_U] = true;
@@ -324,14 +326,14 @@ impl Transforms {
         self.rotations.push(SyncUnsafeCell::new(t.rotation));
         self.scales.push(SyncUnsafeCell::new(t.scale));
         self.meta.push(SyncUnsafeCell::new(TransformMeta::new()));
-        self.valid.push(SyncUnsafeCell::new(true));
+        self.valid.push(true);
         self.updates.push(SyncUnsafeCell::new([true, true, true]));
     }
     fn get_next_id(&mut self) -> (bool, i32) {
         self.count += 1;
         let mut i = self.avail;
         self.avail += 1;
-        while i < self.extent && unsafe { *self.valid[i as usize].get() } {
+        while i < self.extent && self.valid[i as usize] {
             i = self.avail;
             self.avail += 1;
         }
@@ -396,7 +398,7 @@ impl Transforms {
         // println!("data: {}, to commit: {}", self.avail.data.len(), self.avail.new_elem.len());
         // self.avail.commit();
         let mut id = self.last;
-        while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
+        while id >= 0 && !self.valid[id as usize] {
             // not thread safe!
             id -= 1;
         }
@@ -424,9 +426,9 @@ impl Transforms {
         self.new_transform_with(parent, Default::default())
     }
     pub fn new_transform_with(&mut self, parent: i32, transform: _Transform) -> i32 {
-        if parent == -1 {
-            panic!("no")
-        }
+        // if parent == -1 {
+        //     panic!("no")
+        // }
         let (write, id) = self.get_next_id();
         if write {
             self.write_transform(id, transform);
@@ -436,11 +438,13 @@ impl Transforms {
         if id as usize >= self.positions.len() {
             panic!("next id invalid/out of range: {:?}", (write, id));
         }
-        unsafe {
-            let meta = &mut *self.meta[id as usize].get();
-            meta.parent = parent;
-            meta.child_id =
+        if parent > -1 {
+            unsafe {
+                let meta = &mut *self.meta[id as usize].get();
+                meta.parent = parent;
+                meta.child_id =
                 SendSync::new((*self.meta[parent as usize].get()).children.push_tail(id));
+            }
         }
         id
     }
@@ -450,12 +454,12 @@ impl Transforms {
     //         T: Fn() -> _Transform + Send + Sync, {
 
     //         }
-    pub fn multi_transform_with<T>(&mut self, parent: i32, count: i32, t_func: T) -> Vec<i32>
+    pub fn multi_transform_with<T>(&mut self, parent: i32, count: i32, t_func: T) -> CacheVec<i32>
     where
         T: Fn() -> _Transform + Send + Sync,
     {
         let mut c = 1;
-        let mut r = Vec::new();
+        let mut r = self.new_trans_cache.get_vec(count as usize);
         let t_func = Arc::new(&t_func);
         let _self = Arc::new(&self);
 
@@ -537,10 +541,13 @@ impl Transforms {
             let meta = &*self.meta[t as usize].get();
             if meta.parent >= 0 {
                 // panic!("wat? - child:{} parent: {}", t.id, meta.parent);
-                (&mut *self.meta[t as usize].get()).children.pop_node(&meta.child_id);
+                (&mut *self.meta[t as usize].get())
+                    .children
+                    .pop_node(&meta.child_id);
             }
             *self.meta[t as usize].get() = TransformMeta::new();
-            *self.valid[t as usize].get() = false;
+            self.valid.set(t as usize, false);
+            // self.valid[t as usize] = false;
         }
     }
     pub fn adopt(&self, p: i32, t: i32) {
@@ -609,6 +616,16 @@ impl Transforms {
                     .unwrap(),
             );
         }
+    }
+    pub(crate) fn clear(&mut self) {
+        self.valid.iter_mut().for_each(|mut a| a.set(false));
+        // for 
+        // unsafe {
+        //     self.positions.iter().for_each(|a| *a.get() = )
+        // }
+        self.avail = 0;
+        self.count = 0;
+        self.last = -1;
     }
     fn u_pos(&self, t: i32) {
         unsafe {
@@ -829,7 +846,7 @@ impl Transforms {
 
                         for i in start..end {
                             unsafe {
-                                if !*self_.valid[i].get() {
+                                if !self_.valid[i] {
                                     continue;
                                 }
                                 let u = &mut *_u[i].get();

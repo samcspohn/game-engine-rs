@@ -37,7 +37,10 @@ impl SubPerf {
         self.outliers
             .sort_by(|a, b| (-a).partial_cmp(&(-b)).unwrap());
         if self.outliers.len() > 0 {
-            println!("      outliers: {:?}", self.outliers[0..4.min(self.outliers.len())].to_vec());
+            println!(
+                "              outliers: {:?}",
+                self.outliers[0..4.min(self.outliers.len())].to_vec()
+            );
         }
     }
 }

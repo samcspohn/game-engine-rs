@@ -8,6 +8,7 @@ use std::{
         atomic::{AtomicI32, Ordering},
         Arc,
     },
+    time::Instant,
 };
 
 use crossbeam::queue::SegQueue;
@@ -31,6 +32,7 @@ use self::{
 use super::{
     input::Input,
     particles::{component::ParticleEmitter, particles::ParticleCompute},
+    perf::Perf,
     physics::Physics,
     project::asset_manager::{AssetManagerBase, AssetsManager},
     rendering::{
@@ -114,35 +116,44 @@ impl World {
             to_instantiate: Mutex::new(Vec::new()),
         }
     }
-    pub fn defer_instantiate(&mut self) {
+    pub fn defer_instantiate(&mut self, perf: &mut Perf) {
         let mut a = self.to_instantiate.lock();
         let mut to_instantiate = Vec::new();
         std::mem::swap(a.as_mut(), &mut to_instantiate);
         drop(a);
         for a in to_instantiate.into_iter() {
             if let Some(t_func) = a.t_func {
+                let inst = Instant::now();
                 let t = self
                     .transforms
                     .multi_transform_with(a.parent, a.count, t_func);
-
+                perf.update(
+                    format!("world instantiate transforms"),
+                    Instant::now() - inst,
+                );
+                let inst = Instant::now();
                 let mut ent = self.entities.write();
 
-                for i in &t {
+                for i in t.get() {
                     if (*i as usize) < ent.len() {
                         *ent[*i as usize].lock() = Some(Entity::new());
                     } else {
                         break;
                     }
                 }
-                if let Some(last) = t.last() {
+                if let Some(last) = t.get().last() {
                     while ent.len() <= *last as usize {
                         ent.push(Mutex::new(Some(Entity::new())));
                     }
                 }
                 drop(ent);
+                perf.update(
+                    format!("world instantiate entities"),
+                    Instant::now() - inst,
+                );
 
                 for b in a.comp_funcs.iter() {
-                    b(self, &t);
+                    b(self, t.get(), perf);
                 }
             }
         }
@@ -382,53 +393,6 @@ impl World {
         self.to_destroy.lock().push(g);
     }
 
-    // fn __destroy<'a>(
-    //     _self: &'a World,
-    //     trans: Transform,
-    //     entities: &'a RwLockWriteGuard<Vec<Mutex<Option<Entity>>>>,
-    //     s: &Scope<'a>,
-    // ) {
-    //     let g = trans.id;
-    //     let mut ent = entities[g as usize].lock();
-    //     if let Some(ent_mut) = ent.as_mut() {
-    //         for (t, id) in ent_mut.components.iter() {
-    //             let stor = &mut _self.components.get(t).unwrap().write();
-
-    //             stor.deinit(&trans, *id, &_self.sys);
-    //             stor.erase(*id);
-    //         }
-    //         // remove entity
-    //         *ent = None; // todo make read()
-    //     }
-
-    //     let children: Vec<i32> = trans.get_meta().children.iter().copied().collect();
-    //     for t in children {
-    //         let _self = _self.clone();
-    //         s.spawn(move |s| {
-    //             let t = _self.transforms.get(t);
-    //             Self::__destroy(_self, t, entities, s);
-    //         });
-    //     }
-
-    //     // remove transform
-    //     _self.transforms.remove(trans);
-    // }
-    // pub(crate) fn _destroy(&mut self) {
-    //     let ent = &self.entities.write();
-    //     let _self = Arc::new(&self);
-    //     rayon::scope(|s| {
-    //         while let Some(t) = _self.to_destroy.pop() {
-    //             let trans = _self.transforms.get(t);
-    //             Self::__destroy(&_self, trans, &ent, &s);
-    //         }
-    //     });
-    //     self.transforms.reduce_last();
-    //     for (id, c) in self.components.iter() {
-    //         c.read().reduce_last();
-    //     }
-    //     // remove/deinit components
-    // }
-
     fn __destroy<'a>(
         // _self: &'a mut World,
         transforms: &mut Transforms,
@@ -528,7 +492,7 @@ impl World {
         }
         // self.sys.defer.do_defered(self);
     }
-    pub(crate) fn _update(&mut self, input: &Input, gpu_work: &GPUWork) {
+    pub(crate) fn _update(&mut self, input: &Input, gpu_work: &GPUWork, perf: &mut Perf) {
         {
             let sys = &self.sys;
             let sys = System {
@@ -542,10 +506,22 @@ impl World {
                 particle_system: &sys.particles_system,
             };
             for (_, stor) in self.components.iter() {
-                stor.write().update(&self.transforms, &sys, &self);
+                let mut stor = stor.write();
+                let inst = Instant::now();
+                stor.update(&self.transforms, &sys, &self);
+                perf.update(
+                    format!("world update {}", stor.get_name()),
+                    Instant::now() - inst,
+                );
             }
             for (_, stor) in self.components.iter() {
-                stor.write().late_update(&self.transforms, &sys);
+                let mut stor = stor.write();
+                let inst = Instant::now();
+                stor.late_update(&self.transforms, &sys);
+                perf.update(
+                    format!("world late_update {}", stor.get_name()),
+                    Instant::now() - inst,
+                );
             }
         }
         self.update_cameras();
@@ -561,7 +537,7 @@ impl World {
             .iter()
             .zip(camera_storage.data.iter())
             .for_each(|(v, d)| {
-                if unsafe { *v.get() } {
+                if *v {
                     let mut d = d.lock();
                     let id: i32 = d.0;
                     d.1._update(&self.transforms.get(id));
@@ -603,7 +579,7 @@ impl World {
             .iter()
             .zip(camera_storage.data.iter())
             .map(|(v, d)| {
-                if unsafe { *v.get() } {
+                if *v {
                     let d = d.lock();
                     main_cam_id = d.0;
                     d.1.get_data()
@@ -635,6 +611,7 @@ impl World {
         self.sys.renderer_manager.write().clear();
         self.sys.physics.lock().clear();
 
+        self.transforms.clear();
         self.root = self.transforms.new_root();
         self.entities.write().push(Mutex::new(None));
     }

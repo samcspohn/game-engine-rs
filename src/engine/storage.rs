@@ -5,6 +5,7 @@ use std::{
     sync::atomic::{AtomicBool, AtomicI32, Ordering},
 };
 
+use bitvec::vec::BitVec;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 use segvec::SegVec;
@@ -111,7 +112,7 @@ impl Avail {
         // rayon::scope(|s|{
         //     a.unique_iter().for_each(|b|{
         //         s.spawn(|s| {
-        //           *b.lock() += 1;  
+        //           *b.lock() += 1;
         //         })
         //     })
 
@@ -120,7 +121,7 @@ impl Avail {
         // data.push(Reverse(0), ());
         Self {
             data: DaryHeap::new(), // data: (0..8).into_iter().map(|_| BinaryHeap::new()).collect(),
-                                      // new_elem: SegVec::new(),
+                                   // new_elem: SegVec::new(),
         }
     }
     pub fn commit(&mut self) {
@@ -167,7 +168,7 @@ impl Avail {
 #[repr(C)]
 pub struct Storage<T> {
     pub data: SegVec<Mutex<(i32, T)>>,
-    pub valid: SegVec<SyncUnsafeCell<bool>>,
+    pub valid: BitVec,
     avail: i32,
     last: i32,
     extent: i32,
@@ -189,7 +190,7 @@ impl<T: 'static> Storage<T> {
 
         let mut i = self.avail;
         self.avail += 1;
-        while i < self.extent && unsafe { *self.valid[i as usize].get() } {
+        while i < self.extent && self.valid[i as usize] {
             i = self.avail;
             self.avail += 1;
         }
@@ -207,13 +208,11 @@ impl<T: 'static> Storage<T> {
     pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
         let (b, id) = self.get_next_id();
         if b {
-            unsafe {
-                *self.valid[id as usize].get() = true;
-            }
+            self.valid.set(id as usize, true);
             *self.data[id as usize].lock() = (transform, d);
         } else {
             self.data.push(Mutex::new((transform, d)));
-            self.valid.push(SyncUnsafeCell::new(true));
+            self.valid.push(true);
         }
         id
     }
@@ -221,7 +220,7 @@ impl<T: 'static> Storage<T> {
     fn _reduce_last(&mut self) {
         // self.avail.commit();
         let mut id = self.last;
-        while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
+        while id >= 0 && !self.valid[id as usize] {
             // not thread safe!
             id -= 1;
         }
@@ -238,9 +237,8 @@ impl<T: 'static> Storage<T> {
     pub fn _erase(&mut self, id: i32) {
         self.avail = self.avail.min(id);
         // self.avail.push(id);
-        unsafe {
-            *self.valid[id as usize].get() = false;
-        }
+        self.valid.set(id as usize, false);
+
         // self.reduce_last(id);
     }
     // pub fn get(&self, i: &i32) -> &Mutex<T> {
@@ -249,7 +247,7 @@ impl<T: 'static> Storage<T> {
     pub fn new(has_update: bool, has_late_update: bool, has_render: bool) -> Storage<T> {
         Storage::<T> {
             data: SegVec::new(),
-            valid: SegVec::new(),
+            valid: BitVec::new(),
             avail: 0,
             last: -1,
             extent: 0,
@@ -288,7 +286,7 @@ impl<
         // let valid = &self.valid[0..last];
         // data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
         (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
+            if self.valid[i] {
                 let mut d = self.data[i].lock();
                 let trans = transforms.get(d.0);
                 d.1.update(&trans, &sys, world);
@@ -301,7 +299,7 @@ impl<
         }
         let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
+            if self.valid[i] {
                 let mut d = self.data[i].lock();
                 let trans = transforms.get(d.0);
                 d.1.late_update(&trans, &sys);
@@ -349,7 +347,7 @@ impl<
     fn clear(&mut self, transforms: &Transforms, sys: &Sys) {
         let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
+            if self.valid[i] {
                 let mut d = self.data[i].lock();
                 let id: i32 = d.0;
                 let trans = transforms.get(d.0);
@@ -370,7 +368,7 @@ impl<
         }
         let last = (self.last + 1) as usize;
         (0..last).into_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
+            if self.valid[i] {
                 let mut d = self.data[i].lock();
                 let t_id = d.0;
                 render_jobs.push(d.1.on_render(t_id));
@@ -385,7 +383,7 @@ impl<
 
         let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
+            if self.valid[i] {
                 let mut d = self.data[i].lock();
                 let trans = transforms.get(d.0);
                 d.1.editor_update(&trans, &sys);

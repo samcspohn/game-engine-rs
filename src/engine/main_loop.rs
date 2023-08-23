@@ -95,7 +95,7 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
                 }
                 phys_time += input.time.dt;
                 let inst = Instant::now();
-                world._update(&input, &gpu_work);
+                world._update(&input, &gpu_work, &mut perf);
                 perf.update("world update".into(), Instant::now() - inst);
             }
             {
@@ -109,7 +109,7 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
                 perf.update("world _destroy".into(), Instant::now() - inst);
 
                 let inst = Instant::now();                
-                world.defer_instantiate();
+                world.defer_instantiate(&mut perf);
                 perf.update("world instantiate".into(), Instant::now() - inst);
 
             }
