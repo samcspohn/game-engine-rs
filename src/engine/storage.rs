@@ -1,14 +1,15 @@
 use std::{
     any::{Any, TypeId},
     cmp::Reverse,
+    collections::{BTreeSet, BinaryHeap},
     sync::atomic::{AtomicBool, AtomicI32, Ordering},
 };
 
 use parking_lot::Mutex;
 use rayon::prelude::*;
+use segvec::SegVec;
 use serde::{Deserialize, Serialize};
 use sync_unsafe_cell::SyncUnsafeCell;
-use segvec::SegVec;
 
 use crate::editor::inspectable::Inspectable;
 
@@ -75,7 +76,7 @@ pub trait StorageBase {
     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData)>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
-    fn erase(&self, i: i32);
+    fn erase(&mut self, i: i32);
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys);
     fn init(&self, transform: &Transform, i: i32, sys: &Sys);
     fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &Sys);
@@ -83,7 +84,7 @@ pub trait StorageBase {
     fn get_id(&self) -> u64;
     fn get_type(&self) -> TypeId;
     fn new_default(&mut self, t: i32) -> i32;
-    fn reduce_last(&self);
+    fn reduce_last(&mut self);
     // fn new(
     //     &mut self,
     //     t: i32,
@@ -93,60 +94,121 @@ pub trait StorageBase {
     fn deserialize(&mut self, transform: i32, d: serde_yaml::Value) -> i32;
     fn clear(&mut self, transforms: &Transforms, sys: &Sys);
 }
-
+use dary_heap::DaryHeap;
 // use pqueue::Queue;
+
+pub struct Avail {
+    // pub data: Vec<BinaryHeap<Reverse<i32>>>,
+    pub data: DaryHeap<Reverse<i32>, 4>,
+    // pub new_elem: SegVec<i32>,
+    // last: usize
+}
+impl Avail {
+    pub fn new() -> Self {
+        // let mut a = sharded_slab::Slab::<Mutex<i32>>::new();
+        // let key = a.insert(Mutex::new(0));
+        // // a.remove(key);
+        // rayon::scope(|s|{
+        //     a.unique_iter().for_each(|b|{
+        //         s.spawn(|s| {
+        //           *b.lock() += 1;  
+        //         })
+        //     })
+
+        // });
+        // let mut data = radix_heap::RadixHeapMap::new();
+        // data.push(Reverse(0), ());
+        Self {
+            data: DaryHeap::new(), // data: (0..8).into_iter().map(|_| BinaryHeap::new()).collect(),
+                                      // new_elem: SegVec::new(),
+        }
+    }
+    pub fn commit(&mut self) {
+        // self.data.constrain();
+        // self.data.sort_unstable()
+        // let mut last = self.data.len();
+        // self.data.resize(self.data.len() + self.new_elem.len(), 0);
+        // while let Some(a) = self.new_elem.pop() {
+        //     let mut i = last;
+        //     last += 1;
+        //     while i > 0 && a > self.data[i - 1] {
+        //         self.data[i] = self.data[i - 1];
+        //         i -= 1;
+        //     }
+        //     self.data[i] = a;
+        // }
+        // // unsafe { self.data}
+    }
+    pub fn push(&mut self, i: i32) {
+        self.data.push(Reverse(i));
+        // self.data
+        //     .iter_mut()
+        //     .min_by(|a, b| a.len().cmp(&b.len()))
+        //     .unwrap()
+        //     .push(Reverse(i));
+    }
+    pub fn pop(&mut self) -> Option<i32> {
+        // match self
+        //     .data
+        //     .iter_mut()
+        //     .max_by(|a, b| a.peek().cmp(&b.peek()))
+        //     .unwrap()
+        //     .pop()
+        // {
+        //     Some(Reverse(a)) => Some(a),
+        //     None => None,
+        // }
+        match self.data.pop() {
+            Some(Reverse(a)) => Some(a),
+            None => None,
+        }
+    }
+}
 #[repr(C)]
 pub struct Storage<T> {
     pub data: SegVec<Mutex<(i32, T)>>,
     pub valid: SegVec<SyncUnsafeCell<bool>>,
-    avail: AtomicI32,
-    last: AtomicI32,
-    extent: AtomicI32,
+    avail: Avail,
+    last: i32,
+    extent: i32,
     has_update: bool,
     has_render: bool,
     has_late_update: bool,
 }
 impl<T: 'static> Storage<T> {
-    pub fn get_next_id(&self) -> (bool, i32) {
-        let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
-        while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
-            i = self.avail.fetch_add(1, Ordering::Relaxed);
-        }
-        if i == self.extent.load(Ordering::Relaxed) { // push back
-            self.extent.fetch_add(1, Ordering::Relaxed);
-            self.last.store(i, Ordering::Relaxed);
-            (false, i)
-        } else { // insert
-            self.last.fetch_max(i, Ordering::Relaxed);
+    pub fn get_next_id(&mut self) -> (bool, i32) {
+        // let mut i = self.avail;
+        // self.avail += 1;
+        // while i < self.extent && unsafe { *self.valid[i as usize].get() } {
+        //     i = self.avail;
+        //     self.avail += 1;
+        // }
+        if let Some(i) = self.avail.pop() {
+            self.last = self.last.max(i);
             (true, i)
+        } else {
+            let i = self.extent;
+            self.extent += 1;
+            self.last = i;
+            (false, i)
         }
-        // let i = self.avail.load(Ordering::Relaxed);
-        // // self.count.fetch_add(1, Ordering::Relaxed);
-        // let extent = self.extent.load(Ordering::Relaxed);
-        // if i < extent {
-        //     unsafe {
-        //         *self.valid[i as usize].get() = true;
-        //     }
-        //     let mut _i = i;
-        //     while _i < extent && unsafe { *self.valid[_i as usize].get() } {
-        //         // find next open slot
-        //         _i += 1;
-        //     }
-        //     self.avail.store(_i, Ordering::Relaxed);
-        //     self.last.fetch_max(_i, Ordering::Relaxed);
-        //     return (true, i);
+        // if i == self.extent {
+        //     // push back
+        //     self.extent += 1;
+        //     self.last = i;
+        //     (false, i)
         // } else {
-        //     let extent = extent + 1;
-        //     self.extent.store(extent, Ordering::Relaxed);
-        //     self.avail.store(extent, Ordering::Relaxed);
-        //     self.last.store(extent - 1, Ordering::Relaxed);
-        //     return (false, extent - 1);
+        //     // insert
+        //     self.last = self.last.max(i);
+        //     (true, i)
         // }
     }
     pub fn emplace(&mut self, transform: i32, d: T) -> i32 {
         let (b, id) = self.get_next_id();
         if b {
-            unsafe { *self.valid[id as usize].get() = true; }
+            unsafe {
+                *self.valid[id as usize].get() = true;
+            }
             *self.data[id as usize].lock() = (transform, d);
         } else {
             self.data.push(Mutex::new((transform, d)));
@@ -155,13 +217,14 @@ impl<T: 'static> Storage<T> {
         id
     }
     pub fn insert_multi<D: Fn() -> T>(&mut self, transforms: &[i32], d: D) {}
-    fn _reduce_last(&self) {
-        let mut id = self.last.load(Ordering::Relaxed);
+    fn _reduce_last(&mut self) {
+        self.avail.commit();
+        let mut id = self.last;
         while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
             // not thread safe!
             id -= 1;
         }
-        self.last.store(id, Ordering::Relaxed);
+        self.last = id;
         // let mut id = id;
         // if id == self.last.load(Ordering::Relaxed) {
         //     while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
@@ -171,10 +234,9 @@ impl<T: 'static> Storage<T> {
         //     self.last.store(id, Ordering::Relaxed); // multi thread safe?
         // }
     }
-    pub fn _erase(&self, id: i32) {
-        // self.data[id as usize] = None;
-        self.avail.fetch_min(id, Ordering::Relaxed);
-        // drop(&self.data[id as usize].lock().1);
+    pub fn _erase(&mut self, id: i32) {
+        // self.avail = self.avail.min(id);
+        self.avail.push(id);
         unsafe {
             *self.valid[id as usize].get() = false;
         }
@@ -187,9 +249,9 @@ impl<T: 'static> Storage<T> {
         Storage::<T> {
             data: SegVec::new(),
             valid: SegVec::new(),
-            avail: AtomicI32::new(0),
-            last: AtomicI32::new(-1),
-            extent: AtomicI32::new(0),
+            avail: Avail::new(),
+            last: -1,
+            extent: 0,
             has_update,
             has_late_update,
             has_render,
@@ -220,7 +282,7 @@ impl<
         if !self.has_update {
             return;
         }
-        let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
+        let last = (self.last + 1) as usize;
         // let data = &self.data[0..last];
         // let valid = &self.valid[0..last];
         // data.par_iter().zip_eq(valid.par_iter()).for_each(|(d, v)| {
@@ -236,7 +298,7 @@ impl<
         if !self.has_late_update {
             return;
         }
-        let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
+        let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].lock();
@@ -245,7 +307,7 @@ impl<
             }
         });
     }
-    fn erase(&self, i: i32) {
+    fn erase(&mut self, i: i32) {
         self._erase(i);
     }
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys) {
@@ -284,7 +346,7 @@ impl<
         serde_yaml::to_value(&self.data[i as usize].lock().1).unwrap()
     }
     fn clear(&mut self, transforms: &Transforms, sys: &Sys) {
-        let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
+        let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].lock();
@@ -305,7 +367,7 @@ impl<
         if !self.has_render {
             return;
         }
-        let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
+        let last = (self.last + 1) as usize;
         (0..last).into_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].lock();
@@ -320,7 +382,7 @@ impl<
             return;
         }
 
-        let last = (self.last.load(Ordering::Relaxed) + 1) as usize;
+        let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].lock();
@@ -333,7 +395,7 @@ impl<
     fn get_id(&self) -> u64 {
         T::ID
     }
-    fn reduce_last(&self) {
+    fn reduce_last(&mut self) {
         self._reduce_last();
     }
 }

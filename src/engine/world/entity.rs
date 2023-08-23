@@ -72,7 +72,8 @@ impl<'a> EntityParBuilder<'a> {
         self.transform_func = Some(Box::new(f));
         self
     }
-    pub fn with_com<D,
+    pub fn with_com<
+        D,
         T: 'static
             + Send
             + Sync
@@ -95,15 +96,14 @@ impl<'a> EntityParBuilder<'a> {
                 let key = T::ID;
                 if let Some(stor) = world.components.get(&key) {
                     let mut stor_lock = stor.write();
-                    let mut src = stor_lock.as_mut();
-                    let stor: &mut &mut Storage<T> = unsafe { std::mem::transmute(&mut src) };
-                    // if key == TypeId::of::<ParticleEmitter>() {}
-                    // (*stor).insert_multi(t_, world, f);
+                    let stor: &mut Storage<T> =
+                        unsafe { stor_lock.as_any_mut().downcast_mut_unchecked() };
+                    // stor.insert_multi(t_, f);
                     let entities = world.entities.read();
                     for g in t_ {
-                        let c_id = (*stor).emplace(*g, f());
+                        let c_id = stor.emplace(*g, f());
                         let trans = world.transforms.get(*g);
-                        (*stor).init(&trans, c_id, &mut world.sys);
+                        stor.init(&trans, c_id, &mut world.sys);
                         if let Some(ent) = entities[*g as usize].lock().as_mut() {
                             ent.components.insert(key.clone(), c_id);
                         }

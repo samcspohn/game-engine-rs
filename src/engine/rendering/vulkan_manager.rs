@@ -55,11 +55,10 @@ pub struct VulkanManager {
 
 impl VulkanManager {
     pub fn window(&self) -> &Window {
-        self.surface
+        unsafe { self.surface
             .object()
             .unwrap()
-            .downcast_ref::<Window>()
-            .unwrap()
+            .downcast_ref_unchecked::<Window>() }
     }
     pub fn swapchain(&self) -> Arc<Swapchain> {
         unsafe { &*self.swapchain.get() }.clone()

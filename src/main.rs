@@ -1,4 +1,5 @@
 #![allow(warnings)]
+#![feature(downcast_unchecked)]
 
 mod editor;
 mod engine;

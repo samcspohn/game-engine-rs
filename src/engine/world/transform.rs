@@ -237,6 +237,9 @@ pub struct TransformData {
     pub extent: usize,
 }
 use segvec::SegVec;
+use dary_heap::DaryHeap;
+
+use crate::engine::storage::Avail;
 pub struct Transforms {
     self_lock: Mutex<()>,
     mutex: SegVec<SyncUnsafeCell<Mutex<()>>>,
@@ -245,11 +248,11 @@ pub struct Transforms {
     scales: SegVec<SyncUnsafeCell<glm::Vec3>>,
     valid: SegVec<SyncUnsafeCell<bool>>,
     meta: SegVec<SyncUnsafeCell<TransformMeta>>,
-    last: AtomicI32,
-    avail: AtomicI32,
-    count: AtomicI32,
+    last: i32,
+    avail: Avail,
+    count: i32,
     updates: SegVec<SyncUnsafeCell<[bool; 3]>>,
-    extent: AtomicI32,
+    extent: i32,
     ids_cache: VecCache<i32>,
     pos_cache: VecCache<[f32; 3]>,
     rot_cache: VecCache<[f32; 4]>,
@@ -259,7 +262,7 @@ pub struct Transforms {
 #[allow(dead_code)]
 impl Transforms {
     pub fn active(&self) -> usize {
-        self.count.load(Ordering::Relaxed) as usize
+        self.count as usize
     }
     pub fn get<'a>(&self, t: i32) -> Transform {
         // TODO: make option
@@ -290,10 +293,10 @@ impl Transforms {
             meta: SegVec::new(),
             updates: SegVec::new(),
             valid: SegVec::new(),
-            last: AtomicI32::new(-1),
-            avail: AtomicI32::new(0),
-            count: AtomicI32::new(0),
-            extent: AtomicI32::new(0),
+            last: -1,
+            avail: Avail::new(),
+            count: 0,
+            extent: 0,
             ids_cache: VecCache::new(),
             pos_cache: VecCache::new(),
             rot_cache: VecCache::new(),
@@ -325,19 +328,29 @@ impl Transforms {
         self.updates.push(SyncUnsafeCell::new([true, true, true]));
     }
     fn get_next_id(&mut self) -> (bool, i32) {
-        self.count.fetch_add(1, Ordering::Acquire);
-        let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
-        while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
-            i = self.avail.fetch_add(1, Ordering::Relaxed);
-        }
-        if i == self.extent.load(Ordering::Relaxed) {
-            self.extent.fetch_add(1, Ordering::Relaxed);
-            self.last.store(i, Ordering::Relaxed);
-            (false, i)
-        } else {
-            self.last.fetch_max(i, Ordering::Relaxed);
+        self.count += 1;
+        if let Some(i) = self.avail.pop() {
+            self.last = self.last.max(i);
             (true, i)
+        } else {
+            let i = self.extent;
+            self.extent += 1;
+            self.last = i;
+            (false, i)
         }
+        // self.count.fetch_add(1, Ordering::Acquire);
+        // let mut i = self.avail.fetch_add(1, Ordering::Relaxed);
+        // while i < self.extent.load(Ordering::Relaxed) && unsafe { *self.valid[i as usize].get() } {
+        //     i = self.avail.fetch_add(1, Ordering::Relaxed);
+        // }
+        // if i == self.extent.load(Ordering::Relaxed) {
+        //     self.extent.fetch_add(1, Ordering::Relaxed);
+        //     self.last.store(i, Ordering::Relaxed);
+        //     (false, i)
+        // } else {
+        //     self.last.fetch_max(i, Ordering::Relaxed);
+        //     (true, i)
+        // }
 
         // let i = self.avail.load(Ordering::Relaxed);
         // self.count.fetch_add(1, Ordering::Relaxed);
@@ -364,12 +377,14 @@ impl Transforms {
     }
     pub(crate) fn reduce_last(&mut self) {
         // let i = self.last.fetch_add(-1, Ordering::Relaxed);
-        let mut id = self.last.load(Ordering::Relaxed);
+        // println!("data: {}, to commit: {}", self.avail.data.len(), self.avail.new_elem.len());
+        self.avail.commit();
+        let mut id = self.last;
         while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
             // not thread safe!
             id -= 1;
         }
-        self.last.store(id, Ordering::Relaxed);
+        self.last = id;
         // let mut id = id;
         // if id == self.last.load(Ordering::Relaxed) {
         //     while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
@@ -496,19 +511,19 @@ impl Transforms {
         // }
         // r
     }
-    pub fn remove(&self, t: Transform) {
-        self.avail.fetch_min(t.id, Ordering::Acquire);
-        self.count.fetch_add(-1, Ordering::Acquire);
+    pub fn remove(&mut self, t: i32) {
+        self.avail.push(t);
+        self.count -= 1;
         // self.reduce_last(id);
 
         unsafe {
-            let meta = &*self.meta[t.id as usize].get();
+            let meta = &*self.meta[t as usize].get();
             if meta.parent >= 0 {
                 // panic!("wat? - child:{} parent: {}", t.id, meta.parent);
-                t.get_parent().get_meta().children.pop_node(&meta.child_id);
+                (&mut *self.meta[t as usize].get()).children.pop_node(&meta.child_id);
             }
-            *self.meta[t.id as usize].get() = TransformMeta::new();
-            *self.valid[t.id as usize].get() = false;
+            *self.meta[t as usize].get() = TransformMeta::new();
+            *self.valid[t as usize].get() = false;
         }
     }
     pub fn adopt(&self, p: i32, t: i32) {
@@ -738,7 +753,7 @@ impl Transforms {
     }
 
     pub fn get_transform_data_updates(&mut self) -> TransformData {
-        let last = self.last.load(Ordering::Relaxed) as usize + 1;
+        let last = self.last as usize + 1;
         // let _positions = &self.positions[0..last];
         // let _rotations = &self.rotations[0..last];
         // let _scales = &self.scales[0..last];
@@ -751,7 +766,7 @@ impl Transforms {
             pos_data: Vec::new(),
             rot_data: Vec::new(),
             scl_data: Vec::new(),
-            extent: self.extent.load(Ordering::Relaxed) as usize,
+            extent: self.extent as usize,
         }));
         // let transform_data = Arc::new(Mutex::new(
         //    (Vec::<VecCache::<i32>::new()>),
