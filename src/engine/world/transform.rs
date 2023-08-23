@@ -9,7 +9,7 @@ use force_send_sync::SendSync;
 use glm::{Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
-use rayon::prelude::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::prelude::*;
 // use spin::{Mutex,RwLock};
 use num_integer::Roots;
 
@@ -245,7 +245,7 @@ pub struct Transforms {
     positions: SegVec<SyncUnsafeCell<glm::Vec3>>,
     rotations: SegVec<SyncUnsafeCell<glm::Quat>>,
     scales: SegVec<SyncUnsafeCell<glm::Vec3>>,
-    valid: BitVec,
+    valid: SegVec<SyncUnsafeCell<bool>>,
     meta: SegVec<SyncUnsafeCell<TransformMeta>>,
     last: i32,
     avail: Avail,
@@ -292,7 +292,7 @@ impl Transforms {
             scales: SegVec::new(),
             meta: SegVec::new(),
             updates: SegVec::new(),
-            valid: BitVec::new(),
+            valid: SegVec::new(),
             last: -1,
             avail: Avail::new(),
             count: 0,
@@ -305,15 +305,15 @@ impl Transforms {
         }
     }
 
-    fn write_transform(&mut self, i: i32, t: _Transform) {
+    fn write_transform(&self, i: i32, t: _Transform) {
         unsafe {
             *self.mutex[i as usize].get() = Mutex::new(());
             *self.positions[i as usize].get() = t.position;
             *self.rotations[i as usize].get() = t.rotation;
             *self.scales[i as usize].get() = t.scale;
             *self.meta[i as usize].get() = TransformMeta::new();
-            // self.valid[i as usize] = true;
-            self.valid.set(i as usize, true);
+            *self.valid[i as usize].get() = true;
+            // self.valid.set(i as usize, true);
             let u = &mut *self.updates[i as usize].get();
             u[POS_U] = true;
             u[ROT_U] = true;
@@ -326,7 +326,7 @@ impl Transforms {
         self.rotations.push(SyncUnsafeCell::new(t.rotation));
         self.scales.push(SyncUnsafeCell::new(t.scale));
         self.meta.push(SyncUnsafeCell::new(TransformMeta::new()));
-        self.valid.push(true);
+        self.valid.push(SyncUnsafeCell::new(true));
         self.updates.push(SyncUnsafeCell::new([true, true, true]));
     }
     fn get_next_id(&mut self) -> (bool, i32) {
@@ -398,7 +398,7 @@ impl Transforms {
         // println!("data: {}, to commit: {}", self.avail.data.len(), self.avail.new_elem.len());
         // self.avail.commit();
         let mut id = self.last;
-        while id >= 0 && !self.valid[id as usize] {
+        while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
             // not thread safe!
             id -= 1;
         }
@@ -458,12 +458,26 @@ impl Transforms {
     where
         T: Fn() -> _Transform + Send + Sync,
     {
-        let mut c = 1;
+        // let mut c = 1;
         let mut r = self.new_trans_cache.get_vec(count as usize);
         let t_func = Arc::new(&t_func);
         let _self = Arc::new(&self);
+        let c = self.avail.data.len().min(count as usize);
+        let mut max = 0;
+        for _ in 0..c {
+            if let Some(i) = self.avail.pop() {
+                max = i;
+                r.push(i);
+            }
+        }
+        self.count += c as i32;
+        self.last = self.last.max(max);
 
-        for _ in 0..count {
+        r.get().par_iter().for_each(|id| {
+            self.write_transform(*id, t_func());
+        });
+
+        for _ in c..count as usize {
             let i = self.new_transform_with(parent, t_func());
             r.push(i);
         }
@@ -546,8 +560,8 @@ impl Transforms {
                     .pop_node(&meta.child_id);
             }
             *self.meta[t as usize].get() = TransformMeta::new();
-            self.valid.set(t as usize, false);
-            // self.valid[t as usize] = false;
+            // self.valid.set(t as usize, false);
+            *self.valid[t as usize].get() = false;
         }
     }
     pub fn adopt(&self, p: i32, t: i32) {
@@ -618,11 +632,14 @@ impl Transforms {
         }
     }
     pub(crate) fn clear(&mut self) {
-        self.valid.iter_mut().enumerate().for_each(|(i, mut a)| {
-            if *a {
+        self.valid.iter().enumerate().for_each(|(i, mut a)| {
+            if unsafe { *a.get() } {
                 self.avail.push(i as i32);
             }
-            a.set(false)
+            unsafe {
+                *a.get() = false;
+            }
+            // a.set(false)
         });
         // for
         // unsafe {
@@ -851,7 +868,7 @@ impl Transforms {
 
                         for i in start..end {
                             unsafe {
-                                if !self_.valid[i] {
+                                if !*self_.valid[i].get() {
                                     continue;
                                 }
                                 let u = &mut *_u[i].get();
