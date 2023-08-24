@@ -397,7 +397,7 @@ impl Transforms {
     pub(crate) fn reduce_last(&mut self) {
         // let i = self.last.fetch_add(-1, Ordering::Relaxed);
         // println!("data: {}, to commit: {}", self.avail.data.len(), self.avail.new_elem.len());
-        // self.avail.commit();
+        self.avail.commit();
         let mut id = self.last;
         while id >= 0 && !unsafe { *self.valid[id as usize].get() } {
             // not thread safe!
@@ -463,7 +463,7 @@ impl Transforms {
         let mut r = self.new_trans_cache.get_vec(count as usize);
         let t_func = Arc::new(&t_func);
         let _self = Arc::new(&self);
-        let c = self.avail.data.len().min(count as usize);
+        let c = self.avail.len().min(count as usize);
         let mut max = 0;
         for _ in 0..c {
             if let Some(i) = self.avail.pop() {
@@ -546,22 +546,17 @@ impl Transforms {
         // }
         // r
     }
-    pub fn remove(&mut self, t: i32) {
+    pub fn remove(&self, t: i32) {
         self.avail.push(t);
-        // self.avail = self.avail.min(t);
-        // self.count -= 1;
-        // self.reduce_last(id);
-
         unsafe {
             let meta = &*self.meta[t as usize].get();
             if meta.parent >= 0 {
-                // panic!("wat? - child:{} parent: {}", t.id, meta.parent);
-                (&mut *self.meta[t as usize].get())
+                let _ = (*self.mutex[meta.parent as usize].get()).lock();
+                (&mut *self.meta[meta.parent as usize].get())
                     .children
                     .pop_node(&meta.child_id);
             }
             *self.meta[t as usize].get() = TransformMeta::new();
-            // self.valid.set(t as usize, false);
             *self.valid[t as usize].get() = false;
         }
     }
@@ -632,7 +627,7 @@ impl Transforms {
             );
         }
     }
-    pub(crate) fn clear(&mut self) {
+    pub(crate) fn clean(&mut self) {
         self.valid.iter().enumerate().for_each(|(i, mut a)| {
             if unsafe { *a.get() } {
                 self.avail.push(i as i32);

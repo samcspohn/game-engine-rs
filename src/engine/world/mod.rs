@@ -13,9 +13,11 @@ use std::{
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
-use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rayon::{
-    prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
+    prelude::{
+        IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+    },
     Scope,
 };
 use serde::{Deserialize, Serialize};
@@ -67,8 +69,11 @@ impl Sys {
 pub struct World {
     pub(crate) entities: RwLock<Vec<Mutex<Option<Entity>>>>,
     pub(crate) transforms: Transforms,
-    pub(crate) components:
-        SendSync<ThinMap<u64, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>>,
+    pub(crate) components: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
     pub(crate) components_names:
         HashMap<String, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) root: i32,
@@ -98,7 +103,7 @@ impl World {
         World {
             entities: RwLock::new(vec![Mutex::new(None)]),
             transforms: trans,
-            components: unsafe { SendSync::new(ThinMap::new()) },
+            components: HashMap::default(),
             components_names: HashMap::new(),
             root,
             sys: Sys {
@@ -333,7 +338,7 @@ impl World {
             if let Some(stor) = self.components.get(&key) {
                 let trans = self.transforms.get(g);
                 stor.write().deinit(&trans, c_id, &self.sys);
-                stor.write().erase(c_id);
+                stor.write().remove(c_id);
             }
             ent.components.remove(&key);
         }
@@ -391,37 +396,34 @@ impl World {
     }
 
     fn __destroy<'a>(
-        // _self: &'a mut World,
-        transforms: &mut Transforms,
-        components: &SendSync<
-            ThinMap<u64, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
+        transforms: &Transforms,
+        components: &HashMap<
+            u64,
+            RwLockReadGuard<Box<dyn StorageBase + Send + Sync>>,
+            nohash_hasher::BuildNoHashHasher<i32>,
         >,
         sys: &Sys,
         _t: i32,
         entities: &'a RwLockWriteGuard<Vec<Mutex<Option<Entity>>>>,
-        // s: &Scope<'a>,
     ) {
         let g = _t;
 
         // delete children first
-        let trans = transforms.get(_t);
-        let children: Vec<i32> = trans.get_meta().children.iter().copied().collect();
-        drop(trans);
-        for t in children {
-            // _self.to_destroy.push(t);
-            // let _self = _self.clone();
-            // let t = _self.transforms.get(t);
-            Self::__destroy(transforms, components, sys, t, entities);
+        {
+            let children: Vec<i32> = transforms.get(_t).get_meta().children.iter().copied().collect();
+            for t in children {
+                Self::__destroy(transforms, components, sys, t, entities);
+            }
         }
         {
             let trans = transforms.get(_t);
             let mut ent = entities[g as usize].lock();
             if let Some(ent_mut) = ent.as_mut() {
                 for (t, id) in ent_mut.components.iter() {
-                    let stor = &mut components.get(t).unwrap().write();
+                    let stor = &mut components.get(t).unwrap();
 
                     stor.deinit(&trans, *id, &sys);
-                    stor.erase(*id);
+                    stor.remove(*id);
                 }
                 // remove entity
                 *ent = None;
@@ -431,33 +433,41 @@ impl World {
         // remove transform
         transforms.remove(_t);
     }
-    pub(crate) fn _destroy(&mut self) {
+    pub(crate) fn _destroy(&mut self, perf: &mut Perf) {
         {
+            // let inst = Instant::now();
+            let a = perf.node("world _destroy to_destroy");
             let mut ent = self.entities.write();
             // let _self = Arc::new(&self);
             let mut to_destroy = self.to_destroy.lock();
-            // to_destroy.iter().for_each(|t| {
-            //     // let trans = self.transforms.get(*t);
-            //     Self::__destroy(self, *t, &mut ent);
-            // });
 
-            for t in to_destroy.iter() {
-                // Self::__destroy(transforms, components, sys, t, entities);
+            let mut unlocked: HashMap<
+                u64,
+                RwLockReadGuard<Box<dyn StorageBase + 'static + Sync + Send>>,
+                nohash_hasher::BuildNoHashHasher<i32>,
+            > = HashMap::default();
+            self.components.iter().for_each(|c| {
+                unlocked.insert(*c.0, c.1.read());
+            });
+            // to_destroy.sort();
 
-                Self::__destroy(
-                    &mut self.transforms,
-                    &self.components,
-                    &self.sys,
-                    *t,
-                    &mut ent,
-                );
-            }
+            to_destroy.par_iter().for_each(|t| {
+                Self::__destroy(&self.transforms, &unlocked, &self.sys, *t, &ent);
+            });
             to_destroy.clear();
         }
-        self.transforms.reduce_last();
-        for (id, c) in self.components.iter() {
-            c.write().reduce_last();
-        }
+        let b = perf.node("world _destroy reduce");
+        rayon::scope(|s| {
+            s.spawn(|s| {
+                self.transforms.reduce_last();
+            });
+            self.components.iter().for_each(|(id, c)| {
+                s.spawn(|s| {
+                    c.write().reduce_last();
+                });
+            });
+        });
+
         // remove/deinit components
     }
     // pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: i32, f: F)
@@ -601,14 +611,36 @@ impl World {
 
     pub fn clear(&mut self) {
         self.destroy(self.root);
-        self._destroy();
-        // self.entities.write().clear();
-        // self.transforms.clear();
+        let mut tperf = Perf::new();
+        self._destroy(&mut tperf);
+
+        let mut unlocked: HashMap<
+            u64,
+            RwLockReadGuard<Box<dyn StorageBase + 'static + Sync + Send>>,
+            nohash_hasher::BuildNoHashHasher<i32>,
+        > = HashMap::default();
+        self.components.iter().for_each(|c| {
+            unlocked.insert(*c.0, c.1.read());
+        });
+
+        for (_t, i) in self.entities.read().iter().enumerate() {
+            let mut a = i.lock();
+            if let Some(ent) = a.as_mut() {
+                let trans = self.transforms.get(_t as i32);
+                for (t, id) in ent.components.iter() {
+                    let stor = &mut unlocked.get(t).unwrap();
+                    stor.deinit(&trans, *id, &self.sys);
+                    stor.remove(*id);
+                }
+            }
+            // remove entity
+            *a = None;
+        }
 
         self.sys.renderer_manager.write().clear();
         self.sys.physics.lock().clear();
 
-        self.transforms.clear();
+        self.transforms.clean();
         self.root = self.transforms.new_root();
         self.entities.write().push(Mutex::new(None));
     }

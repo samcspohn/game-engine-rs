@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, time::{Duration, Instant}};
 
 use crossbeam::queue::SegQueue;
 use segvec::SegVec;
@@ -49,11 +49,24 @@ pub struct Perf {
     data: BTreeMap<String, SubPerf>,
 }
 
+pub struct PerfNode<'a> {
+    id: String,
+    perf: &'a mut Perf,
+    inst: Instant,
+}
+impl Drop for PerfNode<'_> {
+    fn drop(&mut self) {
+        self.perf.update(self.id.clone(), Instant::now() - self.inst);
+    }
+}
 impl Perf {
     pub fn new() -> Self {
         Self {
             data: BTreeMap::new(),
         }
+    }
+    pub fn node(&mut self, k: &str) -> PerfNode {
+        PerfNode { id: k.into(), perf: self, inst: Instant::now() }
     }
     pub fn update(&mut self, k: String, d: Duration) {
         let perf = &mut self.data;

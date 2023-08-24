@@ -6,6 +6,7 @@ use std::{
 };
 
 use bitvec::vec::BitVec;
+use crossbeam::queue::SegQueue;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 use segvec::SegVec;
@@ -16,6 +17,7 @@ use crate::editor::inspectable::Inspectable;
 
 use super::{
     input::Input,
+    particles::particles::AtomicVec,
     world::{
         component::{Component, System, _ComponentID},
         entity::Entity,
@@ -78,7 +80,7 @@ pub trait StorageBase {
     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData)>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
-    fn erase(&mut self, i: i32);
+    fn remove(&self, i: i32);
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys);
     fn init(&self, transform: &Transform, i: i32, sys: &Sys);
     fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &Sys);
@@ -101,16 +103,29 @@ use dary_heap::DaryHeap;
 
 pub struct Avail {
     pub data: DaryHeap<Reverse<i32>, 4>,
+    new_ids: AtomicVec<Reverse<i32>>,
 }
 impl Avail {
     pub fn new() -> Self {
         Self {
             data: DaryHeap::new(),
+            new_ids: AtomicVec::new(),
         }
     }
-    pub fn commit(&mut self) {}
-    pub fn push(&mut self, i: i32) {
-        self.data.push(Reverse(i));
+    pub fn commit(&mut self) {
+        // let mut a = self.new_ids.lock();
+        // let mut a = SegQueue::new();
+        // std::mem::swap(&mut a, &mut self.new_ids);
+        self.new_ids.get().iter().for_each(|i| {
+            self.data.push(*i);
+        });
+        self.new_ids.clear();
+
+        // a.clear();
+    }
+    pub fn push(&self, i: i32) {
+        self.new_ids.push(Reverse(i));
+        // self.data.push(Reverse(i));
     }
     pub fn pop(&mut self) -> Option<i32> {
         match self.data.pop() {
@@ -238,6 +253,7 @@ impl<
         // }
     }
     fn _reduce_last(&mut self) {
+        self.avail.commit();
         let mut id = self.last;
         while id >= 0 && !*self.valid[id as usize].get_mut() {
             // not thread safe!
@@ -245,10 +261,30 @@ impl<
         }
         self.last = id;
     }
-    pub fn _erase(&mut self, id: i32) {
+    // pub fn clean(
+    //     &mut self,
+    //     transforms: &Transforms,
+    //     sys: &Sys,
+    //     _t: i32,
+    //     entities: &Vec<Mutex<Option<Entity>>>,
+    // ) {
+    //     self.valid.iter().enumerate().for_each(|(i, mut a)| {
+    //         if unsafe { *a.get() } {
+    //             self.avail.push(i as i32);
+    //         }
+    //         unsafe {
+    //             *a.get() = false;
+    //         }
+    //         // a.set(false)
+    //     });
+    //     self.last = -1;
+    // }
+    pub fn _erase(&self, id: i32) {
         // self.avail = self.avail.min(id);
         self.avail.push(id);
-        *self.valid[id as usize].get_mut() = false;
+        unsafe {
+            *self.valid[id as usize].get() = false;
+        }
 
         // self.reduce_last(id);
     }
@@ -315,7 +351,7 @@ impl<
             }
         });
     }
-    fn erase(&mut self, i: i32) {
+    fn remove(&self, i: i32) {
         self._erase(i);
     }
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys) {

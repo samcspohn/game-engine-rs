@@ -202,6 +202,13 @@ impl<T: Copy> AtomicVec<T> {
         self.index.store(0, Ordering::Relaxed);
         v
     }
+    pub fn get(&mut self) -> &[T] {
+        let len = self.index.load(Ordering::Relaxed);
+        &self.data.get_mut()[0..len]
+    }
+    pub fn clear(&mut self) {
+        self.index.store(0, Ordering::Relaxed);
+    }
 }
 
 pub struct ParticleCompute {

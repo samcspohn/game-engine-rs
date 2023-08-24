@@ -105,7 +105,7 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
                 perf.update("world do defered".into(), Instant::now() - inst);
 
                 let inst = Instant::now();
-                world._destroy();
+                world._destroy(&mut perf);
                 perf.update("world _destroy".into(), Instant::now() - inst);
 
                 let inst = Instant::now();                
@@ -114,7 +114,7 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
 
             }
         } else {
-            world._destroy();
+            world._destroy(&mut perf);
             world.editor_update(&input, &gpu_work);
         }
         perf.update("world sim".into(), Instant::now() - inst);
