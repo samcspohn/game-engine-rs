@@ -155,7 +155,7 @@ pub(crate) struct Engine {
     pub(crate) particles_system: Arc<ParticleCompute>,
     pub(crate) playing_game: bool,
     pub(crate) coms: (Receiver<RenderingData>, Sender<(Input, bool)>),
-    pub(crate) perf: Perf,
+    pub(crate) perf: Arc<Perf>,
     pub(crate) vk: Arc<VulkanManager>,
     pub(crate) shared_render_data: Arc<RwLock<SharedRendererData>>,
     pub(crate) input: Input,
@@ -310,7 +310,7 @@ impl Engine {
             transform_compute,
             playing_game,
             coms,
-            perf,
+            perf: Arc::new(perf),
             vk,
             shared_render_data: rm,
             input,
@@ -338,11 +338,8 @@ impl Engine {
     }
     pub(crate) fn update_sim(&mut self) -> Option<RenderingData> {
         // puffin::profile_scope!("wait for game");
-        let inst = Instant::now();
+        let wait_for_game = self.perf.node("wait for game");
         let rd = self.coms.0.recv().ok();
-
-        self.perf
-            .update("wait for game".into(), Instant::now() - inst);
         rd
     }
     pub(crate) fn render(
@@ -386,19 +383,19 @@ impl Engine {
             &mut builder,
             image_num,
             &transform_data,
-            &mut self.perf,
+            &self.perf,
         );
 
-        let inst = Instant::now();
+        let particle_update = self.perf.node("particle update");
         self.particles_system.update(
             &mut builder,
             particle_init_data,
             &self.transform_compute,
             &self.input.time,
         );
-        self.perf.update("particle update".into(), inst.elapsed());
+        drop(particle_update);
 
-        let inst = Instant::now();
+        let update_renderers = self.perf.node("update renderers");
         // compute shader renderers
         let offset_vec = {
             // puffin::profile_scope!("process renderers");
@@ -418,8 +415,8 @@ impl Engine {
                 &self.transform_compute,
             )
         };
-        self.perf.update("update renderers".into(), inst.elapsed());
-        let inst = Instant::now();
+        drop(update_renderers);
+        let render_cameras = self.perf.node("render camera(s)");
 
         while let Some(job) = gpu_work.pop() {
             job.unwrap()(&mut builder, vk.clone());
@@ -441,9 +438,7 @@ impl Engine {
                 &render_jobs,
             );
         }
-        // }
-
-        self.perf.update("render camera(s)".into(), inst.elapsed());
+        drop(render_cameras);
 
         self.input.time.time += self.input.time.dt;
         self.input.time.dt = self.frame_time.elapsed().as_secs_f64() as f32;

@@ -378,16 +378,17 @@ impl TransformCompute {
         >,
         image_num: u32,
         transform_data: &TransformData,
-        perf: &mut Perf,
+        perf: &Perf,
     ) {
-        let inst = Instant::now();
-        self._get_update_data(&transform_data, image_num);
-        perf.update("write to buffer".into(), Instant::now() - inst);
-
-        let inst = Instant::now();
-        puffin::profile_scope!("transform update compute");
-        self.__update_data(builder, image_num, transform_data.extent);
-        perf.update("transform update".into(), inst.elapsed());
+        {
+            let write_to_buffer = perf.node("write to buffer");
+            self._get_update_data(&transform_data, image_num);
+        }
+        {
+            let write_to_buffer = perf.node("transform update");
+            puffin::profile_scope!("transform update compute");
+            self.__update_data(builder, image_num, transform_data.extent);
+        }
     }
 
     //////////////////////////////////////////////////////////////////

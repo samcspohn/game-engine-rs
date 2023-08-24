@@ -38,8 +38,8 @@ impl Physics {
             event_handler: (),
         }
     }
-    pub fn step(&mut self, gravity: &Vector<Real>, perf: &mut Perf) {
-        let inst = Instant::now();
+    pub fn step(&mut self, gravity: &Vector<Real>, perf: &Perf) {
+        let physics_step = perf.node("physics step");
         self.physics_pipeline.step(
             gravity,
             &self.integration_parameters,
@@ -55,16 +55,15 @@ impl Physics {
             &self.physics_hooks,
             &self.event_handler,
         );
-        perf.update("physics step".into(), Instant::now() - inst);
+        drop(physics_step);
 
         // TODO: investigate if necessary
-        let inst = Instant::now();
+        let physics_update = perf.node("particle update");
         self.query_pipeline.update(
             // &self.island_manager,
             &self.rigid_body_set,
             &self.collider_set,
         );
-        perf.update("physics update".into(), Instant::now() - inst);
     }
     pub fn get_counters() {}
     pub fn remove_collider(&mut self, handle: ColliderHandle) {

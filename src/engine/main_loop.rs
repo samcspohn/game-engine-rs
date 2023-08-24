@@ -69,7 +69,7 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
         let (input, playing_game) = coms.1.recv().unwrap();
         let mut world = world.lock();
         let gpu_work = SegQueue::new();
-        let inst = Instant::now();
+        let world_sim = perf.node("world _update");
         if playing_game {
             puffin::profile_scope!("game loop");
             {
@@ -85,7 +85,7 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
                             |thread| thread.run(),
                             |pool| {
                                 pool.install(|| {
-                                    world.sys.physics.lock().step(&gravity, &mut perf);
+                                    world.sys.physics.lock().step(&gravity, &perf);
                                 })
                             },
                         )
@@ -94,37 +94,37 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
                     phys_time -= phys_step;
                 }
                 phys_time += input.time.dt;
-                let inst = Instant::now();
-                world._update(&input, &gpu_work, &mut perf);
-                perf.update("world update".into(), Instant::now() - inst);
+                let world_update = perf.node("world _update");
+                world._update(&input, &gpu_work, &perf);
+                drop(world_update);
             }
             {
                 puffin::profile_scope!("defered");
-                let inst = Instant::now();
-                world.do_defered();
-                perf.update("world do defered".into(), Instant::now() - inst);
-
-                let inst = Instant::now();
-                world._destroy(&mut perf);
-                perf.update("world _destroy".into(), Instant::now() - inst);
-
-                let inst = Instant::now();                
-                world.defer_instantiate(&mut perf);
-                perf.update("world instantiate".into(), Instant::now() - inst);
-
+                {
+                    let world_do_defered = perf.node("world do_deffered");
+                    world.do_defered();
+                }
+                {
+                    let world_destroy = perf.node("world _destroy");
+                    world._destroy(&perf);
+                }
+                {
+                    let world_update = perf.node("world instantiate");
+                    world.defer_instantiate(&perf);
+                }
             }
         } else {
-            world._destroy(&mut perf);
+            world._destroy(&perf);
             world.editor_update(&input, &gpu_work);
         }
-        perf.update("world sim".into(), Instant::now() - inst);
-        let inst = Instant::now();
+        drop(world_sim);
+        let get_transform_data = perf.node("get transform data");
         let transform_data = world.transforms.get_transform_data_updates();
-        perf.update("get transform data".into(), Instant::now() - inst);
+        drop(get_transform_data);
 
-        let inst = Instant::now();
+        let get_renderer_data = perf.node("get renderer data");
         let renderer_data = world.sys.renderer_manager.write().get_renderer_data();
-        perf.update("get renderer data".into(), Instant::now() - inst);
+        drop(get_renderer_data);
         let emitter_len = world.get_emitter_len();
         let emitter_inits = world.sys.particles_system.emitter_inits.get_vec();
         let emitter_deinits = world.sys.particles_system.emitter_deinits.get_vec();

@@ -208,7 +208,7 @@ fn main() {
 
                 ////////////////////////////////////
 
-                let full = Instant::now();
+                let _full = engine.perf.node("_ full");
                 let mut rendering_data = match engine.update_sim() {
                     Some(a) => a,
                     None => return,
@@ -290,7 +290,7 @@ fn main() {
                     recreate_swapchain = true;
                 }
 
-                let inst = Instant::now();
+                let _gui = engine.perf.node("_ gui");
                 let dimensions = *EDITOR_ASPECT_RATIO.lock();
                 let mut _playing_game = false;
                 gui.immediate_ui(|gui| {
@@ -310,8 +310,7 @@ fn main() {
                         fc_map.clear();
                     }
                 }
-
-                engine.perf.update("gui".into(), Instant::now() - inst);
+                drop(_gui);
 
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &vk.comm_alloc,
@@ -331,9 +330,8 @@ fn main() {
                 }
                 engine.render(&mut builder, rendering_data, _playing_game, image_num);
 
-                let inst = Instant::now();
+                let _render = engine.perf.node("_ render");
 
-                let _inst = Instant::now();
                 builder
                     .begin_render_pass(
                         RenderPassBeginInfo {
@@ -346,35 +344,33 @@ fn main() {
                     )
                     .unwrap()
                     .set_viewport(0, [viewport.clone()]);
-                engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
+                // engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
             
-                let _inst = Instant::now();
+                let _get_gui_commands = engine.perf.node("_ get gui commands");
                 let size = vk.window().inner_size();
                 let gui_commands = gui.draw_on_subpass_image([size.width, size.height]);
-                engine.perf.update("_ get gui commands".into(), Instant::now() - _inst);
+                drop(_get_gui_commands);
 
                 builder.execute_commands(gui_commands).unwrap();
 
                 frame_time = Instant::now();
-                
-                let _inst = Instant::now();
-                builder.end_render_pass().unwrap();
-                engine.perf.update("_ end render pass".into(), Instant::now() - _inst);
 
-                let _inst = Instant::now();
+                builder.end_render_pass().unwrap();
+
+                let _build_command_buffer = engine.perf.node("_ build command buffer");
                 let command_buffer = builder.build().unwrap();
-                engine.perf.update("_ build command buffer".into(), Instant::now() - _inst);
+                drop(_build_command_buffer);
                 
                 
-                let _inst = Instant::now();
+                let _wait_for_previous_frame = engine.perf.node("_ wait for previous frame");
                 let execute = previous_frame_end
                     .take()
                     .unwrap()
                     .join(acquire_future)
                     .then_execute(vk.queue.clone(), command_buffer);
-                engine.perf.update("_ wait for previous frame".into(), Instant::now() - _inst);
+                drop(_wait_for_previous_frame);
                 
-                let _inst = Instant::now();
+                let _execute = engine.perf.node("_ execute");
                 match execute {
                     Ok(execute) => {
                         let future = execute
@@ -408,7 +404,7 @@ fn main() {
                         previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                     }
                 };
-                engine.perf.update("_ execute".into(), Instant::now() - _inst);
+                drop(_execute);
 
 
                 // was playing != next frame playing?
@@ -428,9 +424,6 @@ fn main() {
                     recreate_swapchain = true;
                 }
                 playing_game = _playing_game;
-
-                engine.perf.update("render".into(), Instant::now() - inst);
-                engine.perf.update("full".into(), Instant::now() - full);
 
                 // if first_frame {
                 //     puffin::set_scopes_on(true);

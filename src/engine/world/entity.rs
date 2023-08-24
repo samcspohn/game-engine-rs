@@ -37,7 +37,7 @@ pub(crate) struct _EntityParBuilder {
     pub(crate) chunk: i32,
     pub(crate) parent: i32,
     pub(crate) t_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
-    pub(crate) comp_funcs: Vec<Box<dyn Fn(&mut World, &Vec<i32>, &mut Perf) + Send + Sync>>,
+    pub(crate) comp_funcs: Vec<Box<dyn Fn(&mut World, &Vec<i32>, &Perf) + Send + Sync>>,
 }
 
 impl _EntityParBuilder {
@@ -57,7 +57,7 @@ pub struct EntityParBuilder<'a> {
     chunk: i32,
     parent: i32,
     transform_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
-    comp_funcs: Vec<Box<dyn Fn(&mut World, &Vec<i32>, &mut Perf) + Send + Sync>>,
+    comp_funcs: Vec<Box<dyn Fn(&mut World, &Vec<i32>, &Perf) + Send + Sync>>,
 }
 impl<'a> EntityParBuilder<'a> {
     pub fn new(parent: i32, count: i32, chunk: i32, world: &'a World) -> Self {
@@ -97,13 +97,14 @@ impl<'a> EntityParBuilder<'a> {
         D: Fn() -> T + 'static + Send + Sync,
     {
         self.comp_funcs.push(Box::new(
-            move |world: &mut World, t_: &Vec<i32>, perf: &mut Perf| {
+            move |world: &mut World, t_: &Vec<i32>, perf: &Perf| {
                 let key = T::ID;
                 if let Some(stor) = world.components.get(&key) {
-                    let inst = Instant::now();
                     let mut stor_lock = stor.write();
                     let stor: &mut Storage<T> =
                         unsafe { stor_lock.as_any_mut().downcast_mut_unchecked() };
+                    let world_instantiate =
+                        perf.node(&format!("world instantiate {}", stor.get_name()));
                     let entities = world.entities.read();
                     assert!(self.count as usize == t_.len());
                     stor.insert_multi(
@@ -122,10 +123,6 @@ impl<'a> EntityParBuilder<'a> {
                     //         ent.components.insert(key.clone(), c_id);
                     //     }
                     // }
-                    perf.update(
-                        format!("world instantiate {}", stor.get_name()),
-                        Instant::now() - inst,
-                    );
                 } else {
                     panic!("no type key?")
                 }

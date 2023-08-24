@@ -121,7 +121,7 @@ impl World {
             to_instantiate: Mutex::new(Vec::new()),
         }
     }
-    pub fn defer_instantiate(&mut self, perf: &mut Perf) {
+    pub fn defer_instantiate(&mut self, perf: &Perf) {
         let mut a = self.to_instantiate.lock();
         let mut to_instantiate = Vec::new();
         std::mem::swap(a.as_mut(), &mut to_instantiate);
@@ -129,14 +129,12 @@ impl World {
         for a in to_instantiate.into_iter() {
             if let Some(t_func) = a.t_func {
                 let inst = Instant::now();
+                let world_instantiate_transforms = perf.node("world instantiate transforms");
                 let t = self
                     .transforms
                     .multi_transform_with(a.parent, a.count, t_func);
-                perf.update(
-                    format!("world instantiate transforms"),
-                    Instant::now() - inst,
-                );
-                let inst = Instant::now();
+                drop(world_instantiate_transforms);
+                let world_instantiate_ent = perf.node("world instantiate entities");
                 let mut ent = self.entities.write();
 
                 for i in t.get() {
@@ -152,7 +150,7 @@ impl World {
                     }
                 }
                 drop(ent);
-                perf.update(format!("world instantiate entities"), Instant::now() - inst);
+                drop(world_instantiate_ent);
 
                 for b in a.comp_funcs.iter() {
                     b(self, t.get(), perf);
@@ -433,10 +431,10 @@ impl World {
         // remove transform
         transforms.remove(_t);
     }
-    pub(crate) fn _destroy(&mut self, perf: &mut Perf) {
+    pub(crate) fn _destroy(&mut self, perf: &Perf) {
         {
             // let inst = Instant::now();
-            let a = perf.node("world _destroy to_destroy");
+            let world_destroy_todestroy = perf.node("world _destroy to_destroy");
             let mut ent = self.entities.write();
             // let _self = Arc::new(&self);
             let mut to_destroy = self.to_destroy.lock();
@@ -456,7 +454,7 @@ impl World {
             });
             to_destroy.clear();
         }
-        let b = perf.node("world _destroy reduce");
+        let world_destroy_reduce = perf.node("world _destroy reduce");
         rayon::scope(|s| {
             s.spawn(|s| {
                 self.transforms.reduce_last();
@@ -499,7 +497,7 @@ impl World {
         }
         // self.sys.defer.do_defered(self);
     }
-    pub(crate) fn _update(&mut self, input: &Input, gpu_work: &GPUWork, perf: &mut Perf) {
+    pub(crate) fn _update(&mut self, input: &Input, gpu_work: &GPUWork, perf: &Perf) {
         {
             let sys = &self.sys;
             let sys = System {
@@ -513,22 +511,14 @@ impl World {
                 particle_system: &sys.particles_system,
             };
             for (_, stor) in self.components.iter() {
+                let world_update = perf.node("world update");
                 let mut stor = stor.write();
-                let inst = Instant::now();
                 stor.update(&self.transforms, &sys, &self);
-                perf.update(
-                    format!("world update {}", stor.get_name()),
-                    Instant::now() - inst,
-                );
             }
             for (_, stor) in self.components.iter() {
+                let world_update = perf.node("world late_update");
                 let mut stor = stor.write();
-                let inst = Instant::now();
                 stor.late_update(&self.transforms, &sys);
-                perf.update(
-                    format!("world late_update {}", stor.get_name()),
-                    Instant::now() - inst,
-                );
             }
         }
         self.update_cameras();
