@@ -73,9 +73,6 @@ fn deserialize_c(parent: i32, sgo: SerGameObject, world: &mut World) {
 pub fn deserialize(world: &mut World) {
     if let Ok(s) = std::fs::read_to_string("test.yaml") {
         let sgo: SerGameObject = serde_yaml::from_str(s.as_str()).unwrap();
-
-        // std::fs::write("test.yaml", serde_yaml::to_string(&sgo).unwrap()).unwrap();
-
         world.clear();
         for c in sgo.t_c {
             deserialize_c(world.root, c, world);

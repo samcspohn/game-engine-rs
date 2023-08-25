@@ -28,7 +28,7 @@ use crate::editor::inspectable::Inspectable;
 use self::{
     component::{Component, System, _ComponentID},
     entity::{Entity, EntityParBuilder, _EntityParBuilder},
-    transform::{Transform, Transforms},
+    transform::{Transform, Transforms, _Transform},
 };
 
 use super::{
@@ -80,7 +80,6 @@ pub struct World {
     pub sys: Sys,
     pub(crate) to_destroy: Mutex<Vec<i32>>,
     pub(crate) to_instantiate: Mutex<Vec<_EntityParBuilder>>,
-    active_ent: i32,
 }
 
 //  T_ = 'static
@@ -121,69 +120,24 @@ impl World {
             },
             to_destroy: Mutex::new(Vec::new()),
             to_instantiate: Mutex::new(Vec::new()),
-            active_ent: 1,
         }
     }
-    pub fn defer_instantiate(&mut self, perf: &Perf) {
-        let mut a = self.to_instantiate.lock();
-        let mut to_instantiate = Vec::new();
-        std::mem::swap(a.as_mut(), &mut to_instantiate);
-        drop(a);
-        for a in to_instantiate.into_iter() {
-            
 
-
-            if let Some(t_func) = a.t_func {
-                let inst = Instant::now();
-                let world_instantiate_transforms = perf.node("world instantiate transforms");
-                let t = self
-                    .transforms
-                    .multi_transform_with(a.parent, a.count, t_func);
-                drop(world_instantiate_transforms);
-                let world_instantiate_ent = perf.node("world instantiate entities");
-                let mut ent = self.entities.write();
-
-                for i in t.get() {
-                    if (*i as usize) < ent.len() {
-                        *ent[*i as usize].lock() = Some(Entity::new());
-                    } else {
-                        break;
-                    }
-                }
-                if let Some(last) = t.get().last() {
-                    while ent.len() <= *last as usize {
-                        ent.push(Mutex::new(Some(Entity::new())));
-                    }
-                }
-
-
-                drop(ent);
-                drop(world_instantiate_ent);
-                let instantiate_components = perf.node("world instantiate _ components");
-                a.comp_funcs.par_iter().for_each(|b| {
-                    b(self, t.get(), perf);
-                });
-            }
-        }
-        // to_instantiate.clear();
-    }
     pub fn instantiate_many(&self, count: i32, chunk: i32, parent: i32) -> EntityParBuilder {
         EntityParBuilder::new(parent, count, chunk, &self)
     }
     pub fn instantiate(&mut self) -> i32 {
-        let ret = self.transforms.new_transform(self.root);
-        {
-            let entities = &mut self.entities.write();
-            if ret as usize >= entities.len() {
-                entities.push(Mutex::new(Some(Entity::new())));
-            } else {
-                entities[ret as usize] = Mutex::new(Some(Entity::new()));
-            }
-        }
-        ret
+        self.instantiate_with_transform(_Transform::default())
     }
     pub fn instantiate_with_transform(&mut self, transform: transform::_Transform) -> i32 {
-        let ret = self.transforms.new_transform_with(self.root, transform);
+        self.instantiate_with_transform_with_parent(self.root, transform)
+    }
+    pub fn instantiate_with_transform_with_parent(
+        &mut self,
+        parent: i32,
+        transform: transform::_Transform,
+    ) -> i32 {
+        let ret = self.transforms.new_transform_with(parent, transform);
         {
             let entities = &mut self.entities.write();
             if ret as usize >= entities.len() {
@@ -194,7 +148,7 @@ impl World {
         }
         ret
     }
-    fn copy_game_object_child(&mut self, t: i32, new_parent: i32) {
+    fn copy_game_object_child(&mut self, t: i32, new_parent: i32) -> i32 {
         let tr = self.transforms.get(t).get_transform();
         let g = self.instantiate_with_transform_with_parent(new_parent, tr);
         let entities = self.entities.read();
@@ -210,44 +164,8 @@ impl World {
             let children: Vec<i32> = self
                 .transforms
                 .get(t)
-                .get_meta()
-                .children
-                .iter()
-                .copied()
-                .collect();
-            drop(src);
-            drop(dest);
-            drop(entities);
-            for c in children {
-                self.copy_game_object_child(c, g);
-            }
-        } else {
-            panic!("copy object not valid");
-        }
-    }
-    pub fn copy_game_object(&mut self, t: i32) -> i32 {
-        let trans = self.transforms.get(t);
-        let parent = { trans.get_parent().id };
-        let tr = trans.get_transform();
-        drop(trans);
-        let g = self.instantiate_with_transform_with_parent(parent, tr);
-        let entities = self.entities.read();
-        let src = entities[t as usize].lock();
-        let mut dest = entities[g as usize].lock();
-        if let (Some(src_ent), Some(dest_ent)) = (&mut src.as_ref(), &mut dest.as_mut()) {
-            for c in src_ent.components.iter() {
-                dest_ent.components.insert(
-                    c.0.clone(),
-                    self.copy_component_id(&self.transforms.get(g), c.0.clone(), *c.1),
-                );
-            }
-            let children: Vec<i32> = self
-                .transforms
-                .get(t)
-                .get_meta()
-                .children
-                .iter()
-                .copied()
+                .get_children()
+                .map(|t| t.id)
                 .collect();
             drop(src);
             drop(dest);
@@ -260,6 +178,12 @@ impl World {
         }
         g
     }
+    pub fn copy_game_object(&mut self, t: i32) -> i32 {
+        let trans = self.transforms.get(t);
+        let parent = { trans.get_parent().id };
+        drop(trans);
+        self.copy_game_object_child(t, parent)
+    }
     fn copy_component_id(&self, t: &Transform, key: u64, c_id: i32) -> i32 {
         if let Some(stor) = self.components.get(&key) {
             let mut stor = stor.write();
@@ -270,53 +194,37 @@ impl World {
             panic!("no component storage for key");
         }
     }
-    pub fn instantiate_with_transform_with_parent(
-        &mut self,
-        parent: i32,
-        transform: transform::_Transform,
-    ) -> i32 {
-        // let mut trans = self.transforms.;
-        let ret = self.transforms.new_transform_with(parent, transform);
-        {
-            let entities = &mut self.entities.write();
-            if ret as usize >= entities.len() {
-                entities.push(Mutex::new(Some(Entity::new())));
-            } else {
-                entities[ret as usize] = Mutex::new(Some(Entity::new()));
-            }
-        }
-        ret
-    }
-    pub fn add_component<
-        T: 'static
-            + Send
-            + Sync
-            + Component
-            + _ComponentID
-            + Inspectable
-            + Default
-            + Clone
-            + Serialize
-            + for<'a> Deserialize<'a>,
-    >(
-        &mut self,
-        g: i32,
-        d: T,
-    ) {
-        // d.assign_transform(g);
-        let key = T::ID;
-        if let Some(stor) = self.components.get(&key) {
-            let stor: &mut Storage<T> = unsafe { std::mem::transmute(&mut stor.write()) };
-            let c_id = stor.insert(g, d);
-            let trans = self.transforms.get(g);
-            stor.init(&trans, c_id, &self.sys);
-            if let Some(ent) = self.entities.read()[g as usize].lock().as_mut() {
-                ent.components.insert(key, c_id);
-            }
-        } else {
-            panic!("no type key?")
-        }
-    }
+
+    // pub fn add_component<
+    //     T: 'static
+    //         + Send
+    //         + Sync
+    //         + Component
+    //         + _ComponentID
+    //         + Inspectable
+    //         + Default
+    //         + Clone
+    //         + Serialize
+    //         + for<'a> Deserialize<'a>,
+    // >(
+    //     &mut self,
+    //     g: i32,
+    //     d: T,
+    // ) {
+    //     // d.assign_transform(g);
+    //     let key = T::ID;
+    //     if let Some(stor) = self.components.get(&key) {
+    //         let stor: &mut Storage<T> = unsafe { std::mem::transmute(&mut stor.write()) };
+    //         let c_id = stor.insert(g, d);
+    //         let trans = self.transforms.get(g);
+    //         stor.init(&trans, c_id, &self.sys);
+    //         if let Some(ent) = self.entities.read()[g as usize].lock().as_mut() {
+    //             ent.components.insert(key, c_id);
+    //         }
+    //     } else {
+    //         panic!("no type key?")
+    //     }
+    // }
     pub fn add_component_id(&mut self, g: i32, key: u64, c_id: i32) {
         if let Some(ent) = self.entities.read()[g as usize].lock().as_mut() {
             ent.components.insert(key.clone(), c_id);
@@ -397,6 +305,34 @@ impl World {
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
+    pub fn defer_instantiate(&mut self, perf: &Perf) {
+        let mut to_instantiate = self.to_instantiate.lock();
+        for a in to_instantiate.iter() {
+            let world_instantiate_transforms = perf.node("world instantiate transforms");
+            let t = if let Some(t_func) = &a.t_func {
+                self.transforms
+                    .multi_transform_with(a.parent, a.count, t_func)
+            } else {
+                self.transforms.multi_transform(a.parent, a.count)
+            };
+            drop(world_instantiate_transforms);
+
+            let world_instantiate_ent = perf.node("world instantiate entities");
+            let mut ent = self.entities.write();
+            ent.resize_with(self.transforms.len(), || Mutex::new(None));
+            t.get().par_iter().for_each(|i| {
+                *ent[*i as usize].lock() = Some(Entity::new());
+            });
+            drop(ent);
+            drop(world_instantiate_ent);
+
+            let instantiate_components = perf.node("world instantiate _ components");
+            a.comp_funcs.par_iter().for_each(|b| {
+                b(self, t.get(), perf);
+            });
+        }
+        to_instantiate.clear();
+    }
     pub fn destroy(&self, g: i32) {
         self.to_destroy.lock().push(g);
     }
@@ -415,16 +351,16 @@ impl World {
         let g = _t;
 
         // delete children first
-        {
-            let children: Vec<i32> = transforms.get(_t).get_meta().children.iter().copied().collect();
-            for t in children {
-                Self::__destroy(transforms, components, sys, t, entities);
+        let mut ent = entities[g as usize].lock();
+        if let Some(ent_mut) = ent.as_mut() {
+            {
+                let children: Vec<i32> = transforms.get(_t).get_children().map(|t| t.id).collect();
+                for t in children {
+                    Self::__destroy(transforms, components, sys, t, entities);
+                }
             }
-        }
-        {
-            let trans = transforms.get(_t);
-            let mut ent = entities[g as usize].lock();
-            if let Some(ent_mut) = ent.as_mut() {
+            {
+                let trans = transforms.get(_t);
                 for (t, id) in ent_mut.components.iter() {
                     let stor = &mut components.get(t).unwrap();
 
@@ -441,10 +377,8 @@ impl World {
     }
     pub(crate) fn _destroy(&mut self, perf: &Perf) {
         {
-            // let inst = Instant::now();
             let world_destroy_todestroy = perf.node("world _destroy to_destroy");
             let mut ent = self.entities.write();
-            // let _self = Arc::new(&self);
             let mut to_destroy = self.to_destroy.lock();
 
             let mut unlocked: HashMap<
@@ -455,7 +389,6 @@ impl World {
             self.components.iter().for_each(|c| {
                 unlocked.insert(*c.0, c.1.read());
             });
-            // to_destroy.sort();
 
             to_destroy.par_iter().for_each(|t| {
                 Self::__destroy(&self.transforms, &unlocked, &self.sys, *t, &ent);
@@ -473,8 +406,6 @@ impl World {
                 });
             });
         });
-
-        // remove/deinit components
     }
     // pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: i32, f: F)
     // where
@@ -503,7 +434,6 @@ impl World {
         while let Some(w) = self.sys.defer.work.pop() {
             w(self);
         }
-        // self.sys.defer.do_defered(self);
     }
     pub(crate) fn _update(&mut self, input: &Input, gpu_work: &GPUWork, perf: &Perf) {
         {

@@ -265,6 +265,9 @@ impl Transforms {
         self.meta.len() - self.avail.len()
         // self.count as usize
     }
+    pub fn len(&self) -> usize {
+        self.meta.len()
+    }
     pub fn get<'a>(&self, t: i32) -> Transform {
         // TODO: make option
         Transform {
@@ -455,6 +458,9 @@ impl Transforms {
     //         T: Fn() -> _Transform + Send + Sync, {
 
     //         }
+    pub fn multi_transform(&mut self, parent:i32, count: i32) -> CacheVec<i32> {
+        self.multi_transform_with(parent, count, || _Transform::default())
+    }
     pub fn multi_transform_with<T>(&mut self, parent: i32, count: i32, t_func: T) -> CacheVec<i32>
     where
         T: Fn() -> _Transform + Send + Sync,
