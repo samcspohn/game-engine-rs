@@ -197,7 +197,7 @@ impl<
         count: i32,
         _t: &[i32],
         transforms: &Transforms,
-        sys: &mut Sys,
+        sys: &Sys,
         entities: &Vec<Mutex<Option<Entity>>>,
         d: &D,
     ) where

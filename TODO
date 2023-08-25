@@ -15,6 +15,7 @@ game-engine:
   ☐ rework autocompilation
   ☐ add priority to asset loading
   ☐ fix transform children mem balloon when creating & destroying
+  ☐ fix seg fault (loading dylib?)
   optimizations:
     ☐ write transform update data using ptr(&[],&[])
       let m_slice = &mut mapping[offset..offset + i.len()];

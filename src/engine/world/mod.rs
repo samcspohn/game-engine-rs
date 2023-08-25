@@ -80,6 +80,7 @@ pub struct World {
     pub sys: Sys,
     pub(crate) to_destroy: Mutex<Vec<i32>>,
     pub(crate) to_instantiate: Mutex<Vec<_EntityParBuilder>>,
+    active_ent: i32,
 }
 
 //  T_ = 'static
@@ -91,6 +92,7 @@ pub struct World {
 //     + Clone
 //     + Serialize
 //     + for<'a> Deserialize<'a>;
+
 #[allow(dead_code)]
 impl World {
     pub fn new(
@@ -119,6 +121,7 @@ impl World {
             },
             to_destroy: Mutex::new(Vec::new()),
             to_instantiate: Mutex::new(Vec::new()),
+            active_ent: 1,
         }
     }
     pub fn defer_instantiate(&mut self, perf: &Perf) {
@@ -127,6 +130,9 @@ impl World {
         std::mem::swap(a.as_mut(), &mut to_instantiate);
         drop(a);
         for a in to_instantiate.into_iter() {
+            
+
+
             if let Some(t_func) = a.t_func {
                 let inst = Instant::now();
                 let world_instantiate_transforms = perf.node("world instantiate transforms");
@@ -149,12 +155,14 @@ impl World {
                         ent.push(Mutex::new(Some(Entity::new())));
                     }
                 }
+
+
                 drop(ent);
                 drop(world_instantiate_ent);
-
-                for b in a.comp_funcs.iter() {
+                let instantiate_components = perf.node("world instantiate _ components");
+                a.comp_funcs.par_iter().for_each(|b| {
                     b(self, t.get(), perf);
-                }
+                });
             }
         }
         // to_instantiate.clear();

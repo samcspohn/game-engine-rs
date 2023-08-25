@@ -37,7 +37,7 @@ pub(crate) struct _EntityParBuilder {
     pub(crate) chunk: i32,
     pub(crate) parent: i32,
     pub(crate) t_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
-    pub(crate) comp_funcs: Vec<Box<dyn Fn(&mut World, &Vec<i32>, &Perf) + Send + Sync>>,
+    pub(crate) comp_funcs: Vec<Box<dyn Fn(&World, &Vec<i32>, &Perf) + Send + Sync>>,
 }
 
 impl _EntityParBuilder {
@@ -57,7 +57,7 @@ pub struct EntityParBuilder<'a> {
     chunk: i32,
     parent: i32,
     transform_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
-    comp_funcs: Vec<Box<dyn Fn(&mut World, &Vec<i32>, &Perf) + Send + Sync>>,
+    comp_funcs: Vec<Box<dyn Fn(&World, &Vec<i32>, &Perf) + Send + Sync>>,
 }
 impl<'a> EntityParBuilder<'a> {
     pub fn new(parent: i32, count: i32, chunk: i32, world: &'a World) -> Self {
@@ -97,7 +97,7 @@ impl<'a> EntityParBuilder<'a> {
         D: Fn() -> T + 'static + Send + Sync,
     {
         self.comp_funcs.push(Box::new(
-            move |world: &mut World, t_: &Vec<i32>, perf: &Perf| {
+            move |world: &World, t_: &Vec<i32>, perf: &Perf| {
                 let key = T::ID;
                 if let Some(stor) = world.components.get(&key) {
                     let mut stor_lock = stor.write();
@@ -111,7 +111,7 @@ impl<'a> EntityParBuilder<'a> {
                         self.count,
                         &t_,
                         &world.transforms,
-                        &mut world.sys,
+                        &world.sys,
                         &entities,
                         &f,
                     );
