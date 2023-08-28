@@ -1,5 +1,6 @@
 #![allow(warnings)]
 #![feature(downcast_unchecked)]
+#![feature(sync_unsafe_cell)]
 
 mod editor;
 mod engine;

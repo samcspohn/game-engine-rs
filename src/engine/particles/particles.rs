@@ -1,7 +1,7 @@
-use std::sync::{
+use std::{sync::{
     atomic::{AtomicI32, AtomicUsize, Ordering},
     Arc,
-};
+}, cell::SyncUnsafeCell};
 
 use crate::{
     editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
@@ -31,7 +31,6 @@ use crossbeam::queue::SegQueue;
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
-use sync_unsafe_cell::SyncUnsafeCell;
 use vulkano::{
     buffer::{
         cpu_pool::CpuBufferPoolSubbuffer, BufferAccess, CpuAccessibleBuffer, CpuBufferPool,
@@ -162,7 +161,7 @@ impl<T: Copy> AtomicVec<T> {
         // let index = self.index.fetch_add(1, Ordering::Relaxed);
         unsafe {
             let _l = self.lock.lock();
-            if i >= (*self.data.get()).len() {
+            while i >= (*self.data.get()).len() {
                 let data = &mut (*self.data.get());
                 let len = data.len() + 1;
                 let new_len = (data.len() + 1).next_power_of_two();

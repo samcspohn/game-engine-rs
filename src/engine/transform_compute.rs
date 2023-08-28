@@ -8,7 +8,6 @@ use crate::engine::{
 use nalgebra_glm as glm;
 use puffin_egui::puffin;
 use rayon::prelude::*;
-use sync_unsafe_cell::SyncUnsafeCell;
 use vulkano::{
     buffer::{
         BufferContents, BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer,

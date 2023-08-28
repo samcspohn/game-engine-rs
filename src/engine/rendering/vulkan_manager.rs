@@ -4,12 +4,11 @@ use std::{
     sync::{
         atomic::{AtomicI32, Ordering},
         Arc,
-    },
+    }, cell::SyncUnsafeCell,
 };
 
 use nohash_hasher::NoHashHasher;
 use parking_lot::Mutex;
-use sync_unsafe_cell::SyncUnsafeCell;
 use thincollections::thin_map::ThinMap;
 use vulkano::{
     buffer::CpuAccessibleBuffer,

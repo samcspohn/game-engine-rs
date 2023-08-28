@@ -7,9 +7,8 @@ use std::{
     fs,
     marker::PhantomData,
     path::Path,
-    sync::Arc,
+    sync::Arc, cell::SyncUnsafeCell,
 };
-use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::{
     editor::{

@@ -20,7 +20,6 @@ use crossbeam::queue::SegQueue;
 use egui::TextureId;
 use force_send_sync::SendSync;
 use serde::{Deserialize, Serialize};
-use sync_unsafe_cell::SyncUnsafeCell;
 
 use rayon::prelude::*;
 

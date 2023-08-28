@@ -3,14 +3,13 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    },
+    }, cell::SyncUnsafeCell,
 };
 
 use lazy_static::lazy_static;
 use nalgebra_glm::{Vec2, vec2};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::{
     editor::inspectable::{Inpsect, Ins},

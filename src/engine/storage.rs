@@ -2,7 +2,7 @@ use std::{
     any::{Any, TypeId},
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap},
-    sync::atomic::{AtomicBool, AtomicI32, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, Ordering}, cell::SyncUnsafeCell,
 };
 
 use bitvec::vec::BitVec;
@@ -11,8 +11,6 @@ use parking_lot::Mutex;
 use rayon::prelude::*;
 use segvec::SegVec;
 use serde::{Deserialize, Serialize};
-use sync_unsafe_cell::SyncUnsafeCell;
-
 use crate::editor::inspectable::Inspectable;
 
 use super::{

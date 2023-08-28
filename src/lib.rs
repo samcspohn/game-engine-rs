@@ -1,6 +1,7 @@
 // mod engine;
 #![allow(warnings, unused)]
 #![feature(downcast_unchecked)]
+#![feature(sync_unsafe_cell)]
 
 pub mod editor;
 pub mod engine;

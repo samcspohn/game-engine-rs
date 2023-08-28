@@ -14,15 +14,13 @@ use rayon::prelude::*;
 use num_integer::Roots;
 
 use serde::{Deserialize, Serialize};
-use sync_unsafe_cell::SyncUnsafeCell;
-
 use std::{
     cmp::Reverse,
     collections::BinaryHeap,
     sync::{
         atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
         Arc,
-    },
+    }, cell::SyncUnsafeCell,
 };
 
 pub struct TransformMeta {
