@@ -21,14 +21,14 @@ use rayon::{
     Scope,
 };
 use serde::{Deserialize, Serialize};
-use thincollections::thin_map::ThinMap;
+use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
 use crate::editor::inspectable::Inspectable;
 
 use self::{
     component::{Component, System, _ComponentID},
     entity::{Entity, EntityParBuilder, _EntityParBuilder},
-    transform::{Transform, Transforms, _Transform},
+    transform::{CacheVec, Transform, Transforms, VecCache, _Transform},
 };
 
 use super::{
@@ -67,7 +67,6 @@ impl Sys {
 }
 
 pub struct World {
-    pub(crate) entities: RwLock<Vec<Mutex<Option<Entity>>>>,
     pub(crate) transforms: Transforms,
     pub(crate) components: HashMap<
         u64,
@@ -102,7 +101,6 @@ impl World {
         let mut trans = Transforms::new();
         let root = trans.new_root();
         World {
-            entities: RwLock::new(vec![Mutex::new(None)]),
             transforms: trans,
             components: HashMap::default(),
             components_names: HashMap::new(),
@@ -137,49 +135,34 @@ impl World {
         parent: i32,
         transform: transform::_Transform,
     ) -> i32 {
-        let ret = self.transforms.new_transform_with(parent, transform);
-        {
-            let entities = &mut self.entities.write();
-            if ret as usize >= entities.len() {
-                entities.push(Mutex::new(Some(Entity::new())));
-            } else {
-                entities[ret as usize] = Mutex::new(Some(Entity::new()));
-            }
-        }
-        ret
+        self.transforms.new_transform_with(parent, transform)
     }
     fn copy_game_object_child(&mut self, t: i32, new_parent: i32) -> i32 {
-        let tr = self.transforms.get(t).get_transform();
+        let tr = self.transforms.get(t).unwrap().get_transform();
         let g = self.instantiate_with_transform_with_parent(new_parent, tr);
-        let entities = self.entities.read();
-        let src = entities[t as usize].lock();
-        let mut dest = entities[g as usize].lock();
-        if let (Some(src_ent), Some(dest_ent)) = (&mut src.as_ref(), &mut dest.as_mut()) {
-            for c in src_ent.components.iter() {
-                dest_ent.components.insert(
-                    c.0.clone(),
-                    self.copy_component_id(&self.transforms.get(g), c.0.clone(), *c.1),
-                );
-            }
-            let children: Vec<i32> = self
-                .transforms
-                .get(t)
-                .get_children()
-                .map(|t| t.id)
-                .collect();
-            drop(src);
-            drop(dest);
-            drop(entities);
-            for c in children {
-                self.copy_game_object_child(c, g);
-            }
-        } else {
-            panic!("copy object not valid");
+        let children =
+            if let (Some(src), Some(dest)) = (self.transforms.get(t), self.transforms.get(g)) {
+                let src_ent = src.entity();
+                let dest_ent = dest.entity();
+                for c in src_ent.components.iter() {
+                    dest_ent
+                        .components
+                        .insert(c.0.clone(), self.copy_component_id(&src, c.0.clone(), *c.1));
+                }
+                let children: Vec<i32> = src.get_children().map(|t| t.id).collect();
+                drop(src);
+                drop(dest);
+                children
+            } else {
+                Vec::new()
+            };
+        for c in children {
+            self.copy_game_object_child(c, g);
         }
         g
     }
     pub fn copy_game_object(&mut self, t: i32) -> i32 {
-        let trans = self.transforms.get(t);
+        let trans = self.transforms.get(t).unwrap();
         let parent = { trans.get_parent().id };
         drop(trans);
         self.copy_game_object_child(t, parent)
@@ -226,34 +209,31 @@ impl World {
     //     }
     // }
     pub fn add_component_id(&mut self, g: i32, key: u64, c_id: i32) {
-        if let Some(ent) = self.entities.read()[g as usize].lock().as_mut() {
-            ent.components.insert(key.clone(), c_id);
-            if let Some(stor) = self.components.get(&key) {
-                let trans = self.transforms.get(g);
-                stor.write().init(&trans, c_id, &self.sys);
-            }
+        let trans = self.transforms.get(g).unwrap();
+        let ent = trans.entity();
+        ent.components.insert(key.clone(), c_id);
+        if let Some(stor) = self.components.get(&key) {
+            stor.write().init(&trans, c_id, &self.sys);
         }
     }
     pub fn deserialize(&mut self, g: i32, key: String, s: serde_yaml::Value) {
         if let Some(stor) = self.components_names.get(&key) {
             let mut stor = stor.write();
             let c_id = stor.deserialize(g, s);
-            let trans = self.transforms.get(g);
+            let trans = self.transforms.get(g).unwrap();
             stor.init(&trans, c_id, &self.sys);
-            if let Some(ent) = self.entities.read()[g as usize].lock().as_mut() {
-                ent.components.insert(stor.get_id(), c_id);
-            }
+            let ent = trans.entity();
+            ent.components.insert(stor.get_id(), c_id);
         } else {
             panic!("no type key: {}", key);
         }
     }
     pub fn remove_component(&mut self, g: i32, key: u64, c_id: i32) {
-        if let Some(ent) = self.entities.read()[g as usize].lock().as_mut() {
-            if let Some(stor) = self.components.get(&key) {
-                let trans = self.transforms.get(g);
-                stor.write().deinit(&trans, c_id, &self.sys);
-                stor.write().remove(c_id);
-            }
+        if let Some(stor) = self.components.get(&key) {
+            let trans = self.transforms.get(g).unwrap();
+            let ent = trans.entity();
+            stor.write().deinit(&trans, c_id, &self.sys);
+            stor.write().remove(c_id);
             ent.components.remove(&key);
         }
     }
@@ -299,7 +279,6 @@ impl World {
     >(
         &mut self,
     ) {
-        // let key: TypeId = TypeId::of::<T>();
         let key = T::ID;
         self.components.remove(&key);
         self.components_names
@@ -307,30 +286,84 @@ impl World {
     }
     pub fn defer_instantiate(&mut self, perf: &Perf) {
         let mut to_instantiate = self.to_instantiate.lock();
-        for a in to_instantiate.iter() {
-            let world_instantiate_transforms = perf.node("world instantiate transforms");
-            let t = if let Some(t_func) = &a.t_func {
-                self.transforms
-                    .multi_transform_with(a.parent, a.count, t_func)
-            } else {
-                self.transforms.multi_transform(a.parent, a.count)
-            };
-            drop(world_instantiate_transforms);
-
-            let world_instantiate_ent = perf.node("world instantiate entities");
-            let mut ent = self.entities.write();
-            ent.resize_with(self.transforms.len(), || Mutex::new(None));
-            t.get().par_iter().for_each(|i| {
-                *ent[*i as usize].lock() = Some(Entity::new());
-            });
-            drop(ent);
-            drop(world_instantiate_ent);
-
-            let instantiate_components = perf.node("world instantiate _ components");
-            a.comp_funcs.par_iter().for_each(|b| {
-                b(self, t.get(), perf);
-            });
+        if to_instantiate.len() == 0 {
+            return;
         }
+        let v = VecCache::new();
+        // to parallelize
+        let mut component_transform_offsets: HashMap<
+            u64,
+            (
+                i32,                // offset counter 0
+                i32,                // c_id 1
+                i32,                // count 2
+                ThinVec<i32>,       // 3
+                Arc<CacheVec<i32>>, // 4
+            ),
+        > = self
+            .components
+            .iter()
+            .map(|(id, c)| (*id, (0, 0, 0, ThinVec::new(), Arc::new(v.get_vec(0)))))
+            .collect();
+        let mut transform_funcs: Vec<(
+            i32,
+            i32,
+            Option<&Box<dyn Fn() -> _Transform + Send + Sync>>,
+        )> = Vec::new();
+        let mut offset = 0;
+        let mut offsets = Vec::new();
+
+        // parallel
+        for a in to_instantiate.iter() {
+            if let Some(t_func) = &a.t_func {
+                transform_funcs.push((a.parent, a.count, Some(t_func)));
+            } else {
+                transform_funcs.push((a.parent, a.count, None));
+            }
+            for b in a.comp_funcs.iter() {
+                let c = component_transform_offsets.get_mut(&b.0).unwrap();
+                c.2 += a.count;
+                c.3.push(offset);
+            }
+            offsets.push(offset);
+            offset += a.count;
+        }
+        let world_instantiate_transforms = perf.node("world instantiate transforms");
+        let t = self
+            .transforms
+            .multi_transform_with(offset as usize, transform_funcs, &offsets);
+
+        drop(world_instantiate_transforms);
+        let instantiate_components = perf.node("world instantiate _ components");
+        self.components.iter().for_each(|(id, c)| {
+            let offsets = component_transform_offsets.get_mut(&id).unwrap();
+            offsets.4 = Arc::new(c.write().allocate(offsets.2 as usize));
+        });
+        let new_transforms = &t.get();
+        let _self = &self;
+        let mut t_offset = 0;
+        rayon::scope(|s| {
+            for (i, a) in to_instantiate.iter().enumerate() {
+                for b in a.comp_funcs.iter() {
+                    let c = component_transform_offsets.get_mut(&b.0).unwrap();
+                    let c_offset = c.0;
+                    c.0 += a.count;
+                    let c_ids = c.4.clone();
+                    s.spawn(move |s| {
+                        b.1(
+                            &_self,
+                            &new_transforms,
+                            &perf,
+                            t_offset,
+                            c_offset as usize,
+                            &c_ids.get(),
+                        );
+                    });
+                    c.1 += 1;
+                }
+                t_offset += a.count as usize;
+            }
+        });
         to_instantiate.clear();
     }
     pub fn destroy(&self, g: i32) {
@@ -346,31 +379,31 @@ impl World {
         >,
         sys: &Sys,
         _t: i32,
-        entities: &'a RwLockWriteGuard<Vec<Mutex<Option<Entity>>>>,
     ) {
         let g = _t;
-
-        // delete children first
-        let mut ent = entities[g as usize].lock();
-        if let Some(ent_mut) = ent.as_mut() {
-            {
-                let children: Vec<i32> = transforms.get(_t).get_children().map(|t| t.id).collect();
-                for t in children {
-                    Self::__destroy(transforms, components, sys, t, entities);
-                }
-            }
-            {
-                let trans = transforms.get(_t);
-                for (t, id) in ent_mut.components.iter() {
-                    let stor = &mut components.get(t).unwrap();
-
-                    stor.deinit(&trans, *id, &sys);
-                    stor.remove(*id);
-                }
-                // remove entity
-                *ent = None;
+        {
+            let children: Vec<i32> = transforms
+                .get(_t)
+                .unwrap()
+                .get_children()
+                .map(|t| t.id)
+                .collect();
+            for t in children {
+                Self::__destroy(transforms, components, sys, t);
             }
         }
+        {
+            let trans = transforms.get(_t).unwrap();
+            for (t, id) in trans.entity().components.iter() {
+                let stor = &mut components.get(t).unwrap();
+
+                stor.deinit(&trans, *id, &sys);
+                stor.remove(*id);
+            }
+            // remove entity
+            // *ent = None;
+        }
+        // }
 
         // remove transform
         transforms.remove(_t);
@@ -378,7 +411,6 @@ impl World {
     pub(crate) fn _destroy(&mut self, perf: &Perf) {
         {
             let world_destroy_todestroy = perf.node("world _destroy to_destroy");
-            let mut ent = self.entities.write();
             let mut to_destroy = self.to_destroy.lock();
 
             let mut unlocked: HashMap<
@@ -391,7 +423,7 @@ impl World {
             });
 
             to_destroy.par_iter().for_each(|t| {
-                Self::__destroy(&self.transforms, &unlocked, &self.sys, *t, &ent);
+                Self::__destroy(&self.transforms, &unlocked, &self.sys, *t);
             });
             to_destroy.clear();
         }
@@ -475,7 +507,7 @@ impl World {
                 if unsafe { *v.get() } {
                     let mut d = d.lock();
                     let id: i32 = d.0;
-                    d.1._update(&self.transforms.get(id));
+                    d.1._update(&self.transforms.get(id).unwrap());
                 }
             });
     }
@@ -551,18 +583,16 @@ impl World {
             unlocked.insert(*c.0, c.1.read());
         });
 
-        for (_t, i) in self.entities.read().iter().enumerate() {
-            let mut a = i.lock();
-            if let Some(ent) = a.as_mut() {
-                let trans = self.transforms.get(_t as i32);
+        for i in 0..self.transforms.valid.len() {
+            if let Some(trans) = self.transforms.get(i as i32) {
+                let ent = trans.entity();
                 for (t, id) in ent.components.iter() {
                     let stor = &mut unlocked.get(t).unwrap();
                     stor.deinit(&trans, *id, &self.sys);
                     stor.remove(*id);
                 }
+                self.transforms.remove(i as i32);
             }
-            // remove entity
-            *a = None;
         }
 
         self.sys.renderer_manager.write().clear();
@@ -570,6 +600,6 @@ impl World {
 
         self.transforms.clean();
         self.root = self.transforms.new_root();
-        self.entities.write().push(Mutex::new(None));
+        // self.entities.write().push(Mutex::new(None));
     }
 }

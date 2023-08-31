@@ -214,7 +214,7 @@ fn main() {
                     Some(a) => a,
                     None => return,
                 };
-               
+
                 if !playing_game {
                     editor_cam.update(&engine.input);
                 }
@@ -346,7 +346,7 @@ fn main() {
                     .unwrap()
                     .set_viewport(0, [viewport.clone()]);
                 // engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
-            
+
                 let _get_gui_commands = engine.perf.node("_ get gui commands");
                 let size = vk.window().inner_size();
                 let gui_commands = gui.draw_on_subpass_image([size.width, size.height]);
@@ -361,8 +361,7 @@ fn main() {
                 let _build_command_buffer = engine.perf.node("_ build command buffer");
                 let command_buffer = builder.build().unwrap();
                 drop(_build_command_buffer);
-                
-                
+
                 let _wait_for_previous_frame = engine.perf.node("_ wait for previous frame");
                 let execute = previous_frame_end
                     .take()
@@ -370,7 +369,7 @@ fn main() {
                     .join(acquire_future)
                     .then_execute(vk.queue.clone(), command_buffer);
                 drop(_wait_for_previous_frame);
-                
+
                 let _execute = engine.perf.node("_ execute");
                 match execute {
                     Ok(execute) => {
@@ -406,7 +405,6 @@ fn main() {
                     }
                 };
                 drop(_execute);
-
 
                 // was playing != next frame playing?
                 if playing_game != _playing_game {

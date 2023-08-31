@@ -1,9 +1,9 @@
-
-
 use serde::{Deserialize, Serialize};
 
-use crate::engine::world::{transform::{_Transform, Transforms}, World};
-
+use crate::engine::world::{
+    transform::{Transforms, _Transform},
+    World,
+};
 
 #[derive(Serialize, Deserialize)]
 struct SerGameObject {
@@ -13,27 +13,27 @@ struct SerGameObject {
 }
 
 fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject {
+    let trans = world.transforms.get(t).unwrap();
     let mut g_o = SerGameObject {
-        t: world.transforms.get(t).get_transform(), // set t
+        t: trans.get_transform(), // set t
         c: vec![],
         t_c: vec![],
     };
     // set components
-    let entities = world.entities.read();
-    if let Some(ent) = entities[t as usize].lock().as_ref() {
-        for c in ent.components.iter() {
-            if let Some(stor) = &world.components.get(c.0) {
-                let t_id: String = stor.read().get_name().to_string();
-                // let t_id: String = format!("{:?}",c.0);
-                g_o.c
-                    .push((t_id, stor.read().serialize(*c.1)));
-            }
+    // let entities = world.entities.read();
+    // if let Some(ent) = entities[t as usize].lock().as_ref() {
+    let ent = trans.entity();
+    for c in ent.components.iter() {
+        if let Some(stor) = &world.components.get(c.0) {
+            let t_id: String = stor.read().get_name().to_string();
+            // let t_id: String = format!("{:?}",c.0);
+            g_o.c.push((t_id, stor.read().serialize(*c.1)));
         }
     }
 
     // set children
-    let t = transforms.get(t);
-    for c in t.get_meta().children.iter() {
+    // let t = transforms.get(t);
+    for c in trans.get_meta().children.iter() {
         g_o.t_c.push(serialize_c(*c, world, transforms));
     }
     g_o
@@ -46,7 +46,7 @@ pub fn serialize(world: &World) {
     //     id: root,
     //     transforms: &transforms,
     // };
-    let t_r = transforms.get(root);
+    let t_r = transforms.get(root).unwrap();
     let mut root = SerGameObject {
         t: _Transform::default(),
         c: vec![],

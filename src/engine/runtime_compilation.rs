@@ -29,8 +29,14 @@ lazy_static! {
 impl RSFile {}
 impl Asset<RSFile, ()> for RSFile {
     fn from_file(file: &str, params: &()) -> RSFile {
+        let mut args = vec!["build"];
+        #[cfg(not(debug_assertions))]
+        {
+            println!("compiling {} for release", file);
+            args.push("-r");
+        }
         Command::new("cargo")
-            .args(&["build", "-r"])
+            .args(args.as_slice())
             .status()
             .unwrap();
 

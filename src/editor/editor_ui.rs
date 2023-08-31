@@ -324,7 +324,7 @@ pub fn editor_ui(
                                             });
                                         }
 
-                                        let root = transforms.get(0);
+                                        let root = transforms.get(0).unwrap();
                                         let mut count = 0;
 
                                         // unsafe {
@@ -374,7 +374,7 @@ pub fn editor_ui(
                                 if let Some(cm) = &CONTEXT_MENU {
                                     let e = match cm {
                                         GameObjectContextMenu::NewGameObject(t_id) => {
-                                            let _t = world.transforms.get(*t_id).get_transform();
+                                            let _t = world.transforms.get(*t_id).unwrap().get_transform();
                                             let e = world
                                                 .instantiate_with_transform_with_parent(*t_id, _t);
                                             println!("add game object");

@@ -1,25 +1,29 @@
 use std::{
     any::{Any, TypeId},
+    cell::SyncUnsafeCell,
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap},
-    sync::atomic::{AtomicBool, AtomicI32, Ordering}, cell::SyncUnsafeCell,
+    ops::Div,
+    sync::atomic::{AtomicBool, AtomicI32, Ordering},
 };
 
+use crate::editor::inspectable::Inspectable;
 use bitvec::vec::BitVec;
 use crossbeam::queue::SegQueue;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 use segvec::SegVec;
 use serde::{Deserialize, Serialize};
-use crate::editor::inspectable::Inspectable;
+use thincollections::thin_vec::ThinVec;
 
 use super::{
     input::Input,
     particles::particles::AtomicVec,
+    perf::Perf,
     world::{
         component::{Component, System, _ComponentID},
         entity::Entity,
-        transform::{Transform, Transforms, VecCache},
+        transform::{CacheVec, Transform, Transforms, VecCache},
         Sys, World,
     },
     RenderJobData,
@@ -87,11 +91,7 @@ pub trait StorageBase {
     fn get_type(&self) -> TypeId;
     fn new_default(&mut self, t: i32) -> i32;
     fn reduce_last(&mut self);
-    // fn new(
-    //     &mut self,
-    //     t: i32,
-    //     f: &Box<dyn Fn() -> (impl Component) + 'static + Sync + Send>,
-    // ) -> i32;
+    fn allocate(&mut self, count: usize) -> CacheVec<i32>;
     fn serialize(&self, i: i32) -> serde_yaml::Value;
     fn deserialize(&mut self, transform: i32, d: serde_yaml::Value) -> i32;
     fn clear(&mut self, transforms: &Transforms, sys: &Sys);
@@ -135,11 +135,13 @@ impl Avail {
         self.data.len()
     }
 }
+
 #[repr(C)]
 pub struct Storage<T> {
     pub data: SegVec<Mutex<(i32, T)>>,
     pub valid: SegVec<SyncUnsafeCell<bool>>,
     new_ids_cache: VecCache<i32>,
+    new_offsets_cache: VecCache<i32>,
     avail: Avail,
     last: i32,
     extent: i32,
@@ -160,6 +162,9 @@ impl<
             + for<'a> Deserialize<'a>,
     > Storage<T>
 {
+    pub fn len(&self) -> usize {
+        self.valid.len()
+    }
     pub fn get_next_id(&mut self) -> (bool, i32) {
         if let Some(i) = self.avail.pop() {
             self.last = self.last.max(i);
@@ -181,6 +186,15 @@ impl<
         self.data.push(Mutex::new((transform, d)));
         self.valid.push(SyncUnsafeCell::new(true));
     }
+    fn reserve(&mut self, count: usize) {
+        let c = self.avail.len().min(count);
+        let c = count - c;
+        if c > 0 {
+            let c = c + self.len();
+            self.data.resize_with(c, || Mutex::new((-1, T::default())));
+            self.valid.resize_with(c, || SyncUnsafeCell::new(false));
+        }
+    }
     pub fn insert(&mut self, transform: i32, d: T) -> i32 {
         let (write, id) = self.get_next_id();
         if write {
@@ -190,65 +204,51 @@ impl<
         }
         id
     }
-    pub fn insert_multi<D>(
-        &mut self,
-        count: i32,
-        _t: &[i32],
-        transforms: &Transforms,
-        sys: &Sys,
-        entities: &Vec<Mutex<Option<Entity>>>,
-        d: &D,
-    ) where
-        D: Fn() -> T + Send + Sync,
-    {
-        let c = self.avail.data.len().min(count as usize);
-        let mut max = 0;
-        let ids = self.new_ids_cache.get_vec(c as usize);
+    pub(crate) fn _allocate(&mut self, count: usize) -> CacheVec<i32> {
+        let mut r = self.new_ids_cache.get_vec(count);
+        let c = self.avail.len().min(count as usize);
+        self.reserve(count);
+        let mut max = -1;
         for _ in 0..c {
             if let Some(i) = self.avail.pop() {
                 max = i;
-                ids.push(i);
+                r.push(i);
             }
         }
+        // self.count += c as i32;
         self.last = self.last.max(max);
-        ids.get()
-            .par_iter()
-            .zip_eq(_t[0..c].par_iter())
-            .for_each(|(id, transform)| {
-                let trans = transforms.get(*transform);
-                self.write_t(*id, *transform, d());
-                self.init(&trans, *id, sys);
-                if let Some(ent) = entities[*transform as usize].lock().as_mut() {
-                    ent.components.insert(T::ID, *id);
-                }
-            });
-
-        for t in _t[c..count as usize].iter() {
-            let trans = transforms.get(*t);
-            let id = self.insert(*t, d());
-            self.init(&trans, id, sys);
-            if let Some(ent) = entities[*t as usize].lock().as_mut() {
-                ent.components.insert(T::ID, id);
-            }
-            // ids.push(i);
+        // r.get().resize(count, -1);
+        for i in (c..count) {
+            self.last += 1;
+            r.get().push(self.last);
         }
-        // ids.get()
-        //     .par_iter()
-        //     .zip_eq(_t.par_iter())
-        //     .for_each(|(id, t)| {
-        //         let trans = transforms.get(*t);
-        //         self.init(&trans, *id, sys);
-        //         if let Some(ent) = entities[*t as usize].lock().as_mut() {
-        //             ent.components.insert(T::ID, *id);
-        //         }
-        //     });
-
-        // let c_id = stor.insert(*g, f());
-        // let trans = world.transforms.get(*g);
-        // stor.init(&trans, c_id, &mut world.sys);
-        // if let Some(ent) = entities[*g as usize].lock().as_mut() {
-        //     ent.components.insert(key.clone(), c_id);
-        // }
+        self.extent = self.extent.max(self.last + 1);
+        r
+    }
+    pub(crate) fn insert_multi<D>(
+        &self,
+        count: usize,
+        transforms: &Transforms,
+        sys: &Sys,
+        t_: &[i32],
+        t_offset: usize,
+        perf: &Perf,
+        c_offset: usize,
+        c_ids: &[i32],
+        // c_id: usize,
+        f: &D,
+    ) where
+        D: Fn() -> T + Send + Sync,
+    {
+        (0..count).into_par_iter().for_each(|i| {
+            let id = c_ids[c_offset + i];
+            let t = t_[t_offset + i];
+            self.write_t(id, t, f());
+            if let Some(trans) = transforms.get(t) {
+                self.init(&trans, id, sys);
+                trans.entity().components.insert(T::ID, id);
+            }
+        });
     }
     fn _reduce_last(&mut self) {
         self.avail.commit();
@@ -259,42 +259,20 @@ impl<
         }
         self.last = id;
     }
-    // pub fn clean(
-    //     &mut self,
-    //     transforms: &Transforms,
-    //     sys: &Sys,
-    //     _t: i32,
-    //     entities: &Vec<Mutex<Option<Entity>>>,
-    // ) {
-    //     self.valid.iter().enumerate().for_each(|(i, mut a)| {
-    //         if unsafe { *a.get() } {
-    //             self.avail.push(i as i32);
-    //         }
-    //         unsafe {
-    //             *a.get() = false;
-    //         }
-    //         // a.set(false)
-    //     });
-    //     self.last = -1;
-    // }
     pub fn _erase(&self, id: i32) {
         // self.avail = self.avail.min(id);
         self.avail.push(id);
         unsafe {
             *self.valid[id as usize].get() = false;
         }
-
-        // self.reduce_last(id);
     }
-    // pub fn get(&self, i: &i32) -> &Mutex<T> {
-    //     &self.data[*i as usize]
-    // }
     pub fn new(has_update: bool, has_late_update: bool, has_render: bool) -> Storage<T> {
         Storage::<T> {
             data: SegVec::new(),
             valid: SegVec::new(),
             avail: Avail::new(),
             new_ids_cache: VecCache::new(),
+            new_offsets_cache: VecCache::new(),
             last: -1,
             extent: 0,
             has_update,
@@ -331,7 +309,7 @@ impl<
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].lock();
-                let trans = transforms.get(d.0);
+                let trans = transforms.get(d.0).unwrap();
                 d.1.update(&trans, &sys, world);
             }
         });
@@ -344,7 +322,7 @@ impl<
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].lock();
-                let trans = transforms.get(d.0);
+                let trans = transforms.get(d.0).unwrap();
                 d.1.late_update(&trans, &sys);
             }
         });
@@ -393,7 +371,7 @@ impl<
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].lock();
                 let id: i32 = d.0;
-                let trans = transforms.get(d.0);
+                let trans = transforms.get(d.0).unwrap();
                 d.1.deinit(&trans, id, sys);
             }
         });
@@ -428,7 +406,7 @@ impl<
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].lock();
-                let trans = transforms.get(d.0);
+                let trans = transforms.get(d.0).unwrap();
                 d.1.editor_update(&trans, &sys);
             }
             // }
@@ -439,5 +417,8 @@ impl<
     }
     fn reduce_last(&mut self) {
         self._reduce_last();
+    }
+    fn allocate(&mut self, count: usize) -> CacheVec<i32> {
+        self._allocate(count)
     }
 }
