@@ -28,9 +28,69 @@ impl Entity {
         }
     }
 }
-pub struct EntityBuilder {}
-impl EntityBuilder {
-    pub fn with_com<T: Component>(&mut self, d: T) {}
+
+pub(crate) struct _EntityBuilder {
+    // pub(crate) count: i32,
+    // pub(crate) chunk: i32,
+    pub(crate) parent: i32,
+    pub(crate) t_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
+    pub(crate) comp_funcs: Vec<(u64, Box<dyn Fn(&World)>)>,
+}
+
+impl _EntityBuilder {
+    fn from(g: EntityBuilder) -> Self {
+        Self {
+            parent: g.parent,
+            t_func: g.transform_func,
+            comp_funcs: g.comp_funcs,
+        }
+    }
+}
+pub struct EntityBuilder<'a> {
+    world: &'a World,
+    parent: i32,
+    transform_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
+    comp_funcs: Vec<(u64, Box<dyn Fn(&World)>)>,
+}
+impl<'a> EntityBuilder<'a> {
+    pub fn new(parent: i32, world: &'a World) -> Self {
+        EntityBuilder {
+            world,
+            parent: parent,
+            comp_funcs: Vec::new(),
+            transform_func: None,
+        }
+    }
+    pub fn with_com<
+        D,
+        T: 'static
+            + Send
+            + Sync
+            + Component
+            + _ComponentID
+            + Inspectable
+            + Default
+            + Clone
+            + Serialize
+            + for<'b> Deserialize<'b>,
+    >(
+        mut self,
+        f: D,
+    ) -> Self
+    where
+        D: Fn(&World) -> T + 'static + Send + Sync,
+    {
+        self.comp_funcs.push((T::ID, Box::new(|world: &World| {
+
+        })));
+        self
+    }
+    pub fn build(mut self) {
+        // self.world
+        //     .to_instantiate
+        //     .lock()
+        //     .push(_EntityParBuilder::from(self));
+    }
 }
 
 type CompFunc = (
@@ -129,26 +189,12 @@ impl<'a> EntityParBuilder<'a> {
                             c_ids,
                             &f,
                         );
-                        // for g in t_ {
-                        //     let c_id = stor.insert(*g, f());
-                        //     let trans = world.transforms.get(*g);
-                        //     stor.init(&trans, c_id, &mut world.sys);
-                        //     if let Some(ent) = entities[*g as usize].lock().as_mut() {
-                        //         ent.components.insert(key.clone(), c_id);
-                        //     }
-                        // }
                     } else {
                         panic!("no type key?")
                     }
                 },
             ),
         ));
-        // if let Some(stor) = self.world.components.get(&T::ID) {
-        //     let mut stor_lock = stor.write();
-        //     let stor: &mut Storage<T> = unsafe { stor_lock.as_any_mut().downcast_mut_unchecked() };
-        //     stor.insert_multi_2(self.t_offset_id, self.count, f);
-        // }
-        // self.comp_funcs.push(T::ID);
         self
     }
     pub fn build(mut self) {
