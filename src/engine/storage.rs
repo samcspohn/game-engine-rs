@@ -204,6 +204,16 @@ impl<
         }
         id
     }
+    pub fn insert_exact<D>(&self, id: i32, t: i32, transforms: &Transforms, sys: &Sys, f: &D)
+    where
+        D: Fn() -> T + Send + Sync,
+    {
+        self.write_t(id, t, f());
+        if let Some(trans) = transforms.get(t) {
+            self.init(&trans, id, sys);
+            trans.entity().components.insert(T::ID, id);
+        }
+    }
     pub(crate) fn _allocate(&mut self, count: usize) -> CacheVec<i32> {
         let mut r = self.new_ids_cache.get_vec(count);
         let c = self.avail.len().min(count as usize);

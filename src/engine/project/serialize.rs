@@ -60,7 +60,7 @@ pub fn serialize(world: &World) {
 }
 
 fn deserialize_c(parent: i32, sgo: SerGameObject, world: &mut World) {
-    let g = world.instantiate_with_transform_with_parent(parent, sgo.t);
+    let g = world.create_with_transform_with_parent(parent, sgo.t);
     for (typ, val) in sgo.c {
         // let id: TypeId = unsafe {std::mem::transmute(typ)};
         world.deserialize(g, typ, val);

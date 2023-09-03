@@ -376,7 +376,7 @@ pub fn editor_ui(
                                         GameObjectContextMenu::NewGameObject(t_id) => {
                                             let _t = world.transforms.get(*t_id).unwrap().get_transform();
                                             let e = world
-                                                .instantiate_with_transform_with_parent(*t_id, _t);
+                                                .create_with_transform_with_parent(*t_id, _t);
                                             println!("add game object");
                                             e
                                         }
@@ -406,7 +406,7 @@ pub fn editor_ui(
                                 resp.response.context_menu(|ui: &mut Ui| {
                                     let resp = ui.menu_button("Add Game Object", |_ui| {});
                                     if resp.response.clicked() {
-                                        let e = world.instantiate();
+                                        let e = world.create();
                                         unsafe {
                                             _selected = Some(e);
                                             _SELECTED_TRANSFORMS.clear();

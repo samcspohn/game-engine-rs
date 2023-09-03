@@ -27,7 +27,7 @@ use crate::editor::inspectable::Inspectable;
 
 use self::{
     component::{Component, System, _ComponentID},
-    entity::{Entity, EntityParBuilder, _EntityParBuilder},
+    entity::{Entity, EntityParBuilder, Unlocked, _EntityParBuilder, _EntityBuilder, EntityBuilder},
     transform::{CacheVec, Transform, Transforms, VecCache, _Transform},
 };
 
@@ -78,7 +78,8 @@ pub struct World {
     pub(crate) root: i32,
     pub sys: Sys,
     pub(crate) to_destroy: Mutex<Vec<i32>>,
-    pub(crate) to_instantiate: Mutex<Vec<_EntityParBuilder>>,
+    pub(crate) to_instantiate_multi: Mutex<Vec<_EntityParBuilder>>,
+    pub(crate) to_instantiate: Mutex<Vec<_EntityBuilder>>,
 }
 
 //  T_ = 'static
@@ -117,20 +118,24 @@ impl World {
                 defer: Defer::new(),
             },
             to_destroy: Mutex::new(Vec::new()),
+            to_instantiate_multi: Mutex::new(Vec::new()),
             to_instantiate: Mutex::new(Vec::new()),
         }
+    }
+    pub fn instantiate(&self, parent: i32) -> EntityBuilder {
+        EntityBuilder::new(parent, &self)
     }
 
     pub fn instantiate_many(&self, count: i32, chunk: i32, parent: i32) -> EntityParBuilder {
         EntityParBuilder::new(parent, count, chunk, &self)
     }
-    pub fn instantiate(&mut self) -> i32 {
-        self.instantiate_with_transform(_Transform::default())
+    pub fn create(&mut self) -> i32 {
+        self.create_with_transform(_Transform::default())
     }
-    pub fn instantiate_with_transform(&mut self, transform: transform::_Transform) -> i32 {
-        self.instantiate_with_transform_with_parent(self.root, transform)
+    pub fn create_with_transform(&mut self, transform: transform::_Transform) -> i32 {
+        self.create_with_transform_with_parent(self.root, transform)
     }
-    pub fn instantiate_with_transform_with_parent(
+    pub fn create_with_transform_with_parent(
         &mut self,
         parent: i32,
         transform: transform::_Transform,
@@ -139,7 +144,7 @@ impl World {
     }
     fn copy_game_object_child(&mut self, t: i32, new_parent: i32) -> i32 {
         let tr = self.transforms.get(t).unwrap().get_transform();
-        let g = self.instantiate_with_transform_with_parent(new_parent, tr);
+        let g = self.create_with_transform_with_parent(new_parent, tr);
         let children =
             if let (Some(src), Some(dest)) = (self.transforms.get(t), self.transforms.get(g)) {
                 let src_ent = src.entity();
@@ -285,7 +290,7 @@ impl World {
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
     pub fn defer_instantiate(&mut self, perf: &Perf) {
-        let mut to_instantiate = self.to_instantiate.lock();
+        let mut to_instantiate = self.to_instantiate_multi.lock();
         if to_instantiate.len() == 0 {
             return;
         }
@@ -342,6 +347,11 @@ impl World {
         let new_transforms = &t.get();
         let _self = &self;
         let mut t_offset = 0;
+        let mut unlocked = unsafe { SendSync::new(ThinMap::new()) };
+        self.components.iter().for_each(|(id, c)| {
+            unlocked.insert(*id, c.read());
+        });
+        let unlocked = &unlocked;
         rayon::scope(|s| {
             for (i, a) in to_instantiate.iter().enumerate() {
                 for b in a.comp_funcs.iter() {
@@ -351,6 +361,7 @@ impl World {
                     let c_ids = c.4.clone();
                     s.spawn(move |s| {
                         b.1(
+                            &unlocked,
                             &_self,
                             &new_transforms,
                             &perf,
