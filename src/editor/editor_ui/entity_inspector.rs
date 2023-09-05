@@ -81,7 +81,7 @@ impl Inspectable_ for GameObjectInspector {
                         // let components = &mut ent;
                         for (c_type, id) in ent.components.iter_mut() {
                             if let Some(c) = world.components.get(c_type) {
-                                let c = c.write();
+                                let c = c.1.write();
                                 // let name: String = c.get_name().into();
                                 ui.separator();
                                 let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
@@ -119,7 +119,7 @@ impl Inspectable_ for GameObjectInspector {
 
             ui.menu_button("add component", |ui| {
                 for (_k, c) in world.components.iter() {
-                    let mut c = c.write();
+                    let mut c = c.1.write();
                     let resp = ui.add(egui::Button::new(c.get_name()));
                     if resp.clicked() {
                         if let Some(t_id) = unsafe { _selected } {

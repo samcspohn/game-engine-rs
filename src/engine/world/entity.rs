@@ -1,9 +1,10 @@
-use std::time::Instant;
+use std::{time::Instant, sync::atomic::Ordering};
 
+use bytemuck::Zeroable;
 use force_send_sync::SendSync;
 use parking_lot::{lock_api::RwLockReadGuard, RawRwLock};
 use serde::{Deserialize, Serialize};
-use thincollections::thin_map::ThinMap;
+use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
 use crate::{
     editor::inspectable::Inspectable,
@@ -37,14 +38,15 @@ type CompFunc = (
             &World,
             &RwLockReadGuard<'_, RawRwLock, Box<dyn StorageBase + Send + Sync>>,
             i32,
-            i32
+            i32,
         ),
     >,
 );
+
 pub(crate) struct _EntityBuilder {
     pub(crate) parent: i32,
     pub(crate) t_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
-    pub(crate) comp_funcs: Vec<CompFunc>,
+    pub(crate) comp_funcs: ThinVec<CompFunc>,
 }
 unsafe impl Send for _EntityBuilder {}
 unsafe impl Sync for _EntityBuilder {}
@@ -62,14 +64,14 @@ pub struct EntityBuilder<'a> {
     world: &'a World,
     parent: i32,
     transform_func: Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
-    comp_funcs: Vec<CompFunc>,
+    comp_funcs: ThinVec<CompFunc>,
 }
 impl<'a> EntityBuilder<'a> {
     pub fn new(parent: i32, world: &'a World) -> Self {
         EntityBuilder {
             world,
             parent: parent,
-            comp_funcs: Vec::new(),
+            comp_funcs: ThinVec::new(),
             transform_func: None,
         }
     }
@@ -99,13 +101,19 @@ impl<'a> EntityBuilder<'a> {
     where
         D: Fn() -> T + 'static + Send + Sync,
     {
+        self.world
+            .components
+            .get(&T::ID)
+            .unwrap()
+            .0
+            .fetch_add(1, Ordering::Relaxed);
         self.comp_funcs.push((
             T::ID,
             Box::new(
                 move |world: &World,
-                 stor: &RwLockReadGuard<'_, RawRwLock, Box<dyn StorageBase + Send + Sync>>,
-                 id: i32,
-                 t: i32| {
+                      stor: &RwLockReadGuard<'_, RawRwLock, Box<dyn StorageBase + Send + Sync>>,
+                      id: i32,
+                      t: i32| {
                     let stor: &Storage<T> = unsafe { stor.as_any().downcast_ref_unchecked() };
                     stor.insert_exact(id, t, &world.transforms, &world.sys, &f);
                 },
@@ -116,7 +124,6 @@ impl<'a> EntityBuilder<'a> {
     pub fn build(mut self) {
         self.world
             .to_instantiate
-            .lock()
             .push(_EntityBuilder::from(self));
     }
 }
@@ -127,6 +134,7 @@ type CompFuncMulti = (
     u64,
     Box<dyn Fn(&Unlocked, &World, &Vec<i32>, &Perf, usize, usize, &[i32]) + Send + Sync>,
 );
+
 pub(crate) struct _EntityParBuilder {
     pub(crate) count: i32,
     pub(crate) chunk: i32,

@@ -16,6 +16,8 @@ game-engine:
   ☐ add priority to asset loading
   ☐ fix transform children mem balloon when creating & destroying
   ☐ fix seg fault (loading dylib?)
+  ☐ use atomic_bitvec for valid
+  ☐ fix 6mil renderer limit
   optimizations:
     ☐ write transform update data using ptr(&[],&[])
       let m_slice = &mut mapping[offset..offset + i.len()];

@@ -16,7 +16,8 @@ use force_send_sync::SendSync;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rayon::{
     prelude::{
-        IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+        IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+        IntoParallelRefMutIterator, ParallelIterator,
     },
     Scope,
 };
@@ -27,13 +28,18 @@ use crate::editor::inspectable::Inspectable;
 
 use self::{
     component::{Component, System, _ComponentID},
-    entity::{Entity, EntityParBuilder, Unlocked, _EntityParBuilder, _EntityBuilder, EntityBuilder},
+    entity::{
+        Entity, EntityBuilder, EntityParBuilder, Unlocked, _EntityBuilder, _EntityParBuilder,
+    },
     transform::{CacheVec, Transform, Transforms, VecCache, _Transform},
 };
 
 use super::{
     input::Input,
-    particles::{component::ParticleEmitter, particles::ParticleCompute},
+    particles::{
+        component::ParticleEmitter,
+        particles::{AtomicVec, ParticleCompute},
+    },
     perf::Perf,
     physics::Physics,
     project::asset_manager::{AssetManagerBase, AssetsManager},
@@ -70,7 +76,10 @@ pub struct World {
     pub(crate) transforms: Transforms,
     pub(crate) components: HashMap<
         u64,
-        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        (
+            AtomicI32,
+            Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        ),
         nohash_hasher::BuildNoHashHasher<i32>,
     >,
     pub(crate) components_names:
@@ -79,7 +88,7 @@ pub struct World {
     pub sys: Sys,
     pub(crate) to_destroy: Mutex<Vec<i32>>,
     pub(crate) to_instantiate_multi: Mutex<Vec<_EntityParBuilder>>,
-    pub(crate) to_instantiate: Mutex<Vec<_EntityBuilder>>,
+    pub(crate) to_instantiate: AtomicVec<_EntityBuilder>,
 }
 
 //  T_ = 'static
@@ -119,7 +128,7 @@ impl World {
             },
             to_destroy: Mutex::new(Vec::new()),
             to_instantiate_multi: Mutex::new(Vec::new()),
-            to_instantiate: Mutex::new(Vec::new()),
+            to_instantiate: AtomicVec::new(),
         }
     }
     pub fn instantiate(&self, parent: i32) -> EntityBuilder {
@@ -174,7 +183,7 @@ impl World {
     }
     fn copy_component_id(&self, t: &Transform, key: u64, c_id: i32) -> i32 {
         if let Some(stor) = self.components.get(&key) {
-            let mut stor = stor.write();
+            let mut stor = stor.1.write();
             let c = stor.copy(t.id, c_id);
             stor.init(&t, c, &self.sys);
             c
@@ -218,7 +227,7 @@ impl World {
         let ent = trans.entity();
         ent.components.insert(key.clone(), c_id);
         if let Some(stor) = self.components.get(&key) {
-            stor.write().init(&trans, c_id, &self.sys);
+            stor.1.write().init(&trans, c_id, &self.sys);
         }
     }
     pub fn deserialize(&mut self, g: i32, key: String, s: serde_yaml::Value) {
@@ -237,8 +246,8 @@ impl World {
         if let Some(stor) = self.components.get(&key) {
             let trans = self.transforms.get(g).unwrap();
             let ent = trans.entity();
-            stor.write().deinit(&trans, c_id, &self.sys);
-            stor.write().remove(c_id);
+            stor.1.write().deinit(&trans, c_id, &self.sys);
+            stor.1.write().remove(c_id);
             ent.components.remove(&key);
         }
     }
@@ -263,7 +272,8 @@ impl World {
         let data = Storage::<T>::new(has_update, has_late_update, has_render);
         let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
             Arc::new(RwLock::new(Box::new(data)));
-        self.components.insert(key, component_storage.clone());
+        self.components
+            .insert(key, (AtomicI32::new(0), component_storage.clone()));
         self.components_names.insert(
             component_storage.read().get_name().to_string(),
             component_storage.clone(),
@@ -290,8 +300,73 @@ impl World {
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
     pub fn defer_instantiate(&mut self, perf: &Perf) {
-        let mut to_instantiate = self.to_instantiate_multi.lock();
-        if to_instantiate.len() == 0 {
+        self._defer_instantiate(perf);
+        self._defer_instantiate_2(perf);
+    }
+    pub fn _defer_instantiate_2(&mut self, perf: &Perf) {
+        // let to_instantiate = self.to_instantiate.get();
+        if self.to_instantiate.len() == 0 {
+            return;
+        }
+        let v = VecCache::new();
+        // // to parallelize
+        let mut component_transform_offsets: HashMap<
+            u64,
+            (
+                i32,                // offset counter 0
+                Arc<CacheVec<i32>>, // 1
+            ),
+        > = self
+            .components
+            .iter()
+            .map(|(id, c)| (*id, (0, Arc::new(v.get_vec(0)))))
+            .collect();
+        let world_instantiate_transforms = perf.node("world instantiate transforms 2");
+        let t = self.transforms._allocate(self.to_instantiate.len());
+        drop(world_instantiate_transforms);
+        let instantiate_components = perf.node("world instantiate _ components 2");
+        self.components.iter().for_each(|(id, c)| {
+            let offsets = component_transform_offsets.get_mut(&id).unwrap();
+            offsets.1 = Arc::new(c.1.write().allocate(unsafe { *c.0.as_ptr() } as usize));
+            unsafe {
+                *c.0.as_ptr() = 0;
+            }
+        });
+
+        let mut unlocked = unsafe { SendSync::new(ThinMap::new()) };
+        self.components.iter().for_each(|(id, c)| {
+            unlocked.insert(*id, (AtomicI32::new(0), c.1.read()));
+        });
+        let _toi = self.to_instantiate.get();
+        let to_instantiate = unsafe { force_send_sync::SendSync::new(&_toi) };
+        (0..self.to_instantiate.len())
+            .into_par_iter()
+            .zip_eq(t.get().par_iter())
+            .for_each(|(i, t)| {
+                let a = unsafe { &to_instantiate[i].assume_init_ref() };
+                if let Some(func) = &a.t_func {
+                    self.transforms.write_transform(*t, func());
+                } else {
+                    self.transforms.write_transform(*t, _Transform::default());
+                }
+                for b in &a.comp_funcs {
+                    // s.spawn(|s| {
+                    let comp = &unlocked.get_mut(&b.0).unwrap();
+                    let c_id = comp.0.fetch_add(1, Ordering::Relaxed);
+                    b.1(
+                        &self,
+                        &comp.1,
+                        component_transform_offsets.get(&b.0).unwrap().1.get()[c_id as usize],
+                        *t,
+                    );
+                }
+            });
+        self.to_instantiate.clear();
+    }
+
+    pub fn _defer_instantiate(&mut self, perf: &Perf) {
+        let mut to_instantiate_multi = self.to_instantiate_multi.lock();
+        if to_instantiate_multi.len() == 0 {
             return;
         }
         let v = VecCache::new();
@@ -319,7 +394,7 @@ impl World {
         let mut offsets = Vec::new();
 
         // parallel
-        for a in to_instantiate.iter() {
+        for a in to_instantiate_multi.iter() {
             if let Some(t_func) = &a.t_func {
                 transform_funcs.push((a.parent, a.count, Some(t_func)));
             } else {
@@ -342,18 +417,18 @@ impl World {
         let instantiate_components = perf.node("world instantiate _ components");
         self.components.iter().for_each(|(id, c)| {
             let offsets = component_transform_offsets.get_mut(&id).unwrap();
-            offsets.4 = Arc::new(c.write().allocate(offsets.2 as usize));
+            offsets.4 = Arc::new(c.1.write().allocate(offsets.2 as usize));
         });
         let new_transforms = &t.get();
         let _self = &self;
         let mut t_offset = 0;
         let mut unlocked = unsafe { SendSync::new(ThinMap::new()) };
         self.components.iter().for_each(|(id, c)| {
-            unlocked.insert(*id, c.read());
+            unlocked.insert(*id, c.1.read());
         });
         let unlocked = &unlocked;
         rayon::scope(|s| {
-            for (i, a) in to_instantiate.iter().enumerate() {
+            for (i, a) in to_instantiate_multi.iter().enumerate() {
                 for b in a.comp_funcs.iter() {
                     let c = component_transform_offsets.get_mut(&b.0).unwrap();
                     let c_offset = c.0;
@@ -375,7 +450,7 @@ impl World {
                 t_offset += a.count as usize;
             }
         });
-        to_instantiate.clear();
+        to_instantiate_multi.clear();
     }
     pub fn destroy(&self, g: i32) {
         self.to_destroy.lock().push(g);
@@ -430,7 +505,7 @@ impl World {
                 nohash_hasher::BuildNoHashHasher<i32>,
             > = HashMap::default();
             self.components.iter().for_each(|c| {
-                unlocked.insert(*c.0, c.1.read());
+                unlocked.insert(*c.0, c.1 .1.read());
             });
 
             to_destroy.par_iter().for_each(|t| {
@@ -445,7 +520,7 @@ impl World {
             });
             self.components.iter().for_each(|(id, c)| {
                 s.spawn(|s| {
-                    c.write().reduce_last();
+                    c.1.write().reduce_last();
                 });
             });
         });
@@ -468,7 +543,7 @@ impl World {
     // }
     pub fn get_components<T: 'static + Send + Sync + Component + _ComponentID>(
         &self,
-    ) -> Option<&Arc<RwLock<Box<dyn StorageBase + Send + Sync>>>> {
+    ) -> Option<&(AtomicI32, Arc<RwLock<Box<dyn StorageBase + Send + Sync>>>)> {
         let key = T::ID;
         self.components.get(&key)
     }
@@ -493,19 +568,19 @@ impl World {
             };
             for (_, stor) in self.components.iter() {
                 let world_update = perf.node("world update");
-                let mut stor = stor.write();
+                let mut stor = stor.1.write();
                 stor.update(&self.transforms, &sys, &self);
             }
             for (_, stor) in self.components.iter() {
                 let world_update = perf.node("world late_update");
-                let mut stor = stor.write();
+                let mut stor = stor.1.write();
                 stor.late_update(&self.transforms, &sys);
             }
         }
         self.update_cameras();
     }
     fn update_cameras(&mut self) {
-        let camera_components = self.get_components::<Camera>().unwrap().read();
+        let camera_components = self.get_components::<Camera>().unwrap().1.read();
         let camera_storage = camera_components
             .as_any()
             .downcast_ref::<Storage<Camera>>()
@@ -535,18 +610,18 @@ impl World {
             particle_system: &sys.particles_system,
         };
         for (_, stor) in self.components.iter() {
-            stor.write().editor_update(&self.transforms, &sys, input);
+            stor.1.write().editor_update(&self.transforms, &sys, input);
         }
     }
     pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData)>> {
         let mut render_jobs = vec![];
         for (_, stor) in self.components.iter() {
-            stor.write().on_render(&mut render_jobs);
+            stor.1.write().on_render(&mut render_jobs);
         }
         render_jobs
     }
     pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
-        let camera_components = self.get_components::<Camera>().unwrap().read();
+        let camera_components = self.get_components::<Camera>().unwrap().1.read();
         let camera_storage = camera_components
             .as_any()
             .downcast_ref::<Storage<Camera>>()
@@ -572,6 +647,7 @@ impl World {
     pub(crate) fn get_emitter_len(&self) -> usize {
         self.get_components::<ParticleEmitter>()
             .unwrap()
+            .1
             .read()
             .as_any()
             .downcast_ref::<Storage<ParticleEmitter>>()
@@ -591,7 +667,7 @@ impl World {
             nohash_hasher::BuildNoHashHasher<i32>,
         > = HashMap::default();
         self.components.iter().for_each(|c| {
-            unlocked.insert(*c.0, c.1.read());
+            unlocked.insert(*c.0, c.1 .1.read());
         });
 
         for i in 0..self.transforms.valid.len() {

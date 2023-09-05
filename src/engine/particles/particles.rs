@@ -1,7 +1,10 @@
-use std::{sync::{
-    atomic::{AtomicI32, AtomicUsize, Ordering},
-    Arc,
-}, cell::SyncUnsafeCell};
+use std::{
+    cell::SyncUnsafeCell,
+    sync::{
+        atomic::{AtomicI32, AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use crate::{
     editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
@@ -30,6 +33,8 @@ use component_derive::{AssetID, ComponentID};
 use crossbeam::queue::SegQueue;
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
+use segvec::SegVec;
+use segvec::Slice;
 use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{
@@ -68,7 +73,6 @@ use vulkano::{
     sync::{self, FlushError, GpuFuture},
     DeviceSize,
 };
-
 // use super::cs::{ty::{emitter_init, particle_template}, self};
 
 use lazy_static::lazy_static;
@@ -121,39 +125,43 @@ pub struct ParticleBuffers {
     pub alive_b: Arc<DeviceLocalBuffer<[cs::ty::b]>>,
 }
 
-pub struct AtomicVec<T: Copy> {
+pub struct AtomicVec<T> {
     lock: Mutex<()>,
-    data: SyncUnsafeCell<Vec<T>>,
+    data: SyncUnsafeCell<SegVec<std::mem::MaybeUninit<T>>>,
     index: AtomicUsize,
 }
-impl<T: Copy> AtomicVec<T> {
+
+impl<T> AtomicVec<T> {
     pub fn new() -> Self {
-        let mut data = Vec::with_capacity(4);
-        unsafe {
-            data.set_len(4);
-        }
+        let mut data = SegVec::with_capacity(4);
+        // unsafe {
+        //     data.set_len(4);
+        // }
         Self {
             lock: Mutex::new(()),
             data: SyncUnsafeCell::new(data),
             index: AtomicUsize::new(0),
         }
     }
-    pub fn push_multi<'a>(&mut self, count: usize) -> (MutexGuard<()>, &'a [T]) {
-        let _l = self.lock.lock();
-        unsafe {
-            let index = self.index.load(Ordering::Relaxed);
-            (*self.data.get()).reserve(count);
-            (*self.data.get()).set_len(index + count);
-            self.index.fetch_add(count, Ordering::Relaxed);
-            (_l, &(*self.data.get())[index..(index + count)])
-        }
+    pub fn len(&self) -> usize {
+        self.index.load(Ordering::Relaxed)
     }
+    // pub fn push_multi<'a>(&mut self, count: usize) -> (MutexGuard<()>, &'a [T]) {
+    //     let _l = self.lock.lock();
+    //     unsafe {
+    //         let index = self.index.load(Ordering::Relaxed);
+    //         (*self.data.get()).reserve(count);
+    //         (*self.data.get()).set_len(index + count);
+    //         self.index.fetch_add(count, Ordering::Relaxed);
+    //         (_l, &(*self.data.get())[index..(index + count)])
+    //     }
+    // }
     fn try_push(&self, d: T) -> Option<(usize, T)> {
         let index = self.index.fetch_add(1, Ordering::Relaxed);
         if index >= unsafe { (*self.data.get()).len() } {
             Some((index, d))
         } else {
-            unsafe { (*self.data.get())[index] = d };
+            unsafe { (*self.data.get())[index].write(d) };
             None
         }
     }
@@ -164,11 +172,12 @@ impl<T: Copy> AtomicVec<T> {
             while i >= (*self.data.get()).len() {
                 let data = &mut (*self.data.get());
                 let len = data.len() + 1;
-                let new_len = (data.len() + 1).next_power_of_two();
-                data.reserve_exact(new_len - len + 1);
-                data.set_len(new_len);
+                let new_len = len.next_power_of_two();
+                data.resize_with(new_len, || std::mem::MaybeUninit::<T>::uninit())
+                // data.reserve_exact(new_len - len);
+                // data.set_len(new_len);
             }
-            (*self.data.get())[i] = d;
+            (*self.data.get())[i].write(d);
             // drop(l);
         };
     }
@@ -178,6 +187,38 @@ impl<T: Copy> AtomicVec<T> {
             self._push(id, d);
         }
     }
+    // pub fn get_vec(&self) -> Vec<T> {
+    //     let _l = self.lock.lock();
+    //     // let mut v = Vec::new();
+    //     let len = self.index.load(Ordering::Relaxed);
+    //     // unsafe {
+    //     //     let cap = (*self.data.get()).capacity();
+    //     //     std::mem::swap(&mut v, &mut *self.data.get());
+    //     //     v.set_len(len);
+    //     //     *self.data.get() = Vec::with_capacity(cap);
+    //     //     (*self.data.get()).set_len(cap);
+    //     // }
+    //     // v
+    //     let mut v = Vec::with_capacity(len);
+    //     // std::mem::swap(&mut v, unsafe { &mut *self.data.get() });
+    //     // unsafe {
+    //     //     unsafe { &mut *self.data.get() }.set_len(len.next_power_of_two());
+    //     // }
+    //     for i in (0..len).into_iter() {
+    //         unsafe { v.push((*self.data.get())[i]) };
+    //     }
+    //     self.index.store(0, Ordering::Relaxed);
+    //     v
+    // }
+    pub fn get<'a>(&self) -> Slice<'a, std::mem::MaybeUninit<T>> {
+        let len = self.index.load(Ordering::Relaxed);
+        unsafe { (*self.data.get()).slice(0..len) }
+    }
+    pub fn clear(&mut self) {
+        self.index.store(0, Ordering::Relaxed);
+    }
+}
+impl<T: Copy> AtomicVec<T> {
     pub fn get_vec(&self) -> Vec<T> {
         let _l = self.lock.lock();
         // let mut v = Vec::new();
@@ -196,17 +237,10 @@ impl<T: Copy> AtomicVec<T> {
         //     unsafe { &mut *self.data.get() }.set_len(len.next_power_of_two());
         // }
         for i in (0..len).into_iter() {
-            unsafe { v.push((*self.data.get())[i]) };
+            unsafe { v.push((*self.data.get())[i].assume_init()) };
         }
         self.index.store(0, Ordering::Relaxed);
         v
-    }
-    pub fn get(&mut self) -> &[T] {
-        let len = self.index.load(Ordering::Relaxed);
-        &self.data.get_mut()[0..len]
-    }
-    pub fn clear(&mut self) {
-        self.index.store(0, Ordering::Relaxed);
     }
 }
 

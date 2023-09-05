@@ -115,7 +115,7 @@ impl Avail {
         // let mut a = SegQueue::new();
         // std::mem::swap(&mut a, &mut self.new_ids);
         self.new_ids.get().iter().for_each(|i| {
-            self.data.push(*i);
+            unsafe { self.data.push(i.assume_init()); }
         });
         self.new_ids.clear();
 

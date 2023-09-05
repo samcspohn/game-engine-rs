@@ -321,7 +321,7 @@ impl Transforms {
         }
     }
 
-    fn write_transform(&self, i: i32, t: _Transform) {
+    pub(super) fn write_transform(&self, i: i32, t: _Transform) {
         unsafe {
             *self.mutex[i as usize].get() = Mutex::new(());
             *self.positions[i as usize].get() = t.position;
@@ -499,6 +499,27 @@ impl Transforms {
     // pub fn multi_transform(&mut self, parent:i32, count: i32) -> CacheVec<i32> {
     //     self.multi_transform_with(parent, count, || _Transform::default())
     // }
+    pub(crate) fn _allocate(&mut self, count: usize) -> CacheVec<i32> {
+        let mut r = self.new_trans_cache.get_vec(count);
+        let c = self.avail.len().min(count as usize);
+        self.reserve(count);
+        let mut max = -1;
+        for _ in 0..c {
+            if let Some(i) = self.avail.pop() {
+                max = i;
+                r.push(i);
+            }
+        }
+        // self.count += c as i32;
+        self.last = self.last.max(max);
+        // r.get().resize(count, -1);
+        for i in (c..count) {
+            self.last += 1;
+            r.get().push(self.last);
+        }
+        self.extent = self.extent.max(self.last + 1);
+        r
+    }
     pub fn multi_transform_with(
         &mut self,
         count: usize,
@@ -538,78 +559,6 @@ impl Transforms {
         );
         self.extent = self.extent.max(self.last + 1);
         r
-
-        // r.get().par_iter().for_each(|id| {
-        //     self.write_transform(*id, t_func());
-        // });
-
-        // for _ in c..count as usize {
-        //     let i = self.new_transform_with(parent, t_func());
-        //     r.push(i);
-        // }
-        // r
-        // rayon::scope(|s| {
-        //     let _self = _self.clone();
-        // let mut avail = _self.avail.lock();
-        //     while let Some(i) = avail.pop() {
-        //         let t_func = t_func.clone();
-        //         let _self = _self.clone();
-        //         r.push(i);
-        //         // let i = i.clone();
-        //         // s.spawn(move |_| {
-        //         let i = i.clone();
-        //         let t_func = t_func.clone();
-        //         let _self = _self.clone();
-
-        //         let transform = t_func();
-        //         unsafe {
-        //             *_self.mutex[i as usize].get() = Mutex::new(());
-        //             *_self.positions[i as usize].get() = transform.position;
-        //             *_self.rotations[i as usize].get() = transform.rotation;
-        //             *_self.scales[i as usize].get() = transform.scale;
-        //             *_self.meta[i as usize].get() = TransformMeta::new();
-        //             let u = &mut *_self.updates[i as usize].get();
-        //             u[POS_U] = true;
-        //             u[ROT_U] = true;
-        //             u[SCL_U] = true;
-        //             let parent = _self.get(parent);
-        //             // parent.adopt(&self.get(i));
-        //             let meta = &mut *_self.meta[i as usize].get();
-        //             meta.parent = parent.id;
-        //             (*_self.meta[i as usize].get()).child_id =
-        //                 SendSync::new(parent.get_meta().children.push_tail(i));
-        //         }
-        //         // });
-
-        //         c += 1;
-        //         if c == count {
-        //             break;
-        //         }
-        //     }
-        //     // }
-        // });
-        // // drop(_self);
-        // for _ in c..count {
-        //     r.push(self.extent);
-        //     let transform = t_func();
-        //     self.mutex.push(SyncUnsafeCell::new(Mutex::new(())));
-        //     self.positions.push(SyncUnsafeCell::new(transform.position));
-        //     self.rotations.push(SyncUnsafeCell::new(transform.rotation));
-        //     self.scales.push(SyncUnsafeCell::new(transform.scale));
-        //     self.meta.push(SyncUnsafeCell::new(TransformMeta::new()));
-        //     self.updates.push(SyncUnsafeCell::new([true, true, true]));
-        //     unsafe {
-        //         let meta = &mut *self.meta[self.extent as usize].get();
-        //         meta.parent = parent;
-        //         meta.child_id = SendSync::new(
-        //             (*self.meta[parent as usize].get())
-        //                 .children
-        //                 .push_tail(self.extent),
-        //         );
-        //     }
-        //     self.extent += 1;
-        // }
-        // r
     }
     pub fn remove(&self, t: i32) {
         self.avail.push(t);
