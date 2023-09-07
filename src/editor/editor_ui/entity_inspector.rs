@@ -1,4 +1,4 @@
-use crate::{editor::inspectable::Inspectable_, engine::world::World};
+use crate::{editor::inspectable::Inspectable_, engine::world::{World, entity}};
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 
@@ -79,12 +79,13 @@ impl Inspectable_ for GameObjectInspector {
                             });
                         // let mut components = ent.;
                         // let components = &mut ent;
-                        for (c_type, id) in ent.components.iter_mut() {
+                        let mut comp_rend = |world: &World, c_type: &u64,id: i32| {
                             if let Some(c) = world.components.get(c_type) {
+                                
                                 let c = c.1.write();
                                 // let name: String = c.get_name().into();
                                 ui.separator();
-                                let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, *id));
+                                let _id = ui.make_persistent_id(format!("{:?}:{}", c_type, id));
                                 egui::collapsing_header::CollapsingState::load_with_default_open(
                                     ui.ctx(),
                                     _id,
@@ -97,13 +98,25 @@ impl Inspectable_ for GameObjectInspector {
                                             println!("delete component");
                                             // let g = t_id;
                                             // world.remove_component(g, *c_type, *id)
-                                            rmv = Some((t_id, c_type.clone(), *id));
+                                            rmv = Some((t_id, c_type.clone(), id));
                                         }
                                     });
                                 })
                                 .body(|ui| {
-                                    c.inspect(&_t, *id, ui, &world.sys);
+                                    c.inspect(&_t, id, ui, &world.sys);
                                 });
+                            }
+                        };
+                        for (c_type, comps) in ent.components.iter_mut() {
+                            match comps {
+                                entity::Components::Id(id) => {
+                                    comp_rend(&world,c_type,*id);
+                                }
+                                entity::Components::V(v) => {
+                                    for id in v {
+                                        comp_rend(&world,c_type,*id);
+                                    }
+                                }
                             }
                         }
                     }

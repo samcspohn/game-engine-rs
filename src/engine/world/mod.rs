@@ -3,6 +3,7 @@ pub mod entity;
 pub mod transform;
 
 use std::{
+    cell::{RefCell, SyncUnsafeCell},
     collections::HashMap,
     sync::{
         atomic::{AtomicI32, Ordering},
@@ -35,11 +36,9 @@ use self::{
 };
 
 use super::{
+    atomic_vec::{self, AtomicVec},
     input::Input,
-    particles::{
-        component::ParticleEmitter,
-        particles::{AtomicVec, ParticleCompute},
-    },
+    particles::{component::ParticleEmitter, particles::ParticleCompute},
     perf::Perf,
     physics::Physics,
     project::asset_manager::{AssetManagerBase, AssetsManager},
@@ -87,8 +86,10 @@ pub struct World {
     pub(crate) root: i32,
     pub sys: Sys,
     pub(crate) to_destroy: Mutex<Vec<i32>>,
-    pub(crate) to_instantiate_multi: Mutex<Vec<_EntityParBuilder>>,
+    pub(crate) to_instantiate_multi: AtomicVec<_EntityParBuilder>,
     pub(crate) to_instantiate: AtomicVec<_EntityBuilder>,
+    pub(crate) to_instantiate_count_trans: AtomicI32,
+    v: VecCache<i32>,
 }
 
 //  T_ = 'static
@@ -127,8 +128,10 @@ impl World {
                 defer: Defer::new(),
             },
             to_destroy: Mutex::new(Vec::new()),
-            to_instantiate_multi: Mutex::new(Vec::new()),
+            to_instantiate_multi: AtomicVec::new(),
             to_instantiate: AtomicVec::new(),
+            to_instantiate_count_trans: AtomicI32::new(0),
+            v: VecCache::new(),
         }
     }
     pub fn instantiate(&self, parent: i32) -> EntityBuilder {
@@ -158,11 +161,25 @@ impl World {
             if let (Some(src), Some(dest)) = (self.transforms.get(t), self.transforms.get(g)) {
                 let src_ent = src.entity();
                 let dest_ent = dest.entity();
-                for c in src_ent.components.iter() {
-                    dest_ent
-                        .components
-                        .insert(c.0.clone(), self.copy_component_id(&src, c.0.clone(), *c.1));
+                for (id, c) in src_ent.components.iter() {
+                    // dest_ent
+                    //     .insert(c.0.clone(), self.copy_component_id(&src, c.0.clone(), *c.1));
                 }
+
+                for (hash, c) in src_ent.components.iter() {
+                    // let stor = &mut unlocked.get(t).unwrap();
+                    match c {
+                        entity::Components::Id(id) => {
+                            dest_ent.insert(*hash, self.copy_component_id(&src, *hash, *id));
+                        }
+                        entity::Components::V(v) => {
+                            for id in v {
+                                dest_ent.insert(*hash, self.copy_component_id(&src, *hash, *id));
+                            }
+                        }
+                    }
+                }
+
                 let children: Vec<i32> = src.get_children().map(|t| t.id).collect();
                 drop(src);
                 drop(dest);
@@ -225,7 +242,7 @@ impl World {
     pub fn add_component_id(&mut self, g: i32, key: u64, c_id: i32) {
         let trans = self.transforms.get(g).unwrap();
         let ent = trans.entity();
-        ent.components.insert(key.clone(), c_id);
+        ent.insert(key.clone(), c_id);
         if let Some(stor) = self.components.get(&key) {
             stor.1.write().init(&trans, c_id, &self.sys);
         }
@@ -237,7 +254,7 @@ impl World {
             let trans = self.transforms.get(g).unwrap();
             stor.init(&trans, c_id, &self.sys);
             let ent = trans.entity();
-            ent.components.insert(stor.get_id(), c_id);
+            ent.insert(stor.get_id(), c_id);
         } else {
             panic!("no type key: {}", key);
         }
@@ -248,7 +265,7 @@ impl World {
             let ent = trans.entity();
             stor.1.write().deinit(&trans, c_id, &self.sys);
             stor.1.write().remove(c_id);
-            ent.components.remove(&key);
+            ent.remove(key, c_id);
         }
     }
     pub fn register<
@@ -300,157 +317,169 @@ impl World {
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
     pub fn defer_instantiate(&mut self, perf: &Perf) {
-        self._defer_instantiate(perf);
-        self._defer_instantiate_2(perf);
-    }
-    pub fn _defer_instantiate_2(&mut self, perf: &Perf) {
-        // let to_instantiate = self.to_instantiate.get();
-        if self.to_instantiate.len() == 0 {
-            return;
-        }
-        let v = VecCache::new();
-        // // to parallelize
-        let mut component_transform_offsets: HashMap<
-            u64,
-            (
-                i32,                // offset counter 0
-                Arc<CacheVec<i32>>, // 1
-            ),
-        > = self
+        let world_alloc_transforms = perf.node("world allocate transforms");
+        let mut trans_count = self.to_instantiate_count_trans.as_ptr();
+        let t = self
+            .transforms
+            ._allocate(self.to_instantiate.len() + unsafe { *trans_count } as usize);
+        unsafe { *trans_count = 0 };
+        drop(world_alloc_transforms);
+
+        let alloc_components = perf.node("world allocate _ components");
+
+        let mut comp_ids: HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>> = self
             .components
             .iter()
-            .map(|(id, c)| (*id, (0, Arc::new(v.get_vec(0)))))
+            .map(|(id, c)| (*id, unsafe { SyncUnsafeCell::new(self.v.get_vec(0)) }))
             .collect();
-        let world_instantiate_transforms = perf.node("world instantiate transforms 2");
-        let t = self.transforms._allocate(self.to_instantiate.len());
-        drop(world_instantiate_transforms);
-        let instantiate_components = perf.node("world instantiate _ components 2");
-        self.components.iter().for_each(|(id, c)| {
-            let offsets = component_transform_offsets.get_mut(&id).unwrap();
-            offsets.1 = Arc::new(c.1.write().allocate(unsafe { *c.0.as_ptr() } as usize));
+        self.components.par_iter().for_each(|(id, c)| {
+            let ids = comp_ids.get(&id).unwrap();
             unsafe {
+                *ids.get() = c.1.write().allocate(unsafe { *c.0.as_ptr() } as usize);
                 *c.0.as_ptr() = 0;
             }
         });
-
+        drop(alloc_components);
         let mut unlocked = unsafe { SendSync::new(ThinMap::new()) };
         self.components.iter().for_each(|(id, c)| {
             unlocked.insert(*id, (AtomicI32::new(0), c.1.read()));
         });
+        self._defer_instantiate_single(perf, &t, &comp_ids, &unlocked);
+        self._defer_instantiate_multi(perf, &t, &comp_ids, &unlocked);
+        self.to_instantiate_count_trans.store(0, Ordering::Relaxed);
+        self.to_instantiate.clear();
+        self.to_instantiate_multi.clear();
+    }
+    pub fn _defer_instantiate_single(
+        &self,
+        perf: &Perf,
+        trans: &CacheVec<i32>,
+            comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
+        unlocked: &SendSync<
+            ThinMap<
+                u64,
+                (
+                    AtomicI32,
+                    RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
+                ),
+            >,
+        >,
+    ) {
+        if self.to_instantiate.len() == 0 {
+            return;
+        }
+
         let _toi = self.to_instantiate.get();
         let to_instantiate = unsafe { force_send_sync::SendSync::new(&_toi) };
+        let t_default: Box<dyn Fn() -> _Transform + std::marker::Send + std::marker::Sync> =
+            Box::new(|| _Transform::default());
         (0..self.to_instantiate.len())
             .into_par_iter()
-            .zip_eq(t.get().par_iter())
-            .for_each(|(i, t)| {
+            .for_each(|i| {
                 let a = unsafe { &to_instantiate[i].assume_init_ref() };
-                if let Some(func) = &a.t_func {
-                    self.transforms.write_transform(*t, func());
-                } else {
-                    self.transforms.write_transform(*t, _Transform::default());
-                }
+                let t_id = i;
+                let t = trans.get()[t_id as usize];
+                let t_func = a.t_func.as_ref().unwrap_or(&t_default);
+                self.transforms.write_transform(t, t_func());
                 for b in &a.comp_funcs {
-                    // s.spawn(|s| {
                     let comp = &unlocked.get_mut(&b.0).unwrap();
                     let c_id = comp.0.fetch_add(1, Ordering::Relaxed);
                     b.1(
                         &self,
-                        &comp.1,
-                        component_transform_offsets.get(&b.0).unwrap().1.get()[c_id as usize],
-                        *t,
+                        comp.1.as_ref(),
+                        (unsafe { &*comp_ids.get(&b.0).unwrap().get() }).get()[c_id as usize],
+                        t,
                     );
                 }
             });
-        self.to_instantiate.clear();
+        self.to_instantiate_count_trans
+            .store(self.to_instantiate.len() as i32, Ordering::SeqCst);
     }
 
-    pub fn _defer_instantiate(&mut self, perf: &Perf) {
-        let mut to_instantiate_multi = self.to_instantiate_multi.lock();
-        if to_instantiate_multi.len() == 0 {
+    pub fn _defer_instantiate_multi(
+        &self,
+        perf: &Perf,
+        trans: &CacheVec<i32>,
+        comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
+        unlocked: &SendSync<
+            ThinMap<
+                u64,
+                (
+                    AtomicI32,
+                    RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
+                ),
+            >,
+        >,
+    ) {
+        if self.to_instantiate_multi.len() == 0 {
             return;
         }
-        let v = VecCache::new();
-        // to parallelize
-        let mut component_transform_offsets: HashMap<
-            u64,
-            (
-                i32,                // offset counter 0
-                i32,                // c_id 1
-                i32,                // count 2
-                ThinVec<i32>,       // 3
-                Arc<CacheVec<i32>>, // 4
-            ),
-        > = self
-            .components
-            .iter()
-            .map(|(id, c)| (*id, (0, 0, 0, ThinVec::new(), Arc::new(v.get_vec(0)))))
-            .collect();
-        let mut transform_funcs: Vec<(
-            i32,
-            i32,
-            Option<&Box<dyn Fn() -> _Transform + Send + Sync>>,
-        )> = Vec::new();
-        let mut offset = 0;
-        let mut offsets = Vec::new();
-
-        // parallel
-        for a in to_instantiate_multi.iter() {
-            if let Some(t_func) = &a.t_func {
-                transform_funcs.push((a.parent, a.count, Some(t_func)));
-            } else {
-                transform_funcs.push((a.parent, a.count, None));
+        let calc_offsets = perf.node("world calc instantiate multi offsets");
+        let mut t_offset = self.to_instantiate_count_trans.load(Ordering::SeqCst);
+        self.to_instantiate_multi.get().iter().for_each(|a| {
+            let a = unsafe { a.assume_init_ref() };
+            unsafe {
+                *a.t_func.0.get() = t_offset;
             }
-            for b in a.comp_funcs.iter() {
-                let c = component_transform_offsets.get_mut(&b.0).unwrap();
-                c.2 += a.count;
-                c.3.push(offset);
+            t_offset += a.count;
+            for b in &a.comp_funcs {
+                let comp = &unlocked.get_mut(&b.0).unwrap();
+                unsafe {
+                    *b.1.get() = *comp.0.as_ptr();
+                    *comp.0.as_ptr() += a.count
+                };
             }
-            offsets.push(offset);
-            offset += a.count;
-        }
-        let world_instantiate_transforms = perf.node("world instantiate transforms");
-        let t = self
-            .transforms
-            .multi_transform_with(offset as usize, transform_funcs, &offsets);
-
-        drop(world_instantiate_transforms);
-        let instantiate_components = perf.node("world instantiate _ components");
-        self.components.iter().for_each(|(id, c)| {
-            let offsets = component_transform_offsets.get_mut(&id).unwrap();
-            offsets.4 = Arc::new(c.1.write().allocate(offsets.2 as usize));
         });
-        let new_transforms = &t.get();
-        let _self = &self;
-        let mut t_offset = 0;
-        let mut unlocked = unsafe { SendSync::new(ThinMap::new()) };
-        self.components.iter().for_each(|(id, c)| {
-            unlocked.insert(*id, c.1.read());
-        });
-        let unlocked = &unlocked;
-        rayon::scope(|s| {
-            for (i, a) in to_instantiate_multi.iter().enumerate() {
-                for b in a.comp_funcs.iter() {
-                    let c = component_transform_offsets.get_mut(&b.0).unwrap();
-                    let c_offset = c.0;
-                    c.0 += a.count;
-                    let c_ids = c.4.clone();
-                    s.spawn(move |s| {
-                        b.1(
-                            &unlocked,
-                            &_self,
-                            &new_transforms,
-                            &perf,
-                            t_offset,
-                            c_offset as usize,
-                            &c_ids.get(),
-                        );
+        drop(calc_offsets);
+        let _toi = self.to_instantiate_multi.get();
+        let to_instantiate = unsafe { force_send_sync::SendSync::new(&_toi) };
+        let _trans = trans.get();
+        let t_default: Box<dyn Fn() -> _Transform + std::marker::Send + std::marker::Sync> =
+            Box::new(|| _Transform::default());
+        (0..self.to_instantiate_multi.len())
+            .into_par_iter()
+            .for_each(|i| {
+                let a = unsafe { &to_instantiate[i].assume_init_ref() };
+                // (a.instantiate_func)(a, _trans, comp_ids, &self, &unlocked);
+                let t_func = a.t_func.1.as_ref().unwrap_or(&t_default);
+                let t_id = unsafe { *a.t_func.0.get() };
+                // match a.count < 16 {
+                //     true => {
+                        // (0..a.count).into_iter().for_each(|i| {
+                        //     let t = _trans[(t_id + i) as usize];
+                        //     self.transforms.write_transform(t, t_func());
+                        // });
+                        // a.comp_funcs.iter().for_each(|b| {
+                        //     let comp = &unlocked.get(&b.0).unwrap();
+                        //     let c_id = unsafe { *b.1.get() };
+                        //     let stor = comp.1.as_ref();
+                        //     let cto = unsafe {
+                        //         (*comp_ids.get(&b.0).unwrap().get()).get()
+                        //     };
+                        //     (0..a.count).into_iter().for_each(|i| {
+                        //         let t = _trans[(t_id + i) as usize];
+                        //         b.2(&self, stor, cto[(c_id + i) as usize], t);
+                        //     });
+                        // });
+                //     }
+                //     false => {
+                (0..a.count).into_par_iter().for_each(|i| {
+                    let t = _trans[(t_id + i) as usize];
+                    self.transforms.write_transform(t, t_func());
+                });
+                a.comp_funcs.par_iter().for_each(|b| {
+                    let comp = &unlocked.get(&b.0).unwrap();
+                    let c_id = unsafe { *b.1.get() };
+                    let stor = comp.1.as_ref();
+                    let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
+                    (0..a.count).into_par_iter().for_each(|i| {
+                        let t = _trans[(t_id + i) as usize];
+                        b.2(&self, stor, cto[(c_id + i) as usize], t);
                     });
-                    c.1 += 1;
-                }
-                t_offset += a.count as usize;
-            }
-        });
-        to_instantiate_multi.clear();
+                });
+                //     }
+                // }
+            });
     }
     pub fn destroy(&self, g: i32) {
         self.to_destroy.lock().push(g);
@@ -480,11 +509,20 @@ impl World {
         }
         {
             let trans = transforms.get(_t).unwrap();
-            for (t, id) in trans.entity().components.iter() {
+            for (t, c) in trans.entity().components.iter() {
                 let stor = &mut components.get(t).unwrap();
-
-                stor.deinit(&trans, *id, &sys);
-                stor.remove(*id);
+                match c {
+                    entity::Components::Id(id) => {
+                        stor.deinit(&trans, *id, &sys);
+                        stor.remove(*id);
+                    }
+                    entity::Components::V(v) => {
+                        for id in v {
+                            stor.deinit(&trans, *id, &sys);
+                            stor.remove(*id);
+                        }
+                    }
+                }
             }
             // remove entity
             // *ent = None;
@@ -566,15 +604,22 @@ impl World {
                 gpu_work,
                 particle_system: &sys.particles_system,
             };
-            for (_, stor) in self.components.iter() {
+            {
                 let world_update = perf.node("world update");
-                let mut stor = stor.1.write();
-                stor.update(&self.transforms, &sys, &self);
+                for (_, stor) in self.components.iter() {
+                    let mut stor = stor.1.write();
+                    let world_update = perf.node(&format!("world update: {}", stor.get_name()));
+                    stor.update(&self.transforms, &sys, &self);
+                }
             }
-            for (_, stor) in self.components.iter() {
+            {
                 let world_update = perf.node("world late_update");
-                let mut stor = stor.1.write();
-                stor.late_update(&self.transforms, &sys);
+                for (_, stor) in self.components.iter() {
+                    let mut stor = stor.1.write();
+                    let world_update =
+                        perf.node(&format!("world late update: {}", stor.get_name()));
+                    stor.late_update(&self.transforms, &sys);
+                }
             }
         }
         self.update_cameras();
@@ -673,10 +718,21 @@ impl World {
         for i in 0..self.transforms.valid.len() {
             if let Some(trans) = self.transforms.get(i as i32) {
                 let ent = trans.entity();
-                for (t, id) in ent.components.iter() {
+
+                for (t, c) in ent.components.iter() {
                     let stor = &mut unlocked.get(t).unwrap();
-                    stor.deinit(&trans, *id, &self.sys);
-                    stor.remove(*id);
+                    match c {
+                        entity::Components::Id(id) => {
+                            stor.deinit(&trans, *id, &self.sys);
+                            stor.remove(*id);
+                        }
+                        entity::Components::V(v) => {
+                            for id in v {
+                                stor.deinit(&trans, *id, &self.sys);
+                                stor.remove(*id);
+                            }
+                        }
+                    }
                 }
                 self.transforms.remove(i as i32);
             }

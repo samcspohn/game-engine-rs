@@ -38,9 +38,9 @@ impl SubPerf {
         let mut data = self.data.write();
         let mut outliers = self.outliers.write();
         let len = data.len();
+        println!("{}:", name);
         println!(
-            "{}: {:?} ms",
-            name,
+            "              {:?} ms",
             (data.iter().sum::<Duration>().as_nanos() / len as u128) as f32 / 1e6
         );
         outliers.sort_by(|a, b| (-a).partial_cmp(&(-b)).unwrap());

@@ -88,6 +88,8 @@ pub mod project;
 pub mod rendering;
 pub mod runtime_compilation;
 pub mod storage;
+pub mod atomic_vec;
+pub mod linked_list;
 pub mod time;
 pub mod transform_compute;
 pub mod world;

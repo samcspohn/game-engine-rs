@@ -18,7 +18,6 @@ use thincollections::thin_vec::ThinVec;
 
 use super::{
     input::Input,
-    particles::particles::AtomicVec,
     perf::Perf,
     world::{
         component::{Component, System, _ComponentID},
@@ -26,7 +25,7 @@ use super::{
         transform::{CacheVec, Transform, Transforms, VecCache},
         Sys, World,
     },
-    RenderJobData,
+    RenderJobData, atomic_vec::AtomicVec,
 };
 
 pub struct _Storage<T> {
@@ -211,7 +210,7 @@ impl<
         self.write_t(id, t, f());
         if let Some(trans) = transforms.get(t) {
             self.init(&trans, id, sys);
-            trans.entity().components.insert(T::ID, id);
+            trans.entity().insert(T::ID, id);
         }
     }
     pub(crate) fn _allocate(&mut self, count: usize) -> CacheVec<i32> {
@@ -256,7 +255,7 @@ impl<
             self.write_t(id, t, f());
             if let Some(trans) = transforms.get(t) {
                 self.init(&trans, id, sys);
-                trans.entity().components.insert(T::ID, id);
+                trans.entity().insert(T::ID, id);
             }
         });
     }

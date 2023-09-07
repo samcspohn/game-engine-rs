@@ -161,7 +161,6 @@ fn main() {
                 match event {
                     WindowEvent::Focused(foc) => {
                         focused = foc;
-                        println!("main event_loop id: {:?}", thread::current().id());
                     }
                     WindowEvent::CloseRequested => {
                         *control_flow = ControlFlow::Exit;
@@ -257,7 +256,7 @@ fn main() {
                 }
 
                 let (image_num, suboptimal, acquire_future) =
-                    match acquire_next_image(vk.swapchain(), None) {
+                    match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(10))) {
                         Ok(r) => r,
                         Err(AcquireError::OutOfDate) => {
                             recreate_swapchain = true;

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::engine::world::{
+    entity,
     transform::{Transforms, _Transform},
     World,
 };
@@ -27,7 +28,17 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
         if let Some(stor) = &world.components.get(c.0) {
             let t_id: String = stor.1.read().get_name().to_string();
             // let t_id: String = format!("{:?}",c.0);
-            g_o.c.push((t_id, stor.1.read().serialize(*c.1)));
+
+            match c.1 {
+                entity::Components::Id(id) => {
+                    g_o.c.push((t_id, stor.1.read().serialize(*id)));
+                }
+                entity::Components::V(v) => {
+                    for id in v {
+                        g_o.c.push((t_id.clone(), stor.1.read().serialize(*id)));
+                    }
+                }
+            }
         }
     }
 
