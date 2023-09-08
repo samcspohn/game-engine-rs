@@ -49,11 +49,12 @@ use super::{
 pub struct Renderer {
     model_id: AssetInstance<ModelRenderer>,
     #[serde(skip_serializing, skip_deserializing)]
-    id: ThinVec<i32>,
+    id: Vec<i32>,
 }
 
 impl Component for Renderer {
     fn init(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
+        println!("model_id: {}", self.model_id.id);
         let mut rm = sys.renderer_manager.write();
         let mut model_indirect = rm.model_indirect.write();
         let mut ind_id = if let Some(ind) = model_indirect.get_mut(&self.model_id.id) {
@@ -64,7 +65,10 @@ impl Component for Renderer {
                 })
                 .collect::<Vec<i32>>()
         } else {
-            sys.get_model_manager()
+            let mut vec = Vec::new();
+
+            let ind_id = sys
+                .get_model_manager()
                 .lock()
                 .as_any()
                 .downcast_ref::<ModelManager>()
@@ -87,14 +91,13 @@ impl Component for Renderer {
                             vertex_offset: 0,
                             first_instance: 0,
                         });
-                    model_indirect
-                        .entry(self.model_id.id)
-                        .or_default()
-                        .push(Indirect { id, count: 1 });
+                    vec.push(Indirect { id, count: 1 });
                     rm.indirect_model.write().insert(id, self.model_id.id);
                     id
                 })
-                .collect()
+                .collect();
+            model_indirect.insert(self.model_id.id, vec);
+            ind_id
         };
         drop(model_indirect);
 

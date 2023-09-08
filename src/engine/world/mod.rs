@@ -45,7 +45,7 @@ use super::{
     rendering::{
         camera::{Camera, CameraData},
         model::ModelRenderer,
-        renderer_component::RendererManager,
+        component::RendererManager,
         vulkan_manager::VulkanManager,
     },
     storage::{Storage, StorageBase},
@@ -161,20 +161,15 @@ impl World {
             if let (Some(src), Some(dest)) = (self.transforms.get(t), self.transforms.get(g)) {
                 let src_ent = src.entity();
                 let dest_ent = dest.entity();
-                for (id, c) in src_ent.components.iter() {
-                    // dest_ent
-                    //     .insert(c.0.clone(), self.copy_component_id(&src, c.0.clone(), *c.1));
-                }
-
                 for (hash, c) in src_ent.components.iter() {
                     // let stor = &mut unlocked.get(t).unwrap();
                     match c {
                         entity::Components::Id(id) => {
-                            dest_ent.insert(*hash, self.copy_component_id(&src, *hash, *id));
+                            dest_ent.insert(*hash, self.copy_component_id(&dest, *hash, *id));
                         }
                         entity::Components::V(v) => {
                             for id in v {
-                                dest_ent.insert(*hash, self.copy_component_id(&src, *hash, *id));
+                                dest_ent.insert(*hash, self.copy_component_id(&dest, *hash, *id));
                             }
                         }
                     }

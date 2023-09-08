@@ -1,7 +1,7 @@
 use std::{cell::UnsafeCell, ptr, sync::Arc, time::Instant};
 
 use crate::engine::{
-    rendering::renderer_component::buffer_usage_all,
+    rendering::component::buffer_usage_all,
     world::transform::{CacheVec, TransformData, POS_U, ROT_U, SCL_U},
 };
 

@@ -12,7 +12,7 @@ use crate::{
         color_gradient::ColorGradient,
         project::asset_manager::{Asset, AssetInstance, AssetManager, AssetManagerBase},
         rendering::{
-            renderer_component::buffer_usage_all,
+            component::buffer_usage_all,
             texture::{Texture, TextureManager},
             vulkan_manager::VulkanManager,
         },

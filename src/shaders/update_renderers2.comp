@@ -48,10 +48,12 @@ void main() {
             int t_id = updates[_id + 0];
             int ind_id = updates[_id + 1];
             int r_id = updates[_id + 2];
-            transform_id trans_id;
-            trans_id.indirect_id = ind_id;
-            trans_id.id = r_id;
-            transform_ids[t_id] = trans_id;
+            transform_ids[t_id].indirect_id = ind_id;
+            transform_ids[t_id].id = r_id;
+            // transform_id trans_id;
+            // trans_id.indirect_id = ind_id;
+            // trans_id.id = r_id;
+            // transform_ids[t_id] = trans_id;
         } break;
         case 1:
             int t_id = transform_ids[id].id;

@@ -216,7 +216,7 @@ impl Mesh {
 
 use crate::engine::project::asset_manager::_AssetID;
 
-use super::{renderer_component::buffer_usage_all, texture::TextureManager};
+use super::{component::buffer_usage_all, texture::TextureManager};
 #[derive(AssetID)]
 pub struct ModelRenderer {
     pub file: String,

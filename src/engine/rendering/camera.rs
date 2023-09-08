@@ -25,7 +25,7 @@ use crate::{
     engine::{
         particles::particles::{ParticleCompute, ParticleRenderPipeline},
         project::asset_manager::AssetsManager,
-        rendering::renderer_component::ur,
+        rendering::component::ur,
         transform_compute::{cs::ty::Data, TransformCompute},
         world::{
             component::{Component, _ComponentID},
@@ -39,7 +39,7 @@ use crate::{
 use super::{
     model::{ModelManager, ModelRenderer},
     pipeline::RenderPipeline,
-    renderer_component::{buffer_usage_all, RendererData, SharedRendererData},
+    component::{buffer_usage_all, RendererData, SharedRendererData},
     texture::{Texture, TextureManager},
     vulkan_manager::VulkanManager,
 };

@@ -364,6 +364,10 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManage
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self as &mut dyn Any
+    }
     // fn get_id<O>(&self, id: &i32) -> Option<&Arc<Mutex<T>>> {
     //     self.assets_id.get(id)
     // }
@@ -383,7 +387,8 @@ pub trait AssetManagerBase {
     fn get_type(&self) -> u64;
     fn inspect_instance(&self, name: &str, path: &str, id: &mut i32, ui: &mut Ui) -> bool;
     fn get_ext(&self) -> &[String];
-    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
     // fn get_id<T>(&self, id: &i32) -> Option<&Arc<Mutex<T>>> {None}
 }
 

@@ -35,7 +35,7 @@ use crate::{
 
 use super::{
     particles::shaders::cs::ty::{burst, emitter_init},
-    rendering::renderer_component::RendererData,
+    rendering::component::RendererData,
     utils::GPUWork,
 };
 

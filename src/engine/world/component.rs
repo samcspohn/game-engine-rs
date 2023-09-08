@@ -15,7 +15,7 @@ use crate::engine::{
     physics::Physics,
     project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
     rendering::{
-        model::ModelRenderer, renderer_component::RendererManager, vulkan_manager::VulkanManager,
+        model::ModelRenderer, component::RendererManager, vulkan_manager::VulkanManager,
     },
     utils::{GPUWork, PrimaryCommandBuffer},
     world::{transform::Transform, Sys, World},

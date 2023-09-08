@@ -32,7 +32,7 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use crate::{engine::{rendering::{model::{Vertex, Normal, UV}, texture::Texture, renderer_component::buffer_usage_all}, world::{transform::Transform, Sys, component::{System, Component}, World}, RenderJobData}, editor::inspectable::{Inspectable, Ins, Inpsect}};
+use crate::{engine::{rendering::{model::{Vertex, Normal, UV}, texture::Texture, component::buffer_usage_all}, world::{transform::Transform, Sys, component::{System, Component}, World}, RenderJobData}, editor::inspectable::{Inspectable, Ins, Inpsect}};
 use crate::engine::world::component::_ComponentID;
 // struct Chunk {
 //     verts: Vec<model::Vertex>,

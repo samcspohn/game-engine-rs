@@ -17,7 +17,7 @@ use vulkano::{
 };
 
 use crate::engine::{
-    rendering::renderer_component::buffer_usage_all, transform_compute::cs::ty::transform,
+    rendering::component::buffer_usage_all, transform_compute::cs::ty::transform,
 };
 
 use super::{particles::{ParticleBuffers, _MAX_PARTICLES}, shaders::scs};

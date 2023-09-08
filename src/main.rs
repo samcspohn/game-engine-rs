@@ -16,7 +16,7 @@ use crate::engine::project::{file_watcher, Project};
 use crate::engine::project::{load_project, save_project};
 use crate::engine::rendering::camera::{Camera, CameraData};
 use crate::engine::rendering::model::{ModelManager, ModelRenderer};
-use crate::engine::rendering::renderer_component::{buffer_usage_all, Renderer};
+use crate::engine::rendering::component::{buffer_usage_all, Renderer};
 use crate::engine::rendering::texture::TextureManager;
 use crate::engine::rendering::vulkan_manager::VulkanManager;
 use crate::engine::transform_compute::{cs, TransformCompute};
