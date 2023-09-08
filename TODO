@@ -21,6 +21,7 @@ game-engine:
   ☐ fix 6mil renderer limit
   ☐ optimize instantiate single for cache locality
   ☐ fix renderer/copy
+  ☐ object pool
   optimizations:
     ✔ write transform update data using ptr(&[],&[]) @done(23-09-05 15:36)
       let m_slice = &mut mapping[offset..offset + i.len()];
