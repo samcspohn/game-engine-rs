@@ -2,7 +2,7 @@
 pub mod cs {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/particle_shaders/particles.comp",
+        path: "src/engine/particles/particle_shaders/particles.comp",
         types_meta: {
             use bytemuck::{Pod, Zeroable};
 
@@ -13,7 +13,7 @@ pub mod cs {
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/particle_shaders/particles.vert",
+        path: "src/engine/particles/particle_shaders/particles.vert",
         types_meta: {
 
 
@@ -24,7 +24,7 @@ pub mod vs {
 pub mod gs {
     vulkano_shaders::shader! {
         ty: "geometry",
-        path: "src/particle_shaders/particles.geom",
+        path: "src/engine/particles/particle_shaders/particles.geom",
         types_meta: {
             use bytemuck::{Pod, Zeroable};
 
@@ -36,7 +36,7 @@ pub mod gs {
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/particle_shaders/particles.frag"
+        path: "src/engine/particles/particle_shaders/particles.frag"
     }
 }
 
@@ -44,7 +44,7 @@ pub mod fs {
 pub mod scs {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/particle_shaders/particle_sort.comp",
+        path: "src/engine/particles/particle_shaders/particle_sort.comp",
         types_meta: {
             use bytemuck::{Pod, Zeroable};
 

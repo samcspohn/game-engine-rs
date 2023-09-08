@@ -1,5 +1,5 @@
 #version 450
-#include "../shaders/util.glsl"
+#include "../../../shaders/util.glsl"
 #include "particle.glsl"
 layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
@@ -148,11 +148,14 @@ void update_emitter(uint id) {
         int emission = int(e.emission);
         int start = min(atomicAdd(avail_count, emission), MAX_PARTICLES);
         int end = min(start + emission, MAX_PARTICLES);
+        if (end - start == 0) return;
+        vec3 pos_step = (trans.position - e.prev_pos) / float(emission + 1);
+        vec3 pos = e.prev_pos + pos_step;
         // if (avail_id == MAX_PARTICLES)
         //     return;
         for (int _i = start; _i != end; _i++) {
             uint i = avail[_i];
-            init_particle(i, tId, trans.position, trans.rotation, trans.scale);
+            init_particle(i, tId, pos, trans.rotation, trans.scale);
             if (templ.trail == 1) {
                 int last = e.last;
                 if (last >= 0) {
@@ -161,6 +164,7 @@ void update_emitter(uint id) {
                 next[i] = -int(e.transform_id) - 2;
                 e.last = int(i);
             }
+            pos += pos_step;
         }
         e.emission -= float(emission);
     }
