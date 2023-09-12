@@ -17,12 +17,13 @@ impl Default for ColorGradient {
     }
 }
 
-fn f4_u4(a: [f32; 4]) -> [u8; 4] {
+fn f4_u4(color: [f32; 4]) -> [u8; 4] {
+    let a = color[3];
     [
-        (a[0] * 255.) as u8,
-        (a[1] * 255.) as u8,
-        (a[2] * 255.) as u8,
-        (a[3] * 255.) as u8,
+        (color[0] * 255. / a) as u8,
+        (color[1] * 255. / a) as u8,
+        (color[2] * 255. / a) as u8,
+        (color[3] * 255.) as u8,
     ]
 }
 impl ColorGradient {
@@ -81,7 +82,7 @@ impl ColorGradient {
             },
         );
         let mut color_picker = false;
-        static mut rgba_premul: [f32; 4] = [1., 1., 1., 1.];
+        static mut RGBA_UNMUL: [f32; 4] = [1., 1., 1., 1.];
         static mut key: i32 = -1;
         static mut hsva: egui::epaint::Hsva = egui::epaint::Hsva {
             h: 0.0,
@@ -94,16 +95,17 @@ impl ColorGradient {
             ui.painter()
                 .rect(rect, 0.0, visuals.bg_fill, visuals.bg_stroke);
             for (x, y) in &mut self.nodes {
-                ui.painter().add(egui::Shape::convex_polygon(
+                ui.painter().add(egui::Shape::convex_polygon( // paint triangles
                     vec![
                         egui::pos2(rect.left() + y.0 * rect.width() - 6., rect.top()), // top left
                         egui::pos2(rect.left() + y.0 * rect.width() + 6., rect.top()), // top right
                         egui::pos2(rect.left() + y.0 * rect.width(), rect.top() + 9.), // bottom tip
                     ],
-                    egui::Color32::from_rgb(
+                    egui::Color32::from_rgba_unmultiplied(
                         (y.1[0] * 255.) as u8,
                         (y.1[1] * 255.) as u8,
                         (y.1[2] * 255.) as u8,
+                        (y.1[3] * 255.) as u8
                     ),
                     egui::Stroke::new(
                         visuals.fg_stroke.width / 2.,
@@ -119,13 +121,13 @@ impl ColorGradient {
                     || ui.input().pointer.secondary_clicked())
                 {
                     unsafe {
-                        rgba_premul = y.1;
+                        RGBA_UNMUL = y.1;
                         key = *x;
                         let rgba = egui::Rgba::from_rgba_premultiplied(
-                            rgba_premul[0],
-                            rgba_premul[1],
-                            rgba_premul[2],
-                            rgba_premul[3],
+                            RGBA_UNMUL[0],
+                            RGBA_UNMUL[1],
+                            RGBA_UNMUL[2],
+                            RGBA_UNMUL[3],
                         );
 
                         hsva = egui::epaint::Hsva::from(rgba);
@@ -151,11 +153,11 @@ impl ColorGradient {
                         ) {
                             let rgba = unsafe { egui::Rgba::from(hsva) };
                             unsafe {
-                                rgba_premul = rgba.to_array();
+                                RGBA_UNMUL = rgba.to_array();
                             }
                             if let Some(a) = unsafe { self.nodes.get_mut(&key) } {
                                 unsafe {
-                                    a.1 = rgba_premul;
+                                    a.1 = RGBA_UNMUL;
                                 }
                             }
                             // button_response.mark_changed();
@@ -186,12 +188,12 @@ impl ColorGradient {
                 );
                 unsafe {
                     key = self.id_gen;
-                    rgba_premul = [1.0, 1.0, 1.0, 1.0];
+                    RGBA_UNMUL = [1.0, 1.0, 1.0, 1.0];
                     let rgba = egui::Rgba::from_rgba_premultiplied(
-                        rgba_premul[0],
-                        rgba_premul[1],
-                        rgba_premul[2],
-                        rgba_premul[3],
+                        RGBA_UNMUL[0],
+                        RGBA_UNMUL[1],
+                        RGBA_UNMUL[2],
+                        RGBA_UNMUL[3],
                     );
 
                     hsva = egui::epaint::Hsva::from(rgba);

@@ -417,6 +417,7 @@ pub fn editor_ui(
                                     }
                                     if ui.menu_button("Save", |_ui| {}).response.clicked() {
                                         serialize::serialize(&world);
+                                        assets_manager.serialize();
                                         ui.close_menu();
                                     }
                                     if ui.menu_button("Load", |_ui| {}).response.clicked() {

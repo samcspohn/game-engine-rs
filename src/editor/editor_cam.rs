@@ -14,7 +14,7 @@ pub struct EditorCam {
 impl EditorCam {
     pub fn update(&mut self, input: &Input) {
         let speed = self.speed * input.time.dt;
-        if !input.get_key(&VirtualKeyCode::LControl) {
+        if !input.get_key(&VirtualKeyCode::LControl) && input.get_mouse_button(&2) {
             if input.get_key_press(&VirtualKeyCode::R) {
                 self.speed *= 1.5;
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
@@ -49,18 +49,18 @@ impl EditorCam {
                 self.pos += (glm::quat_to_mat4(&self.rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
             }
 
-            if input.get_mouse_button(&2) {
-                self.rot = glm::quat_rotate(
-                    &self.rot,
-                    input.get_mouse_delta().0 as f32 * 0.01,
-                    &(glm::inverse(&glm::quat_to_mat3(&self.rot)) * Vec3::y()),
-                );
-                self.rot = glm::quat_rotate(
-                    &self.rot,
-                    input.get_mouse_delta().1 as f32 * 0.01,
-                    &Vec3::x(),
-                );
-            }
+            // if input.get_mouse_button(&2) {
+            self.rot = glm::quat_rotate(
+                &self.rot,
+                input.get_mouse_delta().0 as f32 * 0.01,
+                &(glm::inverse(&glm::quat_to_mat3(&self.rot)) * Vec3::y()),
+            );
+            self.rot = glm::quat_rotate(
+                &self.rot,
+                input.get_mouse_delta().1 as f32 * 0.01,
+                &Vec3::x(),
+            );
+            // }
         }
     }
 }

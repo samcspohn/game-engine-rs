@@ -54,7 +54,6 @@ pub struct Renderer {
 
 impl Component for Renderer {
     fn init(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
-        println!("model_id: {}", self.model_id.id);
         let mut rm = sys.renderer_manager.write();
         let mut model_indirect = rm.model_indirect.write();
         let mut ind_id = if let Some(ind) = model_indirect.get_mut(&self.model_id.id) {
