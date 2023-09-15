@@ -15,8 +15,8 @@ use crate::engine::project::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::engine::project::{file_watcher, Project};
 use crate::engine::project::{load_project, save_project};
 use crate::engine::rendering::camera::{Camera, CameraData};
-use crate::engine::rendering::model::{ModelManager, ModelRenderer};
 use crate::engine::rendering::component::{buffer_usage_all, Renderer};
+use crate::engine::rendering::model::{ModelManager, ModelRenderer};
 use crate::engine::rendering::texture::TextureManager;
 use crate::engine::rendering::vulkan_manager::VulkanManager;
 use crate::engine::transform_compute::{cs, TransformCompute};
@@ -28,6 +28,8 @@ use crossbeam::queue::SegQueue;
 // use egui::plot::{HLine, Line, Plot, Value, Values};
 use egui::TextureId;
 
+use egui_winit_vulkano::GuiConfig;
+// use egui_winit_vulkano::GuiConfig;
 use glm::{vec4, Vec3};
 use nalgebra_glm as glm;
 use notify::{RecursiveMode, Watcher};
@@ -44,8 +46,8 @@ use std::{
     thread::{self},
     time::{Duration, Instant},
 };
+use vulkano::sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE};
 use vulkano::{
-    buffer::CpuBufferPool,
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
     },
@@ -134,9 +136,14 @@ fn main() {
     let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
         &event_loop,
         vk.surface.clone(),
-        Some(vk.swapchain().image_format()),
+        // Some(vk.swapchain().image_format()),
         vk.queue.clone(),
         Subpass::from(render_pass.clone(), 0).unwrap(),
+        GuiConfig {
+            preferred_format: Some(vk.swapchain().image_format()),
+            is_overlay: true,
+            ..Default::default()
+        },
     );
 
     let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
@@ -209,7 +216,8 @@ fn main() {
                 ////////////////////////////////////
 
                 let _full = engine.perf.node("_ full");
-                let mut rendering_data = match engine.update_sim() {
+                let (_image_num, rendering_data) = engine.update_sim();
+                let mut rendering_data = match rendering_data {
                     Some(a) => a,
                     None => return,
                 };
@@ -227,6 +235,7 @@ fn main() {
                     return;
                 }
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
+                // println!("render particles: {}", vk.get_query(&0));
 
                 if recreate_swapchain {
                     println!("recreate swapchain");
@@ -271,19 +280,36 @@ fn main() {
                 } else {
                     -1
                 };
+                let __image_num = if playing_game {
+                    _image_num as u32
+                } else {
+                    image_num
+                };
                 let fc = fc_map
                     .entry(cam_num)
                     .or_insert(HashMap::<u32, TextureId>::new())
-                    .entry(image_num)
+                    .entry(__image_num)
                     .or_insert_with(|| {
                         let frame_image_view = ImageView::new_default(if playing_game {
-                            rendering_data.cam_datas[0].lock().output[image_num as usize].clone()
+                            rendering_data.cam_datas[0].lock().output[__image_num as usize].clone()
                         } else {
-                            cam_data.lock().output[image_num as usize].clone()
+                            cam_data.lock().output[__image_num as usize].clone()
                         })
                         .unwrap();
 
-                        gui.register_user_image_view(frame_image_view.clone())
+                        gui.register_user_image_view(
+                            frame_image_view.clone(),
+                            SamplerCreateInfo {
+                                lod: 0.0..=LOD_CLAMP_NONE,
+                                mip_lod_bias: -0.2,
+                                // mag_filter: Filter::Linear,
+                                // min_filter: Filter::Linear,
+                                address_mode: [SamplerAddressMode::Repeat; 3],
+                                // mip_lod_bias: 1.0,
+                                // anisotropy: Some(())
+                                ..Default::default()
+                            },
+                        )
                     });
 
                 if suboptimal {
@@ -328,7 +354,7 @@ fn main() {
                     );
                     rendering_data.cam_datas = vec![cam_data.clone()];
                 }
-                engine.render(&mut builder, rendering_data, _playing_game, image_num);
+                engine.render(&mut builder, rendering_data, _playing_game, _image_num);
 
                 let _render = engine.perf.node("_ render");
 
@@ -391,7 +417,10 @@ fn main() {
                             }
                             Err(e) => {
                                 println!("Failed to flush future: {:?}", e);
+                                recreate_swapchain = true;
                                 previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+                                // std::thread::sleep(Duration::from_millis(10));
+                                // previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                             }
                         }
                         // let c = vk.get_query(&particles.performance.init_emitters);

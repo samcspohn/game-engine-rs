@@ -3,12 +3,6 @@
 #include "particle.glsl"
 layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
-struct transform {
-    vec3 position;
-    vec4 rotation;
-    vec3 scale;
-};
-
 layout(set = 0, binding = 0) buffer _a1 { _a a1[]; };
 layout(set = 0, binding = 1) buffer _a2 { uint a2[]; };
 layout(set = 0, binding = 2) buffer p { particle particles[]; };
@@ -20,6 +14,7 @@ layout(set = 0, binding = 6) uniform Data {
     int stage;
     mat4 view;
     mat4 proj;
+    vec3 cam_pos;
 };
 layout(set = 0, binding = 7) buffer b { uint buckets[]; };
 layout(set = 0, binding = 8) buffer d { VkDrawIndirectCommand draw[]; };
@@ -30,6 +25,7 @@ layout(set = 0, binding = 11) buffer e { emitter emitters[]; };
 layout(set = 0, binding = 12) buffer t { transform transforms[]; };
 layout(set = 0, binding = 13) buffer al { uint alive[]; };
 layout(set = 0, binding = 14) buffer al_c { uint alive_count; };
+layout(set = 0, binding = 15) buffer _pl_c { pos_life_comp p_lc[]; };
 // shared uint[512] local_buckets;
 const uint skip_size = (1 << 16) / 128;
 shared uint[128] local_sums;   // TODO: increase local sums
@@ -73,10 +69,15 @@ void main() {
                 bool templ_trail = templates[templ_id].trail == 1;
                 float z2 = z;
                 vec3 next_pos = p_l[id].pos;
+                set_life(p_lc[id], p_l[id].life);
+                set_pos(p_lc[id], p_l[id].pos - cam_pos);
+
                 if (templ_trail) {
                     vec3 next_pos;
                     if (next[id] >= 0) {
                         next_pos = p_l[next[id]].pos;
+                        set_life(p_lc[id], p_l[next[id]].life);
+                        set_pos(p_lc[id], next_pos - cam_pos);
                     } else if (next[id] < -1) {
                         next_pos = transforms[-next[id] - 2].position;
                     } else {
@@ -89,7 +90,7 @@ void main() {
 
                 vec2 r = vp_pos2.xy - vp_pos.xy;
                 vec2 center = (vp_pos2.xy + vp_pos.xy) / 2.f;
-                float radius = dot(r, r) / 2.f;
+                float radius = dot(r, r) * 5.f;
 
                 vec2 test = center;
                 if (center.x < -1.f) {
@@ -105,7 +106,8 @@ void main() {
                 vec2 dist = center.xy - test;
                 float _dist = dot(dist, dist);
                 radius = 0.2;
-                if ((z < 0.f || z2 < 0.f) && _dist <= radius) {
+                // if ((z < 0.f || z2 < 0.f) && _dist <= radius) {
+                if (z < 0.1f) {
                     int i = atomicAdd(avail_count, 1);   // elements to sort
                     z = -sqrt(-(z + z2) / 2.f);
                     z = min(z, 0);

@@ -6,13 +6,11 @@ use crate::engine::{
 };
 
 use nalgebra_glm as glm;
+use parking_lot::Mutex;
 use puffin_egui::puffin;
 use rayon::prelude::*;
 use vulkano::{
-    buffer::{
-        BufferContents, BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer,
-        TypedBufferAccess,
-    },
+    buffer::{allocator::SubbufferAllocator, BufferContents, BufferUsage, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CopyBufferInfo,
         PrimaryAutoCommandBuffer,
@@ -26,41 +24,30 @@ use vulkano::{
     DeviceSize,
 };
 
-use self::cs::ty::{transform, Data, MVP};
+use self::cs::{transform, Data, MVP};
 
 use super::{perf::Perf, rendering::vulkan_manager::VulkanManager};
-
-// #[repr(C)]
-// #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-// pub struct MVP {
-//     pub mvp: [[f32; 4]; 4],
-// }
-// impl_vertex!(MVP, mvp);
 
 pub mod cs {
     vulkano_shaders::shader! {
         ty: "compute",
         path: "src/shaders/transform.comp",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
-
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        },
     }
 }
 
 pub struct TransformCompute {
-    pub gpu_transforms: Arc<DeviceLocalBuffer<[transform]>>,
-    pub position_cache: Vec<Arc<CpuAccessibleBuffer<[[f32; 3]]>>>,
-    pub position_id_cache: Vec<Arc<CpuAccessibleBuffer<[i32]>>>,
-    pub rotation_cache: Vec<Arc<CpuAccessibleBuffer<[[f32; 4]]>>>,
-    pub rotation_id_cache: Vec<Arc<CpuAccessibleBuffer<[i32]>>>,
-    pub scale_cache: Vec<Arc<CpuAccessibleBuffer<[[f32; 3]]>>>,
-    pub scale_id_cache: Vec<Arc<CpuAccessibleBuffer<[i32]>>>,
-    pub mvp: Arc<DeviceLocalBuffer<[MVP]>>,
+    // TODO: replace cache with subbufferallocator
+    pub gpu_transforms: Subbuffer<[transform]>,
+    pub position_cache: Vec<Subbuffer<[[f32; 4]]>>,
+    pub position_id_cache: Vec<Subbuffer<[i32]>>,
+    pub rotation_cache: Vec<Subbuffer<[[f32; 4]]>>,
+    pub rotation_id_cache: Vec<Subbuffer<[i32]>>,
+    pub scale_cache: Vec<Subbuffer<[[f32; 4]]>>,
+    pub scale_id_cache: Vec<Subbuffer<[i32]>>,
+    pub mvp: Subbuffer<[MVP]>,
     pub(crate) vk: Arc<VulkanManager>,
     update_count: (Option<u32>, Option<u32>, Option<u32>),
-    uniforms: CpuBufferPool<Data>,
+    uniforms: Mutex<SubbufferAllocator>,
     compute: Arc<ComputePipeline>,
 }
 
@@ -69,126 +56,40 @@ impl TransformCompute {
         let num_images = vk.images.len() as u32;
 
         let num_transforms = 2;
-        let gpu_transforms = DeviceLocalBuffer::<[transform]>::array(
-            &vk.mem_alloc,
+        let gpu_transforms = vk.buffer_array(
             num_transforms as vulkano::DeviceSize,
-            BufferUsage {
-                storage_buffer: true,
-                transfer_dst: true,
-                transfer_src: true,
-                ..Default::default()
-            },
-            vk.device.active_queue_family_indices().iter().copied(),
-        )
-        .unwrap();
-        let mvp = DeviceLocalBuffer::<[MVP]>::array(
-            &vk.mem_alloc,
+            MemoryUsage::DeviceOnly,
+        );
+        let mvp = vk.buffer_array(
             num_transforms as vulkano::DeviceSize,
-            BufferUsage {
-                storage_buffer: true,
-                transfer_dst: true,
-                transfer_src: true,
-                ..Default::default()
-            },
-            vk.device.active_queue_family_indices().iter().copied(),
-        )
-        .unwrap();
+            MemoryUsage::DeviceOnly,
+        );
 
         TransformCompute {
             gpu_transforms,
             mvp,
             position_cache: (0..num_images)
-                .map(|_| {
-                    let uninitialized = unsafe {
-                        CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
-                            &vk.mem_alloc,
-                            1 as DeviceSize,
-                            buffer_usage_all(),
-                            false,
-                        )
-                        .unwrap()
-                    };
-                    uninitialized
-                })
+                .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
                 .collect(),
             position_id_cache: (0..num_images)
-                .map(|_| {
-                    let uninitialized = unsafe {
-                        CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                            &vk.mem_alloc,
-                            1 as DeviceSize,
-                            buffer_usage_all(),
-                            false,
-                        )
-                        .unwrap()
-                    };
-                    uninitialized
-                })
+                .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
                 .collect(),
             // rotation
             rotation_cache: (0..num_images)
-                .map(|_| {
-                    let uninitialized = unsafe {
-                        CpuAccessibleBuffer::<[[f32; 4]]>::uninitialized_array(
-                            &vk.mem_alloc,
-                            1 as DeviceSize,
-                            buffer_usage_all(),
-                            false,
-                        )
-                        .unwrap()
-                    };
-                    uninitialized
-                })
+                .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
                 .collect(),
             rotation_id_cache: (0..num_images)
-                .map(|_| {
-                    let uninitialized = unsafe {
-                        CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                            &vk.mem_alloc,
-                            1 as DeviceSize,
-                            buffer_usage_all(),
-                            false,
-                        )
-                        .unwrap()
-                    };
-                    uninitialized
-                })
+                .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
                 .collect(),
             // scale
             scale_cache: (0..num_images)
-                .map(|_| {
-                    let uninitialized = unsafe {
-                        CpuAccessibleBuffer::<[[f32; 3]]>::uninitialized_array(
-                            &vk.mem_alloc,
-                            1 as DeviceSize,
-                            buffer_usage_all(),
-                            false,
-                        )
-                        .unwrap()
-                    };
-                    uninitialized
-                })
+                .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
                 .collect(),
             scale_id_cache: (0..num_images)
-                .map(|_| {
-                    let uninitialized = unsafe {
-                        CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                            &vk.mem_alloc,
-                            1 as DeviceSize,
-                            buffer_usage_all(),
-                            false,
-                        )
-                        .unwrap()
-                    };
-                    uninitialized
-                })
+                .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
                 .collect(),
             update_count: (None, None, None),
-            uniforms: CpuBufferPool::<cs::ty::Data>::new(
-                vk.mem_alloc.clone(),
-                buffer_usage_all(),
-                MemoryUsage::Download,
-            ),
+            uniforms: Mutex::new(vk.sub_buffer_allocator()),
             compute: vulkano::pipeline::ComputePipeline::new(
                 vk.device.clone(),
                 cs::load(vk.device.clone())
@@ -208,9 +109,9 @@ impl TransformCompute {
     fn __get_update_data<T: Copy + Send + Sync>(
         ids: &Vec<CacheVec<i32>>,
         data: &Vec<CacheVec<T>>,
-        ids_buf: &mut Vec<Arc<CpuAccessibleBuffer<[i32]>>>,
-        data_buf: &mut Vec<Arc<CpuAccessibleBuffer<[T]>>>,
-        mem: Arc<StandardMemoryAllocator>,
+        ids_buf: &mut Vec<Subbuffer<[i32]>>,
+        data_buf: &mut Vec<Subbuffer<[T]>>,
+        vk: Arc<VulkanManager>,
         image_num: u32,
     ) -> Option<u32>
     where
@@ -227,24 +128,14 @@ impl TransformCompute {
             || data_buf[image_num as usize].len() < transform_ids_len_pos.next_power_of_two()
         {
             // let num_images = ids_buff.len();
-            ids_buf[image_num as usize] = unsafe {
-                CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                    &mem,
-                    transform_ids_len_pos.next_power_of_two() as DeviceSize,
-                    buffer_usage_all(),
-                    false,
-                )
-                .unwrap()
-            };
-            data_buf[image_num as usize] = unsafe {
-                CpuAccessibleBuffer::<[T]>::uninitialized_array(
-                    &mem,
-                    transform_ids_len_pos.next_power_of_two() as DeviceSize,
-                    buffer_usage_all(),
-                    false,
-                )
-                .unwrap()
-            };
+            ids_buf[image_num as usize] = vk.buffer_array(
+                transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                MemoryUsage::Upload,
+            );
+            data_buf[image_num as usize] = vk.buffer_array(
+                transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                MemoryUsage::Upload,
+            );
         }
         unsafe {
             loop {
@@ -259,14 +150,10 @@ impl TransformCompute {
                     }
                     break;
                 } else {
-                    ids_buf[image_num as usize] =
-                        CpuAccessibleBuffer::<[i32]>::uninitialized_array(
-                            &mem,
-                            (transform_ids_len_pos + 1).next_power_of_two() as DeviceSize,
-                            buffer_usage_all(),
-                            false,
-                        )
-                        .unwrap();
+                    ids_buf[image_num as usize] = vk.buffer_array(
+                        transform_ids_len_pos.next_power_of_two() as DeviceSize,
+                        MemoryUsage::Upload,
+                    )
                 }
             }
         }
@@ -286,13 +173,10 @@ impl TransformCompute {
                     }
                     break;
                 } else {
-                    data_buf[image_num as usize] = CpuAccessibleBuffer::<[T]>::uninitialized_array(
-                        &mem,
+                    data_buf[image_num as usize] = vk.buffer_array(
                         transform_ids_len_pos.next_power_of_two() as DeviceSize,
-                        buffer_usage_all(),
-                        false,
+                        MemoryUsage::Upload,
                     )
-                    .unwrap();
                 }
             }
         }
@@ -310,7 +194,7 @@ impl TransformCompute {
             &transform_data.pos_data,
             &mut self.position_id_cache,
             &mut self.position_cache,
-            mem,
+            self.vk.clone(),
             image_num,
         )
     }
@@ -325,7 +209,7 @@ impl TransformCompute {
             &transform_data.rot_data,
             &mut self.rotation_id_cache,
             &mut self.rotation_cache,
-            mem,
+            self.vk.clone(),
             image_num,
         )
     }
@@ -340,7 +224,7 @@ impl TransformCompute {
             &transform_data.scl_data,
             &mut self.scale_id_cache,
             &mut self.scale_cache,
-            mem,
+            self.vk.clone(),
             image_num,
         )
     }
@@ -400,8 +284,8 @@ impl TransformCompute {
         >,
         stage: i32,
         update_count: Option<u32>,
-        data: Arc<CpuAccessibleBuffer<[T]>>,
-        ids: Arc<CpuAccessibleBuffer<[i32]>>,
+        data: Subbuffer<[T]>,
+        ids: Subbuffer<[i32]>,
     ) where
         [T]: BufferContents,
     {
@@ -410,14 +294,17 @@ impl TransformCompute {
 
         if let Some(num_jobs) = update_count {
             let transforms_sub_buffer = {
-                let uniform_data = cs::ty::Data {
+                let uniform_data = cs::Data {
                     num_jobs: num_jobs as i32,
-                    stage,
+                    stage: stage.into(),
                     view: Default::default(),
                     proj: Default::default(),
-                    _dummy0: Default::default(),
+                    // _dummy0: Default::default(),
                 };
-                self.uniforms.from_data(uniform_data).unwrap()
+                let ub = self.uniforms.lock().allocate_sized().unwrap();
+                *ub.write().unwrap() = uniform_data;
+                ub
+                // self.uniforms.from_data(uniform_data).unwrap()
             };
 
             let descriptor_set = PersistentDescriptorSet::new(
@@ -464,18 +351,9 @@ impl TransformCompute {
         let max_len = len.next_power_of_two();
 
         if self.gpu_transforms.len() < len as u64 {
-            let device_local_buffer = DeviceLocalBuffer::<[transform]>::array(
-                &self.vk.mem_alloc,
-                max_len as vulkano::DeviceSize,
-                BufferUsage {
-                    storage_buffer: true,
-                    transfer_dst: true,
-                    transfer_src: true,
-                    ..Default::default()
-                },
-                self.vk.device.active_queue_family_indices().iter().copied(),
-            )
-            .unwrap();
+            let device_local_buffer = self
+                .vk
+                .buffer_array(max_len as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
             let copy_buffer = self.gpu_transforms.clone();
 
             self.gpu_transforms = device_local_buffer;
@@ -486,18 +364,9 @@ impl TransformCompute {
                 ))
                 .unwrap();
 
-            let device_local_buffer = DeviceLocalBuffer::<[MVP]>::array(
-                &self.vk.mem_alloc,
-                max_len as vulkano::DeviceSize,
-                BufferUsage {
-                    storage_buffer: true,
-                    transfer_dst: true,
-                    transfer_src: true,
-                    ..Default::default()
-                },
-                self.vk.device.active_queue_family_indices().iter().copied(),
-            )
-            .unwrap();
+            let device_local_buffer = self
+                .vk
+                .buffer_array(max_len as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
 
             let copy_buffer = self.mvp.clone();
 
@@ -590,14 +459,16 @@ impl TransformCompute {
         puffin::profile_scope!("update mvp");
         // stage 3
         let transforms_sub_buffer = {
-            let uniform_data = cs::ty::Data {
+            let uniform_data = cs::Data {
                 num_jobs: transforms_len,
-                stage: 3,
+                stage: 3.into(),
                 view: view.into(),
                 proj: proj.into(),
-                _dummy0: Default::default(),
+                // _dummy0: Default::default(),
             };
-            self.uniforms.from_data(uniform_data).unwrap()
+            let ub = self.uniforms.lock().allocate_sized().unwrap();
+            *ub.write().unwrap() = uniform_data;
+            ub
         };
 
         let descriptor_set = PersistentDescriptorSet::new(
@@ -611,27 +482,15 @@ impl TransformCompute {
             [
                 WriteDescriptorSet::buffer(
                     0,
-                    CpuAccessibleBuffer::from_iter(
-                        // TODO: make static
-                        &self.vk.mem_alloc,
-                        buffer_usage_all(),
-                        false,
-                        vec![0],
-                    )
-                    .unwrap(),
+                    // TODO: make static
+                    self.vk.buffer_from_iter(vec![0]),
                 ),
                 WriteDescriptorSet::buffer(1, self.gpu_transforms.clone()),
                 WriteDescriptorSet::buffer(2, self.mvp.clone()),
                 WriteDescriptorSet::buffer(
                     3,
-                    CpuAccessibleBuffer::from_iter(
-                        // TODO: make static
-                        &self.vk.mem_alloc,
-                        buffer_usage_all(),
-                        false,
-                        vec![0],
-                    )
-                    .unwrap(),
+                    // TODO: make static
+                    self.vk.buffer_from_iter(vec![0]),
                 ),
                 WriteDescriptorSet::buffer(4, transforms_sub_buffer),
             ],

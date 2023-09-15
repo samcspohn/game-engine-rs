@@ -3,17 +3,16 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
+    cell::SyncUnsafeCell,
     collections::{BTreeMap, HashMap},
     fs,
     marker::PhantomData,
     path::Path,
-    sync::Arc, cell::SyncUnsafeCell,
+    sync::Arc,
 };
 
 use crate::{
-    editor::{
-        inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
-    },
+    editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
     engine::world::{Sys, World},
 };
 
@@ -131,13 +130,12 @@ impl<P: 'static, T: Inspectable_ + Asset<T, P> + _AssetID> AssetManager<P, T> {
     }
 }
 
-
 pub fn drop_target<R>(
     ui: &mut Ui,
     can_accept_what_is_being_dragged: bool,
     body: impl FnOnce(&mut Ui) -> R,
 ) -> egui::InnerResponse<R> {
-    let is_being_dragged = ui.memory().is_anything_being_dragged();
+    let is_being_dragged = ui.memory(|m| m.is_anything_being_dragged());
 
     let margin = egui::Vec2::splat(4.0);
 
@@ -176,7 +174,6 @@ pub fn drop_target<R>(
 
     egui::InnerResponse::new(ret, response)
 }
-
 
 impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManagerBase
     for AssetManager<P, T>
@@ -346,7 +343,7 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManage
             ui.add(egui::Label::new(name));
             drop_target(ui, can_accept_drop_data, |ui| {
                 let response = ui.add(egui::Label::new(label.as_str()));
-                if response.hovered() && ui.input().pointer.any_released() {
+                if response.hovered() && ui.input(|i| i.pointer.any_released()) {
                     let model_file: String = path.to_string();
 
                     if let Some(_id) = self.assets.get(&model_file) {
@@ -411,7 +408,7 @@ impl AssetsManager {
         drag_data: String,
         body: impl Fn(&mut Ui),
     ) -> egui::Response {
-        let is_being_dragged = ui.memory().is_being_dragged(id);
+        let is_being_dragged = ui.memory(|m| m.is_being_dragged(id));
 
         let response = ui.scope(&body).response;
 
@@ -425,7 +422,7 @@ impl AssetsManager {
         }
 
         if is_being_dragged {
-            ui.output().cursor_icon = egui::CursorIcon::Grabbing;
+            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
 
             // Paint the body to a new layer:
             let layer_id = egui::LayerId::new(egui::Order::Tooltip, id);
@@ -446,7 +443,6 @@ impl AssetsManager {
         response
     }
 
-   
     // pub fn get(&self, ext: &str) -> Option<Arc<dyn AssetManagerBase>> {
     //     if let Some(o) = self.asset_managers.get(ext) {
     //         Some(o.clone())

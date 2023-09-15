@@ -25,7 +25,7 @@ use rayon::prelude::*;
 
 use parking_lot::Mutex;
 use parking_lot::RwLock;
-use vulkano::buffer::CpuAccessibleBuffer;
+use vulkano::buffer::Subbuffer;
 use vulkano::command_buffer::CommandBufferUsage;
 use vulkano::command_buffer::RenderPassBeginInfo;
 use vulkano::command_buffer::SubpassContents;
@@ -41,7 +41,6 @@ use vulkano::sync::GpuFuture;
 // use spin::Mutex;
 use nalgebra_glm as glm;
 use vulkano::{
-    buffer::DeviceLocalBuffer,
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         PrimaryAutoCommandBuffer,
@@ -69,27 +68,27 @@ use self::project::save_project;
 use self::project::Project;
 use self::rendering::camera::Camera;
 use self::rendering::camera::CameraData;
+use self::rendering::component::Renderer;
+use self::rendering::component::SharedRendererData;
 use self::rendering::model::Mesh;
 use self::rendering::model::ModelRenderer;
 use self::rendering::pipeline::RenderPipeline;
-use self::rendering::component::Renderer;
-use self::rendering::component::SharedRendererData;
 use self::rendering::texture::Texture;
 use self::rendering::texture::TextureManager;
 use self::rendering::vulkan_manager::VulkanManager;
-use self::transform_compute::cs::ty::transform;
-use self::transform_compute::cs::ty::MVP;
+use self::transform_compute::cs::transform;
+use self::transform_compute::cs::MVP;
 use self::transform_compute::TransformCompute;
 use self::world::World;
 
+pub mod atomic_vec;
 pub mod input;
+pub mod linked_list;
 pub mod perf;
 pub mod project;
 pub mod rendering;
 pub mod runtime_compilation;
 pub mod storage;
-pub mod atomic_vec;
-pub mod linked_list;
 pub mod time;
 pub mod transform_compute;
 pub mod world;
@@ -98,8 +97,8 @@ pub mod color_gradient;
 pub mod main_loop;
 pub mod particles;
 pub mod physics;
-pub mod utils;
 mod prelude;
+pub mod utils;
 
 #[repr(C)]
 pub struct RenderJobData<'a> {
@@ -107,8 +106,8 @@ pub struct RenderJobData<'a> {
         PrimaryAutoCommandBuffer,
         Arc<StandardCommandBufferAllocator>,
     >,
-    pub gpu_transforms: Arc<DeviceLocalBuffer<[transform]>>,
-    pub mvp: Arc<DeviceLocalBuffer<[MVP]>>,
+    pub gpu_transforms: Subbuffer<[transform]>,
+    pub mvp: Subbuffer<[MVP]>,
     pub view: &'a nalgebra_glm::Mat4,
     pub proj: &'a nalgebra_glm::Mat4,
     pub pipeline: &'a RenderPipeline,
@@ -165,6 +164,7 @@ pub(crate) struct Engine {
     pub(crate) running: Arc<AtomicBool>,
     pub(crate) loop_thread: Option<Arc<JoinHandle<()>>>,
     pub(crate) file_watcher: FileWatcher,
+    pub(crate) _image_num: u32,
 }
 
 impl Engine {
@@ -191,22 +191,17 @@ impl Engine {
             &["png", "jpeg"],
         )));
         let model_manager = Arc::new(Mutex::new(ModelManager::new(
-            (
-                texture_manager.clone(),
-                vk.mem_alloc.clone(),
-            ),
+            (texture_manager.clone(), vk.clone()),
             &["obj"],
         )));
         let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
 
         assert!(env::set_current_dir(&Path::new(engine_dir)).is_ok()); // procedurally generate cube/move cube to built in assets
-        model_manager
-            .lock()
-            .from_file("eng_res/cube/cube.obj");
-        
+        model_manager.lock().from_file("eng_res/cube/cube.obj");
+
         texture_manager.lock().from_file("eng_res/particle.png");
         assert!(env::set_current_dir(&Path::new(project_dir)).is_ok());
-        
+
         let particles_system = Arc::new(ParticleCompute::new(vk.clone(), texture_manager.clone()));
 
         let world = Arc::new(Mutex::new(World::new(
@@ -321,6 +316,7 @@ impl Engine {
             running,
             loop_thread: Some(game_thread),
             file_watcher,
+            _image_num: 0,
         }
     }
     pub(crate) fn init(&mut self) {
@@ -337,11 +333,12 @@ impl Engine {
             Project::default()
         };
     }
-    pub(crate) fn update_sim(&mut self) -> Option<RenderingData> {
+    pub(crate) fn update_sim(&mut self) -> (u32, Option<RenderingData>) {
         // puffin::profile_scope!("wait for game");
         let wait_for_game = self.perf.node("wait for game");
         let rd = self.coms.0.recv().ok();
-        rd
+        self._image_num = (self._image_num + 1) % self.vk.swapchain().image_count();
+        (self._image_num, rd)
     }
     pub(crate) fn render(
         &mut self,
@@ -380,12 +377,8 @@ impl Engine {
         // )
         // .unwrap();
 
-        self.transform_compute.update_data(
-            &mut builder,
-            image_num,
-            &transform_data,
-            &self.perf,
-        );
+        self.transform_compute
+            .update_data(&mut builder, image_num, &transform_data, &self.perf);
 
         let particle_update = self.perf.node("particle update");
         self.particles_system.update(

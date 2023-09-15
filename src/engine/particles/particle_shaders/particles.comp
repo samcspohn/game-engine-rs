@@ -3,12 +3,6 @@
 #include "particle.glsl"
 layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
-struct transform {
-    vec3 position;
-    vec4 rotation;
-    vec3 scale;
-};
-
 struct b {
     bool b;
 };
@@ -24,7 +18,7 @@ layout(set = 0, binding = 6) buffer a_c { int avail_count; };
 layout(set = 0, binding = 7) buffer p_t { particle_template templates[]; };
 layout(set = 0, binding = 10) buffer e_i { emitter_init emitter_inits[]; };
 layout(set = 0, binding = 11) buffer al { uint alive[]; };
-layout(set = 0, binding = 12) buffer al_c { int alive_count; };
+layout(set = 0, binding = 12) buffer al_c { uint alive_count; };
 layout(set = 0, binding = 13) buffer i { DispatchIndirectCommand indirect[]; };
 layout(set = 0, binding = 14) buffer al_b { b alive_b[]; };
 layout(set = 0, binding = 15) buffer p_b { burst particle_bursts[]; };
@@ -221,7 +215,7 @@ void deinit_emitters(uint id) {
 
 void alive_particles(uint id) {
     if (alive_b[id].b) {
-        int _id = atomicAdd(alive_count, 1);
+        uint _id = atomicAdd(alive_count, 1);
         alive[_id] = id;
     }
 }

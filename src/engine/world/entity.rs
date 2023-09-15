@@ -5,7 +5,6 @@ use std::{
     time::Instant,
 };
 
-use bytemuck::Zeroable;
 use force_send_sync::SendSync;
 use once_cell::sync::Lazy;
 use parking_lot::{RawRwLock, RwLockReadGuard};

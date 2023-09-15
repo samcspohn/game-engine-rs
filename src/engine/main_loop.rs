@@ -34,7 +34,7 @@ use crate::{
 };
 
 use super::{
-    particles::shaders::cs::ty::{burst, emitter_init},
+    particles::shaders::cs::{burst, emitter_init},
     rendering::component::RendererData,
     utils::GPUWork,
 };
@@ -115,7 +115,7 @@ pub fn main_loop(world: Arc<Mutex<World>>, coms: GameComm, running: Arc<AtomicBo
             }
         } else {
             world._destroy(&perf);
-            world.editor_update(&input, &gpu_work);
+            world.editor_update(&input, &gpu_work); // TODO: terrain update still breaking
         }
         drop(world_sim);
         let get_transform_data = perf.node("get transform data");

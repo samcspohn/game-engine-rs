@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use bytemuck::{Pod, Zeroable};
 use vulkano::{
-    buffer::{BufferSlice, CpuAccessibleBuffer, DeviceLocalBuffer},
+    buffer::{Buffer, BufferContents, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
@@ -11,7 +10,7 @@ use vulkano::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{Device, Queue},
-    format::Format,
+    format::{self, Format},
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
     impl_vertex,
     memory::allocator::StandardMemoryAllocator,
@@ -20,7 +19,7 @@ use vulkano::{
             depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
             rasterization::{CullMode, RasterizationState},
-            vertex_input::BuffersDefinition,
+            vertex_input::{BuffersDefinition, Vertex},
             viewport::ViewportState,
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
@@ -30,20 +29,22 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-use crate::engine::transform_compute::cs::ty::MVP;
+use crate::engine::transform_compute::cs::MVP;
 
-use super::{model::{Vertex, Normal, UV, Mesh}, texture::TextureManager};
-
+use super::{
+    model::{Mesh, Normal, _Vertex, UV},
+    texture::TextureManager,
+};
 
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         path: "src/shaders/model.vert",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
+        // types_meta: {
+        //     use bytemuck::{Pod, Zeroable};
 
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        },
+        //     #[derive(Clone, Copy, Zeroable, Pod)]
+        // },
     }
 }
 
@@ -55,19 +56,19 @@ pub mod fs {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+#[derive(Clone, Copy, Debug, Default, BufferContents, Vertex)]
 pub struct ModelMat {
+    #[format(R32G32B32_SFLOAT)]
     pub pos: [f32; 3],
-    pub padding: f32,
 }
-impl_vertex!(ModelMat, pos);
+// impl_vertex!(ModelMat, pos);
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+#[derive(Clone, Copy, Debug, Default, BufferContents)]
 pub struct Id {
     pub id: i32,
 }
-impl_vertex!(Id, id);
+// impl_vertex!(Id, id);
 
 // use self::vs::ty::Data;
 
@@ -94,7 +95,7 @@ impl RenderPipeline {
         let pipeline = GraphicsPipeline::start()
             .vertex_input_state(
                 BuffersDefinition::new()
-                    .vertex::<Vertex>()
+                    .vertex::<_Vertex>()
                     .vertex::<Normal>()
                     .vertex::<UV>(), // .instance::<Id>(),
             )
@@ -170,7 +171,7 @@ impl RenderPipeline {
         self.pipeline = GraphicsPipeline::start()
             .vertex_input_state(
                 BuffersDefinition::new()
-                    .vertex::<Vertex>()
+                    .vertex::<_Vertex>()
                     .vertex::<Normal>()
                     .vertex::<UV>(), // .instance::<Id>(),
             )
@@ -213,14 +214,12 @@ impl RenderPipeline {
             Arc<StandardCommandBufferAllocator>,
         >,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
-        instance_buffer: Arc<BufferSlice<[i32], CpuAccessibleBuffer<[i32]>>>,
-        mvp_buffer: Arc<DeviceLocalBuffer<[MVP]>>,
+        instance_buffer: Subbuffer<[i32]>,
+        mvp_buffer: Subbuffer<[MVP]>,
         mesh: &Mesh,
-        indirect_buffer: Arc<
-            BufferSlice<
-                [DrawIndexedIndirectCommand],
-                CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>,
-            >,
+        indirect_buffer: Subbuffer<
+            [DrawIndexedIndirectCommand],
+            // CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>,
         >,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();

@@ -118,8 +118,7 @@ impl World {
             root,
             sys: Sys {
                 renderer_manager: Arc::new(RwLock::new(RendererManager::new(
-                    vk.device.clone(),
-                    vk.mem_alloc.clone(),
+                    vk.clone()
                 ))),
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),

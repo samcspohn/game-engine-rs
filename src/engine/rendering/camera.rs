@@ -7,7 +7,6 @@ use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
 use serde::{Deserialize, Serialize};
 use vulkano::{
-    buffer::{BufferSlice, CpuAccessibleBuffer, CpuBufferPool},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
@@ -15,6 +14,7 @@ use vulkano::{
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     format::{ClearValue, Format},
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage},
+    memory::allocator::MemoryUsage,
     pipeline::{graphics::viewport::Viewport, ComputePipeline, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
     sync::GpuFuture,
@@ -26,7 +26,7 @@ use crate::{
         particles::particles::{ParticleCompute, ParticleRenderPipeline},
         project::asset_manager::AssetsManager,
         rendering::component::ur,
-        transform_compute::{cs::ty::Data, TransformCompute},
+        transform_compute::{cs::Data, TransformCompute},
         world::{
             component::{Component, _ComponentID},
             transform::{Transform, TransformData},
@@ -37,9 +37,9 @@ use crate::{
 };
 
 use super::{
+    component::{buffer_usage_all, RendererData, SharedRendererData},
     model::{ModelManager, ModelRenderer},
     pipeline::RenderPipeline,
-    component::{buffer_usage_all, RendererData, SharedRendererData},
     texture::{Texture, TextureManager},
     vulkan_manager::VulkanManager,
 };
@@ -55,10 +55,69 @@ pub struct CameraData {
     pub camera_view_data: std::collections::VecDeque<CameraViewData>,
 }
 #[derive(Clone, Default)]
+struct Plane {
+    normal: Vec3,
+    dist: f32,
+}
+#[derive(Clone, Default)]
+struct Frustum {
+    top: Plane,
+    bottom: Plane,
+    right: Plane,
+    left: Plane,
+    far: Plane,
+    near: Plane,
+}
+impl Frustum {
+    fn create(
+        cam: &mut CameraViewData,
+        far_dist: f32,
+        fovY: f32,
+        aspect: f32,
+        near_dist: f32,
+    ) -> Self {
+        let frustum = Frustum::default();
+        let rot = glm::quat_to_mat3(&cam.cam_rot);
+        let h_far = far_dist * (fovY).tan();
+        let w_far = h_far * aspect;
+        let h_near = near_dist * (fovY).tan();
+        let w_near = h_near * aspect;
+        let p = cam.cam_pos;
+        let d = rot * glm::Vec3::z();
+        let right = rot * glm::Vec3::x();
+        let up = rot * glm::Vec3::y();
+        let fc = p + d * far_dist;
+        let ftl = fc + (up * h_far / 2.) - (right * w_far / 2.);
+        let ftr = fc + (up * h_far / 2.) + (right * w_far / 2.);
+        let fbl = fc - (up * h_far / 2.) - (right * w_far / 2.);
+        let fbr = fc - (up * h_far / 2.) + (right * w_far / 2.);
+
+        let nc = p + d * near_dist;
+
+        let ntl = nc + (up * h_near / 2.) - (right * w_near / 2.);
+        let ntr = nc + (up * h_near / 2.) + (right * w_near / 2.);
+        let nbl = nc - (up * h_near / 2.) - (right * w_near / 2.);
+        let nbr = nc - (up * h_near / 2.) + (right * w_near / 2.);
+        frustum
+        //     let halfVSide = zFar * (fovY * 0.5).tan();
+        //     let halfHSide = halfVSide * aspect;
+        //     let rot = glm::quat_to_mat3(&cam.cam_rot);
+        //     let front = rot * glm::Vec3::z();
+        //     let right = rot * glm::Vec3::x();
+        //     let up = rot * glm::Vec3::y();
+
+        //     let p = cam.cam_pos;
+        //     let d = front;
+        // let frontMultFar = zFar * front;
+    }
+}
+#[derive(Clone, Default)]
 pub struct CameraViewData {
     cam_pos: Vec3,
     cam_rot: Quat,
     view: Mat4,
+    inv_rot: Mat4,
+    frustum: Frustum,
     proj: Mat4,
 }
 
@@ -118,6 +177,7 @@ impl CameraData {
         let rot = glm::quat_to_mat3(&cvd.cam_rot);
         let target = cvd.cam_pos + rot * Vec3::z();
         let up = rot * Vec3::y();
+        cvd.inv_rot = glm::look_at_lh(&glm::vec3(0., 0., 0.), &(rot * Vec3::z()), &up);
         cvd.view = glm::look_at_lh(&cvd.cam_pos, &target, &up);
         let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
         cvd.proj = glm::perspective(aspect_ratio, radians(&vec1(fov)).x, near, far);
@@ -217,27 +277,31 @@ impl CameraData {
         transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_data.extent as i32);
 
         if !offset_vec.is_empty() {
-            let offsets_buffer = CpuAccessibleBuffer::from_iter(
-                &vk.mem_alloc,
-                buffer_usage_all(),
-                false,
-                offset_vec,
-            )
-            .unwrap();
+            let offsets_buffer = vk.buffer_from_iter(offset_vec);
+            // Buffer::from_iter(&vk.mem_alloc, buffer_usage_all(), false, offset_vec).unwrap();
             {
                 // per camera
                 puffin::profile_scope!("update renderers: stage 1");
                 // stage 1
                 let uniforms = {
                     puffin::profile_scope!("update renderers: stage 1: uniform data");
-                    rm.uniform
-                        .from_data(ur::ty::Data {
-                            num_jobs: rd.transforms_len,
-                            stage: 1,
-                            view: cvd.view.into(),
-                            _dummy0: Default::default(),
-                        })
-                        .unwrap()
+                    let data = ur::Data {
+                        num_jobs: rd.transforms_len,
+                        stage: 1.into(),
+                        view: cvd.view.into(),
+                        // _dummy0: Default::default(),
+                    };
+                    let u = rm.uniform.lock().allocate_sized().unwrap();
+                    *u.write().unwrap() = data;
+                    u
+                    // rm.uniform
+                    //     .from_data(ur::Data {
+                    //         num_jobs: rd.transforms_len,
+                    //         stage: 1,
+                    //         view: cvd.view.into(),
+                    //         // _dummy0: Default::default(),
+                    //     })
+                    //     .unwrap()
                 };
                 let update_renderers_set = {
                     puffin::profile_scope!("update renderers: stage 1: descriptor set");
@@ -280,6 +344,7 @@ impl CameraData {
             // per camera
             cvd.view.into(),
             cvd.proj.into(),
+            cvd.cam_pos.into(),
             transform_compute.gpu_transforms.clone(),
             &particles.particle_buffers,
             vk.device.clone(),
@@ -307,34 +372,32 @@ impl CameraData {
             let mm = model_manager;
 
             let mut offset = 0;
-
+            let max = rm.renderers_gpu.len();
             for (_ind_id, m_id) in rd.indirect_model.iter() {
                 if let Some(model_indr) = rd.model_indirect.get(m_id) {
-                    for (i,indr) in model_indr.iter().enumerate() {
+                    for (i, indr) in model_indr.iter().enumerate() {
                         if let Some(mr) = mm.assets_id.get(m_id) {
                             let mr = mr.lock();
-                            if indr.count == 0 {
+                            if indr.count == 0 || (offset + indr.count as u64) - max <= 0 {
+                                // TODO: fix invalid slice for renderers
                                 continue;
                             }
-                            if let Some(indirect_buffer) =
-                                BufferSlice::from_typed_buffer_access(rm.indirect_buffer.clone())
-                                    .slice(indr.id as u64..(indr.id + 1) as u64)
-                            {
-                                if let Some(renderer_buffer) =
-                                    BufferSlice::from_typed_buffer_access(rm.renderers_gpu.clone())
-                                        .slice(offset..(offset + indr.count as u64))
-                                {
-                                    self.rend.bind_mesh(
-                                        &texture_manager,
-                                        builder,
-                                        vk.desc_alloc.clone(),
-                                        renderer_buffer.clone(),
-                                        transform_compute.mvp.clone(),
-                                        &mr.meshes[i],
-                                        indirect_buffer.clone(),
-                                    );
-                                }
-                            }
+                            let indirect_buffer = rm
+                                .indirect_buffer
+                                .clone()
+                                .slice(indr.id as u64..(indr.id + 1) as u64);
+                            let renderer_buffer = rm.renderers_gpu.clone().slice(
+                                offset..(offset + indr.count as u64).min(rm.renderers_gpu.len()),
+                            );
+                            self.rend.bind_mesh(
+                                &texture_manager,
+                                builder,
+                                vk.desc_alloc.clone(),
+                                renderer_buffer.clone(),
+                                transform_compute.mvp.clone(),
+                                &mr.meshes[i],
+                                indirect_buffer.clone(),
+                            );
                         }
                         offset += indr.count as u64;
                     }
@@ -360,6 +423,7 @@ impl CameraData {
             builder,
             cvd.view,
             cvd.proj,
+            cvd.inv_rot,
             cvd.cam_rot.coords.into(),
             cvd.cam_pos.into(),
             transform_compute.gpu_transforms.clone(),
@@ -391,17 +455,7 @@ fn window_size_dependent_setup(
                 &vk.mem_alloc,
                 dimensions,
                 Format::R8G8B8A8_UNORM,
-                ImageUsage {
-                    transfer_src: false,
-                    transfer_dst: false,
-                    sampled: true,
-                    storage: true,
-                    color_attachment: true,
-                    depth_stencil_attachment: false,
-                    transient_attachment: false,
-                    input_attachment: true,
-                    ..ImageUsage::empty()
-                },
+                ImageUsage::SAMPLED | ImageUsage::STORAGE | ImageUsage::COLOR_ATTACHMENT, // | ImageUsage::INPUT_ATTACHMENT,
             )
             .unwrap();
             images.push(image.clone());

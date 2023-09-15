@@ -1,7 +1,9 @@
 struct emitter {
     vec3 prev_pos;
-    vec4 prev_rot;
     int alive;
+
+    vec4 prev_rot;
+
     int transform_id;
     float emission;
     int template_id;
@@ -24,6 +26,9 @@ struct particle {
     int emitter_id;
     vec4 rot;
     float l;
+    uint padding;
+    uint padding2;
+    uint padding3;
 };
 struct particle_template {
     vec4 color;
@@ -33,29 +38,77 @@ struct particle_template {
     float min_speed;
     float max_speed;
 
+    vec2 scale;
     float min_lifetime;
     float max_lifetime;
-    vec2 scale;
-    
+
     int trail;
     int billboard;
     int align_vel;
     float dispersion;
-    uint tex_id;
-    // vec4 color_life[256];
 
+    uint tex_id;
+    uint padding;
+    uint padding2;
+    uint padding3;
+    // vec4 color_life[256];
 };
 struct pos_lif {
-    vec3 pos; // 12
-    float life; // 4
+    vec3 pos;     // 12
+    float life;   // 4
     // int template_id; // 4
-    //_dummy0 // 
+    //_dummy0 //
 };
 struct _a {
-    // vec4 rot;
-    // vec3 pos;
     uint key;
-    // int proto_id;
-    // float life;
     uint p_id;
 };
+const uint hi = 0xffff0000;   // use to keep hi/lo bits
+const uint lo = 0x0000ffff;
+
+// ----------
+//  l  |  x
+// ----------
+//  hi -- lo
+// ----------
+//  y  |  z
+// ----------
+struct pos_life_comp {
+    uint lx;
+    uint yz;
+};
+float get_life(inout pos_life_comp pl) {
+    vec2 lx = unpackHalf2x16(pl.lx);
+    return lx.x;
+    // uint l = pl.lx >> 16;
+    // return l * 65536;
+}
+void set_life(inout pos_life_comp pl, float _l) {
+    vec2 _lx = unpackHalf2x16(pl.lx);
+    uint lx = packHalf2x16(vec2(_l,_lx.y));
+    pl.lx = lx;
+    // uint l = uint(_l * 65536) << 16;
+    // pl.lx = (pl.lx & lo) & l;
+}
+vec3 get_pos(inout pos_life_comp pl) {
+    vec2 lx = unpackHalf2x16(pl.lx);
+    vec2 yz = unpackHalf2x16(pl.yz);
+    return vec3(lx.y, yz.x, yz.y);
+    // uint x = pl.lx & lo << 16;
+    // uint y = pl.yz & hi;
+    // uint z = pl.yz & lo << 16;
+    // return vec3(uintBitsToFloat(x),uintBitsToFloat(y),uintBitsToFloat(z));
+}
+void set_pos(inout pos_life_comp pl, vec3 v) {
+    // uint lx = (packHalf2x16(vec2(0, v.x)) & lo) & (pl.lx & hi);
+    vec2 _lx = unpackHalf2x16(pl.lx);
+    uint lx = packHalf2x16(vec2(_lx.x, v.x));
+    uint yz = packHalf2x16(v.yz);
+    pl.lx = lx;
+    pl.yz = yz;
+    // uint x = floatBitsToUint(v.x) >> 16;
+    // pl.lx = pl.lx & hi & x;
+    // uint y = floatBitsToUint(v.y);
+    // uint z = floatBitsToUint(v.z) >> 16;
+    // pl.yz = y & hi & z;
+}

@@ -171,10 +171,10 @@ pub fn editor_ui(
                                                     }
 
                                                     let id = resp.id;
-                                                    let is_being_dragged = ui.memory().is_being_dragged(id);
-                                                    let pointer_released = ui.input().pointer.any_released();
+                                                    let is_being_dragged = ui.memory(|m| m.is_being_dragged(id));
+                                                    let pointer_released = ui.input(|i| i.pointer.any_released());
 
-                                                    let between = if ui.memory().is_anything_being_dragged() {
+                                                    let between = if ui.memory(|m| m.is_anything_being_dragged()) {
                                                         const HEIGHT: f32 = 7.0;
                                                         let width = resp.rect.right() - resp.rect.left();
                                                         const OFFSET: f32 = 6.0;
@@ -188,10 +188,10 @@ pub fn editor_ui(
                                                             Rounding::same(1.0),
                                                             Color32::from_rgba_unmultiplied(255, 255, 255, 50),
                                                         ));
-                                                        if between && ui.memory().is_anything_being_dragged() {
+                                                        if between && ui.memory(|m| m.is_anything_being_dragged()) {
                                                             ui.painter().add(between_rect_fill);
                                                         } else if ui.rect_contains_pointer(resp.rect)
-                                                            && ui.memory().is_anything_being_dragged()
+                                                            && ui.memory(|m| m.is_anything_being_dragged())
                                                         {
                                                             let a = egui::Shape::Rect(egui::epaint::RectShape::filled(
                                                                 resp.rect,
@@ -242,7 +242,7 @@ pub fn editor_ui(
                                                         *DRAGGED_TRANSFORM.lock() = t.id;
                                                     }
                                                     if is_being_dragged {
-                                                        ui.output().cursor_icon = egui::CursorIcon::Grabbing;
+                                                        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
                                                         // Paint the body to a new layer:
                                                         let layer_id = egui::LayerId::new(egui::Order::Tooltip, id);
                                                         let response = ui
@@ -458,7 +458,7 @@ pub fn editor_ui(
                                                         static mut TEXT: String = String::new();
 
                                                         unsafe { let resp2 = ui.text_edit_singleline(&mut TEXT); 
-                                                            if resp2.lost_focus() && ui.input().key_pressed(egui::Key::Enter) {
+                                                            if resp2.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                                                 ui.close_menu();
                                                                 assets_manager.new_asset(format!("{label}/{TEXT}.ptem").as_str());
                                                                 TEXT = "".into();

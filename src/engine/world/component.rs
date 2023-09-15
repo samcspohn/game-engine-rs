@@ -53,7 +53,7 @@ impl<'a> System<'a> {
         direction: Vec3
     ) {
         // let r = rotation;
-        let burst = crate::engine::particles::shaders::cs::ty::burst {
+        let burst = crate::engine::particles::shaders::cs::burst {
             pos: position.into(),
             template_id: template.id,
             dir: direction.into(),

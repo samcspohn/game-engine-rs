@@ -95,7 +95,8 @@ impl ColorGradient {
             ui.painter()
                 .rect(rect, 0.0, visuals.bg_fill, visuals.bg_stroke);
             for (x, y) in &mut self.nodes {
-                ui.painter().add(egui::Shape::convex_polygon( // paint triangles
+                ui.painter().add(egui::Shape::convex_polygon(
+                    // paint triangles
                     vec![
                         egui::pos2(rect.left() + y.0 * rect.width() - 6., rect.top()), // top left
                         egui::pos2(rect.left() + y.0 * rect.width() + 6., rect.top()), // top right
@@ -105,7 +106,7 @@ impl ColorGradient {
                         (y.1[0] * 255.) as u8,
                         (y.1[1] * 255.) as u8,
                         (y.1[2] * 255.) as u8,
-                        (y.1[3] * 255.) as u8
+                        (y.1[3] * 255.) as u8,
                     ),
                     egui::Stroke::new(
                         visuals.fg_stroke.width / 2.,
@@ -117,8 +118,8 @@ impl ColorGradient {
                     egui::pos2(rect.left() + y.0 * rect.width() + 8., rect.bottom()), // bottom tip
                 ));
                 color_picker |= b;
-                if b && (ui.input().pointer.primary_clicked()
-                    || ui.input().pointer.secondary_clicked())
+                if b && (ui.input(|i| i.pointer.primary_clicked())
+                    || ui.input(|i| i.pointer.secondary_clicked()))
                 {
                     unsafe {
                         RGBA_UNMUL = y.1;
@@ -138,7 +139,7 @@ impl ColorGradient {
 
         let popup_id = ui.auto_id_with("popup");
         const COLOR_SLIDER_WIDTH: f32 = 210.0;
-        if ui.memory().is_popup_open(popup_id) {
+        if ui.memory(|m| m.is_popup_open(popup_id)) {
             let area_response = egui::Area::new(popup_id)
                 .order(egui::Order::Foreground)
                 .fixed_pos(egui::pos2(rect.left(), rect.bottom()))
@@ -166,14 +167,14 @@ impl ColorGradient {
                 })
                 .response;
 
-            if ui.input().key_pressed(egui::Key::Escape) || area_response.clicked_elsewhere() {
-                ui.memory().close_popup();
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) || area_response.clicked_elsewhere() {
+                ui.memory_mut(|m| m.close_popup());
                 unsafe { key = -1 }
             }
         }
         if response.clicked() {
             if color_picker && unsafe { self.nodes.contains_key(&key) } {
-                ui.memory().toggle_popup(popup_id);
+                ui.memory_mut(|m| m.toggle_popup(popup_id));
             } else {
                 println!(
                     "{}",
@@ -199,7 +200,7 @@ impl ColorGradient {
                     hsva = egui::epaint::Hsva::from(rgba);
                 }
                 self.id_gen += 1;
-                ui.memory().toggle_popup(popup_id);
+                ui.memory_mut(|m| m.toggle_popup(popup_id));
 
                 response.mark_changed();
             }
@@ -208,7 +209,7 @@ impl ColorGradient {
                 // ui.memory().toggle_popup(popup_id);
                 unsafe {
                     if self.nodes.remove(&key).is_some() {}
-                    if ui.memory().is_popup_open(popup_id) {
+                    if ui.memory(|m| m.is_popup_open(popup_id)) {
                         key = -1;
                     }
                 }

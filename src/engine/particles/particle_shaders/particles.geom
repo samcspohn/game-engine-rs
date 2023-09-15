@@ -2,12 +2,6 @@
 #include "../../../shaders/util.glsl"
 #include "particle.glsl"
 
-struct transform {
-    vec3 position;
-    vec4 rotation;
-    vec3 scale;
-};
-
 layout(points) in;
 layout(triangle_strip, max_vertices = 4) out;
 
@@ -17,7 +11,8 @@ layout(location = 1) out int templ_id;
 layout(location = 2) out vec2 uv;
 layout(location = 3) out vec2 uv2;
 
-layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
+// layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
+layout(set = 0, binding = 0) buffer pl_c { pos_life_comp p_l[]; };
 layout(set = 0, binding = 3) buffer pt { particle_template templates[]; };
 layout(set = 0, binding = 5) buffer a { int sorted[]; };
 layout(set = 0, binding = 6) buffer pti { int template_ids[]; };
@@ -26,6 +21,7 @@ layout(set = 0, binding = 8) buffer t { transform transforms[]; };
 layout(set = 0, binding = 9) buffer p { particle particles[]; };
 layout(set = 0, binding = 4) uniform Data {
     mat4 view;
+    mat4 cam_inv_rot;
     mat4 proj;
     vec3 cam_pos;
     vec4 cam_rot;
@@ -52,27 +48,28 @@ void main() {
     mat4 model;
     float l1;
     float l2;
+    vec3 pos = get_pos(p_l[i]);
     if (templ.trail == 1) {   // trail
         vec3 next_pos;
-        l2 = 1. - p_l[i].life;
+        l2 = 1. - get_life(p_l[i]);
         if (next[i] >= 0) {   // next is particle
-            next_pos = p_l[next[i]].pos;
-            l1 = 1. - p_l[next[i]].life;
+            next_pos = get_pos(p_l[next[i]]);
+            l1 = 1. - get_life(p_l[next[i]]);
         } else if (next[i] < -1) {   // next is emitter / transform
-            next_pos = transforms[-next[i] - 2].position;
+            next_pos = transforms[-next[i] - 2].position - cam_pos;
             l1 = 0.;
         } else {   // next is invalid
-            next_pos = p_l[i].pos;
+            next_pos = pos;
             l1 = l2;
         }
-        vec3 v = next_pos - p_l[i].pos;
-        vec3 x = cross(v, cam_pos - p_l[i].pos);
+        vec3 v = next_pos - pos;
+        vec3 x = cross(v, pos);
         x = cross(x, v);
         vec4 l = lookAt(x, v);
-        model = translate(p_l[i].pos + v / 2.f) * rotate(l) *
+        model = translate(pos + v / 2.f) * rotate(l) *
                 scale(vec3(templ.scale.x, length(v) / 2 * templ.scale.y, 1));
     } else {   // not trail / billboard / aligned to velocity
-        l1 = l2 = 1. - p_l[i].life;
+        l1 = l2 = 1. - get_life(p_l[i]);
         vec4 rot;
         // uint a = templ.billboard & templ.align_vel << 1;
         // switch (a) {
@@ -89,7 +86,7 @@ void main() {
         //     break;
         // }
         if (templ.billboard == 1 && templ.align_vel == 1) {
-            vec3 a = cam_pos - p_l[i].pos;
+            vec3 a = pos;
             vec3 b = cross(p.vel, a);
             vec3 c = cross(p.vel, b);
 
@@ -105,13 +102,13 @@ void main() {
         } else {
             rot = particles[i].rot;
         }
-        model = translate(p_l[i].pos) * rotate(rot) *
+        model = translate(pos) * rotate(rot) *
                 scale(vec3(templ.scale.x, templ.scale.y, 1));
     }
     // float offset = 0.5 / float(num_templates);
     float tid = float(_templ_id + 0.5);
     float color_id = tid / float(num_templates);
-    mat4 mvp = proj * view * model;
+    mat4 mvp = proj * cam_inv_rot * model;
     templ_id = template_ids[i];
     gl_Position = get_position(mvp, 0);
     uv = vert_uv[0];

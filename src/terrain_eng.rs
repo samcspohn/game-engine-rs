@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 // use vulkano::descriptor_set::WriteDescriptorSet;
 // use vulkano::device::Device;
 use vulkano::{
-    buffer::{BufferSlice, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    buffer::{BufferUsage, Subbuffer},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferInheritanceInfo,
         CommandBufferInheritanceRenderingInfo, CommandBufferUsage, CopyBufferInfo,
@@ -28,12 +28,28 @@ use vulkano::{
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::Device,
+    memory::allocator::MemoryUsage,
     pipeline::{Pipeline, PipelineBindPoint},
     sync::GpuFuture,
 };
 
-use crate::{engine::{rendering::{model::{Vertex, Normal, UV}, texture::Texture, component::buffer_usage_all}, world::{transform::Transform, Sys, component::{System, Component}, World}, RenderJobData}, editor::inspectable::{Inspectable, Ins, Inpsect}};
 use crate::engine::world::component::_ComponentID;
+use crate::{
+    editor::inspectable::{Inpsect, Ins, Inspectable},
+    engine::{
+        rendering::{
+            component::buffer_usage_all,
+            model::{Normal, _Vertex, UV},
+            texture::Texture,
+        },
+        world::{
+            component::{Component, System},
+            transform::Transform,
+            Sys, World,
+        },
+        RenderJobData,
+    },
+};
 // struct Chunk {
 //     verts: Vec<model::Vertex>,
 //     normals: Vec<model::Normal>,
@@ -42,10 +58,10 @@ use crate::engine::world::component::_ComponentID;
 // }
 
 struct TerrainChunkRenderData {
-    pub vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
-    pub normals_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
-    pub uvs_buffer: Arc<CpuAccessibleBuffer<[UV]>>,
-    pub index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
+    pub vertex_buffer: Subbuffer<[_Vertex]>,
+    pub normals_buffer: Subbuffer<[Normal]>,
+    pub uvs_buffer: Subbuffer<[UV]>,
+    pub index_buffer: Subbuffer<[u32]>,
     pub texture: Option<i32>,
 }
 // #[component]
@@ -96,45 +112,27 @@ impl TerrainEng {
             let num_verts_chunk = (terrain_size * terrain_size).max(1);
             self.tcrd = Some(Arc::new(TerrainChunkRenderData {
                 texture: Some(
-                    sys.assets.get_manager::<Texture>().lock()
+                    sys.assets
+                        .get_manager::<Texture>()
+                        .lock()
                         .from_file("res/grass.png"),
                 ),
-                vertex_buffer: unsafe {
-                    CpuAccessibleBuffer::uninitialized_array(
-                        &sys.vk.mem_alloc,
-                        (num_chunks * num_verts_chunk) as u64,
-                        buffer_usage_all(),
-                        false,
-                    )
-                    .unwrap()
-                },
-                normals_buffer: unsafe {
-                    CpuAccessibleBuffer::uninitialized_array(
-                        &sys.vk.mem_alloc,
-                        (num_chunks * num_verts_chunk) as u64,
-                        buffer_usage_all(),
-                        false,
-                    )
-                    .unwrap()
-                },
-                uvs_buffer: unsafe {
-                    CpuAccessibleBuffer::uninitialized_array(
-                        &sys.vk.mem_alloc,
-                        (num_chunks * num_verts_chunk) as u64,
-                        buffer_usage_all(),
-                        false,
-                    )
-                    .unwrap()
-                },
-                index_buffer: unsafe {
-                    CpuAccessibleBuffer::uninitialized_array(
-                        &sys.vk.mem_alloc,
-                        (num_chunks * ((terrain_size - 1) * (terrain_size - 1)) * 6) as u64,
-                        buffer_usage_all(),
-                        false,
-                    )
-                    .unwrap()
-                },
+                vertex_buffer: sys.vk.buffer_array(
+                    (num_chunks * num_verts_chunk) as u64,
+                    MemoryUsage::DeviceOnly,
+                ),
+                normals_buffer: sys.vk.buffer_array(
+                    (num_chunks * num_verts_chunk) as u64,
+                    MemoryUsage::DeviceOnly,
+                ),
+                uvs_buffer: sys.vk.buffer_array(
+                    (num_chunks * num_verts_chunk) as u64,
+                    MemoryUsage::DeviceOnly,
+                ),
+                index_buffer: sys.vk.buffer_array(
+                    (num_chunks * ((terrain_size - 1) * (terrain_size - 1)) * 6) as u64,
+                    MemoryUsage::DeviceOnly,
+                ),
             }));
         }
         // let mut skip = 0;
@@ -233,80 +231,35 @@ impl TerrainEng {
                             let x = x + chunk_range;
                             let z = z + chunk_range;
 
-                            let vertex_slice_vertex =
-                                BufferSlice::from_typed_buffer_access(tcrd.vertex_buffer.clone())
-                                    .slice(
-                                        (x * x_skip + z * z_skip) as u64
-                                            ..(x * x_skip + (z + 1) * z_skip) as u64,
-                                    )
-                                    .unwrap();
-                            let vertecies = CpuAccessibleBuffer::from_iter(
-                                &sys.vk.mem_alloc,
-                                BufferUsage {
-                                    transfer_src: true,
-                                    ..Default::default()
-                                },
-                                false,
-                                m.0.clone(),
-                            )
-                            .unwrap();
+                            let vertex_slice_vertex = tcrd.vertex_buffer.clone().slice(
+                                (x * x_skip + z * z_skip) as u64
+                                    ..(x * x_skip + (z + 1) * z_skip) as u64,
+                            );
+                            let vertecies = sys.vk.buffer_from_iter(m.0.clone());
 
-                            let vertex_slice_normals =
-                                BufferSlice::from_typed_buffer_access(tcrd.normals_buffer.clone())
-                                    .slice(
-                                        (x * x_skip + z * z_skip) as u64
-                                            ..(x * x_skip + (z + 1) * z_skip) as u64,
-                                    )
-                                    .unwrap();
-                            let normals = CpuAccessibleBuffer::from_iter(
-                                &sys.vk.mem_alloc,
-                                BufferUsage {
-                                    transfer_src: true,
-                                    ..Default::default()
-                                },
-                                false,
-                                m.1.clone(),
-                            )
-                            .unwrap();
+                            let vertex_slice_normals = tcrd.normals_buffer.clone().slice(
+                                (x * x_skip + z * z_skip) as u64
+                                    ..(x * x_skip + (z + 1) * z_skip) as u64,
+                            );
 
-                            let vertex_slice_uvs =
-                                BufferSlice::from_typed_buffer_access(tcrd.uvs_buffer.clone())
-                                    .slice(
-                                        (x * x_skip + z * z_skip) as u64
-                                            ..(x * x_skip + (z + 1) * z_skip) as u64,
-                                    )
-                                    .unwrap();
-                            let uvs = CpuAccessibleBuffer::from_iter(
-                                &sys.vk.mem_alloc,
-                                BufferUsage {
-                                    transfer_src: true,
-                                    ..Default::default()
-                                },
-                                false,
-                                m.2.clone(),
-                            )
-                            .unwrap();
+                            let normals = sys.vk.buffer_from_iter(m.1.clone());
+
+                            let vertex_slice_uvs = tcrd.uvs_buffer.clone().slice(
+                                (x * x_skip + z * z_skip) as u64
+                                    ..(x * x_skip + (z + 1) * z_skip) as u64,
+                            );
+                            let uvs = sys.vk.buffer_from_iter(m.2.clone());
 
                             let start_index = (x * x_skip + z * z_skip) as u32;
                             let z_skip = (terrain_size - 1) * (terrain_size - 1) * 6;
                             let x_skip = (chunk_range * 2) * z_skip;
-                            let index_slice =
-                                BufferSlice::from_typed_buffer_access(tcrd.index_buffer.clone())
-                                    .slice(
-                                        (x * x_skip + z * z_skip) as u64
-                                            ..(x * x_skip + (z + 1) * z_skip) as u64,
-                                    )
-                                    .unwrap();
-                            let indexs = CpuAccessibleBuffer::from_iter(
-                                &sys.vk.mem_alloc,
-                                BufferUsage {
-                                    transfer_src: true,
-                                    ..Default::default()
-                                },
-                                false,
+                            let index_slice = tcrd.index_buffer.clone().slice(
+                                (x * x_skip + z * z_skip) as u64
+                                    ..(x * x_skip + (z + 1) * z_skip) as u64,
+                            );
+                            let indexs = sys.vk.buffer_from_iter(
                                 m.3.iter().map(|i| i + start_index).collect::<Vec<u32>>(),
-                            )
-                            .unwrap();
+                            );
                             // lock builder/ copy buffers
                             let mut builder = builder.lock();
                             builder
@@ -376,14 +329,14 @@ impl TerrainEng {
         _z: i32,
         terrain_size: i32,
         _device: Arc<Device>,
-    ) -> (Vec<Vertex>, Vec<Normal>, Vec<UV>, Vec<u32>) {
+    ) -> (Vec<_Vertex>, Vec<Normal>, Vec<UV>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut uvs = Vec::new();
 
         let make_vert = |x: i32, z: i32| {
             let __x = x as f32 + (_x * (terrain_size - 1)) as f32;
             let __z = z as f32 + (_z * (terrain_size - 1)) as f32;
-            Vertex {
+            _Vertex {
                 position: [
                     __x * 10.0,
                     noise.get([__x as f64 / 50., __z as f64 / 50.]) as f32 * 100.
@@ -538,22 +491,10 @@ impl Component for TerrainEng {
                 //     mvp: (**proj * **view * glm::Mat4::identity()).into(),
                 // }];
 
-                static mut INSTANCE_BUFFER: Option<Arc<CpuAccessibleBuffer<[i32]>>> = None;
+                static mut INSTANCE_BUFFER: Option<Subbuffer<[i32]>> = None;
                 if unsafe { INSTANCE_BUFFER.is_none() } {
                     unsafe {
-                        INSTANCE_BUFFER = Some(
-                            CpuAccessibleBuffer::<[i32]>::from_iter(
-                                &vk.mem_alloc,
-                                BufferUsage {
-                                    transfer_src: true,
-                                    storage_buffer: true,
-                                    ..Default::default()
-                                },
-                                false,
-                                instance_data,
-                            )
-                            .unwrap(),
-                        );
+                        INSTANCE_BUFFER = Some(vk.buffer_from_iter(instance_data));
                     }
                 }
 

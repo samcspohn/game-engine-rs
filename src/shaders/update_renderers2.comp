@@ -9,12 +9,6 @@ struct VkDrawIndexedIndirectCommand {
     uint firstInstance;
 };
 
-struct transform {
-    vec3 position;
-    vec4 rotation;
-    vec3 scale;
-};
-
 struct transform_id {
     int indirect_id;
     int id;
@@ -29,9 +23,7 @@ layout(set = 0, binding = 3) buffer a {
     VkDrawIndexedIndirectCommand indirect[];
 };
 layout(set = 0, binding = 4) buffer t { transform transforms[]; };
-
 layout(set = 0, binding = 5) buffer o { int offsets[]; };
-
 layout(set = 0, binding = 6) uniform Data {
     int num_jobs;
     int stage;

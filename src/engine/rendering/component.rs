@@ -1,5 +1,5 @@
 use component_derive::ComponentID;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use puffin_egui::puffin;
 use std::{
     any::TypeId,
@@ -22,19 +22,22 @@ use crate::{
         },
     },
 };
-use bytemuck::{Pod, Zeroable};
+// use bytemuck::{Pod, Zeroable};
 // use parking_lot::RwLock;
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, TypedBufferAccess},
+    buffer::{
+        allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
+        BufferContents, BufferUsage, Subbuffer,
+    },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CopyBufferInfo,
         DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    device::Device,
-    memory::allocator::{FreeListAllocator, GenericMemoryAllocator, MemoryUsage},
+    device::DeviceOwned,
+    memory::allocator::{MemoryAllocator, MemoryUsage},
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     shader::ShaderModule,
 };
@@ -166,11 +169,11 @@ pub mod ur {
     vulkano_shaders::shader! {
         ty: "compute",
         path: "src/shaders/update_renderers2.comp",
-        types_meta: {
-            use bytemuck::{Pod, Zeroable};
+        // types_meta: {
+        //     use bytemuck::{Pod, Zeroable};
 
-            #[derive(Clone, Copy, Zeroable, Pod)]
-        },
+        //     #[derive(Clone, Copy, Zeroable, Pod)]
+        // },
     }
 }
 
@@ -181,7 +184,7 @@ pub struct Indirect {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+#[derive(Clone, Copy, Debug, Default, BufferContents)]
 pub struct TransformId {
     pub indirect_id: i32,
     pub transform_id: i32,
@@ -196,17 +199,16 @@ pub struct RendererData {
 }
 
 pub struct SharedRendererData {
-    pub transform_ids_gpu: Arc<CpuAccessibleBuffer<[TransformId]>>,
-    pub renderers_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
-    pub updates_gpu: Arc<CpuAccessibleBuffer<[i32]>>,
+    pub transform_ids_gpu: Subbuffer<[TransformId]>,
+    pub renderers_gpu: Subbuffer<[i32]>,
+    pub updates_gpu: Subbuffer<[i32]>,
     pub indirect: _Storage<DrawIndexedIndirectCommand>,
-    pub indirect_buffer: Arc<CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>>,
+    pub indirect_buffer: Subbuffer<[DrawIndexedIndirectCommand]>,
 
-    pub device: Arc<Device>,
-    pub mem: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
+    pub vk: Arc<VulkanManager>,
     pub shader: Arc<ShaderModule>,
     pub pipeline: Arc<ComputePipeline>,
-    pub uniform: Arc<CpuBufferPool<ur::ty::Data>>,
+    pub uniform: Mutex<SubbufferAllocator>,
 }
 
 impl SharedRendererData {
@@ -230,20 +232,8 @@ impl SharedRendererData {
 
             let copy_buffer = self.transform_ids_gpu.clone();
             unsafe {
-                self.transform_ids_gpu = CpuAccessibleBuffer::uninitialized_array(
-                    &vk.mem_alloc,
-                    max_len as u64,
-                    buffer_usage_all(),
-                    false,
-                )
-                .unwrap();
-                self.renderers_gpu = CpuAccessibleBuffer::uninitialized_array(
-                    &vk.mem_alloc,
-                    max_len as u64,
-                    buffer_usage_all(),
-                    false,
-                )
-                .unwrap();
+                self.transform_ids_gpu = vk.buffer_array(max_len as u64, MemoryUsage::DeviceOnly);
+                self.renderers_gpu = vk.buffer_array(max_len as u64, MemoryUsage::DeviceOnly);
             }
 
             // let copy = CopyBufferInfo::buffers(copy_buffer, rm.transform_ids_gpu.clone());
@@ -255,13 +245,7 @@ impl SharedRendererData {
                 .unwrap();
         }
         if !self.indirect.data.is_empty() {
-            self.indirect_buffer = CpuAccessibleBuffer::from_iter(
-                &vk.mem_alloc,
-                buffer_usage_all(),
-                false,
-                self.indirect.data.clone(),
-            )
-            .unwrap();
+            self.indirect_buffer = vk.buffer_from_iter(self.indirect.data.clone());
         }
 
         let mut offset_vec = Vec::new();
@@ -275,13 +259,7 @@ impl SharedRendererData {
             }
         }
         if !offset_vec.is_empty() {
-            let offsets_buffer = CpuAccessibleBuffer::from_iter(
-                &vk.mem_alloc,
-                buffer_usage_all(),
-                false,
-                offset_vec.clone(),
-            )
-            .unwrap();
+            let offsets_buffer = vk.buffer_from_iter(offset_vec.clone());
 
             {
                 puffin::profile_scope!("update renderers: stage 0");
@@ -289,25 +267,17 @@ impl SharedRendererData {
                 let mut rd_updates = Vec::new();
                 std::mem::swap(&mut rd_updates, &mut rd.updates);
                 if update_num > 0 {
-                    self.updates_gpu = CpuAccessibleBuffer::from_iter(
-                        &vk.mem_alloc,
-                        buffer_usage_all(),
-                        false,
-                        rd_updates,
-                    )
-                    .unwrap();
+                    self.updates_gpu = vk.buffer_from_iter(rd_updates);
                 }
-
                 // stage 0
-                let uniforms = self
-                    .uniform
-                    .from_data(ur::ty::Data {
-                        num_jobs: update_num as i32,
-                        stage: 0,
-                        view: Default::default(),
-                        _dummy0: Default::default(),
-                    })
-                    .unwrap();
+                let uniforms = self.uniform.lock().allocate_sized().unwrap();
+                let data = ur::Data {
+                    num_jobs: update_num as i32,
+                    stage: 0.into(),
+                    view: Default::default(),
+                    // _dummy0: Default::default(),
+                };
+                *uniforms.write().unwrap() = data;
 
                 let update_renderers_set = PersistentDescriptorSet::new(
                     &vk.desc_alloc,
@@ -357,31 +327,38 @@ pub struct RendererManager {
 }
 
 pub fn buffer_usage_all() -> BufferUsage {
-    BufferUsage {
-        transfer_src: true,
-        transfer_dst: true,
-        uniform_texel_buffer: true,
-        storage_texel_buffer: true,
-        uniform_buffer: true,
-        storage_buffer: true,
-        index_buffer: true,
-        vertex_buffer: true,
-        indirect_buffer: true,
-        shader_device_address: true,
-        ..Default::default()
-    }
+    BufferUsage::TRANSFER_SRC
+        | BufferUsage::TRANSFER_DST
+        | BufferUsage::UNIFORM_TEXEL_BUFFER
+        | BufferUsage::STORAGE_TEXEL_BUFFER
+        | BufferUsage::UNIFORM_BUFFER
+        | BufferUsage::STORAGE_BUFFER
+        | BufferUsage::INDEX_BUFFER
+        | BufferUsage::VERTEX_BUFFER
+        | BufferUsage::INDIRECT_BUFFER
+        | BufferUsage::SHADER_DEVICE_ADDRESS
+    // BufferUsage {
+    //     transfer_src: true,
+    //     transfer_dst: true,
+    //     uniform_texel_buffer: true,
+    //     storage_texel_buffer: true,
+    //     uniform_buffer: true,
+    //     storage_buffer: true,
+    //     index_buffer: true,
+    //     vertex_buffer: true,
+    //     indirect_buffer: true,
+    //     shader_device_address: true,
+    //     ..Default::default()
+    // }
 }
 
 impl RendererManager {
-    pub fn new(
-        device: Arc<Device>,
-        mem: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
-    ) -> RendererManager {
-        let shader = ur::load(device.clone()).unwrap();
+    pub fn new(vk: Arc<VulkanManager>) -> RendererManager {
+        let shader = ur::load(vk.device.clone()).unwrap();
 
         // Create compute-pipeline for applying compute shader to vertices.
         let pipeline = vulkano::pipeline::ComputePipeline::new(
-            device.clone(),
+            vk.device.clone(),
             shader.entry_point("main").unwrap(),
             &(),
             None,
@@ -395,57 +372,24 @@ impl RendererManager {
             updates: HashMap::new(),
             transforms: _Storage::new(),
             shr_data: Arc::new(RwLock::new(SharedRendererData {
-                transform_ids_gpu: CpuAccessibleBuffer::from_iter(
-                    // device.clone(),
-                    &mem,
-                    buffer_usage_all(),
-                    true,
-                    vec![TransformId {
-                        indirect_id: -1,
-                        transform_id: -1,
-                    }],
-                )
-                .unwrap(),
-                renderers_gpu: CpuAccessibleBuffer::from_iter(
-                    // device.clone(),
-                    &mem,
-                    buffer_usage_all(),
-                    true,
-                    vec![0],
-                )
-                .unwrap(),
-                updates_gpu: CpuAccessibleBuffer::from_iter(
-                    // device.clone(),
-                    &mem,
-                    buffer_usage_all(),
-                    true,
-                    vec![0],
-                )
-                .unwrap(),
+                transform_ids_gpu: vk.buffer_from_iter(vec![TransformId {
+                    indirect_id: -1,
+                    transform_id: -1,
+                }]),
+                renderers_gpu: vk.buffer_from_iter(vec![0]),
+                updates_gpu: vk.buffer_from_iter(vec![0]),
                 indirect: _Storage::new(),
-                indirect_buffer: CpuAccessibleBuffer::from_iter(
-                    &mem,
-                    buffer_usage_all(),
-                    true,
-                    vec![DrawIndexedIndirectCommand {
-                        index_count: 0,
-                        instance_count: 0,
-                        first_index: 0,
-                        vertex_offset: 0,
-                        first_instance: 0,
-                    }],
-                )
-                .unwrap(),
-                device: device,
+                indirect_buffer: vk.buffer_from_iter(vec![DrawIndexedIndirectCommand {
+                    index_count: 0,
+                    instance_count: 0,
+                    first_index: 0,
+                    vertex_offset: 0,
+                    first_instance: 0,
+                }]),
                 shader,
                 pipeline,
-                mem: mem.clone(),
-                uniform: Arc::new(CpuBufferPool::<ur::ty::Data>::new(
-                    mem.clone(),
-                    // device.clone(),
-                    buffer_usage_all(),
-                    MemoryUsage::Upload,
-                )),
+                vk: vk.clone(),
+                uniform: Mutex::new(vk.sub_buffer_allocator()),
             })),
         }
     }

@@ -234,9 +234,9 @@ pub struct TransformData {
     pub pos_id: Vec<CacheVec<i32>>,
     pub rot_id: Vec<CacheVec<i32>>,
     pub scl_id: Vec<CacheVec<i32>>,
-    pub pos_data: Vec<CacheVec<[f32; 3]>>,
+    pub pos_data: Vec<CacheVec<[f32; 4]>>,
     pub rot_data: Vec<CacheVec<[f32; 4]>>,
-    pub scl_data: Vec<CacheVec<[f32; 3]>>,
+    pub scl_data: Vec<CacheVec<[f32; 4]>>,
     pub extent: usize,
 }
 use dary_heap::DaryHeap;
@@ -260,9 +260,9 @@ pub struct Transforms {
     updates: SegVec<SyncUnsafeCell<[bool; 3]>>,
     extent: i32,
     ids_cache: VecCache<i32>,
-    pos_cache: VecCache<[f32; 3]>,
+    pos_cache: VecCache<[f32; 4]>,
     rot_cache: VecCache<[f32; 4]>,
-    scl_cache: VecCache<[f32; 3]>,
+    scl_cache: VecCache<[f32; 4]>,
     new_trans_cache: VecCache<i32>,
 }
 
@@ -830,7 +830,7 @@ impl Transforms {
                                 if u[POS_U] {
                                     p_ids.push(i as i32);
                                     let p = &*p[i].get();
-                                    pos.push([p.x, p.y, p.z]);
+                                    pos.push([p.x, p.y, p.z, 0.]);
                                     u[POS_U] = false;
                                 }
                                 if u[ROT_U] {
@@ -842,7 +842,7 @@ impl Transforms {
                                 if u[SCL_U] {
                                     s_ids.push(i as i32);
                                     let s = &*s[i].get();
-                                    scl.push([s.x, s.y, s.z]);
+                                    scl.push([s.x, s.y, s.z, 0.]);
                                     u[SCL_U] = false;
                                 }
                             }

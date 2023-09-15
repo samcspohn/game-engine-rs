@@ -1,32 +1,38 @@
 use std::{
+    cell::SyncUnsafeCell,
     collections::HashMap,
     hash::BuildHasherDefault,
     sync::{
         atomic::{AtomicI32, Ordering},
         Arc,
-    }, cell::SyncUnsafeCell,
+    },
 };
 
 use nohash_hasher::NoHashHasher;
 use parking_lot::Mutex;
 use thincollections::thin_map::ThinMap;
 use vulkano::{
-    buffer::CpuAccessibleBuffer,
+    buffer::{
+        allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
+        Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
+    },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         PrimaryAutoCommandBuffer,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{
-        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Features, Queue,
-        QueueCreateInfo,
+        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned,
+        Features, Queue, QueueCreateInfo, QueueFlags,
     },
     image::{ImageUsage, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
-    memory::allocator::StandardMemoryAllocator,
+    memory::allocator::{
+        AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
+    },
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
-    VulkanLibrary,
+    NonZeroDeviceSize, VulkanLibrary, sync::Sharing,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
@@ -34,6 +40,8 @@ use winit::{
     event_loop::EventLoop,
     window::{self, Window, WindowBuilder},
 };
+
+use super::component::buffer_usage_all;
 
 #[repr(C)]
 pub struct VulkanManager {
@@ -53,11 +61,91 @@ pub struct VulkanManager {
 }
 
 impl VulkanManager {
+    pub fn buffer_array<T>(&self, size: u64, usage: MemoryUsage) -> Subbuffer<T>
+    where
+        T: BufferContents + ?Sized,
+    {
+        // println!(
+        //     "element size of {}: {}",
+        //     std::any::type_name::<T>(),
+        //     T::LAYOUT.element_size().unwrap()
+        // );
+
+        // let len = NonZeroDeviceSize::new(size).expect("empty slices are not valid buffer contents");
+        // let layout = T::LAYOUT.layout_for_len(len).unwrap();
+        // println!("layout: {:?}", layout);
+        let buf = Buffer::new_unsized(
+            &self.mem_alloc,
+            BufferCreateInfo {
+                usage: buffer_usage_all(),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage,
+                ..Default::default()
+            },
+            size,
+        )
+        .unwrap();
+        buf
+    }
+    pub fn buffer_from_data<T>(&self, d: T) -> Subbuffer<T>
+    where
+        T: BufferContents + Sized,
+    {
+        let buf = Buffer::from_data(
+            &self.mem_alloc,
+            BufferCreateInfo {
+                usage: buffer_usage_all(),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+            d,
+        )
+        .unwrap();
+        buf
+    }
+    pub fn buffer_from_iter<T, I>(&self, iter: I) -> Subbuffer<[T]>
+    where
+        T: BufferContents,
+        I: IntoIterator<Item = T>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let buf = Buffer::from_iter(
+            &self.mem_alloc,
+            BufferCreateInfo {
+                usage: buffer_usage_all(),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+            iter,
+        )
+        .unwrap();
+        buf
+    }
+    pub fn sub_buffer_allocator(&self) -> SubbufferAllocator {
+        let sub_alloc = SubbufferAllocator::new(
+            self.mem_alloc.clone(),
+            SubbufferAllocatorCreateInfo {
+                buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                ..Default::default()
+            },
+        );
+        sub_alloc
+    }
     pub fn window(&self) -> &Window {
-        unsafe { self.surface
-            .object()
-            .unwrap()
-            .downcast_ref_unchecked::<Window>() }
+        unsafe {
+            self.surface
+                .object()
+                .unwrap()
+                .downcast_ref_unchecked::<Window>()
+        }
     }
     pub fn swapchain(&self) -> Arc<Swapchain> {
         unsafe { &*self.swapchain.get() }.clone()
@@ -109,7 +197,7 @@ impl VulkanManager {
                     .iter()
                     .enumerate()
                     .position(|(i, q)| {
-                        q.queue_flags.graphics
+                        q.queue_flags.intersects(QueueFlags::GRAPHICS)
                             && p.surface_support(i as u32, &surface).unwrap_or(false)
                     })
                     .map(|i| (p, i as u32))
@@ -187,23 +275,21 @@ impl VulkanManager {
                     .0,
             );
             let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
-            let min_image_count = surface_capabilities
-                .max_image_count
-                .unwrap_or(3)
-                .min(3)
-                .max(surface_capabilities.min_image_count);
+            // let min_image_count = surface_capabilities
+            //     .max_image_count
+            //     .unwrap_or(3)
+            //     .min(3)
+            //     .max(surface_capabilities.min_image_count);
+            let min_image_count = surface_capabilities.min_image_count;
             // let min_image_count = surface_capabilities.min_image_count;
             let mut swapchain_create_info = SwapchainCreateInfo {
                 min_image_count,
                 image_format,
                 image_extent: window.inner_size().into(),
-                image_usage: ImageUsage {
-                    color_attachment: true,
-                    ..ImageUsage::empty()
-                },
+                image_usage: ImageUsage::COLOR_ATTACHMENT,
                 composite_alpha: surface_capabilities
                     .supported_composite_alpha
-                    .iter()
+                    .into_iter()
                     .next()
                     .unwrap(),
                 present_mode: vulkano::swapchain::PresentMode::Mailbox,
@@ -272,14 +358,7 @@ impl VulkanManager {
             builder
                 .reset_query_pool(a.clone(), 0..1)
                 .unwrap()
-                .begin_query(
-                    a.clone(),
-                    0,
-                    QueryControlFlags {
-                        precise: false,
-                        ..QueryControlFlags::empty()
-                    },
-                )
+                .begin_query(a.clone(), 0, QueryControlFlags::PRECISE)
                 .unwrap();
         }
         todo!();
@@ -302,19 +381,11 @@ impl VulkanManager {
         let b = self.query_pool.lock();
         let query_pool = b.get(id).unwrap();
         if let Some(res) = query_pool.queries_range(0..1) {
-            res.get_results(
-                &mut query_results,
-                QueryResultFlags {
-                    wait: true,
-                    partial: false,
-                    with_availability: false,
-                    ..QueryResultFlags::empty()
-                },
-            )
-            .unwrap();
+            res.get_results(&mut query_results, QueryResultFlags::WAIT)
+                .unwrap();
         }
 
-        todo!();
+        // todo!();
         query_results[0]
     }
 }

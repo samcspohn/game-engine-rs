@@ -1,4 +1,12 @@
 
+struct transform {
+    vec3 position;
+    int padding;
+    vec4 rotation;
+    vec3 scale;
+    int padding2;
+};
+
 struct DispatchIndirectCommand {
     uint x;
     uint y;

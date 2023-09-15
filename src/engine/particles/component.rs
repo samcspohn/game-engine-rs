@@ -38,7 +38,7 @@ impl ParticleEmitter {
 
 impl Component for ParticleEmitter {
     fn init(&mut self, transform: &Transform, id: i32, sys: &Sys) {
-        let d = cs::ty::emitter_init {
+        let d = cs::emitter_init {
             transform_id: transform.id,
             alive: 1,
             template_id: self.template.id,
@@ -48,7 +48,7 @@ impl Component for ParticleEmitter {
         sys.particles_system.emitter_inits.push(d);
     }
     fn deinit(&mut self, transform: &Transform, id: i32, sys: &Sys) {
-        let d = cs::ty::emitter_init {
+        let d = cs::emitter_init {
             transform_id: transform.id,
             alive: 0,
             template_id: self.template.id,

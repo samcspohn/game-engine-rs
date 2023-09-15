@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use vulkano::{
-    buffer::{CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer},
+    buffer::{allocator::SubbufferAllocator, Buffer, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         CopyBufferInfo, DispatchIndirectCommand, DrawIndirectCommand, PrimaryAutoCommandBuffer,
@@ -17,94 +18,51 @@ use vulkano::{
 };
 
 use crate::engine::{
-    rendering::component::buffer_usage_all, transform_compute::cs::ty::transform,
+    rendering::component::buffer_usage_all, transform_compute::cs::transform, VulkanManager,
 };
 
-use super::{particles::{ParticleBuffers, _MAX_PARTICLES}, shaders::scs};
+use super::{
+    particles::{ParticleBuffers, _MAX_PARTICLES},
+    shaders::scs,
+};
 
 pub struct ParticleSort {
-    pub a1: Arc<DeviceLocalBuffer<[scs::ty::_a]>>,
-    pub a2: Arc<DeviceLocalBuffer<[u32]>>,
-    pub buckets: Arc<DeviceLocalBuffer<[u32]>>,
-    pub avail_count: Arc<DeviceLocalBuffer<i32>>,
-    // pub sort_jobs: Arc<DeviceLocalBuffer<i32>>,
-    pub indirect: Vec<Arc<DeviceLocalBuffer<[DispatchIndirectCommand]>>>,
-    pub draw: Arc<DeviceLocalBuffer<[DrawIndirectCommand]>>,
-    pub uniforms: CpuBufferPool<scs::ty::Data>,
+    pub a1: Subbuffer<[scs::_a]>,
+    pub a2: Subbuffer<[u32]>,
+    pub buckets: Subbuffer<[u32]>,
+    pub avail_count: Subbuffer<u32>,
+    pub indirect: Vec<Subbuffer<[DispatchIndirectCommand]>>,
+    pub draw: Subbuffer<[DrawIndirectCommand]>,
+    pub uniforms: Mutex<SubbufferAllocator>,
     pub compute_pipeline: Arc<ComputePipeline>,
 }
 
 impl ParticleSort {
-    pub fn new(
-        device: Arc<Device>,
-        // render_pass: Arc<RenderPass>,
-        // // dimensions: [u32; 2],
-        // swapchain: Arc<Swapchain<Window>>,
-        queue: Arc<Queue>,
-        mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
-        _desc_allocator: Arc<StandardDescriptorSetAllocator>,
-    ) -> ParticleSort {
+    pub fn new(vk: &VulkanManager) -> ParticleSort {
         let mut builder = AutoCommandBufferBuilder::primary(
-            command_allocator,
-            queue.queue_family_index(),
+            &vk.comm_alloc,
+            vk.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
-        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+        let max_particles: i32 = *_MAX_PARTICLES;
 
-        let a1 = DeviceLocalBuffer::<[scs::ty::_a]>::array(
-            &mem,
-            MAX_PARTICLES as vulkano::DeviceSize,
-            buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
-        )
-        .unwrap();
-        let a2 = DeviceLocalBuffer::<[u32]>::array(
-            &mem,
-            MAX_PARTICLES as vulkano::DeviceSize,
-            buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
-        )
-        .unwrap();
-        let buckets = DeviceLocalBuffer::<[u32]>::array(
-            &mem,
-            65536 as vulkano::DeviceSize,
-            buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
-        )
-        .unwrap();
-
-        // avail_count
-        // let copy_buffer =
-        //     CpuAccessibleBuffer::from_iter(&mem, buffer_usage_all(), false, [0i32, 0i32]).unwrap();
-        let avail_count = DeviceLocalBuffer::<i32>::new(
-            &mem,
-            buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
-        )
-        .unwrap();
-        // builder
-        //     .copy_buffer(CopyBufferInfo::buffers(copy_buffer, avail_count.clone()))
-        //     .unwrap();
-
+        let a1 = vk.buffer_array(
+            max_particles as vulkano::DeviceSize,
+            MemoryUsage::DeviceOnly,
+        );
+        let a2 = vk.buffer_array(
+            max_particles as vulkano::DeviceSize,
+            MemoryUsage::DeviceOnly,
+        );
+        let buckets = vk.buffer_array(65536 as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
+        let avail_count = vk.buffer_from_data(0u32);
         // indirect
         let indirect = (0..2)
             .map(|_| {
-                let copy_buffer = CpuAccessibleBuffer::from_iter(
-                    &mem,
-                    buffer_usage_all(),
-                    false,
-                    [DispatchIndirectCommand { x: 0, y: 1, z: 1 }],
-                )
-                .unwrap();
-                let indirect = DeviceLocalBuffer::<[DispatchIndirectCommand]>::array(
-                    &mem,
-                    1 as DeviceSize,
-                    buffer_usage_all(),
-                    device.active_queue_family_indices().iter().copied(),
-                )
-                .unwrap();
+                let copy_buffer =
+                    vk.buffer_from_iter([DispatchIndirectCommand { x: 0, y: 1, z: 1 }]);
+                let indirect = vk.buffer_array(1, MemoryUsage::DeviceOnly);
                 builder
                     .copy_buffer(CopyBufferInfo::buffers(copy_buffer, indirect.clone()))
                     .unwrap();
@@ -113,39 +71,26 @@ impl ParticleSort {
             .collect();
 
         // draw
-        let copy_buffer = CpuAccessibleBuffer::from_iter(
-            &mem,
-            buffer_usage_all(),
-            false,
-            [DrawIndirectCommand {
-                vertex_count: 0,
-                instance_count: 1,
-                first_vertex: 0,
-                first_instance: 0,
-            }],
-        )
-        .unwrap();
-        let draw = DeviceLocalBuffer::<[DrawIndirectCommand]>::array(
-            &mem,
-            1 as DeviceSize,
-            buffer_usage_all(),
-            device.active_queue_family_indices().iter().copied(),
-        )
-        .unwrap();
+        let copy_buffer = vk.buffer_from_iter([DrawIndirectCommand {
+            vertex_count: 0,
+            instance_count: 1,
+            first_vertex: 0,
+            first_instance: 0,
+        }]);
+        let draw = vk.buffer_array(1 as DeviceSize, MemoryUsage::DeviceOnly);
         builder
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, draw.clone()))
             .unwrap();
 
-        let uniforms =
-            CpuBufferPool::<scs::ty::Data>::new(mem, buffer_usage_all(), MemoryUsage::Upload);
+        let uniforms = Mutex::new(vk.sub_buffer_allocator());
 
         // build buffer
         let command_buffer = builder.build().unwrap();
 
-        let execute = Some(sync::now(device.clone()).boxed())
+        let execute = Some(sync::now(vk.device.clone()).boxed())
             .take()
             .unwrap()
-            .then_execute(queue, command_buffer);
+            .then_execute(vk.queue.clone(), command_buffer);
 
         match execute {
             Ok(execute) => {
@@ -161,9 +106,9 @@ impl ParticleSort {
             }
         };
 
-        let scs = scs::load(device.clone()).unwrap();
+        let scs = scs::load(vk.device.clone()).unwrap();
         let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
-            device,
+            vk.device.clone(),
             scs.entry_point("main").unwrap(),
             &(),
             None,
@@ -178,7 +123,6 @@ impl ParticleSort {
             avail_count,
             indirect,
             draw,
-            // sort_jobs,
             uniforms,
             compute_pipeline,
         }
@@ -190,7 +134,8 @@ impl ParticleSort {
         &self,
         view: [[f32; 4]; 4],
         proj: [[f32; 4]; 4],
-        transform: Arc<DeviceLocalBuffer<[transform]>>,
+        cam_pos: [f32; 3],
+        transform: Subbuffer<[transform]>,
         pb: &ParticleBuffers,
         _device: Arc<Device>,
         _queue: Arc<Queue>,
@@ -200,14 +145,15 @@ impl ParticleSort {
         >,
         desc_allocator: &StandardDescriptorSetAllocator,
     ) {
-        let MAX_PARTICLES: i32 = *_MAX_PARTICLES;
+        let max_particles: i32 = *_MAX_PARTICLES;
 
-        let mut uniform_data = scs::ty::Data {
-            num_jobs: MAX_PARTICLES,
-            stage: 0,
+        let mut uniform_data = scs::Data {
+            num_jobs: max_particles,
+            stage: 0.into(),
             view,
             proj,
-            _dummy0: Default::default(),
+            cam_pos,
+            // _dummy0: Default::default(),
         };
 
         let layout = self
@@ -240,8 +186,9 @@ impl ParticleSort {
             };
 
             uniform_data.num_jobs = num_jobs;
-            uniform_data.stage = stage;
-            let uniform_sub_buffer = { self.uniforms.from_data(uniform_data).unwrap() };
+            uniform_data.stage = stage.into();
+            let uniform_sub_buffer = self.uniforms.lock().allocate_sized().unwrap();
+            *uniform_sub_buffer.write().unwrap() = uniform_data;
             // write_descriptors[6] = (6, uniform_sub_buffer.clone());
             let descriptor_set = PersistentDescriptorSet::new(
                 desc_allocator,
@@ -262,6 +209,7 @@ impl ParticleSort {
                     WriteDescriptorSet::buffer(12, transform.clone()),
                     WriteDescriptorSet::buffer(13, pb.alive.clone()),
                     WriteDescriptorSet::buffer(14, pb.alive_count.clone()),
+                    WriteDescriptorSet::buffer(15, pb.pos_life_compressed.clone()),
                 ],
             )
             .unwrap();
@@ -289,12 +237,12 @@ impl ParticleSort {
             }
         };
         builder.bind_pipeline_compute(self.compute_pipeline.clone());
-        builder
-            .copy_buffer(CopyBufferInfo::buffers(
-                pb.buffer_0.clone(),
-                self.avail_count.clone(),
-            ))
-            .unwrap();
+        builder.update_buffer(self.avail_count.clone(), &0).unwrap();
+        // .copy_buffer(CopyBufferInfo::buffers(
+        //     pb.buffer_0.clone(),
+        //     self.avail_count.clone(),
+        // ))
+        // .unwrap();
 
         // stage 0
         // build_stage(builder, 0, 1);

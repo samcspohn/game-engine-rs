@@ -25,7 +25,7 @@ use crate::{
 
 use super::{
     particle_textures::ParticleTextures,
-    shaders::cs::{self, ty::particle_template},
+    shaders::cs::{self, particle_template},
 };
 use crate::engine::project::asset_manager::_AssetID;
 use component_derive::AssetID;
@@ -92,7 +92,10 @@ impl ParticleTemplate {
             billboard: if self.billboard { 1 } else { 0 },
             scale: self.size.into(),
             tex_id: textures.get_tex_id(&self.texture),
-            _dummy0: Default::default(),
+            padding: 0,
+            padding2: 0,
+            padding3: 0,
+            // _dummy0: Default::default(),
 
         }
     }
@@ -206,7 +209,7 @@ impl Inspectable_ for ParticleTemplate {
 }
 
 type param = (
-    Arc<Mutex<_Storage<cs::ty::particle_template>>>,
+    Arc<Mutex<_Storage<cs::particle_template>>>,
     Arc<Mutex<ParticleTextures>>,
 );
 impl Asset<ParticleTemplate, param> for ParticleTemplate {
