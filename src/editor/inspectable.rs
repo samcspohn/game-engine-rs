@@ -9,7 +9,7 @@ pub trait Inspectable {
 }
 
 pub trait Inspectable_ {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>);
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World);
 }
 pub struct Ins<'a, T>(pub &'a mut T);
 pub trait Inpsect {

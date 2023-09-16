@@ -33,16 +33,16 @@ enum GameObjectContextMenu {
     CopyGameObject(i32),
     DeleteGameObject(i32),
 }
-pub static EDITOR_ASPECT_RATIO: Lazy<Mutex<[u32;2]>> = Lazy::new(|| {Mutex::new([1920,1080])});
+pub static EDITOR_WINDOW_DIM: Lazy<Mutex<[u32;2]>> = Lazy::new(|| {Mutex::new([1920,1080])});
 
 struct TabViewer<'a> {
     image: egui::TextureId,
-    world: &'a Mutex<World>,
+    world: &'a mut World,
     fps: &'a mut VecDeque<f32>,
     // goi: &'a GameObjectInspector<'b>,
     inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
     assets_manager: Arc<AssetsManager>,
-    func: Box<dyn Fn(&str, &mut egui::Ui, &Mutex<World>, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<AssetsManager>)>,
+    func: Box<dyn Fn(&str, &mut egui::Ui, &mut World, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<AssetsManager>)>,
 }
 pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_> {
@@ -59,9 +59,9 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                         println!("stop game");
                         unsafe { PLAYING_GAME = false; }
                         {
-                            let mut world = self.world.lock();
-                            world.clear();
-                            serialize::deserialize(&mut world);
+                            // let mut world = self.world;
+                            self.world.clear();
+                            serialize::deserialize(&mut self.world);
                         }
                     }    
                 } else if ui.button("Play").clicked() {
@@ -70,7 +70,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                 }
             });
             let a = ui.available_size();
-            *EDITOR_ASPECT_RATIO.lock() = [a[0] as u32, a[1] as u32];
+            *EDITOR_WINDOW_DIM.lock() = [a[0] as u32, a[1] as u32];
             ui.image(self.image, a);
         }
     }
@@ -86,13 +86,13 @@ struct ModelInspector {
 }
 
 impl Inspectable_ for ModelInspector {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &Mutex<World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
         ui.add(egui::Label::new(self.file.as_str()));
     }
 }
 
 pub fn editor_ui(
-    world: &Mutex<World>,
+    world: &mut World,
     fps_queue: &mut VecDeque<f32>,
     egui_ctx: &Context,
     frame_color: egui::TextureId,
@@ -123,14 +123,14 @@ pub fn editor_ui(
             DockArea::new(&mut DOCK)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
                 .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut INSPECTABLE, assets_manager, func:
-                    Box::new(|tab, ui, world: &Mutex<World>, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>| {
+                    Box::new(|tab, ui, world: &mut World, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>| {
                         let assets_manager = assets_manager;
                         match tab {
                             "Hierarchy" => {
 
                                 // let resp = {
-                                    let _w = &world;
-                                    let mut world = world.lock();
+                                    // let _w = &world;
+                                    // let mut world = world.lock();
                                     let resp = ui.scope(|ui| {
 
                                     let transforms = &mut world.transforms;
@@ -416,12 +416,12 @@ pub fn editor_ui(
                                         ui.close_menu();
                                     }
                                     if ui.menu_button("Save", |_ui| {}).response.clicked() {
-                                        serialize::serialize(&world);
+                                        serialize::serialize(world);
                                         assets_manager.serialize();
                                         ui.close_menu();
                                     }
                                     if ui.menu_button("Load", |_ui| {}).response.clicked() {
-                                        serialize::deserialize(&mut world);
+                                        serialize::deserialize(world);
                                         ui.close_menu();
                                     }
                                 });
@@ -435,7 +435,7 @@ pub fn editor_ui(
                                 }
                             },
                             "Project" => {
-                                let world = world.lock();
+                                // let world = world.lock();
                                 use substring::Substring;
                                 let cur_dir: PathBuf = ".".into();
                                 fn render_dir(ui: &mut egui::Ui, cur_dir: PathBuf, sys: &Sys, assets_manager: &Arc<AssetsManager>) {

@@ -460,7 +460,7 @@ impl TerrainEng {
 }
 
 impl Component for TerrainEng {
-    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData)> {
+    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
         let _chunks = self.chunks.clone();
         // static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
         let _cur_chunks = self.cur_chunks.load(Ordering::Relaxed);

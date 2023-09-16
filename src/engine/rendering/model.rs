@@ -232,7 +232,7 @@ impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)>
 }
 
 impl Inspectable_ for ModelRenderer {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &parking_lot::Mutex<World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
         ui.add(egui::Label::new(self.file.as_str()));
     }
 }

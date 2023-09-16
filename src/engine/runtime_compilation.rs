@@ -48,7 +48,7 @@ impl Asset<RSFile, ()> for RSFile {
     }
 }
 impl Inspectable_ for RSFile {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
         ui.add(egui::Label::new(self.path.as_str()));
     }
 }
@@ -112,7 +112,7 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
 }
 
 impl Inspectable_ for Lib {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
         // ui.add(egui::Label::new(self.path));
     }
 }

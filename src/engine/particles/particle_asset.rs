@@ -112,7 +112,7 @@ where
     });
 }
 impl Inspectable_ for ParticleTemplate {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &Mutex<World>) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
         field(ui, "color", |ui| {
             if ui
                 .color_edit_button_rgba_premultiplied(&mut self.color)
@@ -180,7 +180,7 @@ impl Inspectable_ for ParticleTemplate {
                 self.min_speed = self.max_speed;
             }
         });
-        if Ins(&mut self.size).inspect("scale", ui, &_world.lock().sys) {
+        if Ins(&mut self.size).inspect("scale", ui, &_world.sys) {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
         }
         // field(ui, "size", |ui| {
@@ -193,7 +193,7 @@ impl Inspectable_ for ParticleTemplate {
                 TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
             }
         });
-        if Ins(&mut self.texture).inspect("texture", ui, &_world.lock().sys) {
+        if Ins(&mut self.texture).inspect("texture", ui, &_world.sys) {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
         }
         if ui.checkbox(&mut self.trail, "trail").changed() {

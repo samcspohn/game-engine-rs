@@ -8,8 +8,8 @@ pub(crate) struct GameObjectInspector {
 pub static mut _selected: Option<i32> = None;
 
 impl Inspectable_ for GameObjectInspector {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &Mutex<World>) {
-        let mut world = world.lock();
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
+        // let mut world = world.lock();
         let mut rmv: Option<(i32, u64, i32)> = None;
 
         let resp = ui.scope(|ui| {

@@ -3,7 +3,7 @@ use winit::event::VirtualKeyCode;
 
 use nalgebra_glm as glm;
 
-use crate::engine::input::Input;
+use crate::engine::{input::Input, time::Time};
 
 pub struct EditorCam {
     pub pos: glm::Vec3,
@@ -12,8 +12,8 @@ pub struct EditorCam {
 }
 
 impl EditorCam {
-    pub fn update(&mut self, input: &Input) {
-        let speed = self.speed * input.time.dt;
+    pub fn update(&mut self, input: &Input, time: &Time) {
+        let speed = self.speed * time.dt;
         if !input.get_key(&VirtualKeyCode::LControl) && input.get_mouse_button(&2) {
             if input.get_key_press(&VirtualKeyCode::R) {
                 self.speed *= 1.5;

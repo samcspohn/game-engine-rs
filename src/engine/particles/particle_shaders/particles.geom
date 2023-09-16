@@ -39,105 +39,110 @@ vec4 get_position(in mat4 mvp, int vert_id) {
 }
 
 void main() {
-    int _i = id[0];
-    int i = sorted[_i];
-    int _templ_id = template_ids[i];
 #define templ templates[_templ_id]
 #define p     particles[i]
+    int _i = id[0];
+// #define jump 4
+//     for (int n = _i * jump; n < _i * jump + jump; ++n) {
 
-    mat4 model;
-    float l1;
-    float l2;
-    vec3 pos = get_pos(p_l[i]);
-    if (templ.trail == 1) {   // trail
-        vec3 next_pos;
-        l2 = 1. - get_life(p_l[i]);
-        if (next[i] >= 0) {   // next is particle
-            next_pos = get_pos(p_l[next[i]]);
-            l1 = 1. - get_life(p_l[next[i]]);
-        } else if (next[i] < -1) {   // next is emitter / transform
-            next_pos = transforms[-next[i] - 2].position - cam_pos;
-            l1 = 0.;
-        } else {   // next is invalid
-            next_pos = pos;
-            l1 = l2;
-        }
-        vec3 v = next_pos - pos;
-        vec3 x = cross(v, pos);
-        x = cross(x, v);
-        vec4 l = lookAt(x, v);
-        model = translate(pos + v / 2.f) * rotate(l) *
+        int i = sorted[_i];
+        int _templ_id = template_ids[i];
+
+        mat4 model;
+        float l1;
+        float l2;
+        vec3 pos = get_pos(p_l[i]);
+        if (templ.trail == 1) {   // trail
+            vec3 next_pos;
+            l2 = 1. - get_life(p_l[i]);
+            if (next[i] >= 0) {   // next is particle
+                next_pos = get_pos(p_l[next[i]]);
+                l1 = 1. - get_life(p_l[next[i]]);
+            } else if (next[i] < -1) {   // next is emitter / transform
+                next_pos = transforms[-next[i] - 2].position - cam_pos;
+                l1 = 0.;
+            } else {   // next is invalid
+                next_pos = pos;
+                l1 = l2;
+            }
+            vec3 v = next_pos - pos;
+            vec3 x = cross(v, pos);
+            x = cross(x, v);
+            vec4 l = lookAt(x, v);
+            model =
+                translate(pos + v / 2.f) * rotate(l) *
                 scale(vec3(templ.scale.x, length(v) / 2 * templ.scale.y, 1));
-    } else {   // not trail / billboard / aligned to velocity
-        l1 = l2 = 1. - get_life(p_l[i]);
-        vec4 rot;
-        // uint a = templ.billboard & templ.align_vel << 1;
-        // switch (a) {
-        // case 1:   // billboard
-        //     rot = look_at;
-        //     break;
-        // // case 002: // align_vel
-        // //     rot =
-        // case 3:   // billboard & align_vel
-        //     rot = lookAt(cam_pos, p.vel);
-        //     break;
-        // default:
-        //     rot = p.rot;
-        //     break;
-        // }
-        if (templ.billboard == 1 && templ.align_vel == 1) {
-            vec3 a = pos;
-            vec3 b = cross(p.vel, a);
-            vec3 c = cross(p.vel, b);
+        } else {   // not trail / billboard / aligned to velocity
+            l1 = l2 = 1. - get_life(p_l[i]);
+            vec4 rot;
+            // uint a = templ.billboard & templ.align_vel << 1;
+            // switch (a) {
+            // case 1:   // billboard
+            //     rot = look_at;
+            //     break;
+            // // case 002: // align_vel
+            // //     rot =
+            // case 3:   // billboard & align_vel
+            //     rot = lookAt(cam_pos, p.vel);
+            //     break;
+            // default:
+            //     rot = p.rot;
+            //     break;
+            // }
+            if (templ.billboard == 1 && templ.align_vel == 1) {
+                vec3 a = pos;
+                vec3 b = cross(p.vel, a);
+                vec3 c = cross(p.vel, b);
 
-            // mat3 m;
-            // m[0] = b;
-            // m[1] = p.vel;
-            // m[2] = c;
-            // m = transpose(m);
+                // mat3 m;
+                // m[0] = b;
+                // m[1] = p.vel;
+                // m[2] = c;
+                // m = transpose(m);
 
-            rot = lookAt(c,p.vel);
-        } else if (templ.billboard == 1) {
-            rot = look_at;
-        } else {
-            rot = particles[i].rot;
+                rot = lookAt(c, p.vel);
+            } else if (templ.billboard == 1) {
+                rot = look_at;
+            } else {
+                rot = particles[i].rot;
+            }
+            model = translate(pos) * rotate(rot) *
+                    scale(vec3(templ.scale.x, templ.scale.y, 1));
         }
-        model = translate(pos) * rotate(rot) *
-                scale(vec3(templ.scale.x, templ.scale.y, 1));
-    }
-    // float offset = 0.5 / float(num_templates);
-    float tid = float(_templ_id + 0.5);
-    float color_id = tid / float(num_templates);
-    mat4 mvp = proj * cam_inv_rot * model;
-    templ_id = template_ids[i];
-    gl_Position = get_position(mvp, 0);
-    uv = vert_uv[0];
-    uv2 = vec2(l1, color_id);
-    life = l1;
-    EmitVertex();
+        // float offset = 0.5 / float(num_templates);
+        float tid = float(_templ_id + 0.5);
+        float color_id = tid / float(num_templates);
+        mat4 mvp = proj * cam_inv_rot * model;
+        templ_id = template_ids[i];
+        gl_Position = get_position(mvp, 0);
+        uv = vert_uv[0];
+        uv2 = vec2(l1, color_id);
+        life = l1;
+        EmitVertex();
 
-    gl_Position = get_position(mvp, 1);
-    templ_id = template_ids[i];
-    uv = vert_uv[1];
-    uv2 = vec2(l2, color_id);
-    life = l2;
-    EmitVertex();
+        gl_Position = get_position(mvp, 1);
+        templ_id = template_ids[i];
+        uv = vert_uv[1];
+        uv2 = vec2(l2, color_id);
+        life = l2;
+        EmitVertex();
 
-    gl_Position = get_position(mvp, 2);
-    templ_id = template_ids[i];
-    uv = vert_uv[2];
-    uv2 = vec2(l1, color_id);
-    life = l1;
-    EmitVertex();
+        gl_Position = get_position(mvp, 2);
+        templ_id = template_ids[i];
+        uv = vert_uv[2];
+        uv2 = vec2(l1, color_id);
+        life = l1;
+        EmitVertex();
 
-    gl_Position = get_position(mvp, 3);
-    templ_id = template_ids[i];
-    uv = vert_uv[3];
-    uv2 = vec2(l2, color_id);
-    life = l2;
-    EmitVertex();
+        gl_Position = get_position(mvp, 3);
+        templ_id = template_ids[i];
+        uv = vert_uv[3];
+        uv2 = vec2(l2, color_id);
+        life = l2;
+        EmitVertex();
 
-    // EndPrimitive();
+        // EndPrimitive();
+    // }
 
     // // DEBUG POINT
     // model = translate(p_l[i].pos) * rotate(look_at) *

@@ -17,15 +17,14 @@ pub struct Input {
     pub(crate) mouse_whl_vert: f32,
     pub(crate) mouse_whl_horz: f32,
     pub(crate) mouse_buttons: HashMap<u32, bool>,
-    pub(crate) time: Time,
 }
 
 #[allow(dead_code)]
 impl Input {
-    #[inline]
-    pub fn get_time(&self) -> &Time {
-        &self.time
-    }
+    // #[inline]
+    // pub fn get_time(&self) -> &Time {
+    //     &self.time
+    // }
     pub fn get_key(&self, key: &VirtualKeyCode) -> bool {
         *self.key_downs.get(key).unwrap_or(&false)
     }

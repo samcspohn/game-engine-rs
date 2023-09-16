@@ -79,7 +79,7 @@ pub trait StorageBase {
     fn update(&mut self, transforms: &Transforms, sys: &System, world: &World);
     fn late_update(&mut self, transforms: &Transforms, sys: &System);
     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData)>>);
+    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn remove(&self, i: i32);
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys);
@@ -392,7 +392,7 @@ impl<
         self.insert(transform, d)
     }
 
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData)>>) {
+    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>) {
         if !self.has_render {
             return;
         }

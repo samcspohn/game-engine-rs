@@ -178,7 +178,7 @@ pub fn drop_target<R>(
 impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManagerBase
     for AssetManager<P, T>
 {
-    fn inspect(&mut self, file: &str, ui: &mut Ui, world: &Mutex<World>) {
+    fn inspect(&mut self, file: &str, ui: &mut Ui, world: &mut World) {
         // let file = std::path::Path::new(file);
         if let Some(a) = self.assets.get(file) {
             if let Some(a) = self.assets_id.get_mut(a) {
@@ -371,7 +371,7 @@ impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManage
 }
 
 pub trait AssetManagerBase {
-    fn inspect(&mut self, file: &str, ui: &mut Ui, world: &Mutex<World>);
+    fn inspect(&mut self, file: &str, ui: &mut Ui, world: &mut World);
     fn from_file(&mut self, file: &str) -> i32;
     fn regen(&mut self, meta: serde_yaml::Value);
     fn reload(&mut self, path: &str);

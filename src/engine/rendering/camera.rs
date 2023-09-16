@@ -1,6 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use component_derive::ComponentID;
+use egui::TextureId;
 use glm::{radians, vec1, Mat4, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -51,7 +52,8 @@ pub struct CameraData {
     _render_pass: Arc<RenderPass>,
     viewport: Viewport,
     framebuffers: Vec<Arc<Framebuffer>>,
-    pub output: Vec<Arc<AttachmentImage>>,
+    pub render_textures_ids: Option<Vec<TextureId>>,
+    pub images: Vec<Arc<AttachmentImage>>,
     pub camera_view_data: std::collections::VecDeque<CameraViewData>,
 }
 #[derive(Clone, Default)]
@@ -211,7 +213,7 @@ impl CameraData {
             depth_range: 0.0..1.0,
         };
 
-        let (framebuffers, output) = window_size_dependent_setup(
+        let (framebuffers, images) = window_size_dependent_setup(
             [1920, 1080],
             render_pass.clone(),
             &mut viewport,
@@ -233,12 +235,13 @@ impl CameraData {
             _render_pass: render_pass,
             viewport,
             framebuffers,
-            output,
+            render_textures_ids: None,
+            images,
             camera_view_data: VecDeque::new(), // swapchain,
         }
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>) {
-        (self.framebuffers, self.output) = window_size_dependent_setup(
+        (self.framebuffers, self.images) = window_size_dependent_setup(
             dimensions,
             self._render_pass.clone(),
             &mut self.viewport,
@@ -252,7 +255,7 @@ impl CameraData {
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
-        transform_compute: &mut TransformCompute,
+        transform_compute: &TransformCompute,
         particles: Arc<ParticleCompute>,
         transform_data: &TransformData,
         renderer_pipeline: Arc<ComputePipeline>,
@@ -261,11 +264,11 @@ impl CameraData {
         rd: &mut RendererData,
         image_num: u32,
         assets: Arc<AssetsManager>,
-        render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData)>>,
-    ) {
+        render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
+    ) -> Option<Arc<AttachmentImage>> {
         let cvd = self.camera_view_data.front();
         if cvd.is_none() {
-            return;
+            return None;
         }
         let cvd = cvd.unwrap();
         let _model_manager = assets.get_manager::<ModelRenderer>();
@@ -430,7 +433,7 @@ impl CameraData {
         );
         builder.end_render_pass().unwrap();
         self.camera_view_data.pop_front();
-        // self.output[image_num as usize].clone()
+        Some(self.images[image_num as usize].clone())
     }
 }
 
@@ -455,7 +458,7 @@ fn window_size_dependent_setup(
                 &vk.mem_alloc,
                 dimensions,
                 Format::R8G8B8A8_UNORM,
-                ImageUsage::SAMPLED | ImageUsage::STORAGE | ImageUsage::COLOR_ATTACHMENT, // | ImageUsage::INPUT_ATTACHMENT,
+                ImageUsage::SAMPLED | ImageUsage::STORAGE | ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
             )
             .unwrap();
             images.push(image.clone());

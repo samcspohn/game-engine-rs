@@ -11,10 +11,11 @@ use std::{
     },
     time::Instant,
 };
-
+use rapier3d::prelude::*;
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use rapier3d::prelude::vector;
 use rayon::{
     prelude::{
         IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
@@ -50,7 +51,7 @@ use super::{
     },
     storage::{Storage, StorageBase},
     utils::GPUWork,
-    Defer, RenderJobData,
+    Defer, RenderJobData, time::Time,
 };
 
 pub struct Sys {
@@ -72,6 +73,9 @@ impl Sys {
 }
 
 pub struct World {
+    pub gravity: Vector<f32>,
+    pub(super) phys_time: f32,
+    pub(super) phys_step: f32,
     pub(crate) transforms: Transforms,
     pub(crate) components: HashMap<
         u64,
@@ -112,6 +116,9 @@ impl World {
         let mut trans = Transforms::new();
         let root = trans.new_root();
         World {
+            gravity: vector![0.0, -9.81, 0.0],
+            phys_time: 0f32,
+            phys_step: 1. / 30.,
             transforms: trans,
             components: HashMap::default(),
             components_names: HashMap::new(),
@@ -585,13 +592,14 @@ impl World {
             w(self);
         }
     }
-    pub(crate) fn _update(&mut self, input: &Input, gpu_work: &GPUWork, perf: &Perf) {
+    pub(crate) fn _update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork, perf: &Perf) {
         {
             let sys = &self.sys;
             let sys = System {
                 physics: &sys.physics.lock(),
                 defer: &sys.defer,
                 input,
+                time,
                 rendering: &sys.renderer_manager,
                 assets: &sys.assets_manager,
                 vk: sys.vk.clone(),
@@ -636,12 +644,13 @@ impl World {
                 }
             });
     }
-    pub(crate) fn editor_update(&mut self, input: &Input, gpu_work: &GPUWork) {
+    pub(crate) fn editor_update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork) {
         let sys = &self.sys;
         let sys = System {
             physics: &sys.physics.lock(),
             defer: &sys.defer,
             input,
+            time,
             rendering: &sys.renderer_manager,
             assets: &sys.assets_manager,
             vk: sys.vk.clone(),
@@ -652,7 +661,7 @@ impl World {
             stor.1.write().editor_update(&self.transforms, &sys, input);
         }
     }
-    pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData)>> {
+    pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>> {
         let mut render_jobs = vec![];
         for (_, stor) in self.components.iter() {
             stor.1.write().on_render(&mut render_jobs);

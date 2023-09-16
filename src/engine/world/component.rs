@@ -19,13 +19,14 @@ use crate::engine::{
     },
     utils::{GPUWork, PrimaryCommandBuffer},
     world::{transform::Transform, Sys, World},
-    Defer, RenderJobData,
+    Defer, RenderJobData, time::Time,
 };
 
 pub struct System<'a> {
     pub physics: &'a Physics,
     pub defer: &'a Defer,
     pub input: &'a Input,
+    pub time: &'a Time,
     pub rendering: &'a RwLock<RendererManager>,
     pub assets: &'a AssetsManager,
     pub vk: Arc<VulkanManager>,
@@ -73,7 +74,7 @@ pub trait Component {
     fn update(&mut self, _transform: &Transform, _sys: &System, world: &World) {}
     fn late_update(&mut self, _transform: &Transform, _sys: &System) {}
     fn editor_update(&mut self, _transform: &Transform, _sys: &System) {}
-    fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData)> {
+    fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
         Box::new(|_rd: &mut RenderJobData| {})
     }
     // fn as_any(&self) -> &dyn Any;

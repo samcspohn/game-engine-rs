@@ -2,6 +2,7 @@
 #![allow(warnings, unused)]
 #![feature(downcast_unchecked)]
 #![feature(sync_unsafe_cell)]
+#![feature(ptr_from_ref)]
 
 pub mod editor;
 pub mod engine;
