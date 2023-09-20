@@ -73,7 +73,6 @@ impl Sys {
 }
 
 pub struct World {
-    pub gravity: Vector<f32>,
     pub(super) phys_time: f32,
     pub(super) phys_step: f32,
     pub(crate) transforms: Transforms,
@@ -116,7 +115,6 @@ impl World {
         let mut trans = Transforms::new();
         let root = trans.new_root();
         World {
-            gravity: vector![0.0, -9.81, 0.0],
             phys_time: 0f32,
             phys_step: 1. / 30.,
             transforms: trans,

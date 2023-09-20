@@ -101,13 +101,9 @@ fn main() {
     if let Ok(_) = fs::remove_dir_all(path) {}
     fs::create_dir(path).unwrap();
 
-    
     let mut engine = engine::Engine::new(&engine_dir, &args[1]);
     engine.init();
 
-    loop {
-        engine.update_sim();
-    }
+    while !engine.update_sim() {}
     engine.end();
-    
 }

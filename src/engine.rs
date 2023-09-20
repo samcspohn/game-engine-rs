@@ -69,6 +69,8 @@ use winit::event::Event;
 use winit::event::ModifiersState;
 use winit::event::WindowEvent;
 use winit::event_loop::EventLoop;
+use winit::event_loop::EventLoopBuilder;
+use winit::event_loop::EventLoopProxy;
 // use crate::{physics::Physics};
 
 use crate::editor;
@@ -171,6 +173,10 @@ impl Defer {
     }
 }
 
+pub(crate) enum EngineEvent {
+    Send,
+    Quit,
+}
 pub(crate) struct Engine {
     pub(crate) world: Arc<Mutex<World>>,
     pub(crate) assets_manager: Arc<AssetsManager>,
@@ -178,7 +184,7 @@ pub(crate) struct Engine {
     pub(crate) transform_compute: RwLock<TransformCompute>,
     pub(crate) particles_system: Arc<ParticleCompute>,
     pub(crate) playing_game: bool,
-    pub(crate) coms: (Receiver<RenderingData>, Sender<(Input, bool)>),
+    // pub(crate) coms: (Receiver<RenderingData>, Sender<(Input, bool)>),
     pub(crate) input: Receiver<(
         Vec<WindowEvent<'static>>,
         Input,
@@ -186,6 +192,7 @@ pub(crate) struct Engine {
         bool,
     )>,
     pub(crate) rendering_data: Sender<(bool, RenderingData)>,
+    pub(crate) rendering_complete: Receiver<()>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
     pub(crate) time: Time,
@@ -202,6 +209,7 @@ pub(crate) struct Engine {
     pub(crate) gui: SendSync<Gui>,
     pub(crate) tex_id: Option<TextureId>,
     update_editor_window: bool,
+    event_loop_proxy: EventLoopProxy<EngineEvent>,
 }
 pub struct EnginePtr {
     ptr: *const Engine,
@@ -215,7 +223,8 @@ lazy_static! {
 }
 impl Engine {
     pub(crate) fn new(engine_dir: &PathBuf, project_dir: &str) -> Self {
-        let event_loop = unsafe { SendSync::new(EventLoop::new()) };
+        let event_loop: SendSync<EventLoop<EngineEvent>> =
+            unsafe { SendSync::new(EventLoopBuilder::with_user_event().build()) };
         let vk = VulkanManager::new(&event_loop);
         let render_pass = vulkano::single_pass_renderpass!(
             vk.device.clone(),
@@ -314,11 +323,11 @@ impl Engine {
         // let mut first_frame = true;
 
         /////////////////////////////////////////////////////////////////////////////////////////
-        let (tx, rx): (Sender<_>, Receiver<_>) = crossbeam::channel::bounded(1);
-        let (rtx, rrx): (Sender<_>, Receiver<_>) = crossbeam::channel::bounded(1);
+        // let (tx, rx): (Sender<_>, Receiver<_>) = crossbeam::channel::bounded(1);
+        // let (rtx, rrx): (Sender<_>, Receiver<_>) = crossbeam::channel::bounded(1);
         let running = Arc::new(AtomicBool::new(true));
 
-        let coms = (rrx, tx);
+        // let coms = (rrx, tx);
 
         {
             let mut world = world.lock();
@@ -340,7 +349,7 @@ impl Engine {
         //     thread::spawn(move || main_loop(world.clone(), (rtx, rx), _running))
         // });
 
-        let _res = coms.1.send((input.clone(), false));
+        // let _res = coms.1.send((input.clone(), false));
         let mut file_watcher = file_watcher::FileWatcher::new(".");
 
         let mut cam_data = CameraData::new(vk.clone());
@@ -369,15 +378,20 @@ impl Engine {
                 ..Default::default()
             },
         );
+        let proxy = event_loop.create_proxy();
         let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
+        let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
         // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
         let input_thread = Arc::new(thread::spawn(move || {
             input_thread::input_thread(event_loop, input_snd)
         }));
         let rendering_thread = Arc::new({
             let vk = vk.clone();
-            thread::spawn(move || render_thread::render_thread(vk, render_pass, rendering_rcv))
+            thread::spawn(move || {
+                render_thread::render_thread(vk, render_pass, rendering_rcv, rendering_snd2)
+            })
         });
+        proxy.send_event(EngineEvent::Send);
 
         Self {
             world,
@@ -385,11 +399,12 @@ impl Engine {
             project: Project::default(),
             transform_compute: RwLock::new(transform_compute),
             playing_game: false,
-            coms,
+            // coms,
             perf: Arc::new(perf),
             shared_render_data: rm,
             input: input_rcv,
             rendering_data: rendering_snd,
+            rendering_complete: rendering_rcv2,
             cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone()))),
             vk,
             editor_cam: editor::editor_cam::EditorCam {
@@ -409,6 +424,7 @@ impl Engine {
             tex_id: None,
             gui: unsafe { SendSync::new(gui) },
             update_editor_window: true,
+            event_loop_proxy: proxy,
         }
     }
     pub(crate) fn init(&mut self) {
@@ -426,6 +442,7 @@ impl Engine {
         };
     }
     pub(crate) fn update_sim(&mut self) -> bool {
+        let full_frame_time = self.perf.node("full frame time");
         let (events, input, window_size, should_exit) = self.input.recv().unwrap();
         for event in events {
             self.gui.update(&event);
@@ -441,21 +458,7 @@ impl Engine {
                     // let mut physics = world.sys.physics.lock();
                     let len = world.sys.physics.lock().rigid_body_set.len();
                     let num_threads = (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
-                    world.sys.physics.lock().step(&world.gravity, &self.perf);
-
-                    // let physics = Arc::new(&mut physics);
-                    // rayon::ThreadPoolBuilder::new()
-                    //     .num_threads(num_threads)
-                    //     .build_scoped(
-                    //         |thread| thread.run(),
-                    //         |pool| {
-                    //             pool.install(|| {
-                    //                 world.sys.physics.lock().step(&world.gravity, &self.perf);
-                    //             })
-                    //         },
-                    //     )
-                    //     .unwrap();
-                    // drop(physics);
+                    world.sys.physics.lock().step(&self.perf);
                     world.phys_time -= world.phys_step;
                 }
                 world.phys_time += self.time.dt;
@@ -492,6 +495,7 @@ impl Engine {
         }
         drop(world_sim);
 
+
         let get_transform_data = self.perf.node("get transform data");
         let transform_data = world.transforms.get_transform_data_updates();
         drop(get_transform_data);
@@ -506,13 +510,13 @@ impl Engine {
         let (main_cam_id, mut cam_datas) = world.get_cam_datas();
         let render_jobs = world.render();
 
+
         self._image_num = (self._image_num + 1) % self.vk.swapchain().image_count();
 
         let cd = if self.playing_game {
             cam_datas[0].clone()
         } else {
             let cd = self.cam_data.clone();
-            cam_datas = vec![cd.clone()];
             cd
         };
 
@@ -553,7 +557,15 @@ impl Engine {
         });
         {
             let ear = EDITOR_WINDOW_DIM.lock();
-            if dimensions != *ear {
+            if dimensions != *ear || self.playing_game != _playing_game {
+                let cd = if _playing_game {
+                    cam_datas[0].clone()
+                } else {
+                    let cd = self.cam_data.clone();
+                    cam_datas = vec![cd.clone()];
+                    cd
+                };
+
                 _cd.resize(*ear, self.vk.clone());
 
                 let tex_id = if let Some(tex_id) = self.tex_id {
@@ -580,11 +592,19 @@ impl Engine {
                 // fc_map.clear();
             }
         }
+
+        if self.playing_game {
+            // cam_datas[0].clone()
+        } else {
+            cam_datas = vec![cd.clone()];
+            // let cd = self.cam_data.clone();
+        
+        };
+
         drop(_cd);
         drop(world);
         drop(_gui);
         self.file_watcher.get_updates(self.assets_manager.clone());
-
 
         let _get_gui_commands = self.perf.node("_ get gui commands");
         let size = if let Some(size) = &window_size {
@@ -606,7 +626,7 @@ impl Engine {
             render_jobs,
             _image_num: self._image_num,
             gui_commands,
-            recreate_swapchain: window_size.is_some(),
+            recreate_swapchain: window_size.is_some() | self.playing_game != _playing_game,
             editor_size: *EDITOR_WINDOW_DIM.lock(),
             engine_ptr: EnginePtr {
                 ptr: std::ptr::from_ref(&self),
@@ -623,12 +643,16 @@ impl Engine {
 
         self.frame_time = Instant::now();
 
-        let res = self.rendering_data.send((false, data));
+        let res = self.rendering_data.send((should_exit, data));
         if res.is_err() {
             println!("ohno");
             panic!();
         }
-        if self.update_editor_window {
+        match self.rendering_complete.recv() {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+        if self.update_editor_window || self.playing_game != _playing_game {
             let a = IMAGE_VIEW.lock();
             if let Some(img_view) = a.as_ref() {
                 if let Some(tex_id) = self.tex_id {
@@ -650,11 +674,17 @@ impl Engine {
         self.update_editor_window = window_size.is_some();
 
         self.playing_game = _playing_game;
+        if !should_exit {
+            self.event_loop_proxy.send_event(EngineEvent::Send);
+        }
         should_exit
     }
     pub fn end(mut self) {
-        Arc::into_inner(self.rendering_thread).unwrap().join();
+        println!("end");
         self.perf.print();
+        Arc::into_inner(self.rendering_thread).unwrap().join();
+        self.event_loop_proxy.send_event(EngineEvent::Quit);
+        // Arc::into_inner(self.input_thread).unwrap().join();
     }
     // fn get_rendering_data(&self) -> RenderingData {
     //     let get_transform_data = perf.node("get transform data");

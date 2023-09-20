@@ -106,15 +106,15 @@ impl Component for Renderer {
         self.id = ind_id
             .into_iter()
             .map(|id| {
-                let _id = rm.transforms.emplace(TransformId {
+                let _id = rm.transforms.emplace(ur::transform_id {
                     indirect_id: id,
-                    transform_id: transform.id,
+                    id: transform.id,
                 });
                 rm.updates.insert(
                     _id,
-                    TransformId {
+                    ur::transform_id {
                         indirect_id: id,
-                        transform_id: transform.id,
+                        id: transform.id,
                     },
                 );
                 _id
@@ -132,9 +132,9 @@ impl Component for Renderer {
         for id in &self.id {
             rm.updates.insert(
                 *id,
-                TransformId {
+                ur::transform_id {
                     indirect_id: -1,
-                    transform_id: -1,
+                    id: -1,
                 },
             );
             rm.transforms.erase(*id);
@@ -183,12 +183,12 @@ pub struct Indirect {
     pub count: i32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, BufferContents)]
-pub struct TransformId {
-    pub indirect_id: i32,
-    pub transform_id: i32,
-}
+// #[repr(C)]
+// #[derive(Clone, Copy, Debug, Default, BufferContents)]
+// pub struct TransformId {
+//     pub indirect_id: i32,
+//     pub transform_id: i32,
+// }
 
 pub struct RendererData {
     pub model_indirect: BTreeMap<i32, Vec<Indirect>>,
@@ -199,7 +199,7 @@ pub struct RendererData {
 }
 
 pub struct SharedRendererData {
-    pub transform_ids_gpu: Subbuffer<[TransformId]>,
+    pub transform_ids_gpu: Subbuffer<[ur::transform_id]>,
     pub renderers_gpu: Subbuffer<[i32]>,
     pub updates_gpu: Subbuffer<[i32]>,
     pub indirect: _Storage<DrawIndexedIndirectCommand>,
@@ -321,8 +321,8 @@ pub struct RendererManager {
     pub model_indirect: RwLock<BTreeMap<i32, Vec<Indirect>>>,
     pub indirect_model: RwLock<BTreeMap<i32, i32>>,
 
-    pub transforms: _Storage<TransformId>,
-    pub updates: HashMap<i32, TransformId>,
+    pub transforms: _Storage<ur::transform_id>,
+    pub updates: HashMap<i32, ur::transform_id>,
     pub shr_data: Arc<RwLock<SharedRendererData>>,
 }
 
@@ -372,9 +372,9 @@ impl RendererManager {
             updates: HashMap::new(),
             transforms: _Storage::new(),
             shr_data: Arc::new(RwLock::new(SharedRendererData {
-                transform_ids_gpu: vk.buffer_from_iter(vec![TransformId {
+                transform_ids_gpu: vk.buffer_from_iter(vec![ur::transform_id {
                     indirect_id: -1,
-                    transform_id: -1,
+                    id: -1,
                 }]),
                 renderers_gpu: vk.buffer_from_iter(vec![0]),
                 updates_gpu: vk.buffer_from_iter(vec![0]),
@@ -410,7 +410,7 @@ impl RendererManager {
             updates: self
                 .updates
                 .iter()
-                .flat_map(|(id, t)| vec![*id, t.indirect_id, t.transform_id].into_iter())
+                .flat_map(|(id, t)| vec![*id, t.indirect_id, t.id].into_iter())
                 .collect(),
             transforms_len: self.transforms.data.len() as i32,
         };

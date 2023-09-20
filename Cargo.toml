@@ -50,7 +50,7 @@ image = "*"
 serde = { version = "*", features = ["derive"] }
 ron = "*"
 serde_yaml = "*"
-glium = { git = "https://github.com/glium/glium.git", rev = "60889a2" }
+glium = { git = "https://github.com/glium/glium.git" }
 
 rapier3d = { version = "*", features = [ "simd-stable","parallel" ] }
 

@@ -5,9 +5,9 @@ use winit::{
     event_loop::{self, ControlFlow, EventLoop}, dpi::PhysicalSize,
 };
 
-use super::input::Input;
+use super::{input::Input, EngineEvent};
 
-pub(crate) fn input_thread(event_loop: SendSync<EventLoop<()>>, coms: Sender<(Vec<WindowEvent<'static>>,Input, Option<PhysicalSize<u32>>, bool)>) {
+pub(crate) fn input_thread(event_loop: SendSync<EventLoop<EngineEvent>>, coms: Sender<(Vec<WindowEvent<'static>>,Input, Option<PhysicalSize<u32>>, bool)>) {
     let mut focused = true;
     let mut input = Input::default();
     let mut modifiers = ModifiersState::default();
@@ -15,6 +15,7 @@ pub(crate) fn input_thread(event_loop: SendSync<EventLoop<()>>, coms: Sender<(Ve
     let mut events = Vec::new();
     let mut event_loop = event_loop.unwrap();
     let mut size = None;
+    let mut should_quit = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
@@ -25,7 +26,8 @@ pub(crate) fn input_thread(event_loop: SendSync<EventLoop<()>>, coms: Sender<(Ve
                         focused = foc;
                     }
                     WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
+                        should_quit = true;
+                        // *control_flow = ControlFlow::Exit;
                         // engine.end();
                     }
                     WindowEvent::MouseInput {
@@ -60,13 +62,31 @@ pub(crate) fn input_thread(event_loop: SendSync<EventLoop<()>>, coms: Sender<(Ve
                 // gui.update(&event);
                 // }
             }
-            Event::MainEventsCleared => {
-                coms.send((events.clone(),input.clone(), size, *control_flow != ControlFlow::Exit));
-                // recreate_swapchain = false;
-                size = None;
-                events.clear();
-                input.reset();
-            },
+            // Event::MainEventsCleared => {
+            //     coms.send((events.clone(),input.clone(), size, *control_flow != ControlFlow::Exit));
+            //     // recreate_swapchain = false;
+            //     size = None;
+            //     events.clear();
+            //     input.reset();
+            // },
+            Event::UserEvent(e) => {
+                match e {
+                    EngineEvent::Send => {
+                        // let mut a = Vec::new();
+                        // swap(&mut a, &mut events);
+                        coms.send((events.clone(), input.clone(), size, should_quit));
+                        // recreate_swapchain = false;
+                        size = None;
+                        events.clear();
+                        input.reset();
+                    }
+                    EngineEvent::Quit => {
+                        // todo!()
+                        *control_flow = ControlFlow::Exit;
+                        return;
+                    },
+                }
+            }
             _ => {} // Event::RedrawEventsCleared => {}
         }
     });

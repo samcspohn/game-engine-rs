@@ -32,7 +32,8 @@ use vulkano::{
     },
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
-    NonZeroDeviceSize, VulkanLibrary, sync::Sharing,
+    sync::Sharing,
+    NonZeroDeviceSize, VulkanLibrary,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
@@ -40,6 +41,8 @@ use winit::{
     event_loop::EventLoop,
     window::{self, Window, WindowBuilder},
 };
+
+use crate::engine::EngineEvent;
 
 use super::component::buffer_usage_all;
 
@@ -139,6 +142,16 @@ impl VulkanManager {
         );
         sub_alloc
     }
+    pub fn sub_buffer_allocator_with_usage(&self, buffer_usage: BufferUsage) -> SubbufferAllocator {
+        let sub_alloc = SubbufferAllocator::new(
+            self.mem_alloc.clone(),
+            SubbufferAllocatorCreateInfo {
+                buffer_usage,
+                ..Default::default()
+            },
+        );
+        sub_alloc
+    }
     pub fn window(&self) -> &Window {
         unsafe {
             self.surface
@@ -155,7 +168,7 @@ impl VulkanManager {
             *self.swapchain.get() = swapchain;
         }
     }
-    pub fn new(event_loop: &EventLoop<()>) -> Arc<Self> {
+    pub(crate) fn new(event_loop: &EventLoop<EngineEvent>) -> Arc<Self> {
         // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
         let library = VulkanLibrary::new().unwrap();
         let required_extensions = vulkano_win::required_extensions(&library);

@@ -126,6 +126,7 @@ pub(super) fn render_thread(
     vk: Arc<VulkanManager>,
     render_pass: Arc<RenderPass>,
     rendering_data: Receiver<(bool, RenderingData)>,
+    rendering_complete: Sender<()>,
 ) {
     let mut viewport = Viewport {
         origin: [0.0, 0.0],
@@ -146,6 +147,7 @@ pub(super) fn render_thread(
     // });
 
     let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+    // rendering_complete.send(()).unwrap();
     loop {
         let (quit, rd) = rendering_data.recv().unwrap();
         if quit {
@@ -167,7 +169,7 @@ pub(super) fn render_thread(
             editor_size,
         } = rd;
         let engine = unsafe { engine_ptr.ptr.as_ref().unwrap() };
-
+        let full_render_time = engine.perf.node("full render time");
         // let render_jobs = engine.world.lock().render();
 
         let dimensions = vk.window().inner_size();
@@ -220,12 +222,16 @@ pub(super) fn render_thread(
 
         let mut rm = engine.shared_render_data.write();
 
+        engine.transform_compute.write()._get_update_data(&transform_data, image_num);
+        rendering_complete.send(()).unwrap();
         engine.transform_compute.write().update_data(
             &mut builder,
             image_num,
             &transform_data,
             &engine.perf,
         );
+
+
 
         let particle_update = engine.perf.node("particle update");
         engine.particles_system.update(
@@ -257,6 +263,7 @@ pub(super) fn render_thread(
             )
         };
         drop(update_renderers);
+        
         let render_cameras = engine.perf.node("render camera(s)");
 
         while let Some(job) = gpu_work.pop() {
@@ -280,6 +287,7 @@ pub(super) fn render_thread(
                 &render_jobs,
             );
         }
+
         drop(render_cameras);
         if editor_window_image.is_none()
             || editor_size
@@ -340,6 +348,7 @@ pub(super) fn render_thread(
         let _execute = engine.perf.node("_ execute");
         // comms_snd.send((image_num, acquire_future, command_buffer));
         previous_frame_end.as_mut().unwrap().cleanup_finished();
+
         let future = previous_frame_end
             .take()
             .unwrap()
@@ -367,7 +376,7 @@ pub(super) fn render_thread(
         }
         drop(_build_command_buffer);
 
-        let _wait_for_previous_frame = engine.perf.node("_ wait for previous frame");
+        // let _wait_for_previous_frame = engine.perf.node("_ wait for previous frame");
 
         ///////////////////////////////////////////////////////////////////////////////
         /// execute commands now. move into seperate thread?
