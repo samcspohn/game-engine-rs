@@ -18,7 +18,7 @@ use vulkano::{
     memory::allocator::MemoryUsage,
     pipeline::{graphics::viewport::Viewport, ComputePipeline, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
-    sync::GpuFuture,
+    sync::GpuFuture, buffer::Subbuffer,
 };
 
 use crate::{
@@ -30,7 +30,7 @@ use crate::{
         transform_compute::{cs::Data, TransformCompute},
         world::{
             component::{Component, _ComponentID},
-            transform::{Transform, TransformData},
+            transform::{Transform, TransformData, TransformBuf},
             Sys,
         },
         RenderJobData,
@@ -159,20 +159,29 @@ impl Camera {
     pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
         self.data.as_ref().map(|data| data.clone())
     }
-    pub fn _update(&mut self, transform: &Transform) {
+    pub fn _update(&mut self, transform: &Transform) -> Option<CameraViewData> {
         if let Some(cam_data) = &self.data {
-            cam_data.lock().update(
+            Some(cam_data.lock().update(
                 transform.get_position(),
                 transform.get_rotation(),
                 self.near,
                 self.far,
                 self.fov,
-            )
+            ))
+        } else {
+            None
         }
     }
 }
 impl CameraData {
-    pub fn update(&mut self, pos: Vec3, rot: Quat, near: f32, far: f32, fov: f32) {
+    pub fn update(
+        &mut self,
+        pos: Vec3,
+        rot: Quat,
+        near: f32,
+        far: f32,
+        fov: f32,
+    ) -> CameraViewData {
         let mut cvd = CameraViewData::default();
         cvd.cam_pos = pos;
         cvd.cam_rot = rot;
@@ -183,7 +192,8 @@ impl CameraData {
         cvd.view = glm::look_at_lh(&cvd.cam_pos, &target, &up);
         let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
         cvd.proj = glm::perspective(aspect_ratio, radians(&vec1(fov)).x, near, far);
-        self.camera_view_data.push_back(cvd);
+        cvd
+        // self.camera_view_data.push_back(cvd);
     }
     pub fn new(vk: Arc<VulkanManager>) -> Self {
         let render_pass = vulkano::ordered_passes_renderpass!(
@@ -241,12 +251,14 @@ impl CameraData {
         }
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>) {
-        (self.framebuffers, self.images) = window_size_dependent_setup(
-            dimensions,
-            self._render_pass.clone(),
-            &mut self.viewport,
-            vk,
-        )
+        if self.framebuffers[0].extent() != dimensions {
+            (self.framebuffers, self.images) = window_size_dependent_setup(
+                dimensions,
+                self._render_pass.clone(),
+                &mut self.viewport,
+                vk,
+            )
+        }
     }
     pub fn render(
         &mut self,
@@ -257,7 +269,8 @@ impl CameraData {
         >,
         transform_compute: &TransformCompute,
         particles: Arc<ParticleCompute>,
-        transform_data: &TransformData,
+        // transform_data: &TransformData,
+        transform_buf: TransformBuf,
         renderer_pipeline: Arc<ComputePipeline>,
         offset_vec: Vec<i32>,
         rm: &mut RwLockWriteGuard<SharedRendererData>,
@@ -265,19 +278,26 @@ impl CameraData {
         image_num: u32,
         assets: Arc<AssetsManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
+        cvd: CameraViewData,
     ) -> Option<Arc<AttachmentImage>> {
-        let cvd = self.camera_view_data.front();
-        if cvd.is_none() {
-            return None;
-        }
-        let cvd = cvd.unwrap();
+        // let cvd = self.update(pos, rot, near, far, fov)
+        // let cvd = self.camera_view_data.back();
+        // let mut cvd = None;
+        // while let Some(_cvd) = self.camera_view_data.pop_front() {
+        //     cvd = Some(_cvd);
+        // }
+        // if cvd.is_none() {
+        //     return None;
+        // }
+        // self.camera_view_data.clear();
+        // let cvd = cvd.unwrap();
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
         let model_manager: &ModelManager = __model_manager.as_any().downcast_ref().unwrap();
         let _texture_manager = assets.get_manager::<Texture>();
         let __texture_manager = _texture_manager.lock();
         let texture_manager: &TextureManager = __texture_manager.as_any().downcast_ref().unwrap();
-        transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_data.extent as i32);
+        transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_buf);
 
         if !offset_vec.is_empty() {
             let offsets_buffer = vk.buffer_from_iter(offset_vec);
@@ -370,43 +390,43 @@ impl CameraData {
 
         self.rend.bind_pipeline(builder);
 
-        {
-            // let mm = model_manager.lock();
-            let mm = model_manager;
+        // {
+        // let mm = model_manager.lock();
+        let mm = model_manager;
 
-            let mut offset = 0;
-            let max = rm.renderers_gpu.len();
-            for (_ind_id, m_id) in rd.indirect_model.iter() {
-                if let Some(model_indr) = rd.model_indirect.get(m_id) {
-                    for (i, indr) in model_indr.iter().enumerate() {
-                        if let Some(mr) = mm.assets_id.get(m_id) {
-                            let mr = mr.lock();
-                            if indr.count == 0 || (offset + indr.count as u64) - max <= 0 {
-                                // TODO: fix invalid slice for renderers
-                                continue;
-                            }
-                            let indirect_buffer = rm
-                                .indirect_buffer
-                                .clone()
-                                .slice(indr.id as u64..(indr.id + 1) as u64);
-                            let renderer_buffer = rm.renderers_gpu.clone().slice(
-                                offset..(offset + indr.count as u64).min(rm.renderers_gpu.len()),
-                            );
-                            self.rend.bind_mesh(
-                                &texture_manager,
-                                builder,
-                                vk.desc_alloc.clone(),
-                                renderer_buffer.clone(),
-                                transform_compute.mvp.clone(),
-                                &mr.meshes[i],
-                                indirect_buffer.clone(),
-                            );
+        let mut offset = 0i32;
+        let max = rm.renderers_gpu.len() as i32;
+        for (_ind_id, m_id) in rd.indirect_model.iter() {
+            if let Some(model_indr) = rd.model_indirect.get(m_id) {
+                for (i, indr) in model_indr.iter().enumerate() {
+                    if let Some(mr) = mm.assets_id.get(m_id) {
+                        let mr = mr.lock();
+                        if indr.count == 0 || (offset + indr.count) - max <= 0 {
+                            // TODO: fix invalid slice for renderers
+                            continue;
                         }
-                        offset += indr.count as u64;
+                        let indirect_buffer = rm
+                            .indirect_buffer
+                            .clone()
+                            .slice(indr.id as u64..(indr.id + 1) as u64);
+                        let renderer_buffer = rm.renderers_gpu.clone().slice(
+                            offset as u64..(offset as u64 + indr.count as u64).min(rm.renderers_gpu.len()),
+                        );
+                        self.rend.bind_mesh(
+                            &texture_manager,
+                            builder,
+                            vk.desc_alloc.clone(),
+                            renderer_buffer.clone(),
+                            transform_compute.mvp.clone(),
+                            &mr.meshes[i],
+                            indirect_buffer.clone(),
+                        );
                     }
+                    offset += indr.count;
                 }
             }
         }
+        // }
         let mut rjd = RenderJobData {
             builder,
             gpu_transforms: transform_compute.gpu_transforms.clone(),
@@ -432,7 +452,7 @@ impl CameraData {
             transform_compute.gpu_transforms.clone(),
         );
         builder.end_render_pass().unwrap();
-        self.camera_view_data.pop_front();
+        // self.camera_view_data.pop_front();
         Some(self.images[image_num as usize].clone())
     }
 }
@@ -458,7 +478,10 @@ fn window_size_dependent_setup(
                 &vk.mem_alloc,
                 dimensions,
                 Format::R8G8B8A8_UNORM,
-                ImageUsage::SAMPLED | ImageUsage::STORAGE | ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
+                ImageUsage::SAMPLED
+                    | ImageUsage::STORAGE
+                    | ImageUsage::COLOR_ATTACHMENT
+                    | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
             )
             .unwrap();
             images.push(image.clone());

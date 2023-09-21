@@ -8,13 +8,21 @@ struct MVP {
     mat4 m;
 };
 
-layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
-layout(set = 0, binding = 1) buffer tr { transform transforms[]; };
+// layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
+// layout(set = 0, binding = 0) buffer tr0 { transform transforms1[]; };
+layout(set = 0, binding = 1) buffer tr1 { transform transforms[]; };
 layout(set = 0, binding = 2) buffer m { MVP mvp[]; };
 
-layout(set = 0, binding = 3) buffer _t { int transform_ids[]; };
+layout(set = 0, binding = 3) buffer pi { uint pos_i[]; };
+layout(set = 0, binding = 4) buffer p { float pos[]; };
+layout(set = 0, binding = 5) buffer ri { uint rot_i[]; };
+layout(set = 0, binding = 6) buffer r { vec4 rot[]; };
+layout(set = 0, binding = 7) buffer si { uint scl_i[]; };
+layout(set = 0, binding = 8) buffer s { float scl[]; };
 
-layout(set = 0, binding = 4) uniform Data {
+// layout(set = 0, binding = 3) buffer _t { int transform_ids[]; };
+
+layout(set = 0, binding = 0) uniform Data {
     int num_jobs;
     int stage;
     mat4 view;
@@ -26,20 +34,34 @@ void main() {
     if (id < num_jobs) {
         switch (stage) {
         case 0: {
+            uint _id = id * 3;
+            uint bit_id = 1 << (id % 32);
+            uint i_id = id / 32;
+            if ((pos_i[i_id] & bit_id) != 0) {
+                transforms[id].position =
+                    vec3(pos[_id], pos[_id + 1], pos[_id + 2]);
+            }
+            if ((rot_i[i_id] & bit_id) != 0) {
+                transforms[id].rotation = rot[id];
+            }
+            if ((scl_i[i_id] & bit_id) != 0) {
+                transforms[id].scale =
+                    vec3(scl[_id], scl[_id + 1], scl[_id + 2]);
+            }
             // int i = int(id) * 4;
-            transforms[transform_ids[id]].position =
-                vec3(to_buffer[id].xyz);
+            // transforms[transform_ids[id]].position =
+            //     vec3(to_buffer[id].xyz);
         } break;
-        case 1: {
-            // int i = int(id) * 4;
-            transforms[transform_ids[id]].rotation =
-                vec4(to_buffer[id]);
-        } break;
-        case 2: {
-            // int i = int(id) * 4;
-            transforms[transform_ids[id]].scale =
-                vec3(to_buffer[id].xyz);
-        } break;
+        // case 1: {
+        //     // int i = int(id) * 4;
+        //     transforms[transform_ids[id]].rotation =
+        //         vec4(to_buffer[id]);
+        // } break;
+        // case 2: {
+        //     // int i = int(id) * 4;
+        //     transforms[transform_ids[id]].scale =
+        //         vec3(to_buffer[id].xyz);
+        // } break;
         case 3:
             mvp[id].m = translate(transforms[id].position) *
                         rotate(transforms[id].rotation) *

@@ -35,6 +35,8 @@ use parking_lot::Mutex;
 use parking_lot::RwLock;
 use vulkano::buffer::Subbuffer;
 use vulkano::command_buffer::CommandBufferUsage;
+use vulkano::command_buffer::CopyImageInfo;
+use vulkano::command_buffer::PrimaryCommandBufferAbstract;
 use vulkano::command_buffer::RenderPassBeginInfo;
 use vulkano::command_buffer::SubpassContents;
 use vulkano::format::Format;
@@ -53,8 +55,16 @@ use vulkano::render_pass::Subpass;
 use vulkano::sampler::SamplerAddressMode;
 use vulkano::sampler::SamplerCreateInfo;
 use vulkano::sampler::LOD_CLAMP_NONE;
+use vulkano::swapchain::SwapchainAcquireFuture;
+use vulkano::swapchain::acquire_next_image;
+use vulkano::swapchain::AcquireError;
+use vulkano::swapchain::SwapchainCreateInfo;
+use vulkano::swapchain::SwapchainCreationError;
+use vulkano::swapchain::SwapchainPresentInfo;
 use vulkano::sync;
+use vulkano::sync::FlushError;
 use vulkano::sync::GpuFuture;
+use vulkano::DeviceSize;
 // use spin::Mutex;
 use nalgebra_glm as glm;
 use vulkano::{
@@ -177,6 +187,15 @@ pub(crate) enum EngineEvent {
     Send,
     Quit,
 }
+struct EngineRenderer {
+    viewport: Viewport,
+    framebuffers: Vec<Arc<Framebuffer>>,
+    recreate_swapchain: bool,
+    fc_map: HashMap<i32, HashMap<u32, TextureId>>,
+    editor_window_image: Option<Arc<dyn ImageAccess>>,
+    render_pass: Arc<RenderPass>,
+    // previous_frame_end: Option<Box<dyn GpuFuture>>,
+}
 pub(crate) struct Engine {
     pub(crate) world: Arc<Mutex<World>>,
     pub(crate) assets_manager: Arc<AssetsManager>,
@@ -191,7 +210,7 @@ pub(crate) struct Engine {
         Option<PhysicalSize<u32>>,
         bool,
     )>,
-    pub(crate) rendering_data: Sender<(bool, RenderingData)>,
+    pub(crate) rendering_data: Sender<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
     pub(crate) rendering_complete: Receiver<()>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
@@ -210,6 +229,7 @@ pub(crate) struct Engine {
     pub(crate) tex_id: Option<TextureId>,
     update_editor_window: bool,
     event_loop_proxy: EventLoopProxy<EngineEvent>,
+    renderer: EngineRenderer,
 }
 pub struct EnginePtr {
     ptr: *const Engine,
@@ -388,10 +408,22 @@ impl Engine {
         let rendering_thread = Arc::new({
             let vk = vk.clone();
             thread::spawn(move || {
-                render_thread::render_thread(vk, render_pass, rendering_rcv, rendering_snd2)
+                render_thread::render_thread(vk, rendering_rcv, rendering_snd2)
             })
         });
         proxy.send_event(EngineEvent::Send);
+
+        let mut viewport = Viewport {
+            origin: [0.0, 0.0],
+            dimensions: [0.0, 0.0],
+            depth_range: 0.0..1.0,
+        };
+
+        let mut framebuffers =
+            window_size_dependent_setup(&vk.images, render_pass.clone(), &mut viewport);
+        let mut recreate_swapchain = true;
+        let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
+        let mut editor_window_image: Option<Arc<dyn ImageAccess>> = None;
 
         Self {
             world,
@@ -406,6 +438,15 @@ impl Engine {
             rendering_data: rendering_snd,
             rendering_complete: rendering_rcv2,
             cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone()))),
+            renderer: EngineRenderer {
+                viewport,
+                framebuffers,
+                recreate_swapchain,
+                fc_map,
+                editor_window_image,
+                render_pass,
+                // previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
+            },
             vk,
             editor_cam: editor::editor_cam::EditorCam {
                 rot: glm::quat(-1., 0., 0., 0.),
@@ -450,7 +491,7 @@ impl Engine {
         let mut world = self.world.lock();
         let gpu_work = SegQueue::new();
         let world_sim = self.perf.node("world _update");
-        if self.playing_game {
+        let cvd = if self.playing_game {
             puffin::profile_scope!("game loop");
             {
                 puffin::profile_scope!("world update");
@@ -481,27 +522,24 @@ impl Engine {
                     world.defer_instantiate(&self.perf);
                 }
             }
+            world.update_cameras()
         } else {
             world._destroy(&self.perf);
             world.editor_update(&input, &self.time, &gpu_work); // TODO: terrain update still breaking
             self.editor_cam.update(&input, &self.time);
-            self.cam_data.lock().update(
+            let cvd = self.cam_data.lock().update(
                 self.editor_cam.pos,
                 self.editor_cam.rot,
                 0.01f32,
                 10_000f32,
                 70f32,
             );
-        }
+            vec![(Some(self.cam_data.clone()), Some(cvd))]
+        };
         drop(world_sim);
 
-
-        let get_transform_data = self.perf.node("get transform data");
-        let transform_data = world.transforms.get_transform_data_updates();
-        drop(get_transform_data);
-
         let get_renderer_data = self.perf.node("get renderer data");
-        let renderer_data = world.sys.renderer_manager.write().get_renderer_data();
+        let mut renderer_data = world.sys.renderer_manager.write().get_renderer_data();
         drop(get_renderer_data);
         let emitter_len = world.get_emitter_len();
         let emitter_inits = world.sys.particles_system.emitter_inits.get_vec();
@@ -509,7 +547,6 @@ impl Engine {
         let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
         let (main_cam_id, mut cam_datas) = world.get_cam_datas();
         let render_jobs = world.render();
-
 
         self._image_num = (self._image_num + 1) % self.vk.swapchain().image_count();
 
@@ -598,7 +635,6 @@ impl Engine {
         } else {
             cam_datas = vec![cd.clone()];
             // let cd = self.cam_data.clone();
-        
         };
 
         drop(_cd);
@@ -616,23 +652,12 @@ impl Engine {
             unsafe { SendSync::new(self.gui.draw_on_subpass_image([size.width, size.height])) };
         drop(_get_gui_commands);
 
-        let data = RenderingData {
-            transform_data,
-            cam_datas,
-            main_cam_id,
-            renderer_data,
-            emitter_inits: (emitter_len, emitter_inits, emitter_deinits, particle_bursts),
-            gpu_work,
-            render_jobs,
-            _image_num: self._image_num,
-            gui_commands,
-            recreate_swapchain: window_size.is_some() | self.playing_game != _playing_game,
-            editor_size: *EDITOR_WINDOW_DIM.lock(),
-            engine_ptr: EnginePtr {
-                ptr: std::ptr::from_ref(&self),
-            },
-        };
+        let cam_datas = cvd;
 
+        let particle_init_data = (emitter_len, emitter_inits, emitter_deinits, particle_bursts);
+
+        let _recreate_swapchain = window_size.is_some() | self.playing_game != _playing_game;
+        let editor_size = *EDITOR_WINDOW_DIM.lock();
         self.time.time += self.time.dt;
         self.time.dt = self.frame_time.elapsed().as_secs_f64() as f32;
 
@@ -643,15 +668,270 @@ impl Engine {
 
         self.frame_time = Instant::now();
 
-        let res = self.rendering_data.send((should_exit, data));
-        if res.is_err() {
-            println!("ohno");
-            panic!();
+        let EngineRenderer {
+            viewport,
+            framebuffers,
+            recreate_swapchain,
+            fc_map,
+            editor_window_image,
+            render_pass,
+            // previous_frame_end,
+        } = &mut self.renderer;
+
+        let vk = self.vk.clone();
+        let full_render_time = self.perf.node("full render time");
+        // let render_jobs = engine.world.lock().render();
+
+        let dimensions = vk.window().inner_size();
+        if dimensions.width == 0 || dimensions.height == 0 {
+            // return;
         }
-        match self.rendering_complete.recv() {
-            Ok(_) => {}
-            Err(_) => {}
+        // previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+        *recreate_swapchain |= _recreate_swapchain;
+        if *recreate_swapchain {
+            let dimensions: [u32; 2] = vk.window().inner_size().into();
+
+            let mut swapchain = vk.swapchain();
+            let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
+                .recreate(SwapchainCreateInfo {
+                    image_extent: dimensions,
+                    ..swapchain.create_info()
+                }) {
+                Ok(r) => r,
+                Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => panic!(),
+                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+            };
+
+            vk.update_swapchain(new_swapchain);
+
+            *framebuffers = window_size_dependent_setup(&new_images, render_pass.clone(), viewport);
+            viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+            *recreate_swapchain = false;
         }
+
+        let (image_num, suboptimal, acquire_future) =
+            match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(10))) {
+                Ok(r) => r,
+                Err(AcquireError::OutOfDate) => {
+                    *recreate_swapchain = true;
+                    println!("falied to aquire next image");
+                    panic!()
+                }
+                Err(e) => panic!("Failed to acquire next image: {:?}", e),
+            };
+        if suboptimal {
+            *recreate_swapchain = true;
+        }
+
+        let mut rm = self.shared_render_data.write();
+        // previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+        let transforms_buf = {
+            let allocate_transform_buf = self.perf.node("allocate transforms_buf");
+            let world = self.world.lock();
+            let mut transform_compute = self.transform_compute.write();
+            let alloc = transform_compute.update_data_alloc.lock();
+            let cycle = transform_compute.cycle;
+            let pos_i = alloc[cycle]
+                .allocate_unsized((world.transforms.len() / 32 + 1) as DeviceSize)
+                .unwrap();
+            let pos = alloc[cycle]
+                .allocate_unsized(world.transforms.len() as DeviceSize)
+                .unwrap();
+            let rot_i = alloc[cycle]
+                .allocate_unsized((world.transforms.len() / 32 + 1) as DeviceSize)
+                .unwrap();
+            let rot = alloc[cycle]
+                .allocate_unsized(world.transforms.len() as DeviceSize)
+                .unwrap();
+            let scl_i = alloc[cycle]
+                .allocate_unsized((world.transforms.len() / 32 + 1) as DeviceSize)
+                .unwrap();
+            let scl = alloc[cycle]
+                .allocate_unsized(world.transforms.len() as DeviceSize)
+                .unwrap();
+            drop(alloc);
+            transform_compute.cycle = (cycle + 1) % vk.images.len();
+            (pos_i, pos, rot_i, rot, scl_i, scl)
+        };
+        {
+            let get_transform_data = self.perf.node("get transform data");
+
+            self.world
+                .lock()
+                .transforms
+                .get_transform_data_updates(transforms_buf.clone());
+        }
+
+        let mut builder = AutoCommandBufferBuilder::primary(
+            &vk.comm_alloc,
+            vk.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        self.transform_compute
+            .write()
+            ._update_gpu_transforms(&mut builder, transforms_buf.1.len() as usize);
+
+        // drop(get_transform_data);
+
+        self.transform_compute.write().update_data(
+            &mut builder,
+            image_num,
+            transforms_buf.clone(),
+            &self.perf,
+        );
+        // rendering_complete.send(()).unwrap();
+
+        let particle_update = self.perf.node("particle update");
+        self.particles_system.update(
+            &mut builder,
+            particle_init_data,
+            &self.transform_compute.read(),
+            &self.time,
+        );
+        drop(particle_update);
+
+        let update_renderers = self.perf.node("update renderers");
+        // compute shader renderers
+        let offset_vec = {
+            // puffin::profile_scope!("process renderers");
+            let renderer_pipeline = rm.pipeline.clone();
+
+            builder.bind_pipeline_compute(renderer_pipeline.clone());
+
+            // if !lock_cull {
+            //     cull_view = view.clone();
+            // }
+
+            rm.update(
+                &mut renderer_data,
+                vk.clone(),
+                &mut builder,
+                renderer_pipeline.clone(),
+                &self.transform_compute.read(),
+            )
+        };
+        drop(update_renderers);
+        let render_cameras = self.perf.node("render camera(s)");
+
+        while let Some(job) = gpu_work.pop() {
+            job.unwrap()(&mut builder, vk.clone());
+        }
+
+        let mut game_image = None;
+        for cam in cam_datas {
+            if let (Some(cam), Some(cvd)) = cam {
+                cam.lock().resize(*EDITOR_WINDOW_DIM.lock(), vk.clone());
+                game_image = cam.lock().render(
+                    vk.clone(),
+                    &mut builder,
+                    &self.transform_compute.read(),
+                    self.particles_system.clone(),
+                    transforms_buf.clone(),
+                    rm.pipeline.clone(),
+                    offset_vec.clone(),
+                    &mut rm,
+                    &mut renderer_data,
+                    image_num,
+                    self.assets_manager.clone(),
+                    &render_jobs,
+                    cvd,
+                );
+            }
+        }
+        drop(render_cameras);
+        if editor_window_image.is_none()
+            || editor_size
+                != [
+                    editor_window_image.as_ref().unwrap().dimensions().width(),
+                    editor_window_image.as_ref().unwrap().dimensions().height(),
+                ]
+        {
+            let image = ImmutableImage::from_iter(
+                &vk.mem_alloc,
+                (0..(editor_size[0] * editor_size[1])).map(|_| [0u8; 4]),
+                ImageDimensions::Dim2d {
+                    width: editor_size[0],
+                    height: editor_size[1],
+                    array_layers: 1,
+                },
+                MipmapsCount::Log2,
+                Format::R8G8B8A8_UNORM,
+                &mut builder,
+            )
+            .unwrap();
+            let img_view = ImageView::new_default(image.clone()).unwrap();
+            *editor_window_image = Some(image.clone());
+            *IMAGE_VIEW.lock() = Some((img_view, image));
+            // img_view = Some(img_view);
+        }
+
+        if let Some(image) = &editor_window_image {
+            if let Some(game_image) = game_image {
+                builder
+                    .copy_image(CopyImageInfo::images(game_image, image.clone()))
+                    .unwrap();
+            }
+        }
+
+        /////////////////////////////////////////////////////////
+
+        let _render = self.perf.node("_ render");
+
+        builder
+            .begin_render_pass(
+                RenderPassBeginInfo {
+                    clear_values: vec![Some([0., 0., 0., 1.].into())],
+                    ..RenderPassBeginInfo::framebuffer(framebuffers[image_num as usize].clone())
+                },
+                SubpassContents::SecondaryCommandBuffers,
+            )
+            .unwrap()
+            .set_viewport(0, [viewport.clone()]);
+        // engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
+        let gui_commands = gui_commands.unwrap();
+        builder.execute_commands(gui_commands).unwrap();
+
+        builder.end_render_pass().unwrap();
+
+        let _build_command_buffer = self.perf.node("_ build command buffer");
+        let command_buffer = builder.build().unwrap();
+        drop(_build_command_buffer);
+
+        let _execute = self.perf.node("_ execute");
+        self.rendering_data.send((image_num, acquire_future, command_buffer));
+        // previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+        // let future = previous_frame_end
+        //     .take()
+        //     .unwrap()
+        //     .join(acquire_future)
+        //     .then_execute(vk.queue.clone(), command_buffer)
+        //     .unwrap()
+        //     .then_swapchain_present(
+        //         vk.queue.clone(),
+        //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+        //     )
+        //     .then_signal_fence_and_flush();
+
+        // match future {
+        //     Ok(future) => {
+        //         *previous_frame_end = Some(future.boxed());
+        //     }
+        //     Err(FlushError::OutOfDate) => {
+        //         *recreate_swapchain = true;
+        //         *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+        //     }
+        //     Err(e) => {
+        //         println!("failed to flush future: {e}");
+        //         // *recreate_swapchain = true;
+        //         *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+        //     }
+        // }
+        drop(_execute);
+
         if self.update_editor_window || self.playing_game != _playing_game {
             let a = IMAGE_VIEW.lock();
             if let Some(img_view) = a.as_ref() {
@@ -682,7 +962,7 @@ impl Engine {
     pub fn end(mut self) {
         println!("end");
         self.perf.print();
-        Arc::into_inner(self.rendering_thread).unwrap().join();
+        // Arc::into_inner(self.rendering_thread).unwrap().join();
         self.event_loop_proxy.send_event(EngineEvent::Quit);
         // Arc::into_inner(self.input_thread).unwrap().join();
     }

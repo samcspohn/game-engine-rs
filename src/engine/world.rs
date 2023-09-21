@@ -2,6 +2,19 @@ pub mod component;
 pub mod entity;
 pub mod transform;
 
+use crossbeam::queue::SegQueue;
+use force_send_sync::SendSync;
+use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use rapier3d::prelude::vector;
+use rapier3d::prelude::*;
+use rayon::{
+    prelude::{
+        IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+        IntoParallelRefMutIterator, ParallelIterator,
+    },
+    Scope,
+};
+use serde::{Deserialize, Serialize};
 use std::{
     cell::{RefCell, SyncUnsafeCell},
     collections::HashMap,
@@ -11,19 +24,6 @@ use std::{
     },
     time::Instant,
 };
-use rapier3d::prelude::*;
-use crossbeam::queue::SegQueue;
-use force_send_sync::SendSync;
-use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use rapier3d::prelude::vector;
-use rayon::{
-    prelude::{
-        IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-        IntoParallelRefMutIterator, ParallelIterator,
-    },
-    Scope,
-};
-use serde::{Deserialize, Serialize};
 use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
 use crate::editor::inspectable::Inspectable;
@@ -44,14 +44,15 @@ use super::{
     physics::Physics,
     project::asset_manager::{AssetManagerBase, AssetsManager},
     rendering::{
-        camera::{Camera, CameraData},
-        model::ModelRenderer,
+        camera::{Camera, CameraData, CameraViewData},
         component::RendererManager,
+        model::ModelRenderer,
         vulkan_manager::VulkanManager,
     },
     storage::{Storage, StorageBase},
+    time::Time,
     utils::GPUWork,
-    Defer, RenderJobData, time::Time,
+    Defer, RenderJobData,
 };
 
 pub struct Sys {
@@ -122,9 +123,7 @@ impl World {
             components_names: HashMap::new(),
             root,
             sys: Sys {
-                renderer_manager: Arc::new(RwLock::new(RendererManager::new(
-                    vk.clone()
-                ))),
+                renderer_manager: Arc::new(RwLock::new(RendererManager::new(vk.clone()))),
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
                 particles_system: particles,
@@ -326,7 +325,11 @@ impl World {
 
         let alloc_components = perf.node("world allocate _ components");
 
-        let mut comp_ids: HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>> = self
+        let mut comp_ids: HashMap<
+            u64,
+            SyncUnsafeCell<CacheVec<i32>>,
+            nohash_hasher::BuildNoHashHasher<u64>,
+        > = self
             .components
             .iter()
             .map(|(id, c)| (*id, unsafe { SyncUnsafeCell::new(self.v.get_vec(0)) }))
@@ -353,7 +356,11 @@ impl World {
         &self,
         perf: &Perf,
         trans: &CacheVec<i32>,
-            comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
+        comp_ids: &HashMap<
+            u64,
+            SyncUnsafeCell<CacheVec<i32>>,
+            nohash_hasher::BuildNoHashHasher<u64>,
+        >,
         unlocked: &SendSync<
             ThinMap<
                 u64,
@@ -399,7 +406,11 @@ impl World {
         &self,
         perf: &Perf,
         trans: &CacheVec<i32>,
-        comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
+        comp_ids: &HashMap<
+            u64,
+            SyncUnsafeCell<CacheVec<i32>>,
+            nohash_hasher::BuildNoHashHasher<u64>,
+        >,
         unlocked: &SendSync<
             ThinMap<
                 u64,
@@ -444,22 +455,22 @@ impl World {
                 let t_id = unsafe { *a.t_func.0.get() };
                 // match a.count < 16 {
                 //     true => {
-                        // (0..a.count).into_iter().for_each(|i| {
-                        //     let t = _trans[(t_id + i) as usize];
-                        //     self.transforms.write_transform(t, t_func());
-                        // });
-                        // a.comp_funcs.iter().for_each(|b| {
-                        //     let comp = &unlocked.get(&b.0).unwrap();
-                        //     let c_id = unsafe { *b.1.get() };
-                        //     let stor = comp.1.as_ref();
-                        //     let cto = unsafe {
-                        //         (*comp_ids.get(&b.0).unwrap().get()).get()
-                        //     };
-                        //     (0..a.count).into_iter().for_each(|i| {
-                        //         let t = _trans[(t_id + i) as usize];
-                        //         b.2(&self, stor, cto[(c_id + i) as usize], t);
-                        //     });
-                        // });
+                // (0..a.count).into_iter().for_each(|i| {
+                //     let t = _trans[(t_id + i) as usize];
+                //     self.transforms.write_transform(t, t_func());
+                // });
+                // a.comp_funcs.iter().for_each(|b| {
+                //     let comp = &unlocked.get(&b.0).unwrap();
+                //     let c_id = unsafe { *b.1.get() };
+                //     let stor = comp.1.as_ref();
+                //     let cto = unsafe {
+                //         (*comp_ids.get(&b.0).unwrap().get()).get()
+                //     };
+                //     (0..a.count).into_iter().for_each(|i| {
+                //         let t = _trans[(t_id + i) as usize];
+                //         b.2(&self, stor, cto[(c_id + i) as usize], t);
+                //     });
+                // });
                 //     }
                 //     false => {
                 (0..a.count).into_par_iter().for_each(|i| {
@@ -622,10 +633,11 @@ impl World {
                 }
             }
         }
-        self.update_cameras();
+        // self.update_cameras();
     }
-    fn update_cameras(&mut self) {
+    pub(crate) fn update_cameras(&mut self) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
         let camera_components = self.get_components::<Camera>().unwrap().1.read();
+        let mut ret = Vec::new();
         let camera_storage = camera_components
             .as_any()
             .downcast_ref::<Storage<Camera>>()
@@ -638,9 +650,11 @@ impl World {
                 if unsafe { *v.get() } {
                     let mut d = d.lock();
                     let id: i32 = d.0;
-                    d.1._update(&self.transforms.get(id).unwrap());
+                    let cvd = d.1._update(&self.transforms.get(id).unwrap());
+                    ret.push((d.1.get_data(),cvd))
                 }
             });
+            ret
     }
     pub(crate) fn editor_update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork) {
         let sys = &self.sys;

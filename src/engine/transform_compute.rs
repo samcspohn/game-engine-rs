@@ -32,7 +32,7 @@ use vulkano::{
 
 use self::cs::{transform, Data, MVP};
 
-use super::{perf::Perf, rendering::vulkan_manager::VulkanManager};
+use super::{perf::Perf, rendering::vulkan_manager::VulkanManager, world::transform::TransformBuf};
 
 pub mod cs {
     vulkano_shaders::shader! {
@@ -44,7 +44,8 @@ pub mod cs {
 pub struct TransformCompute {
     // TODO: replace cache with subbufferallocator
     pub gpu_transforms: Subbuffer<[transform]>,
-    pub(crate) update_data_alloc: Mutex<SubbufferAllocator>,
+    pub(crate) update_data_alloc: Mutex<Vec<SubbufferAllocator>>,
+    pub cycle: usize,
     // pub position_cache: Vec<Subbuffer<[[f32; 4]]>>,
     // pub position_id_cache: Vec<Subbuffer<[i32]>>,
     // pub rotation_cache: Vec<Subbuffer<[[f32; 4]]>>,
@@ -68,10 +69,8 @@ impl TransformCompute {
         let num_images = vk.images.len() as u32;
 
         let num_transforms = 2;
-        let gpu_transforms = vk.buffer_array(
-            num_transforms as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
-        );
+        let gpu_transforms =
+            vk.buffer_array(num_transforms as vulkano::DeviceSize, MemoryUsage::Upload);
         let mvp = vk.buffer_array(
             num_transforms as vulkano::DeviceSize,
             MemoryUsage::DeviceOnly,
@@ -81,8 +80,12 @@ impl TransformCompute {
             gpu_transforms,
             mvp,
             update_data_alloc: Mutex::new(
-                vk.sub_buffer_allocator_with_usage(BufferUsage::STORAGE_BUFFER),
+                (0..num_images)
+                    .into_iter()
+                    .map(|_| vk.sub_buffer_allocator_with_usage(BufferUsage::STORAGE_BUFFER))
+                    .collect(),
             ),
+            cycle: 0,
             // position_cache: (0..num_images)
             //     .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
             //     .collect(),
@@ -121,174 +124,172 @@ impl TransformCompute {
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    fn __get_update_data<T: Copy + Send + Sync>(
-        &mut self,
-        ids: &Vec<CacheVec<i32>>,
-        data: &Vec<CacheVec<T>>,
-        // ids_buf: &mut Vec<Subbuffer<[i32]>>,
-        // data_buf: &mut Vec<Subbuffer<[T]>>,
-        vk: Arc<VulkanManager>,
-        image_num: u32,
-    ) -> Option<(Subbuffer<[i32]>, Subbuffer<[T]>)>
-    where
-        [T]: BufferContents,
-    {
-        let transform_ids_len_pos: u64 = ids.iter().map(|x| x.len() as u64).sum();
+    // fn __get_update_data<T: Copy + Send + Sync>(
+    //     &mut self,
+    //     ids: &Vec<CacheVec<i32>>,
+    //     data: &Vec<CacheVec<T>>,
+    //     // ids_buf: &mut Vec<Subbuffer<[i32]>>,
+    //     // data_buf: &mut Vec<Subbuffer<[T]>>,
+    //     vk: Arc<VulkanManager>,
+    //     image_num: u32,
+    // ) -> Option<(Subbuffer<[i32]>, Subbuffer<[T]>)>
+    // where
+    //     [T]: BufferContents,
+    // {
+    //     let transform_ids_len_pos: u64 = ids.iter().map(|x| x.len() as u64).sum();
 
-        if transform_ids_len_pos == 0 {
-            return None;
-        }
+    //     if transform_ids_len_pos == 0 {
+    //         return None;
+    //     }
 
-        puffin::profile_scope!("transform_ids_buffer");
-        unsafe {
+    //     puffin::profile_scope!("transform_ids_buffer");
+    //     unsafe {
+    //         // let ids_buf: Subbuffer<[i32]> = self
+    //         //     .update_data_alloc
+    //         //     .get_mut()
+    //         //     .allocate_unsized(transform_ids_len_pos)
+    //         //     .unwrap();
+    //         // let mut offset = 0;
+    //         // {
+    //         //     let mut u_w = ids_buf.write().unwrap();
+    //         //     for i in ids {
+    //         //         let m_slice = &mut u_w[offset..offset + i.len()];
+    //         //         m_slice.copy_from_slice((*i.v.get()).as_slice());
+    //         //         offset += i.len();
+    //         //     }
+    //         // }
+    //         // let data_buf: Subbuffer<[T]> = self
+    //         //     .update_data_alloc
+    //         //     .get_mut()
+    //         //     .allocate_unsized(transform_ids_len_pos)
+    //         //     .unwrap();
+    //         // let mut offset = 0;
+    //         // {
+    //         //     let mut u_w = data_buf.write().unwrap();
+    //         //     for i in data {
+    //         //         let m_slice = &mut u_w[offset..offset + i.len()];
+    //         //         m_slice.copy_from_slice((*i.v.get()).as_slice());
+    //         //         offset += i.len();
+    //         //     }
+    //         // }
 
-        //     let ids_buf: Subbuffer<[i32]> = self
-        //     .update_data_alloc
-        //     .get_mut()
-        //     .allocate_unsized(transform_ids_len_pos)
-        //     .unwrap();
-        // let mut offset = 0;
-        // {
-        //     let mut u_w = ids_buf.write().unwrap();
-        //     // if let Ok(mut mapping) = u_w {
-        //     for i in ids {
-        //         let m_slice = &mut u_w[offset..offset + i.len()];
-        //         m_slice.copy_from_slice((*i.v.get()).as_slice());
-        //         offset += i.len();
-        //     }
-        // }
-        // let data_buf: Subbuffer<[T]> = self
-        //     .update_data_alloc
-        //     .get_mut()
-        //     .allocate_unsized(transform_ids_len_pos)
-        //     .unwrap();
-        // let mut offset = 0;
-        // {
-        //     let mut u_w = data_buf.write().unwrap();
-        //     // if let Ok(mut mapping) = u_w {
-        //     for i in data {
-        //         let m_slice = &mut u_w[offset..offset + i.len()];
-        //         m_slice.copy_from_slice((*i.v.get()).as_slice());
-        //         offset += i.len();
-        //     }
-        // }
+    //         let ids_buf: Subbuffer<[i32]> = self.update_data_alloc.get_mut()[self.cycle]
+    //             .allocate_unsized(transform_ids_len_pos)
+    //             .unwrap();
+    //         let mut offset = 0;
+    //         {
+    //             let mut u_w = SyncUnsafeCell::new(ids_buf.write().unwrap());
+    //             rayon::scope(|s| {
+    //                 for i in ids {
+    //                     let offs = offset;
+    //                     let u_w = &u_w;
+    //                     s.spawn(move |s| {
+    //                         let m_slice = &mut (*u_w.get())[offs..offs + i.len()];
+    //                         m_slice.copy_from_slice((*i.v.get()).as_slice());
+    //                     });
+    //                     offset += i.len();
+    //                 }
+    //             });
+    //         }
+    //         let data_buf: Subbuffer<[T]> = self.update_data_alloc.get_mut()[self.cycle]
+    //             .allocate_unsized(transform_ids_len_pos)
+    //             .unwrap();
+    //         let mut offset = 0;
+    //         {
+    //             let mut u_w = SyncUnsafeCell::new(data_buf.write().unwrap());
+    //             rayon::scope(|s| {
+    //                 for i in data {
+    //                     let offs = offset;
+    //                     let u_w = &u_w;
+    //                     s.spawn(move |s| {
+    //                         let m_slice = &mut (*u_w.get())[offs..offs + i.len()];
+    //                         m_slice.copy_from_slice((*i.v.get()).as_slice());
+    //                     });
+    //                     offset += i.len();
+    //                 }
+    //             });
+    //         }
+    //         self.cycle = (self.cycle + 1) % 2;
+    //         Some((ids_buf, data_buf))
+    //     }
+    // }
 
+    // fn get_position_update_data(
+    //     &mut self,
+    //     transform_data: &TransformData,
+    //     image_num: u32,
+    //     mem: Arc<StandardMemoryAllocator>,
+    // ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
+    //     self.__get_update_data(
+    //         &transform_data.pos_id,
+    //         &transform_data.pos_data,
+    //         // &mut self.position_id_cache,
+    //         // &mut self.position_cache,
+    //         self.vk.clone(),
+    //         image_num,
+    //     )
+    // }
+    // fn get_rotation_update_data(
+    //     &mut self,
+    //     transform_data: &TransformData,
+    //     image_num: u32,
+    //     mem: Arc<StandardMemoryAllocator>,
+    // ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
+    //     self.__get_update_data(
+    //         &transform_data.rot_id,
+    //         &transform_data.rot_data,
+    //         // &mut self.rotation_id_cache,
+    //         // &mut self.rotation_cache,
+    //         self.vk.clone(),
+    //         image_num,
+    //     )
+    // }
+    // fn get_scale_update_data(
+    //     &mut self,
+    //     transform_data: &TransformData,
+    //     image_num: u32,
+    //     mem: Arc<StandardMemoryAllocator>,
+    // ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
+    //     self.__get_update_data(
+    //         &transform_data.scl_id,
+    //         &transform_data.scl_data,
+    //         // &mut self.scale_id_cache,
+    //         // &mut self.scale_cache,
+    //         self.vk.clone(),
+    //         image_num,
+    //     )
+    // }
+    // pub(crate) fn _get_update_data(
+    //     &mut self,
+    //     transform_data: &TransformData,
+    //     image_num: u32,
+    //     perf: &Perf,
+    // ) {
+    //     let write_to_buffer = perf.node("write to buffer");
+    //     self.update_data = {
+    //         puffin::profile_scope!("buffer transform data");
+    //         let position_update_data = self.get_position_update_data(
+    //             &transform_data,
+    //             image_num,
+    //             self.vk.mem_alloc.clone(),
+    //         );
 
-            let ids_buf: Subbuffer<[i32]> = self
-                .update_data_alloc
-                .get_mut()
-                .allocate_unsized(transform_ids_len_pos)
-                .unwrap();
-            let mut offset = 0;
-            {
-                let mut u_w = SyncUnsafeCell::new(ids_buf.write().unwrap());
-                rayon::scope(|s| {
-                    for i in ids {
-                        let offs = offset;
-                        let u_w = &u_w;
-                        s.spawn(move |s| {
-                            let m_slice = &mut (*u_w.get())[offs..offs + i.len()];
-                            m_slice.copy_from_slice((*i.v.get()).as_slice());
-                        });
-                        offset += i.len();
-                    }
-                });
-            }
-            let data_buf: Subbuffer<[T]> = self
-                .update_data_alloc
-                .get_mut()
-                .allocate_unsized(transform_ids_len_pos)
-                .unwrap();
-            let mut offset = 0;
-            {
-                let mut u_w = SyncUnsafeCell::new(data_buf.write().unwrap());
-                rayon::scope(|s| {
-                    for i in data {
-                        let offs = offset;
-                        let u_w = &u_w;
-                        s.spawn(move |s| {
-                            let m_slice = &mut (*u_w.get())[offs..offs + i.len()];
-                            m_slice.copy_from_slice((*i.v.get()).as_slice());
-                        });
-                        offset += i.len();
-                    }
-                });
-            }
-            Some((ids_buf, data_buf))
-        }
-    }
+    //         let rotation_update_data = self.get_rotation_update_data(
+    //             &transform_data,
+    //             image_num,
+    //             self.vk.mem_alloc.clone(),
+    //         );
 
-    fn get_position_update_data(
-        &mut self,
-        transform_data: &TransformData,
-        image_num: u32,
-        mem: Arc<StandardMemoryAllocator>,
-    ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
-        self.__get_update_data(
-            &transform_data.pos_id,
-            &transform_data.pos_data,
-            // &mut self.position_id_cache,
-            // &mut self.position_cache,
-            self.vk.clone(),
-            image_num,
-        )
-    }
-    fn get_rotation_update_data(
-        &mut self,
-        transform_data: &TransformData,
-        image_num: u32,
-        mem: Arc<StandardMemoryAllocator>,
-    ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
-        self.__get_update_data(
-            &transform_data.rot_id,
-            &transform_data.rot_data,
-            // &mut self.rotation_id_cache,
-            // &mut self.rotation_cache,
-            self.vk.clone(),
-            image_num,
-        )
-    }
-    fn get_scale_update_data(
-        &mut self,
-        transform_data: &TransformData,
-        image_num: u32,
-        mem: Arc<StandardMemoryAllocator>,
-    ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
-        self.__get_update_data(
-            &transform_data.scl_id,
-            &transform_data.scl_data,
-            // &mut self.scale_id_cache,
-            // &mut self.scale_cache,
-            self.vk.clone(),
-            image_num,
-        )
-    }
-    pub(crate) fn _get_update_data(&mut self, transform_data: &TransformData, image_num: u32) {
-        self.update_data = {
-            puffin::profile_scope!("buffer transform data");
-            let position_update_data = self.get_position_update_data(
-                &transform_data,
-                image_num,
-                self.vk.mem_alloc.clone(),
-            );
+    //         let scale_update_data =
+    //             self.get_scale_update_data(&transform_data, image_num, self.vk.mem_alloc.clone());
+    //         (
+    //             position_update_data,
+    //             rotation_update_data,
+    //             scale_update_data,
+    //         )
+    //     };
+    // }
 
-            let rotation_update_data = self.get_rotation_update_data(
-                &transform_data,
-                image_num,
-                self.vk.mem_alloc.clone(),
-            );
-
-            let scale_update_data =
-                self.get_scale_update_data(&transform_data, image_num, self.vk.mem_alloc.clone());
-            (
-                position_update_data,
-                rotation_update_data,
-                scale_update_data,
-            )
-        };
-    }
-
-    
     pub(crate) fn update_data(
         &mut self,
         builder: &mut AutoCommandBufferBuilder<
@@ -296,44 +297,39 @@ impl TransformCompute {
             Arc<StandardCommandBufferAllocator>,
         >,
         image_num: u32,
-        transform_data: &TransformData,
+        transform_data: TransformBuf,
         perf: &Perf,
     ) {
-        // {
-        //     let write_to_buffer = perf.node("write to buffer");
-        //     self._get_update_data(&transform_data, image_num);
-        // }
+        {
+            // let write_to_buffer = perf.node("write to buffer");
+            // self._get_update_data(&transform_data, image_num, perf);
+        }
         {
             let write_to_buffer = perf.node("transform update");
             puffin::profile_scope!("transform update compute");
-            self.__update_data(builder, image_num, transform_data.extent);
+            self.__update_data(builder, transform_data);
         }
     }
 
     //////////////////////////////////////////////////////////////////
-
-    pub fn _update_data<T: Copy + Send + Sync>(
+    ///
+    pub fn __update_data(
         &self,
         builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
-        stage: i32,
-        update_count: u32,
-        data: Subbuffer<[T]>,
-        ids: Subbuffer<[i32]>,
-    ) where
-        [T]: BufferContents,
-    {
+        data: TransformBuf,
+    ) {
         // stage 0
         puffin::profile_scope!("update positions");
 
         // if let Some(num_jobs) = update_count {
-        let num_jobs = update_count;
+        let num_jobs = data.1.len();
         let transforms_sub_buffer = {
             let uniform_data = cs::Data {
                 num_jobs: num_jobs as i32,
-                stage: stage.into(),
+                stage: 0.into(),
                 view: Default::default(),
                 proj: Default::default(),
                 // _dummy0: Default::default(),
@@ -353,11 +349,17 @@ impl TransformCompute {
                 .unwrap()
                 .clone(),
             [
-                WriteDescriptorSet::buffer(0, data.clone()),
+                WriteDescriptorSet::buffer(0, transforms_sub_buffer),
                 WriteDescriptorSet::buffer(1, self.gpu_transforms.clone()),
                 WriteDescriptorSet::buffer(2, self.mvp.clone()),
-                WriteDescriptorSet::buffer(3, ids.clone()),
-                WriteDescriptorSet::buffer(4, transforms_sub_buffer),
+                WriteDescriptorSet::buffer(3, data.0.clone()),
+                WriteDescriptorSet::buffer(4, data.1.clone()),
+                WriteDescriptorSet::buffer(5, data.2.clone()),
+                WriteDescriptorSet::buffer(6, data.3.clone()),
+                WriteDescriptorSet::buffer(7, data.4.clone()),
+                WriteDescriptorSet::buffer(8, data.5.clone()),
+                // WriteDescriptorSet::buffer(3, ids.clone()),
+                // WriteDescriptorSet::buffer(4, transforms_sub_buffer),
             ],
         )
         .unwrap();
@@ -374,6 +376,69 @@ impl TransformCompute {
             .unwrap();
         // }
     }
+
+    // pub fn _update_data<T: Copy + Send + Sync>(
+    //     &self,
+    //     builder: &mut AutoCommandBufferBuilder<
+    //         PrimaryAutoCommandBuffer,
+    //         Arc<StandardCommandBufferAllocator>,
+    //     >,
+    //     stage: i32,
+    //     update_count: u32,
+    //     data: Subbuffer<[T]>,
+    //     ids: Subbuffer<[i32]>,
+    // ) where
+    //     [T]: BufferContents,
+    // {
+    //     // stage 0
+    //     puffin::profile_scope!("update positions");
+
+    //     // if let Some(num_jobs) = update_count {
+    //     let num_jobs = update_count;
+    //     let transforms_sub_buffer = {
+    //         let uniform_data = cs::Data {
+    //             num_jobs: num_jobs as i32,
+    //             stage: stage.into(),
+    //             view: Default::default(),
+    //             proj: Default::default(),
+    //             // _dummy0: Default::default(),
+    //         };
+    //         let ub = self.uniforms.lock().allocate_sized().unwrap();
+    //         *ub.write().unwrap() = uniform_data;
+    //         ub
+    //         // self.uniforms.from_data(uniform_data).unwrap()
+    //     };
+
+    //     let descriptor_set = PersistentDescriptorSet::new(
+    //         &self.vk.desc_alloc,
+    //         self.compute
+    //             .layout()
+    //             .set_layouts()
+    //             .get(0) // 0 is the index of the descriptor set.
+    //             .unwrap()
+    //             .clone(),
+    //         [
+    //             WriteDescriptorSet::buffer(0, data.clone()),
+    //             WriteDescriptorSet::buffer(1, self.gpu_transforms.clone()),
+    //             WriteDescriptorSet::buffer(2, self.mvp.clone()),
+    //             WriteDescriptorSet::buffer(3, ids.clone()),
+    //             WriteDescriptorSet::buffer(4, transforms_sub_buffer),
+    //         ],
+    //     )
+    //     .unwrap();
+
+    //     builder
+    //         .bind_pipeline_compute(self.compute.clone())
+    //         .bind_descriptor_sets(
+    //             PipelineBindPoint::Compute,
+    //             self.compute.layout().clone(),
+    //             0, // Bind this descriptor set to index 0.
+    //             descriptor_set,
+    //         )
+    //         .dispatch([num_jobs as u32 / 128 + 1, 1, 1])
+    //         .unwrap();
+    //     // }
+    // }
     //////////////////////////////////////////////////////////////////
     pub fn _update_gpu_transforms(
         &mut self,
@@ -414,93 +479,93 @@ impl TransformCompute {
         }
     }
 
-    fn update_positions(
-        &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
-        image_num: u32,
-    ) {
-        // stage 0
-        puffin::profile_scope!("update positions");
-        let update_data = &self.update_data.0;
-        if let Some(position_update_data) = update_data {
-            self._update_data(
-                builder,
-                0,
-                position_update_data.0.len() as u32,
-                position_update_data.1.clone(),
-                position_update_data.0.clone(),
-                // self.update_count.0,
-                // self.position_cache[image_num as usize].clone(),
-                // self.position_id_cache[image_num as usize].clone(),
-            )
-        }
-    }
-    fn update_rotations(
-        &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
-        image_num: u32,
-    ) {
-        // stage 1
-        puffin::profile_scope!("update rotations");
-        let update_data = &self.update_data.1;
-        if let Some(rotation_update_data) = update_data {
-            self._update_data(
-                builder,
-                1,
-                rotation_update_data.0.len() as u32,
-                rotation_update_data.1.clone(),
-                rotation_update_data.0.clone(),
-                // self.update_count.0,
-                // self.position_cache[image_num as usize].clone(),
-                // self.position_id_cache[image_num as usize].clone(),
-            )
-        }
-    }
-    fn update_scales(
-        &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
-        image_num: u32,
-    ) {
-        // stage 2
-        puffin::profile_scope!("update scales");
-        let update_data = &self.update_data.2;
-        if let Some(scale_update_data) = update_data {
-            self._update_data(
-                builder,
-                2,
-                scale_update_data.0.len() as u32,
-                scale_update_data.1.clone(),
-                scale_update_data.0.clone(),
-                // self.update_count.0,
-                // self.position_cache[image_num as usize].clone(),
-                // self.position_id_cache[image_num as usize].clone(),
-            )
-        }
-    }
+    // fn update_positions(
+    //     &self,
+    //     builder: &mut AutoCommandBufferBuilder<
+    //         PrimaryAutoCommandBuffer,
+    //         Arc<StandardCommandBufferAllocator>,
+    //     >,
+    //     image_num: u32,
+    // ) {
+    //     // stage 0
+    //     puffin::profile_scope!("update positions");
+    //     let update_data = &self.update_data.0;
+    //     if let Some(position_update_data) = update_data {
+    //         self._update_data(
+    //             builder,
+    //             0,
+    //             position_update_data.0.len() as u32,
+    //             position_update_data.1.clone(),
+    //             position_update_data.0.clone(),
+    //             // self.update_count.0,
+    //             // self.position_cache[image_num as usize].clone(),
+    //             // self.position_id_cache[image_num as usize].clone(),
+    //         )
+    //     }
+    // }
+    // fn update_rotations(
+    //     &self,
+    //     builder: &mut AutoCommandBufferBuilder<
+    //         PrimaryAutoCommandBuffer,
+    //         Arc<StandardCommandBufferAllocator>,
+    //     >,
+    //     image_num: u32,
+    // ) {
+    //     // stage 1
+    //     puffin::profile_scope!("update rotations");
+    //     let update_data = &self.update_data.1;
+    //     if let Some(rotation_update_data) = update_data {
+    //         self._update_data(
+    //             builder,
+    //             1,
+    //             rotation_update_data.0.len() as u32,
+    //             rotation_update_data.1.clone(),
+    //             rotation_update_data.0.clone(),
+    //             // self.update_count.0,
+    //             // self.position_cache[image_num as usize].clone(),
+    //             // self.position_id_cache[image_num as usize].clone(),
+    //         )
+    //     }
+    // }
+    // fn update_scales(
+    //     &self,
+    //     builder: &mut AutoCommandBufferBuilder<
+    //         PrimaryAutoCommandBuffer,
+    //         Arc<StandardCommandBufferAllocator>,
+    //     >,
+    //     image_num: u32,
+    // ) {
+    //     // stage 2
+    //     puffin::profile_scope!("update scales");
+    //     let update_data = &self.update_data.2;
+    //     if let Some(scale_update_data) = update_data {
+    //         self._update_data(
+    //             builder,
+    //             2,
+    //             scale_update_data.0.len() as u32,
+    //             scale_update_data.1.clone(),
+    //             scale_update_data.0.clone(),
+    //             // self.update_count.0,
+    //             // self.position_cache[image_num as usize].clone(),
+    //             // self.position_id_cache[image_num as usize].clone(),
+    //         )
+    //     }
+    // }
 
-    pub fn __update_data(
-        &mut self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
-        image_num: u32,
-        transform_len: usize,
-    ) {
-        self._update_gpu_transforms(builder, transform_len);
-        self.update_positions(builder, image_num);
-        self.update_rotations(builder, image_num);
-        self.update_scales(builder, image_num);
-    }
+    // pub fn __update_data(
+    //     &mut self,
+    //     builder: &mut AutoCommandBufferBuilder<
+    //         PrimaryAutoCommandBuffer,
+    //         Arc<StandardCommandBufferAllocator>,
+    //     >,
+    //     image_num: u32,
+    //     transform_len: usize,
+    // ) {
+    //     self._update_gpu_transforms(builder, transform_len);
+    //     self.update_positions(builder, image_num);
+    //     self.update_rotations(builder, image_num);
+    //     self.update_scales(builder, image_num);
+    // }
     pub fn update_mvp(
         &self,
         builder: &mut AutoCommandBufferBuilder<
@@ -509,13 +574,14 @@ impl TransformCompute {
         >,
         view: glm::Mat4,
         proj: glm::Mat4,
-        transforms_len: i32,
+        // transforms_len: i32,
+        data: TransformBuf,
     ) {
         puffin::profile_scope!("update mvp");
         // stage 3
-        let transforms_sub_buffer = {
+        let uniform = {
             let uniform_data = cs::Data {
-                num_jobs: transforms_len,
+                num_jobs: data.1.len() as i32,
                 stage: 3.into(),
                 view: view.into(),
                 proj: proj.into(),
@@ -535,19 +601,25 @@ impl TransformCompute {
                 .unwrap()
                 .clone(),
             [
-                WriteDescriptorSet::buffer(
-                    0,
-                    // TODO: make static
-                    self.vk.buffer_from_iter(vec![0]),
-                ),
+                // WriteDescriptorSet::buffer(
+                //     0,
+                //     // TODO: make static
+                //     self.vk.buffer_from_iter(vec![0]),
+                // ),
+                WriteDescriptorSet::buffer(0, uniform),
                 WriteDescriptorSet::buffer(1, self.gpu_transforms.clone()),
                 WriteDescriptorSet::buffer(2, self.mvp.clone()),
-                WriteDescriptorSet::buffer(
-                    3,
-                    // TODO: make static
-                    self.vk.buffer_from_iter(vec![0]),
-                ),
-                WriteDescriptorSet::buffer(4, transforms_sub_buffer),
+                WriteDescriptorSet::buffer(3, data.0.clone()),
+                WriteDescriptorSet::buffer(4, data.1.clone()),
+                WriteDescriptorSet::buffer(5, data.2.clone()),
+                WriteDescriptorSet::buffer(6, data.3.clone()),
+                WriteDescriptorSet::buffer(7, data.4.clone()),
+                WriteDescriptorSet::buffer(8, data.5.clone()),
+                // WriteDescriptorSet::buffer(
+                //     3,
+                //     // TODO: make static
+                //     self.vk.buffer_from_iter(vec![0]),
+                // ),
             ],
         )
         .unwrap();
@@ -560,7 +632,7 @@ impl TransformCompute {
                 0,
                 descriptor_set,
             )
-            .dispatch([transforms_len as u32 / 128 + 1, 1, 1])
+            .dispatch([data.1.len() as u32 / 128 + 1, 1, 1])
             .unwrap();
     }
 }

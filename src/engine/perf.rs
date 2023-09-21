@@ -10,7 +10,7 @@ use segvec::SegVec;
 
 struct SubPerf {
     data: RwLock<SegVec<Duration>>,
-    outliers: RwLock<Vec<f32>>,
+    outliers: RwLock<Vec<(Instant,f32)>>,
     avg: RwLock<f32>,
 }
 impl SubPerf {
@@ -27,14 +27,14 @@ impl SubPerf {
         data.push(d);
         if data.len() > 50 {
             if dr > *self.avg.read() * 3. {
-                self.outliers.write().push(dr);
+                self.outliers.write().push((Instant::now(), dr));
             }
             data.remove(0);
         }
         let mut avg = self.avg.write();
         *avg = (*avg * (data.len() as f32 - 1.) + dr) / data.len() as f32;
     }
-    fn print(&mut self, name: &str) {
+    fn print(&mut self, name: &str, start_time: Instant) {
         let mut data = self.data.write();
         let mut outliers = self.outliers.write();
         let len = data.len();
@@ -43,17 +43,20 @@ impl SubPerf {
             "              {:?} ms",
             (data.iter().sum::<Duration>().as_nanos() / len as u128) as f32 / 1e6
         );
-        outliers.sort_by(|a, b| (-a).partial_cmp(&(-b)).unwrap());
+        outliers.sort_by(|a, b| (-a.1).partial_cmp(&(-b.1)).unwrap());
         if outliers.len() > 0 {
             println!(
                 "              outliers: {:?}",
-                outliers[0..4.min(outliers.len())].to_vec()
+                outliers[0..4.min(outliers.len())].iter().map(|(inst, dur)| {
+                    ((start_time - *inst).as_millis() / 1000,dur)
+                }).collect::<Vec<_>>()
             );
         }
     }
 }
 
 pub struct Perf {
+    start_time: Instant,
     data: Arc<RwLock<BTreeMap<String, SubPerf>>>,
 }
 
@@ -74,6 +77,7 @@ impl Drop for PerfNode {
 impl Perf {
     pub fn new() -> Self {
         Self {
+            start_time: Instant::now(),
             data: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
@@ -121,7 +125,7 @@ impl Perf {
         };
 
         for (k, mut x) in p {
-            x.print(&k);
+            x.print(&k, Instant::now());
         }
     }
 }

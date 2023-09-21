@@ -10,6 +10,7 @@ use glm::{vec3, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
 use rayon::prelude::*;
+use vulkano::buffer::Subbuffer;
 // use spin::{Mutex,RwLock};
 use num_integer::Roots;
 
@@ -242,9 +243,17 @@ pub struct TransformData {
 use dary_heap::DaryHeap;
 use segvec::SegVec;
 
-use crate::engine::storage::Avail;
+use crate::engine::{storage::Avail, transform_compute::cs::transform};
 
 use super::entity::Entity;
+pub type TransformBuf = (
+    Subbuffer<[u32]>,      // pos_i
+    Subbuffer<[[f32; 3]]>, // pos
+    Subbuffer<[u32]>,      // rot_i
+    Subbuffer<[[f32; 4]]>, //rot
+    Subbuffer<[u32]>,      //scl_i
+    Subbuffer<[[f32; 3]]>, // scl
+);
 pub struct Transforms {
     self_lock: Mutex<()>,
     mutex: SegVec<SyncUnsafeCell<Mutex<()>>>,
@@ -763,105 +772,201 @@ impl Transforms {
         unsafe { (*self.meta[t as usize].get()).parent }
     }
 
-    pub fn get_transform_data_updates(&mut self) -> TransformData {
+    pub fn get_transform_data_updates(&mut self, transforms_buf: TransformBuf) {
         let last = self.last as usize + 1;
         // let _positions = &self.positions[0..last];
         // let _rotations = &self.rotations[0..last];
         // let _scales = &self.scales[0..last];
         // let _updates = &self.updates[0..last];
         let len = last;
-        let transform_data = Arc::new(Mutex::new(TransformData {
-            pos_id: Vec::new(),
-            rot_id: Vec::new(),
-            scl_id: Vec::new(),
-            pos_data: Vec::new(),
-            rot_data: Vec::new(),
-            scl_data: Vec::new(),
-            extent: self.extent as usize,
-        }));
+        // let transform_data = Arc::new(Mutex::new(TransformData {
+        //     pos_id: Vec::new(),
+        //     rot_id: Vec::new(),
+        //     scl_id: Vec::new(),
+        //     pos_data: Vec::new(),
+        //     rot_data: Vec::new(),
+        //     scl_data: Vec::new(),
+        //     extent: self.extent as usize,
+        // }));
         // let transform_data = Arc::new(Mutex::new(
         //    (Vec::<VecCache::<i32>::new()>),
         // ));
         let self_ = Arc::new(&self);
         // println!("vec cache size: {}", self.pos_cache.count.load(Ordering::Relaxed));
+        let pos_i = SyncUnsafeCell::new(transforms_buf.0.write().unwrap());
+        let pos = SyncUnsafeCell::new(transforms_buf.1.write().unwrap());
+        let rot_i = SyncUnsafeCell::new(transforms_buf.2.write().unwrap());
+        let rot = SyncUnsafeCell::new(transforms_buf.3.write().unwrap());
+        let scl_i = SyncUnsafeCell::new(transforms_buf.4.write().unwrap());
+        let scl = SyncUnsafeCell::new(transforms_buf.5.write().unwrap());
+        // unsafe {
+        //     *(*pos_i.get()).last_mut().unwrap() = 0;
+        //     *(*rot_i.get()).last_mut().unwrap() = 0;
+        //     *(*scl_i.get()).last_mut().unwrap() = 0;
+        // }
+        // rayon::scope(|s| {
+        // let num_jobs = (len / 4096).max(1); // TODO: find best number dependent on cpu
+        // let num_jobs = num_cpus::get().min(last / 2048).max(1); // TODO: find best number dependent on cpu
+        // for id in 0..num_jobs {
+        // let start = len / num_jobs * id;
+        // let mut end = start + len / num_jobs;
+        // if id == num_jobs - 1 {
+        //     end = len;
+        // }
+        // let end = end;
+        // let transform_data = transform_data.clone();
+        let self_ = self_.clone();
+        // let transforms_buf = &transforms_buf;
+        let pos_i = &pos_i;
+        let pos = &pos;
+        let rot_i = &rot_i;
+        let rot = &rot;
+        let scl_i = &scl_i;
+        let scl = &scl;
 
-        rayon::scope(|s| {
-            // let num_jobs = (len / 4096).max(1); // TODO: find best number dependent on cpu
-            let num_jobs = num_cpus::get().min(last / 2048).max(1); // TODO: find best number dependent on cpu
-            for id in 0..num_jobs {
-                let start = len / num_jobs * id;
-                let mut end = start + len / num_jobs;
-                if id == num_jobs - 1 {
-                    end = len;
-                }
-                let end = end;
-                let transform_data = transform_data.clone();
-                let self_ = self_.clone();
-                s.spawn(move |_| {
-                    let len = end - start;
-                    let _pos_ids = self_.ids_cache.get_vec(len);
-                    let _rot_ids = self_.ids_cache.get_vec(len);
-                    let _scl_ids = self_.ids_cache.get_vec(len);
-
-                    let _pos = self_.pos_cache.get_vec(len);
-                    let _rot = self_.rot_cache.get_vec(len);
-                    let _scl = self_.scl_cache.get_vec(len);
-
-                    {
-                        let mut p_ids = _pos_ids.get();
-                        let mut r_ids = _rot_ids.get();
-                        let mut s_ids = _scl_ids.get();
-
-                        let mut pos = _pos.get();
-                        let mut rot = _rot.get();
-                        let mut scl = _scl.get();
-
-                        let p = &self_.positions;
-                        let r = &self_.rotations;
-                        let s = &self_.scales;
-                        let _u = &self_.updates;
-
-                        for i in start..end {
-                            unsafe {
-                                if !*self_.valid[i].get() {
-                                    continue;
-                                }
-                                let u = &mut *_u[i].get();
-                                if u[POS_U] {
-                                    p_ids.push(i as i32);
-                                    let p = &*p[i].get();
-                                    pos.push([p.x, p.y, p.z, 0.]);
-                                    u[POS_U] = false;
-                                }
-                                if u[ROT_U] {
-                                    r_ids.push(i as i32);
-                                    let r = &*r[i].get();
-                                    rot.push([r.w, r.k, r.j, r.i]);
-                                    u[ROT_U] = false;
-                                }
-                                if u[SCL_U] {
-                                    s_ids.push(i as i32);
-                                    let s = &*s[i].get();
-                                    scl.push([s.x, s.y, s.z, 0.]);
-                                    u[SCL_U] = false;
-                                }
-                            }
+        let p = &self_.positions;
+        let r = &self_.rotations;
+        let s = &self_.scales;
+        let _u = &self_.updates;
+        // let len = scl.len();
+        (0..len)
+            .into_par_iter()
+            .chunks(32)
+            .enumerate()
+            .for_each(|(id, _i)| {
+                let mut pos_mask = 0u32;
+                let mut rot_mask = 0u32;
+                let mut scl_mask = 0u32;
+                let mut bit = 0;
+                unsafe {
+                    // let len = _i.len();
+                    // let the_rest = 32 - len;
+                    for i in _i {
+                        if !*self_.valid[i].get() {
+                            bit += 1;
+                            // pos_mask = pos_mask << 1;
+                            // rot_mask = rot_mask << 1;
+                            // scl_mask = scl_mask << 1;
+                            continue;
                         }
+                        let u = &mut *_u[i].get();
+                        if u[POS_U] {
+                            let p = &*p[i].get();
+                            (*pos.get())[i] = [p.x, p.y, p.z];
+                            pos_mask |= 1 << bit;
+                            // (*pos_i.get())[i] = 1;
+                            // p_ids.push(i as i32);
+                            // pos.push([p.x, p.y, p.z, 0.]);
+                            u[POS_U] = false;
+                        }
+                        if u[ROT_U] {
+                            let r = &*r[i].get();
+                            (*rot.get())[i] = [r.w, r.k, r.j, r.i];
+                            rot_mask |= 1 << bit;
+                            // (*rot_i.get())[i] = 1;
+                            // r_ids.push(i as i32);
+                            // rot.push([r.w, r.k, r.j, r.i]);
+                            u[ROT_U] = false;
+                        }
+                        if u[SCL_U] {
+                            let s = &*s[i].get();
+                            (*scl.get())[i] = [s.x, s.y, s.z];
+                            scl_mask |= 1 << bit;
+                            // (*scl_i.get())[i] = 1;
+                            // s_ids.push(i as i32);
+                            // scl.push([s.x, s.y, s.z, 0.]);
+                            u[SCL_U] = false;
+                        }
+                        bit += 1;
+                        // pos_mask <<= 1;
+                        // rot_mask <<= 1;
+                        // scl_mask <<= 1;
                     }
+                    // pos_mask <<= the_rest;
+                    // rot_mask <<= the_rest;
+                    // scl_mask <<= the_rest;
+                    (*pos_i.get())[id] = pos_mask;
+                    (*rot_i.get())[id] = rot_mask;
+                    (*scl_i.get())[id] = scl_mask;
+                }
+            });
+        // s.spawn(move |_| {
+        //     let len = end - start;
+        // let _pos_ids = self_.ids_cache.get_vec(len);
+        // let _rot_ids = self_.ids_cache.get_vec(len);
+        // let _scl_ids = self_.ids_cache.get_vec(len);
 
-                    // let ret = Arc::new((transform_ids, pos, rot, scl));
-                    // transform_data.lock().push(ret);
+        // let _pos = self_.pos_cache.get_vec(len);
+        // let _rot = self_.rot_cache.get_vec(len);
+        // let _scl = self_.scl_cache.get_vec(len);
 
-                    let mut td = transform_data.lock();
-                    td.pos_data.push(_pos);
-                    td.pos_id.push(_pos_ids);
-                    td.rot_data.push(_rot);
-                    td.rot_id.push(_rot_ids);
-                    td.scl_data.push(_scl);
-                    td.scl_id.push(_scl_ids);
-                });
-            }
-        });
-        Arc::into_inner(transform_data).unwrap().into_inner()
+        // {
+        // let mut p_ids = _pos_ids.get();
+        // let mut r_ids = _rot_ids.get();
+        // let mut s_ids = _scl_ids.get();
+
+        // let mut pos = _pos.get();
+        // let mut rot = _rot.get();
+        // let mut scl = _scl.get();
+
+        // let p = &self_.positions;
+        // let r = &self_.rotations;
+        // let s = &self_.scales;
+        // let _u = &self_.updates;
+
+        // for i in start..end {
+        //     unsafe {
+        //         if !*self_.valid[i].get() {
+        //             continue;
+        //         }
+        //         let u = &mut *_u[i].get();
+        //         if u[POS_U] {
+        //             let p = &*p[i].get();
+        //             (*pos.get())[i] = [p.x, p.y, p.z];
+        //             (*pos_i.get())[i] = 1;
+        //             // p_ids.push(i as i32);
+        //             // pos.push([p.x, p.y, p.z, 0.]);
+        //             u[POS_U] = false;
+        //         } else {
+        //             (*pos_i.get())[i] = 0;
+        //         }
+        //         if u[ROT_U] {
+        //             let r = &*r[i].get();
+        //             (*rot.get())[i] = [r.w, r.k, r.j, r.i];
+        //             (*rot_i.get())[i] = 1;
+        //             // r_ids.push(i as i32);
+        //             // rot.push([r.w, r.k, r.j, r.i]);
+        //             u[ROT_U] = false;
+        //         } else {
+        //             (*rot_i.get())[i] = 0;
+        //         }
+        //         if u[SCL_U] {
+        //             let s = &*s[i].get();
+        //             (*scl.get())[i] = [s.x, s.y, s.z];
+        //             (*scl_i.get())[i] = 1;
+        //             // s_ids.push(i as i32);
+        //             // scl.push([s.x, s.y, s.z, 0.]);
+        //             u[SCL_U] = false;
+        //         } else {
+        //             (*scl_i.get())[i] = 0;
+        //         }
+        //     }
+        // }
+        // }
+
+        // let ret = Arc::new((transform_ids, pos, rot, scl));
+        // transform_data.lock().push(ret);
+
+        // let mut td = transform_data.lock();
+        // td.pos_data.push(_pos);
+        // td.pos_id.push(_pos_ids);
+        // td.rot_data.push(_rot);
+        // td.rot_id.push(_rot_ids);
+        // td.scl_data.push(_scl);
+        // td.scl_id.push(_scl_ids);
+        //         });
+        //     }
+        // });
+        // Arc::into_inner(transform_data).unwrap().into_inner()
     }
 }
