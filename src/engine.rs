@@ -711,7 +711,7 @@ impl Engine {
         }
 
         let (image_num, suboptimal, acquire_future) =
-            match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(10))) {
+            match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(30))) {
                 Ok(r) => r,
                 Err(AcquireError::OutOfDate) => {
                     *recreate_swapchain = true;

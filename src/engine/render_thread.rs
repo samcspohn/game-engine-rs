@@ -155,14 +155,40 @@ pub(super) fn render_thread(
 
     loop {
         let (image_num, acquire_future, command_buffer) = rendering_data.recv().unwrap();
+        // let future = acquire_future
+        //     .then_execute(vk.queue.clone(), command_buffer)
+        //     .unwrap()
+        //     .then_swapchain_present(
+        //         vk.queue.clone(),
+        //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+        //     )
+        //     .flush()
+        //     .unwrap();
+
         let future = acquire_future
             .then_execute(vk.queue.clone(), command_buffer)
             .unwrap()
+            // .then_execute(vk.queue.clone(), command_buffer)
+            // .unwrap()
             .then_swapchain_present(
                 vk.queue.clone(),
                 SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
-            )
-            .flush()
-            .unwrap();
+            ).flush();
+            // .then_signal_fence_and_flush();
+
+        match future {
+            Ok(future) => {
+                // *previous_frame_end = Some(future.boxed());
+            }
+            Err(FlushError::OutOfDate) => {
+                // *recreate_swapchain = true;
+                // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+            }
+            Err(e) => {
+                println!("failed to flush future: {e}");
+                // *recreate_swapchain = true;
+                // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+            }
+        }
     }
 }
