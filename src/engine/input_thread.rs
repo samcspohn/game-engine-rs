@@ -1,13 +1,27 @@
+use std::sync::Arc;
+
 use crossbeam::channel::{Receiver, Sender};
 use force_send_sync::SendSync;
 use winit::{
-    event::{Event, WindowEvent, ModifiersState},
-    event_loop::{self, ControlFlow, EventLoop}, dpi::PhysicalSize,
+    dpi::PhysicalSize,
+    event::{Event, ModifiersState, WindowEvent},
+    event_loop::{self, ControlFlow, EventLoop},
 };
+
+use crate::engine::rendering::vulkan_manager::VulkanManager;
 
 use super::{input::Input, EngineEvent};
 
-pub(crate) fn input_thread(event_loop: SendSync<EventLoop<EngineEvent>>, coms: Sender<(Vec<WindowEvent<'static>>,Input, Option<PhysicalSize<u32>>, bool)>) {
+pub(crate) fn input_thread(
+    event_loop: SendSync<EventLoop<EngineEvent>>,
+    vk: Arc<VulkanManager>,
+    coms: Sender<(
+        Vec<WindowEvent<'static>>,
+        Input,
+        Option<PhysicalSize<u32>>,
+        bool,
+    )>,
+) {
     let mut focused = true;
     let mut input = Input::default();
     let mut modifiers = ModifiersState::default();
@@ -24,6 +38,16 @@ pub(crate) fn input_thread(event_loop: SendSync<EventLoop<EngineEvent>>, coms: S
                 match event {
                     WindowEvent::Focused(foc) => {
                         focused = foc;
+                        if !focused {
+                            let _er = vk
+                                .window()
+                                .set_cursor_grab(winit::window::CursorGrabMode::None);
+                            match _er {
+                                Ok(_) => {}
+                                Err(e) => {
+                                }
+                            }
+                        }
                     }
                     WindowEvent::CloseRequested => {
                         should_quit = true;
@@ -58,17 +82,7 @@ pub(crate) fn input_thread(event_loop: SendSync<EventLoop<EngineEvent>>, coms: S
                 if let Some(event) = event.to_static() {
                     events.push(event);
                 }
-                // if !input.get_key(&VirtualKeyCode::Space) {
-                // gui.update(&event);
-                // }
             }
-            // Event::MainEventsCleared => {
-            //     coms.send((events.clone(),input.clone(), size, *control_flow != ControlFlow::Exit));
-            //     // recreate_swapchain = false;
-            //     size = None;
-            //     events.clear();
-            //     input.reset();
-            // },
             Event::UserEvent(e) => {
                 match e {
                     EngineEvent::Send => {
@@ -84,7 +98,7 @@ pub(crate) fn input_thread(event_loop: SendSync<EventLoop<EngineEvent>>, coms: S
                         // todo!()
                         *control_flow = ControlFlow::Exit;
                         return;
-                    },
+                    }
                 }
             }
             _ => {} // Event::RedrawEventsCleared => {}

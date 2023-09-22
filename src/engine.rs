@@ -191,10 +191,8 @@ struct EngineRenderer {
     viewport: Viewport,
     framebuffers: Vec<Arc<Framebuffer>>,
     recreate_swapchain: bool,
-    fc_map: HashMap<i32, HashMap<u32, TextureId>>,
     editor_window_image: Option<Arc<dyn ImageAccess>>,
     render_pass: Arc<RenderPass>,
-    previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
 pub(crate) struct Engine {
     pub(crate) world: Arc<Mutex<World>>,
@@ -210,8 +208,9 @@ pub(crate) struct Engine {
         Option<PhysicalSize<u32>>,
         bool,
     )>,
-    pub(crate) rendering_data: Sender<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
-    pub(crate) rendering_complete: Receiver<()>,
+    pub(crate) rendering_data:
+        Sender<Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+    pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
     pub(crate) time: Time,
@@ -227,6 +226,7 @@ pub(crate) struct Engine {
     pub(crate) _image_num: u32,
     pub(crate) gui: SendSync<Gui>,
     pub(crate) tex_id: Option<TextureId>,
+    pub(crate) image_view: Option<Arc<ImageView<ImmutableImage>>>,
     update_editor_window: bool,
     event_loop_proxy: EventLoopProxy<EngineEvent>,
     renderer: EngineRenderer,
@@ -237,10 +237,6 @@ pub struct EnginePtr {
 unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
 
-lazy_static! {
-    pub static ref IMAGE_VIEW: Lazy<Arc<Mutex<Option<(Arc<ImageView<ImmutableImage>>, Arc<dyn ImageAccess>)>>>> =
-        Lazy::new(|| { Arc::new(Mutex::new(None)) });
-}
 impl Engine {
     pub(crate) fn new(engine_dir: &PathBuf, project_dir: &str) -> Self {
         let event_loop: SendSync<EventLoop<EngineEvent>> =
@@ -402,9 +398,10 @@ impl Engine {
         let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
         let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
         // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
-        let input_thread = Arc::new(thread::spawn(move || {
-            input_thread::input_thread(event_loop, input_snd)
-        }));
+        let input_thread = Arc::new({
+            let vk = vk.clone();
+            thread::spawn(move || input_thread::input_thread(event_loop, vk, input_snd))
+        });
         let rendering_thread = Arc::new({
             let vk = vk.clone();
             thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
@@ -440,10 +437,8 @@ impl Engine {
                 viewport,
                 framebuffers,
                 recreate_swapchain,
-                fc_map,
                 editor_window_image,
                 render_pass,
-                previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
             },
             vk,
             editor_cam: editor::editor_cam::EditorCam {
@@ -461,6 +456,7 @@ impl Engine {
             file_watcher,
             _image_num: 0,
             tex_id: None,
+            image_view: None,
             gui: unsafe { SendSync::new(gui) },
             update_editor_window: true,
             event_loop_proxy: proxy,
@@ -559,74 +555,16 @@ impl Engine {
         let _gui = self.perf.node("_ gui");
         let dimensions = *EDITOR_WINDOW_DIM.lock();
         let mut _playing_game = false;
-        let tex_id = if let Some(tex_id) = self.tex_id {
-            tex_id
-        } else {
-            let a = IMAGE_VIEW.lock();
-            if let Some(img_view) = a.as_ref() {
-                let t = self.gui.register_user_image_view(
-                    img_view.0.clone(),
-                    SamplerCreateInfo {
-                        lod: 0.0..=LOD_CLAMP_NONE,
-                        mip_lod_bias: -0.2,
-                        address_mode: [SamplerAddressMode::Repeat; 3],
-                        ..Default::default()
-                    },
-                );
-                self.tex_id = Some(t);
-                t
-            } else {
-                TextureId::default()
-            }
-        };
-
         self.gui.immediate_ui(|gui| {
             let ctx = gui.context();
             _playing_game = editor::editor_ui::editor_ui(
                 &mut world,
                 &mut self.fps_queue,
                 &ctx,
-                tex_id,
+                self.tex_id.unwrap_or_default(),
                 self.assets_manager.clone(),
             );
         });
-        {
-            let ear = EDITOR_WINDOW_DIM.lock();
-            if dimensions != *ear || self.playing_game != _playing_game {
-                let cd = if _playing_game {
-                    cam_datas[0].clone()
-                } else {
-                    let cd = self.cam_data.clone();
-                    cam_datas = vec![cd.clone()];
-                    cd
-                };
-
-                _cd.resize(*ear, self.vk.clone());
-
-                let tex_id = if let Some(tex_id) = self.tex_id {
-                    tex_id
-                } else {
-                    let a = IMAGE_VIEW.lock();
-                    if let Some(img_view) = a.as_ref() {
-                        let t = self.gui.register_user_image_view(
-                            img_view.0.clone(),
-                            SamplerCreateInfo {
-                                lod: 0.0..=LOD_CLAMP_NONE,
-                                mip_lod_bias: -0.2,
-                                address_mode: [SamplerAddressMode::Repeat; 3],
-                                ..Default::default()
-                            },
-                        );
-                        self.tex_id = Some(t);
-                        t
-                    } else {
-                        TextureId::default()
-                    }
-                };
-
-                // fc_map.clear();
-            }
-        }
 
         if self.playing_game {
             // cam_datas[0].clone()
@@ -670,17 +608,13 @@ impl Engine {
             viewport,
             framebuffers,
             recreate_swapchain,
-            fc_map,
             editor_window_image,
             render_pass,
-            previous_frame_end,
         } = &mut self.renderer;
 
         let vk = self.vk.clone();
         let full_render_time = self.perf.node("full render time");
         // let render_jobs = engine.world.lock().render();
-
-
 
         let mut rm = self.shared_render_data.write();
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
@@ -822,8 +756,23 @@ impl Engine {
             .unwrap();
             let img_view = ImageView::new_default(image.clone()).unwrap();
             *editor_window_image = Some(image.clone());
-            *IMAGE_VIEW.lock() = Some((img_view, image));
-            // img_view = Some(img_view);
+
+            if let Some(tex_id) = self.tex_id {
+                self.gui.unregister_user_image(tex_id);
+            }
+
+            let t = self.gui.register_user_image_view(
+                img_view.clone(),
+                SamplerCreateInfo {
+                    lod: 0.0..=LOD_CLAMP_NONE,
+                    mip_lod_bias: -0.2,
+                    address_mode: [SamplerAddressMode::Repeat; 3],
+                    ..Default::default()
+                },
+            );
+            self.tex_id = Some(t);
+
+            self.image_view = Some(img_view);
         }
 
         if let Some(image) = &editor_window_image {
@@ -843,8 +792,8 @@ impl Engine {
             // return;
         }
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
-        self.rendering_complete.recv().unwrap();
-        *recreate_swapchain |= _recreate_swapchain;
+        let out_of_date = self.rendering_complete.recv().unwrap();
+        *recreate_swapchain |= _recreate_swapchain | out_of_date;
         if *recreate_swapchain {
             let dimensions: [u32; 2] = vk.window().inner_size().into();
 
@@ -855,7 +804,10 @@ impl Engine {
                     ..swapchain.create_info()
                 }) {
                 Ok(r) => r,
-                Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => panic!(),
+                Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => {
+                    self.rendering_data.send(None).unwrap();
+                    return should_exit;
+                }
                 Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
             };
 
@@ -872,14 +824,14 @@ impl Engine {
                 Err(AcquireError::OutOfDate) => {
                     *recreate_swapchain = true;
                     println!("falied to aquire next image");
-                    panic!()
+                    self.rendering_data.send(None).unwrap();
+                    return should_exit;
                 }
                 Err(e) => panic!("Failed to acquire next image: {:?}", e),
             };
         if suboptimal {
             *recreate_swapchain = true;
         }
-
 
         builder
             .begin_render_pass(
@@ -904,55 +856,10 @@ impl Engine {
             *self.particles_system.cycle.get() = (*self.particles_system.cycle.get() + 1) % 3;
         }
         let _execute = self.perf.node("_ execute");
-        self.rendering_data.send((image_num, acquire_future, command_buffer));
-        // previous_frame_end.as_mut().unwrap().cleanup_finished();
-
-        // let future = acquire_future
-        //     .then_execute(vk.queue.clone(), command_buffer)
-        //     .unwrap()
-        //     .then_swapchain_present(
-        //         vk.queue.clone(),
-        //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
-        //     )
-        //     .then_signal_fence();
-        // let future = future.flush();
-        // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-
-        // match future {
-        //     Ok(future) => {
-        //         *previous_frame_end = Some(future.boxed());
-        //     }
-        //     Err(FlushError::OutOfDate) => {
-        //         *recreate_swapchain = true;
-        //         *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-        //     }
-        //     Err(e) => {
-        //         println!("failed to flush future: {e}");
-        //         // *recreate_swapchain = true;
-        //         *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-        //     }
-        // }
+        self.rendering_data
+            .send(Some((image_num, acquire_future, command_buffer)));
         drop(_execute);
 
-        if self.update_editor_window || self.playing_game != _playing_game {
-            let a = IMAGE_VIEW.lock();
-            if let Some(img_view) = a.as_ref() {
-                if let Some(tex_id) = self.tex_id {
-                    self.gui.unregister_user_image(tex_id);
-                }
-
-                let t = self.gui.register_user_image_view(
-                    img_view.0.clone(),
-                    SamplerCreateInfo {
-                        lod: 0.0..=LOD_CLAMP_NONE,
-                        mip_lod_bias: -0.2,
-                        address_mode: [SamplerAddressMode::Repeat; 3],
-                        ..Default::default()
-                    },
-                );
-                self.tex_id = Some(t);
-            }
-        }
         self.update_editor_window = window_size.is_some();
 
         self.playing_game = _playing_game;
@@ -968,34 +875,6 @@ impl Engine {
         self.event_loop_proxy.send_event(EngineEvent::Quit);
         // Arc::into_inner(self.input_thread).unwrap().join();
     }
-    // fn get_rendering_data(&self) -> RenderingData {
-    //     let get_transform_data = perf.node("get transform data");
-    //     let transform_data = world.transforms.get_transform_data_updates();
-    //     drop(get_transform_data);
-
-    //     let get_renderer_data = perf.node("get renderer data");
-    //     let renderer_data = world.sys.renderer_manager.write().get_renderer_data();
-    //     drop(get_renderer_data);
-    //     let emitter_len = world.get_emitter_len();
-    //     let emitter_inits = world.sys.particles_system.emitter_inits.get_vec();
-    //     let emitter_deinits = world.sys.particles_system.emitter_deinits.get_vec();
-    //     let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
-    //     let (main_cam_id, cam_datas) = world.get_cam_datas();
-    //     drop(world);
-    //     let data = RenderingData {
-    //         transform_data,
-    //         cam_datas,
-    //         main_cam_id,
-    //         renderer_data,
-    //         emitter_inits: (emitter_len, emitter_inits, emitter_deinits, particle_bursts),
-    //         gpu_work,
-    //     };
-    //     // let res = coms.0.send(data);
-    //     // if res.is_err() {
-    //     //     println!("ohno");
-    //     // }
-    //     data
-    // }
 }
 
 /// This method is called once during initialization, then again whenever the window is resized

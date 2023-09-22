@@ -13,7 +13,7 @@ use super::{
     },
     utils::GPUWork,
     world::transform::TransformData,
-    Engine, EnginePtr, RenderJobData, IMAGE_VIEW,
+    Engine, EnginePtr, RenderJobData,
 };
 use crate::{
     editor::{self, editor_ui::EDITOR_WINDOW_DIM},
@@ -88,123 +88,58 @@ pub(super) fn window_size_dependent_setup(
         .collect::<Vec<_>>()
 }
 
-// fn swapchain_thread(
-//     vk: Arc<VulkanManager>,
-//     commands: Receiver<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
-// ) {
-//     let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-
-//     loop {
-//         let (image_num, acquire_future, command_buffer) = commands.recv().unwrap();
-
-//         previous_frame_end.as_mut().unwrap().cleanup_finished();
-//         let future = previous_frame_end
-//             .take()
-//             .unwrap()
-//             .join(acquire_future)
-//             .then_execute(vk.queue.clone(), command_buffer)
-//             .unwrap()
-//             .then_swapchain_present(
-//                 vk.queue.clone(),
-//                 SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
-//             )
-//             .then_signal_fence_and_flush();
-
-//         match future {
-//             Ok(future) => {
-//                 previous_frame_end = Some(future.boxed());
-//             }
-//             Err(FlushError::OutOfDate) => {
-//                 // recreate_swapchain = true;
-//                 previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-//             }
-//             Err(e) => {
-//                 println!("failed to flush future: {e}");
-//                 previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-//             }
-//         }
-//     }
-// }
 pub(super) fn render_fn(rd: RendererData) {}
 pub(super) fn render_thread(
     vk: Arc<VulkanManager>,
     // render_pass: Arc<RenderPass>,
-    rendering_data: Receiver<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
-    rendering_complete: Sender<()>,
+    rendering_data: Receiver<Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+    rendering_complete: Sender<bool>,
 ) {
-    // let mut viewport = Viewport {
-    //     origin: [0.0, 0.0],
-    //     dimensions: [0.0, 0.0],
-    //     depth_range: 0.0..1.0,
-    // };
+    let mut recreate_swapchain = false;
+    rendering_complete.send(false).unwrap();
 
-    // let mut framebuffers =
-    //     window_size_dependent_setup(&vk.images, render_pass.clone(), &mut viewport);
-    // let mut recreate_swapchain = true;
-    // let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
-    // let mut editor_window_image: Option<Arc<dyn ImageAccess>> = None;
-    // let (comms_snd, coms_rcv) = crossbeam::channel::bounded(1);
-    // let img_view = None;
-    // let swapchain_thread = Arc::new({
-    //     let vk = vk.clone();
-    //     std::thread::spawn(move || swapchain_thread(vk, coms_rcv))
-    // });
-
-    // let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-
-    rendering_complete.send(()).unwrap();
-    // previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
     loop {
-        let (image_num, acquire_future, command_buffer) = rendering_data.recv().unwrap();
-        let future = acquire_future
-            .then_execute(vk.queue.clone(), command_buffer)
-            .unwrap()
-            .then_swapchain_present(
-                vk.queue.clone(),
-                SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
-            ).then_signal_fence();
-            future.flush();
-    rendering_complete.send(()).unwrap();
+        if let Some((image_num, acquire_future, command_buffer)) = rendering_data.recv().unwrap() {
+            // let future = acquire_future
+            //     .then_execute(vk.queue.clone(), command_buffer)
+            //     .unwrap()
+            //     .then_swapchain_present(
+            //         vk.queue.clone(),
+            //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+            //     )
+            //     .flush()
+            //     .unwrap();
 
-        //     .unwrap();
-        // previous_frame_end.as_mut().unwrap().cleanup_finished();
-        // let future = previous_frame_end
-        //     .take()
-        //     .unwrap()
-        //     .join(acquire_future)
-        //     .then_execute(vk.queue.clone(), command_buffer)
-        //     .unwrap()
-        //     .then_swapchain_present(
-        //         vk.queue.clone(),
-        //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
-        //     )
-        //     .then_signal_fence();
-        // let future = future.flush();
-        // previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-        // let future = acquire_future
-        //     .then_execute(vk.queue.clone(), command_buffer)
-        //     .unwrap()
-        //     // .then_execute(vk.queue.clone(), command_buffer)
-        //     // .unwrap()
-        //     .then_swapchain_present(
-        //         vk.queue.clone(),
-        //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
-        //     ).flush();
-        //     // .then_signal_fence_and_flush();
+            let future = acquire_future
+                .then_execute(vk.queue.clone(), command_buffer)
+                .unwrap()
+                // .then_execute(vk.queue.clone(), command_buffer)
+                // .unwrap()
+                .then_swapchain_present(
+                    vk.queue.clone(),
+                    SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+                )
+                .then_signal_fence();
+            let future = future.flush();
+            // .then_signal_fence_and_flush();
 
-        // match future {
-        //     Ok(future) => {
-        //         // *previous_frame_end = Some(future.boxed());
-        //     }
-        //     Err(FlushError::OutOfDate) => {
-        //         // *recreate_swapchain = true;
-        //         // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-        //     }
-        //     Err(e) => {
-        //         println!("failed to flush future: {e}");
-        //         // *recreate_swapchain = true;
-        //         // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-        //     }
-        // }
+            match future {
+                Ok(future) => {
+                    // *previous_frame_end = Some(future.boxed());
+                }
+                Err(FlushError::OutOfDate) => {
+                    recreate_swapchain = true;
+                    // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+                }
+                Err(e) => {
+                    println!("failed to flush future: {e}");
+                    recreate_swapchain = true;
+                    // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+                }
+            }
+        }
+
+        rendering_complete.send(recreate_swapchain).unwrap();
+        recreate_swapchain = false;
     }
 }
