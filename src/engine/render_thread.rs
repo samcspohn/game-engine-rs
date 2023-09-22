@@ -151,44 +151,60 @@ pub(super) fn render_thread(
     // });
 
     // let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-    rendering_complete.send(()).unwrap();
 
+    rendering_complete.send(()).unwrap();
+    // previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
     loop {
         let (image_num, acquire_future, command_buffer) = rendering_data.recv().unwrap();
-        // let future = acquire_future
+        let future = acquire_future
+            .then_execute(vk.queue.clone(), command_buffer)
+            .unwrap()
+            .then_swapchain_present(
+                vk.queue.clone(),
+                SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+            ).then_signal_fence();
+            future.flush();
+    rendering_complete.send(()).unwrap();
+
+        //     .unwrap();
+        // previous_frame_end.as_mut().unwrap().cleanup_finished();
+        // let future = previous_frame_end
+        //     .take()
+        //     .unwrap()
+        //     .join(acquire_future)
         //     .then_execute(vk.queue.clone(), command_buffer)
         //     .unwrap()
         //     .then_swapchain_present(
         //         vk.queue.clone(),
         //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
         //     )
-        //     .flush()
-        //     .unwrap();
+        //     .then_signal_fence();
+        // let future = future.flush();
+        // previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+        // let future = acquire_future
+        //     .then_execute(vk.queue.clone(), command_buffer)
+        //     .unwrap()
+        //     // .then_execute(vk.queue.clone(), command_buffer)
+        //     // .unwrap()
+        //     .then_swapchain_present(
+        //         vk.queue.clone(),
+        //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+        //     ).flush();
+        //     // .then_signal_fence_and_flush();
 
-        let future = acquire_future
-            .then_execute(vk.queue.clone(), command_buffer)
-            .unwrap()
-            // .then_execute(vk.queue.clone(), command_buffer)
-            // .unwrap()
-            .then_swapchain_present(
-                vk.queue.clone(),
-                SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
-            ).flush();
-            // .then_signal_fence_and_flush();
-
-        match future {
-            Ok(future) => {
-                // *previous_frame_end = Some(future.boxed());
-            }
-            Err(FlushError::OutOfDate) => {
-                // *recreate_swapchain = true;
-                // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-            }
-            Err(e) => {
-                println!("failed to flush future: {e}");
-                // *recreate_swapchain = true;
-                // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-            }
-        }
+        // match future {
+        //     Ok(future) => {
+        //         // *previous_frame_end = Some(future.boxed());
+        //     }
+        //     Err(FlushError::OutOfDate) => {
+        //         // *recreate_swapchain = true;
+        //         // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+        //     }
+        //     Err(e) => {
+        //         println!("failed to flush future: {e}");
+        //         // *recreate_swapchain = true;
+        //         // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+        //     }
+        // }
     }
 }

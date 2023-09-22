@@ -1,5 +1,5 @@
 use std::{
-    cell::SyncUnsafeCell,
+    cell::{Cell, SyncUnsafeCell},
     sync::{
         atomic::{AtomicI32, AtomicUsize, Ordering},
         Arc,
@@ -136,7 +136,8 @@ pub struct ParticleCompute {
     pub particle_template_manager: Arc<Mutex<ParticleTemplateManager>>,
     pub particle_buffers: ParticleBuffers,
     pub compute_pipeline: Arc<ComputePipeline>,
-    pub compute_uniforms: Mutex<SubbufferAllocator>,
+    pub compute_uniforms: Mutex<Vec<SubbufferAllocator>>,
+    pub cycle: SyncUnsafeCell<usize>,
     pub render_uniforms: Mutex<SubbufferAllocator>,
     pub def_texture: Arc<ImageView<ImmutableImage>>,
     pub def_sampler: Arc<Sampler>,
@@ -401,7 +402,11 @@ impl ParticleCompute {
         )
         .expect("Failed to create compute shader");
 
-        let uniforms = Mutex::new(vk.sub_buffer_allocator());
+        let uniforms = Mutex::new(
+            (0..3)
+                .map(|_| vk.sub_buffer_allocator())
+                .collect(),
+        );
         let render_uniforms = Mutex::new(vk.sub_buffer_allocator());
         let emitter_init_dummy = vk.buffer_array(1 as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
         let particle_burst_dummy =
@@ -439,6 +444,7 @@ impl ParticleCompute {
             vk,
             performance,
             particle_textures,
+            cycle: SyncUnsafeCell::new(0),
         }
     }
     fn get_descriptors2(
@@ -609,7 +615,9 @@ impl ParticleCompute {
                 stage: 0,
                 MAX_PARTICLES: max_particles,
             };
-            let ub = self.compute_uniforms.lock().allocate_sized().unwrap();
+            let ub = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
+                .allocate_sized()
+                .unwrap();
             *ub.write().unwrap() = uniform_data;
             ub
             // self.compute_uniforms.from_data(uniform_data).unwrap()
@@ -674,7 +682,7 @@ impl ParticleCompute {
                 stage: 1,
                 MAX_PARTICLES: max_particles,
             };
-            let ub = self.compute_uniforms.lock().allocate_sized().unwrap();
+            let ub = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }].allocate_sized().unwrap();
             *ub.write().unwrap() = uniform_data;
             ub
         };
@@ -730,7 +738,7 @@ impl ParticleCompute {
                 stage: 2,
                 MAX_PARTICLES: max_particles,
             };
-            let ub = self.compute_uniforms.lock().allocate_sized().unwrap();
+            let ub = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }].allocate_sized().unwrap();
             *ub.write().unwrap() = uniform_data;
             ub
         };
@@ -775,7 +783,7 @@ impl ParticleCompute {
                 stage: 3,
                 MAX_PARTICLES: max_particles,
             };
-            let ub = self.compute_uniforms.lock().allocate_sized().unwrap();
+            let ub = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }].allocate_sized().unwrap();
             *ub.write().unwrap() = uniform_data;
             ub
         };
@@ -811,7 +819,7 @@ impl ParticleCompute {
             stage: 4,
             MAX_PARTICLES: max_particles,
         };
-        let uniform_sub_buffer = self.compute_uniforms.lock().allocate_sized().unwrap();
+        let uniform_sub_buffer = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }].allocate_sized().unwrap();
         *uniform_sub_buffer.write().unwrap() = uniform_data;
 
         let descriptor_set = self.get_descriptors2(transform.clone(), uniform_sub_buffer);
@@ -834,7 +842,7 @@ impl ParticleCompute {
         // set indirect
         uniform_data.num_jobs = 1;
         uniform_data.stage = 5;
-        let uniform_sub_buffer = self.compute_uniforms.lock().allocate_sized().unwrap();
+        let uniform_sub_buffer = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }].allocate_sized().unwrap();
         *uniform_sub_buffer.write().unwrap() = uniform_data;
         let descriptor_set = self.get_descriptors2(transform.clone(), uniform_sub_buffer);
 
@@ -850,7 +858,7 @@ impl ParticleCompute {
         // dispatch indirect particle update
         uniform_data.num_jobs = -1;
         uniform_data.stage = 6;
-        let uniform_sub_buffer = self.compute_uniforms.lock().allocate_sized().unwrap();
+        let uniform_sub_buffer = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }].allocate_sized().unwrap();
         *uniform_sub_buffer.write().unwrap() = uniform_data;
         let descriptor_set = self.get_descriptors2(transform.clone(), uniform_sub_buffer);
 
@@ -896,7 +904,7 @@ impl ParticleCompute {
                 // _dummy0: Default::default(),
             };
             // self.render_uniforms.from_data(uniform_data).unwrap()
-            let uniform_sub_buffer = self.compute_uniforms.lock().allocate_sized().unwrap();
+            let uniform_sub_buffer = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }].allocate_sized().unwrap();
             *uniform_sub_buffer.write().unwrap() = uniform_data;
             uniform_sub_buffer
         };

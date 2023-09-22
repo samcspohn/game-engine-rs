@@ -8,6 +8,7 @@ use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
 use serde::{Deserialize, Serialize};
 use vulkano::{
+    buffer::Subbuffer,
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
@@ -18,7 +19,7 @@ use vulkano::{
     memory::allocator::MemoryUsage,
     pipeline::{graphics::viewport::Viewport, ComputePipeline, Pipeline, PipelineBindPoint},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
-    sync::GpuFuture, buffer::Subbuffer,
+    sync::GpuFuture,
 };
 
 use crate::{
@@ -30,7 +31,7 @@ use crate::{
         transform_compute::{cs::Data, TransformCompute},
         world::{
             component::{Component, _ComponentID},
-            transform::{Transform, TransformData, TransformBuf},
+            transform::{Transform, TransformBuf, TransformData},
             Sys,
         },
         RenderJobData,
@@ -51,9 +52,9 @@ pub struct CameraData {
     particle_render_pipeline: ParticleRenderPipeline,
     _render_pass: Arc<RenderPass>,
     viewport: Viewport,
-    framebuffers: Vec<Arc<Framebuffer>>,
+    framebuffer: Arc<Framebuffer>,
     pub render_textures_ids: Option<Vec<TextureId>>,
-    pub images: Vec<Arc<AttachmentImage>>,
+    pub image: Arc<AttachmentImage>,
     pub camera_view_data: std::collections::VecDeque<CameraViewData>,
 }
 #[derive(Clone, Default)]
@@ -223,7 +224,7 @@ impl CameraData {
             depth_range: 0.0..1.0,
         };
 
-        let (framebuffers, images) = window_size_dependent_setup(
+        let (framebuffer, image) = window_size_dependent_setup(
             [1920, 1080],
             render_pass.clone(),
             &mut viewport,
@@ -244,15 +245,15 @@ impl CameraData {
             particle_render_pipeline: ParticleRenderPipeline::new(vk, render_pass.clone()),
             _render_pass: render_pass,
             viewport,
-            framebuffers,
+            framebuffer,
             render_textures_ids: None,
-            images,
+            image,
             camera_view_data: VecDeque::new(), // swapchain,
         }
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>) {
-        if self.framebuffers[0].extent() != dimensions {
-            (self.framebuffers, self.images) = window_size_dependent_setup(
+        if self.framebuffer.extent() != dimensions {
+            (self.framebuffer, self.image) = window_size_dependent_setup(
                 dimensions,
                 self._render_pass.clone(),
                 &mut self.viewport,
@@ -275,7 +276,7 @@ impl CameraData {
         offset_vec: Vec<i32>,
         rm: &mut RwLockWriteGuard<SharedRendererData>,
         rd: &mut RendererData,
-        image_num: u32,
+        // image_num: u32,
         assets: Arc<AssetsManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
         cvd: CameraViewData,
@@ -379,9 +380,7 @@ impl CameraData {
             .begin_render_pass(
                 RenderPassBeginInfo {
                     clear_values: vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into())],
-                    ..RenderPassBeginInfo::framebuffer(
-                        self.framebuffers[image_num as usize].clone(),
-                    )
+                    ..RenderPassBeginInfo::framebuffer(self.framebuffer.clone())
                 },
                 SubpassContents::Inline,
             )
@@ -410,7 +409,8 @@ impl CameraData {
                             .clone()
                             .slice(indr.id as u64..(indr.id + 1) as u64);
                         let renderer_buffer = rm.renderers_gpu.clone().slice(
-                            offset as u64..(offset as u64 + indr.count as u64).min(rm.renderers_gpu.len()),
+                            offset as u64
+                                ..(offset as u64 + indr.count as u64).min(rm.renderers_gpu.len()),
                         );
                         self.rend.bind_mesh(
                             &texture_manager,
@@ -453,7 +453,7 @@ impl CameraData {
         );
         builder.end_render_pass().unwrap();
         // self.camera_view_data.pop_front();
-        Some(self.images[image_num as usize].clone())
+        Some(self.image.clone())
     }
 }
 
@@ -463,38 +463,38 @@ fn window_size_dependent_setup(
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     vk: Arc<VulkanManager>,
-) -> (Vec<Arc<Framebuffer>>, Vec<Arc<AttachmentImage>>) {
+) -> (Arc<Framebuffer>, Arc<AttachmentImage>) {
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
     let depth_buffer = ImageView::new_default(
         AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::D32_SFLOAT).unwrap(),
     )
     .unwrap();
-    let mut images = Vec::new();
-    let fb = vk
-        .images
-        .iter()
-        .map(|_| {
-            let image = AttachmentImage::with_usage(
-                &vk.mem_alloc,
-                dimensions,
-                Format::R8G8B8A8_UNORM,
-                ImageUsage::SAMPLED
-                    | ImageUsage::STORAGE
-                    | ImageUsage::COLOR_ATTACHMENT
-                    | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
-            )
-            .unwrap();
-            images.push(image.clone());
-            let view = ImageView::new_default(image).unwrap();
-            Framebuffer::new(
-                render_pass.clone(),
-                FramebufferCreateInfo {
-                    attachments: vec![view, depth_buffer.clone()],
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-        })
-        .collect::<Vec<_>>();
-    (fb, images)
+    // let mut images = Vec::new();
+    // let fb = vk
+    //     .images
+    //     .iter()
+    //     .map(|_| {
+    let image = AttachmentImage::with_usage(
+        &vk.mem_alloc,
+        dimensions,
+        Format::R8G8B8A8_UNORM,
+        ImageUsage::SAMPLED
+            | ImageUsage::STORAGE
+            | ImageUsage::COLOR_ATTACHMENT
+            | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
+    )
+    .unwrap();
+    let view = ImageView::new_default(image.clone()).unwrap();
+    let frame_buf = Framebuffer::new(
+        render_pass.clone(),
+        FramebufferCreateInfo {
+            attachments: vec![view, depth_buffer.clone()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // })
+    // .collect::<Vec<_>>();
+    (frame_buf, image)
+    // (fb, images)
 }

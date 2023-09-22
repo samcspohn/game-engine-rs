@@ -80,7 +80,7 @@ impl TransformCompute {
             gpu_transforms,
             mvp,
             update_data_alloc: Mutex::new(
-                (0..num_images)
+                (0..3)
                     .into_iter()
                     .map(|_| vk.sub_buffer_allocator_with_usage(BufferUsage::STORAGE_BUFFER))
                     .collect(),
@@ -296,7 +296,7 @@ impl TransformCompute {
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
         >,
-        image_num: u32,
+        // image_num: u32,
         transform_data: TransformBuf,
         perf: &Perf,
     ) {

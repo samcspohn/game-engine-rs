@@ -55,9 +55,9 @@ use vulkano::render_pass::Subpass;
 use vulkano::sampler::SamplerAddressMode;
 use vulkano::sampler::SamplerCreateInfo;
 use vulkano::sampler::LOD_CLAMP_NONE;
-use vulkano::swapchain::SwapchainAcquireFuture;
 use vulkano::swapchain::acquire_next_image;
 use vulkano::swapchain::AcquireError;
+use vulkano::swapchain::SwapchainAcquireFuture;
 use vulkano::swapchain::SwapchainCreateInfo;
 use vulkano::swapchain::SwapchainCreationError;
 use vulkano::swapchain::SwapchainPresentInfo;
@@ -194,7 +194,7 @@ struct EngineRenderer {
     fc_map: HashMap<i32, HashMap<u32, TextureId>>,
     editor_window_image: Option<Arc<dyn ImageAccess>>,
     render_pass: Arc<RenderPass>,
-    // previous_frame_end: Option<Box<dyn GpuFuture>>,
+    previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
 pub(crate) struct Engine {
     pub(crate) world: Arc<Mutex<World>>,
@@ -407,9 +407,7 @@ impl Engine {
         }));
         let rendering_thread = Arc::new({
             let vk = vk.clone();
-            thread::spawn(move || {
-                render_thread::render_thread(vk, rendering_rcv, rendering_snd2)
-            })
+            thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
         });
         proxy.send_event(EngineEvent::Send);
 
@@ -445,7 +443,7 @@ impl Engine {
                 fc_map,
                 editor_window_image,
                 render_pass,
-                // previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
+                previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
             },
             vk,
             editor_cam: editor::editor_cam::EditorCam {
@@ -675,54 +673,14 @@ impl Engine {
             fc_map,
             editor_window_image,
             render_pass,
-            // previous_frame_end,
+            previous_frame_end,
         } = &mut self.renderer;
 
         let vk = self.vk.clone();
         let full_render_time = self.perf.node("full render time");
         // let render_jobs = engine.world.lock().render();
 
-        let dimensions = vk.window().inner_size();
-        if dimensions.width == 0 || dimensions.height == 0 {
-            // return;
-        }
-        // previous_frame_end.as_mut().unwrap().cleanup_finished();
 
-        *recreate_swapchain |= _recreate_swapchain;
-        if *recreate_swapchain {
-            let dimensions: [u32; 2] = vk.window().inner_size().into();
-
-            let mut swapchain = vk.swapchain();
-            let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
-                .recreate(SwapchainCreateInfo {
-                    image_extent: dimensions,
-                    ..swapchain.create_info()
-                }) {
-                Ok(r) => r,
-                Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => panic!(),
-                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-            };
-
-            vk.update_swapchain(new_swapchain);
-
-            *framebuffers = window_size_dependent_setup(&new_images, render_pass.clone(), viewport);
-            viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-            *recreate_swapchain = false;
-        }
-
-        let (image_num, suboptimal, acquire_future) =
-            match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(30))) {
-                Ok(r) => r,
-                Err(AcquireError::OutOfDate) => {
-                    *recreate_swapchain = true;
-                    println!("falied to aquire next image");
-                    panic!()
-                }
-                Err(e) => panic!("Failed to acquire next image: {:?}", e),
-            };
-        if suboptimal {
-            *recreate_swapchain = true;
-        }
 
         let mut rm = self.shared_render_data.write();
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
@@ -752,7 +710,7 @@ impl Engine {
                 .allocate_unsized(world.transforms.len() as DeviceSize)
                 .unwrap();
             drop(alloc);
-            transform_compute.cycle = (cycle + 1) % vk.images.len();
+            transform_compute.cycle = (cycle + 1) % 3;
             (pos_i, pos, rot_i, rot, scl_i, scl)
         };
         {
@@ -778,7 +736,7 @@ impl Engine {
 
         self.transform_compute.write().update_data(
             &mut builder,
-            image_num,
+            // image_num,
             transforms_buf.clone(),
             &self.perf,
         );
@@ -834,7 +792,7 @@ impl Engine {
                     offset_vec.clone(),
                     &mut rm,
                     &mut renderer_data,
-                    image_num,
+                    // image_num,
                     self.assets_manager.clone(),
                     &render_jobs,
                     cvd,
@@ -880,6 +838,49 @@ impl Engine {
 
         let _render = self.perf.node("_ render");
 
+        let dimensions = vk.window().inner_size();
+        if dimensions.width == 0 || dimensions.height == 0 {
+            // return;
+        }
+        // previous_frame_end.as_mut().unwrap().cleanup_finished();
+        self.rendering_complete.recv().unwrap();
+        *recreate_swapchain |= _recreate_swapchain;
+        if *recreate_swapchain {
+            let dimensions: [u32; 2] = vk.window().inner_size().into();
+
+            let mut swapchain = vk.swapchain();
+            let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
+                .recreate(SwapchainCreateInfo {
+                    image_extent: dimensions,
+                    ..swapchain.create_info()
+                }) {
+                Ok(r) => r,
+                Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => panic!(),
+                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+            };
+
+            vk.update_swapchain(new_swapchain);
+
+            *framebuffers = window_size_dependent_setup(&new_images, render_pass.clone(), viewport);
+            viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+            *recreate_swapchain = false;
+        }
+
+        let (image_num, suboptimal, acquire_future) =
+            match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(30))) {
+                Ok(r) => r,
+                Err(AcquireError::OutOfDate) => {
+                    *recreate_swapchain = true;
+                    println!("falied to aquire next image");
+                    panic!()
+                }
+                Err(e) => panic!("Failed to acquire next image: {:?}", e),
+            };
+        if suboptimal {
+            *recreate_swapchain = true;
+        }
+
+
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
@@ -899,22 +900,23 @@ impl Engine {
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();
         drop(_build_command_buffer);
-
+        unsafe {
+            *self.particles_system.cycle.get() = (*self.particles_system.cycle.get() + 1) % 3;
+        }
         let _execute = self.perf.node("_ execute");
         self.rendering_data.send((image_num, acquire_future, command_buffer));
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
 
-        // let future = previous_frame_end
-        //     .take()
-        //     .unwrap()
-        //     .join(acquire_future)
+        // let future = acquire_future
         //     .then_execute(vk.queue.clone(), command_buffer)
         //     .unwrap()
         //     .then_swapchain_present(
         //         vk.queue.clone(),
         //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
         //     )
-        //     .then_signal_fence_and_flush();
+        //     .then_signal_fence();
+        // let future = future.flush();
+        // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
 
         // match future {
         //     Ok(future) => {
