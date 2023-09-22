@@ -26,6 +26,9 @@ game-engine:
   ☐ macro for field inspection
   ☐ add LOD to particles
   ranndom freeze comes from editor_update in main_loop. terrain update
+  rendering:
+    ☐ add materials
+    ☐ use indirect to draw all geometry in one pass
   optimizations:
     ✔ write transform update data using ptr(&[],&[]) @done(23-09-05 15:36)
       let m_slice = &mut mapping[offset..offset + i.len()];

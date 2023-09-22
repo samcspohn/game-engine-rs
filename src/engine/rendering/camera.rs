@@ -393,36 +393,36 @@ impl CameraData {
         // let mm = model_manager.lock();
         let mm = model_manager;
 
-        let mut offset = 0i32;
-        let max = rm.renderers_gpu.len() as i32;
+        let mut offset = 0;
+        let max = rm.renderers_gpu.len();
         for (_ind_id, m_id) in rd.indirect_model.iter() {
             if let Some(model_indr) = rd.model_indirect.get(m_id) {
                 for (i, indr) in model_indr.iter().enumerate() {
-                    if let Some(mr) = mm.assets_id.get(m_id) {
-                        let mr = mr.lock();
-                        if indr.count == 0 || (offset + indr.count) - max <= 0 {
-                            // TODO: fix invalid slice for renderers
-                            continue;
+                    if indr.id == *_ind_id {
+                        if let Some(mr) = mm.assets_id.get(m_id) {
+                            let mr = mr.lock();
+                            if indr.count == 0 {
+                                continue;
+                            }
+                            let indirect_buffer = rm
+                                .indirect_buffer
+                                .clone()
+                                .slice(indr.id as u64..(indr.id + 1) as u64);
+                            let renderer_buffer = rm.renderers_gpu.clone().slice(
+                                offset..(offset + indr.count as u64).min(rm.renderers_gpu.len()),
+                            );
+                            self.rend.bind_mesh(
+                                &texture_manager,
+                                builder,
+                                vk.desc_alloc.clone(),
+                                renderer_buffer.clone(),
+                                transform_compute.mvp.clone(),
+                                &mr.meshes[i],
+                                indirect_buffer.clone(),
+                            );
                         }
-                        let indirect_buffer = rm
-                            .indirect_buffer
-                            .clone()
-                            .slice(indr.id as u64..(indr.id + 1) as u64);
-                        let renderer_buffer = rm.renderers_gpu.clone().slice(
-                            offset as u64
-                                ..(offset as u64 + indr.count as u64).min(rm.renderers_gpu.len()),
-                        );
-                        self.rend.bind_mesh(
-                            &texture_manager,
-                            builder,
-                            vk.desc_alloc.clone(),
-                            renderer_buffer.clone(),
-                            transform_compute.mvp.clone(),
-                            &mr.meshes[i],
-                            indirect_buffer.clone(),
-                        );
+                        offset += indr.count as u64;
                     }
-                    offset += indr.count;
                 }
             }
         }
