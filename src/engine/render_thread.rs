@@ -92,14 +92,14 @@ pub(super) fn render_fn(rd: RendererData) {}
 pub(super) fn render_thread(
     vk: Arc<VulkanManager>,
     // render_pass: Arc<RenderPass>,
-    rendering_data: Receiver<Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+    rendering_data: Receiver<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
     rendering_complete: Sender<bool>,
 ) {
     let mut recreate_swapchain = false;
     rendering_complete.send(false).unwrap();
 
     loop {
-        if let Some((image_num, acquire_future, command_buffer)) = rendering_data.recv().unwrap() {
+        if let Some((should_exit, image_num, acquire_future, command_buffer)) = rendering_data.recv().unwrap() {
             // let future = acquire_future
             //     .then_execute(vk.queue.clone(), command_buffer)
             //     .unwrap()
@@ -109,6 +109,7 @@ pub(super) fn render_thread(
             //     )
             //     .flush()
             //     .unwrap();
+            
 
             let future = acquire_future
                 .then_execute(vk.queue.clone(), command_buffer)
@@ -137,8 +138,10 @@ pub(super) fn render_thread(
                     // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                 }
             }
+            if should_exit {
+                return;
+            }
         }
-
         rendering_complete.send(recreate_swapchain).unwrap();
         recreate_swapchain = false;
     }

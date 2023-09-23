@@ -209,7 +209,7 @@ pub(crate) struct Engine {
         bool,
     )>,
     pub(crate) rendering_data:
-        Sender<Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+        Sender<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
     pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
@@ -859,7 +859,7 @@ impl Engine {
         }
         let _execute = self.perf.node("_ execute");
         self.rendering_data
-            .send(Some((image_num, acquire_future, command_buffer)));
+            .send(Some((should_exit, image_num, acquire_future, command_buffer)));
         drop(_execute);
 
         self.update_editor_window = window_size.is_some();
@@ -873,7 +873,7 @@ impl Engine {
     pub fn end(mut self) {
         println!("end");
         self.perf.print();
-        // Arc::into_inner(self.rendering_thread).unwrap().join();
+        Arc::into_inner(self.rendering_thread).unwrap().join();
         self.event_loop_proxy.send_event(EngineEvent::Quit);
         // Arc::into_inner(self.input_thread).unwrap().join();
     }
