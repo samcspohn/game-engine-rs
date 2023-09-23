@@ -15,10 +15,13 @@ use vulkano::{
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     format::{ClearValue, Format},
-    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage},
+    image::{
+        view::ImageView, AttachmentImage, ImageAccess, ImageDimensions, ImageUsage, SampleCount,
+        StorageImage,
+    },
     memory::allocator::MemoryUsage,
     pipeline::{graphics::viewport::Viewport, ComputePipeline, Pipeline, PipelineBindPoint},
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
 
@@ -54,7 +57,8 @@ pub struct CameraData {
     viewport: Viewport,
     framebuffer: Arc<Framebuffer>,
     pub render_textures_ids: Option<Vec<TextureId>>,
-    pub image: Arc<AttachmentImage>,
+    pub image: Arc<StorageImage>,
+    samples: SampleCount,
     pub camera_view_data: std::collections::VecDeque<CameraViewData>,
 }
 #[derive(Clone, Default)]
@@ -197,25 +201,50 @@ impl CameraData {
         // self.camera_view_data.push_back(cvd);
     }
     pub fn new(vk: Arc<VulkanManager>) -> Self {
-        let render_pass = vulkano::ordered_passes_renderpass!(
+        let num_samples = crate::engine::utils::SETTINGS
+            .read()
+            .get::<u32>("SAMPLES")
+            .unwrap();
+        println!("num samples: {}", num_samples);
+        let num_samples = match num_samples {
+            _ => 2,
+            4 => 4,
+            8 => 8,
+            16 => 16,
+        };
+        let samples = match num_samples {
+            _ => SampleCount::Sample2,
+            4 => SampleCount::Sample4,
+            8 => SampleCount::Sample8,
+            16 => SampleCount::Sample16,
+        };
+
+        let render_pass = vulkano::single_pass_renderpass!(
             vk.device.clone(),
             attachments: {
-                color: {
+                intermediary: {
                     load: Clear,
-                    store: Store,
+                    store: DontCare,
                     format: Format::R8G8B8A8_UNORM,
-                    samples: 1,
+                    samples: num_samples,
                 },
                 depth: {
                     load: Clear,
                     store: DontCare,
                     format: Format::D32_SFLOAT,
+                    samples: num_samples,
+                },
+                color: {
+                    load: DontCare,
+                    store: Store,
+                    format: Format::R8G8B8A8_UNORM,
+                    // Same here, this has to match.
                     samples: 1,
-                }
+                },
             },
-            passes: [
-                { color: [color], depth_stencil: {depth}, input: [] }
-            ]
+            pass:
+                { color: [intermediary], depth_stencil: {depth}, resolve: [color] }
+
         )
         .unwrap();
         let mut viewport = Viewport {
@@ -229,8 +258,9 @@ impl CameraData {
             render_pass.clone(),
             &mut viewport,
             vk.clone(),
+            samples,
         );
-
+        // let subpass = Subpass::from(render_pass, 0).unwrap();
         let rend = RenderPipeline::new(
             vk.device.clone(),
             render_pass.clone(),
@@ -239,6 +269,7 @@ impl CameraData {
             0,
             vk.mem_alloc.clone(),
             &vk.comm_alloc,
+            // &subpass,
         );
         Self {
             rend,
@@ -249,6 +280,7 @@ impl CameraData {
             render_textures_ids: None,
             image,
             camera_view_data: VecDeque::new(), // swapchain,
+            samples,
         }
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>) {
@@ -258,6 +290,7 @@ impl CameraData {
                 self._render_pass.clone(),
                 &mut self.viewport,
                 vk,
+                self.samples,
             )
         }
     }
@@ -280,18 +313,7 @@ impl CameraData {
         assets: Arc<AssetsManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
         cvd: CameraViewData,
-    ) -> Option<Arc<AttachmentImage>> {
-        // let cvd = self.update(pos, rot, near, far, fov)
-        // let cvd = self.camera_view_data.back();
-        // let mut cvd = None;
-        // while let Some(_cvd) = self.camera_view_data.pop_front() {
-        //     cvd = Some(_cvd);
-        // }
-        // if cvd.is_none() {
-        //     return None;
-        // }
-        // self.camera_view_data.clear();
-        // let cvd = cvd.unwrap();
+    ) -> Option<Arc<StorageImage>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
         let model_manager: &ModelManager = __model_manager.as_any().downcast_ref().unwrap();
@@ -379,7 +401,7 @@ impl CameraData {
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into())],
+                    clear_values: vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into()), None],
                     ..RenderPassBeginInfo::framebuffer(self.framebuffer.clone())
                 },
                 SubpassContents::Inline,
@@ -463,36 +485,61 @@ fn window_size_dependent_setup(
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     vk: Arc<VulkanManager>,
-) -> (Arc<Framebuffer>, Arc<AttachmentImage>) {
+    samples: SampleCount,
+) -> (Arc<Framebuffer>, Arc<StorageImage>) {
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+
     let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::D32_SFLOAT).unwrap(),
+        AttachmentImage::transient_multisampled(
+            &vk.mem_alloc,
+            dimensions,
+            samples,
+            Format::D32_SFLOAT,
+        )
+        .unwrap(),
     )
     .unwrap();
-    // let mut images = Vec::new();
-    // let fb = vk
-    //     .images
-    //     .iter()
-    //     .map(|_| {
-    let image = AttachmentImage::with_usage(
+
+    let intermediary = AttachmentImage::transient_multisampled(
         &vk.mem_alloc,
         dimensions,
+        samples,
         Format::R8G8B8A8_UNORM,
-        ImageUsage::SAMPLED
-            | ImageUsage::STORAGE
-            | ImageUsage::COLOR_ATTACHMENT
-            | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
+    )
+    .unwrap();
+    let intermediary = ImageView::new_default(intermediary.clone()).unwrap();
+
+    let image = StorageImage::new(
+        &vk.mem_alloc,
+        ImageDimensions::Dim2d {
+            width: dimensions[0],
+            height: dimensions[1],
+            array_layers: 1,
+        },
+        Format::R8G8B8A8_UNORM,
+        Some(vk.queue.queue_family_index()),
     )
     .unwrap();
     let view = ImageView::new_default(image.clone()).unwrap();
+
+    // let frame_buf = Framebuffer::new(
+    //     render_pass.clone(),
+    //     FramebufferCreateInfo {
+    //         attachments: vec![view, depth_buffer.clone()],
+    //         ..Default::default()
+    //     },
+    // )
+    // .unwrap();
+
     let frame_buf = Framebuffer::new(
         render_pass.clone(),
         FramebufferCreateInfo {
-            attachments: vec![view, depth_buffer.clone()],
+            attachments: vec![intermediary, depth_buffer, view],
             ..Default::default()
         },
     )
     .unwrap();
+
     // })
     // .collect::<Vec<_>>();
     (frame_buf, image)

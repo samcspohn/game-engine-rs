@@ -65,7 +65,7 @@ use vulkano::{
             input_assembly::{InputAssemblyState, PrimitiveTopology},
             rasterization::{CullMode, RasterizationState},
             vertex_input::BuffersDefinition,
-            viewport::ViewportState,
+            viewport::ViewportState, multisample::MultisampleState,
         },
         layout::PipelineLayoutCreateInfo,
         ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout, StateMode,
@@ -173,6 +173,10 @@ impl ParticleRenderPipeline {
             // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
             .fragment_shader(fs.entry_point("main").unwrap(), ())
             .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+            .multisample_state(MultisampleState {
+                rasterization_samples: subpass.num_samples().unwrap(),
+                ..Default::default()
+            })
             .depth_stencil_state(depth_stencil_state)
             .color_blend_state(blend_state)
             .render_pass(subpass)

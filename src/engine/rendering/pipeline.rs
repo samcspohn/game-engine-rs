@@ -18,6 +18,7 @@ use vulkano::{
         graphics::{
             depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
+            multisample::MultisampleState,
             rasterization::{CullMode, RasterizationState},
             vertex_input::{BuffersDefinition, Vertex},
             viewport::ViewportState,
@@ -90,6 +91,7 @@ impl RenderPipeline {
         mem: Arc<StandardMemoryAllocator>,
         command_allocator: &StandardCommandBufferAllocator,
     ) -> RenderPipeline {
+        let subpass = Subpass::from(render_pass, sub_pass_index).unwrap();
         let vs = vs::load(device.clone()).unwrap();
         let fs = fs::load(device.clone()).unwrap();
         let pipeline = GraphicsPipeline::start()
@@ -112,7 +114,11 @@ impl RenderPipeline {
             .fragment_shader(fs.entry_point("main").unwrap(), ())
             .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
             .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .render_pass(Subpass::from(render_pass, sub_pass_index).unwrap())
+            .multisample_state(MultisampleState {
+                rasterization_samples: subpass.num_samples().unwrap(),
+                ..Default::default()
+            })
+            .render_pass(subpass)
             .build(device.clone())
             .unwrap();
 

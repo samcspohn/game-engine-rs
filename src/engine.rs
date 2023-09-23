@@ -792,7 +792,9 @@ impl Engine {
             // return;
         }
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
+        let wait_for_render = self.perf.node("wait for render");
         let out_of_date = self.rendering_complete.recv().unwrap();
+        drop(wait_for_render);
         *recreate_swapchain |= _recreate_swapchain | out_of_date;
         if *recreate_swapchain {
             let dimensions: [u32; 2] = vk.window().inner_size().into();

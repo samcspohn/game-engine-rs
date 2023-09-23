@@ -25,6 +25,7 @@ game-engine:
   ☐ add object names
   ☐ macro for field inspection
   ☐ add LOD to particles
+  ✔ add antialiasing @done(23-09-23 11:28)
   ranndom freeze comes from editor_update in main_loop. terrain update
   rendering:
     ☐ add materials
