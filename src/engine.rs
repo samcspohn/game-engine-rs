@@ -368,7 +368,7 @@ impl Engine {
         // let _res = coms.1.send((input.clone(), false));
         let mut file_watcher = file_watcher::FileWatcher::new(".");
 
-        let mut cam_data = CameraData::new(vk.clone());
+        // let mut cam_data = CameraData::new(vk.clone(), 2);
         let (input_snd, input_rcv) = crossbeam::channel::bounded(1);
         // let final_render_pass = vulkano::single_pass_renderpass!(
         //     vk.device.clone(),
@@ -432,7 +432,7 @@ impl Engine {
             input: input_rcv,
             rendering_data: rendering_snd,
             rendering_complete: rendering_rcv2,
-            cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone()))),
+            cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone(), 4))),
             renderer: EngineRenderer {
                 viewport,
                 framebuffers,
@@ -527,6 +527,8 @@ impl Engine {
                 0.01f32,
                 10_000f32,
                 70f32,
+                false,
+                1,
             );
             vec![(Some(self.cam_data.clone()), Some(cvd))]
         };
@@ -858,8 +860,12 @@ impl Engine {
             *self.particles_system.cycle.get() = (*self.particles_system.cycle.get() + 1) % 3;
         }
         let _execute = self.perf.node("_ execute");
-        self.rendering_data
-            .send(Some((should_exit, image_num, acquire_future, command_buffer)));
+        self.rendering_data.send(Some((
+            should_exit,
+            image_num,
+            acquire_future,
+            command_buffer,
+        )));
         drop(_execute);
 
         self.update_editor_window = window_size.is_some();

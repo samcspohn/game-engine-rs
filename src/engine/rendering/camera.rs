@@ -57,8 +57,9 @@ pub struct CameraData {
     viewport: Viewport,
     framebuffer: Arc<Framebuffer>,
     pub render_textures_ids: Option<Vec<TextureId>>,
-    pub image: Arc<StorageImage>,
+    pub image: Arc<dyn ImageAccess>,
     samples: SampleCount,
+    vk: Arc<VulkanManager>,
     pub camera_view_data: std::collections::VecDeque<CameraViewData>,
 }
 #[derive(Clone, Default)]
@@ -130,12 +131,17 @@ pub struct CameraViewData {
 
 #[derive(ComponentID, Clone, Serialize, Deserialize)]
 #[repr(C)]
+#[serde(default)]
 pub struct Camera {
     #[serde(skip_serializing, skip_deserializing)]
     data: Option<Arc<Mutex<CameraData>>>,
     fov: f32,
     near: f32,
     far: f32,
+    use_msaa: bool,
+    samples: u32,
+    #[serde(skip_serializing, skip_deserializing)]
+    rebuild_renderpass: bool,
 }
 
 impl Default for Camera {
@@ -145,6 +151,9 @@ impl Default for Camera {
             fov: 60f32,
             near: 0.1f32,
             far: 100f32,
+            use_msaa: false,
+            samples: 1,
+            rebuild_renderpass: true,
         }
     }
 }
@@ -153,11 +162,51 @@ impl Inspectable for Camera {
         Ins(&mut self.fov).inspect("fov", ui, sys);
         Ins(&mut self.near).inspect("near", ui, sys);
         Ins(&mut self.far).inspect("far", ui, sys);
+        // Ins(&mut self.use_msaa).inspect("use msaa", ui, sys);
+        // if self.use_msaa {
+        ui.horizontal(|ui| {
+            ui.add(egui::Label::new("samples: "));
+            // ui.add(egui::DragValue::new(&mut self.samples).);
+            // if ui.add(egui::Button::new(format!("{}", self.samples))).clicked() {
+            ui.menu_button(format!("{}", self.samples), |ui| {
+                if ui.button("1").clicked() {
+                    self.samples = 1;
+                    self.rebuild_renderpass = true;
+                    ui.close_menu();
+                }
+                if ui.button("2").clicked() {
+                    self.samples = 2;
+                    self.rebuild_renderpass = true;
+                    ui.close_menu();
+                }
+                if ui.button("4").clicked() {
+                    self.samples = 4;
+                    self.rebuild_renderpass = true;
+                    ui.close_menu();
+                }
+                if ui.button("8").clicked() {
+                    self.samples = 8;
+                    self.rebuild_renderpass = true;
+                    ui.close_menu();
+                }
+                if ui.button("16").clicked() {
+                    self.samples = 16;
+                    self.rebuild_renderpass = true;
+                    ui.close_menu();
+                }
+            });
+            // }
+        });
+
+        // Ins(&mut self.samples).inspect("samples", ui, sys);
     }
 }
 impl Component for Camera {
     fn init(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
-        self.data = Some(Arc::new(Mutex::new(CameraData::new(sys.vk.clone()))));
+        self.data = Some(Arc::new(Mutex::new(CameraData::new(
+            sys.vk.clone(),
+            self.samples,
+        ))));
     }
 }
 impl Camera {
@@ -166,13 +215,17 @@ impl Camera {
     }
     pub fn _update(&mut self, transform: &Transform) -> Option<CameraViewData> {
         if let Some(cam_data) = &self.data {
-            Some(cam_data.lock().update(
+            let r = Some(cam_data.lock().update(
                 transform.get_position(),
                 transform.get_rotation(),
                 self.near,
                 self.far,
                 self.fov,
-            ))
+                self.rebuild_renderpass,
+                self.samples,
+            ));
+            self.rebuild_renderpass = false;
+            r
         } else {
             None
         }
@@ -186,7 +239,13 @@ impl CameraData {
         near: f32,
         far: f32,
         fov: f32,
+        rebuild_pipeline: bool,
+        num_samples: u32,
     ) -> CameraViewData {
+        if rebuild_pipeline {
+            *self = Self::new(self.vk.clone(), num_samples);
+        }
+
         let mut cvd = CameraViewData::default();
         cvd.cam_pos = pos;
         cvd.cam_rot = rot;
@@ -200,66 +259,118 @@ impl CameraData {
         cvd
         // self.camera_view_data.push_back(cvd);
     }
-    pub fn new(vk: Arc<VulkanManager>) -> Self {
-        let num_samples = crate::engine::utils::SETTINGS
-            .read()
-            .get::<u32>("SAMPLES")
-            .unwrap();
-        println!("num samples: {}", num_samples);
-        let num_samples = match num_samples {
-            _ => 2,
-            4 => 4,
-            8 => 8,
-            16 => 16,
-        };
+    pub fn new(vk: Arc<VulkanManager>, num_samples: u32) -> Self {
         let samples = match num_samples {
-            _ => SampleCount::Sample2,
+            2 => SampleCount::Sample2,
             4 => SampleCount::Sample4,
             8 => SampleCount::Sample8,
             16 => SampleCount::Sample16,
+            _ => SampleCount::Sample1,
         };
+        let use_msaa = num_samples != 1;
+        let render_pass = if use_msaa {
+            vulkano::single_pass_renderpass!(
+                vk.device.clone(),
+                attachments: {
+                    intermediary: {
+                        load: Clear,
+                        store: DontCare,
+                        format: Format::R8G8B8A8_UNORM,
+                        samples: num_samples,
+                    },
+                    depth: {
+                        load: Clear,
+                        store: DontCare,
+                        format: Format::D32_SFLOAT,
+                        samples: num_samples,
+                    },
+                    color: {
+                        load: DontCare,
+                        store: Store,
+                        format: Format::R8G8B8A8_UNORM,
+                        // Same here, this has to match.
+                        samples: 1,
+                    },
+                },
+                pass:
+                    { color: [intermediary], depth_stencil: {depth}, resolve: [color] }
+            )
+            .unwrap()
+        } else {
+            // vulkano::single_pass_renderpass!(
+            //     vk.device.clone(),
+            //     attachments: {
+            //         color: {
+            //             load: DontCare,
+            //             store: Store,
+            //             format: Format::R8G8B8A8_UNORM,
+            //             // Same here, this has to match.
+            //             samples: 1,
+            //         },
+            //         depth: {
+            //             load: Clear,
+            //             store: DontCare,
+            //             format: Format::D32_SFLOAT,
+            //             samples: 1,
+            //         },
+            //         // garbage: {
+            //         //     load: DontCare,
+            //         //     store: DontCare,
+            //         //     format: Format::R8_UNORM,
+            //         //     // Same here, this has to match.
+            //         //     samples: 1,
+            //         // }
+            //     },
+            //     pass:
+            //         { color: [color], depth_stencil: {depth}}
+            // )
+            // .unwrap()
 
-        let render_pass = vulkano::single_pass_renderpass!(
-            vk.device.clone(),
-            attachments: {
-                intermediary: {
-                    load: Clear,
-                    store: DontCare,
-                    format: Format::R8G8B8A8_UNORM,
-                    samples: num_samples,
+            vulkano::ordered_passes_renderpass!(
+                vk.device.clone(),
+                attachments: {
+                    color: {
+                        load: Clear,
+                        store: Store,
+                        format: Format::R8G8B8A8_UNORM,
+                        samples: 1,
+                    },
+                    depth: {
+                        load: Clear,
+                        store: DontCare,
+                        format: Format::D32_SFLOAT,
+                        samples: 1,
+                    }
                 },
-                depth: {
-                    load: Clear,
-                    store: DontCare,
-                    format: Format::D32_SFLOAT,
-                    samples: num_samples,
-                },
-                color: {
-                    load: DontCare,
-                    store: Store,
-                    format: Format::R8G8B8A8_UNORM,
-                    // Same here, this has to match.
-                    samples: 1,
-                },
-            },
-            pass:
-                { color: [intermediary], depth_stencil: {depth}, resolve: [color] }
-
-        )
-        .unwrap();
+                passes: [
+                    { color: [color], depth_stencil: {depth}, input: [] }
+                ]
+            )
+            .unwrap()
+        };
+        // let render_pass = ;
         let mut viewport = Viewport {
             origin: [0.0, 0.0],
             dimensions: [0.0, 0.0],
             depth_range: 0.0..1.0,
         };
 
-        let (framebuffer, image) = window_size_dependent_setup(
-            [1920, 1080],
-            render_pass.clone(),
-            &mut viewport,
-            vk.clone(),
-            samples,
-        );
+        let (framebuffer, image): (Arc<Framebuffer>, Arc<dyn ImageAccess>) = if use_msaa {
+            window_size_dependent_setup_msaa(
+                [1920, 1080],
+                render_pass.clone(),
+                &mut viewport,
+                vk.clone(),
+                samples,
+            )
+        } else {
+            window_size_dependent_setup(
+                [1024, 1024],
+                render_pass.clone(),
+                &mut viewport,
+                vk.clone(),
+            )
+        };
         // let subpass = Subpass::from(render_pass, 0).unwrap();
         let rend = RenderPipeline::new(
             vk.device.clone(),
@@ -269,11 +380,16 @@ impl CameraData {
             0,
             vk.mem_alloc.clone(),
             &vk.comm_alloc,
+            // use_msaa,
             // &subpass,
         );
         Self {
             rend,
-            particle_render_pipeline: ParticleRenderPipeline::new(vk, render_pass.clone()),
+            particle_render_pipeline: ParticleRenderPipeline::new(
+                vk.clone(),
+                render_pass.clone(),
+                // use_msaa,
+            ),
             _render_pass: render_pass,
             viewport,
             framebuffer,
@@ -281,17 +397,27 @@ impl CameraData {
             image,
             camera_view_data: VecDeque::new(), // swapchain,
             samples,
+            vk,
         }
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>) {
         if self.framebuffer.extent() != dimensions {
-            (self.framebuffer, self.image) = window_size_dependent_setup(
-                dimensions,
-                self._render_pass.clone(),
-                &mut self.viewport,
-                vk,
-                self.samples,
-            )
+            if self.samples == SampleCount::Sample1 {
+                (self.framebuffer, self.image) = window_size_dependent_setup(
+                    dimensions,
+                    self._render_pass.clone(),
+                    &mut self.viewport,
+                    vk,
+                )
+            } else {
+                (self.framebuffer, self.image) = window_size_dependent_setup_msaa(
+                    dimensions,
+                    self._render_pass.clone(),
+                    &mut self.viewport,
+                    vk,
+                    self.samples,
+                )
+            }
         }
     }
     pub fn render(
@@ -313,7 +439,7 @@ impl CameraData {
         assets: Arc<AssetsManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
         cvd: CameraViewData,
-    ) -> Option<Arc<StorageImage>> {
+    ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
         let model_manager: &ModelManager = __model_manager.as_any().downcast_ref().unwrap();
@@ -340,14 +466,6 @@ impl CameraData {
                     let u = rm.uniform.lock().allocate_sized().unwrap();
                     *u.write().unwrap() = data;
                     u
-                    // rm.uniform
-                    //     .from_data(ur::Data {
-                    //         num_jobs: rd.transforms_len,
-                    //         stage: 1,
-                    //         view: cvd.view.into(),
-                    //         // _dummy0: Default::default(),
-                    //     })
-                    //     .unwrap()
                 };
                 let update_renderers_set = {
                     puffin::profile_scope!("update renderers: stage 1: descriptor set");
@@ -398,6 +516,11 @@ impl CameraData {
             builder,
             &vk.desc_alloc,
         );
+        // let clear_values = if self.samples == SampleCount::Sample1 {
+        //     vec![Some(1f32.into()), Some([0.2, 0.25, 1., 1.].into()), None]
+        // } else {
+        //     vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into()), None]
+        // };
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
@@ -478,15 +601,14 @@ impl CameraData {
         Some(self.image.clone())
     }
 }
-
 /// This method is called once during initialization, then again whenever the window is resized
-fn window_size_dependent_setup(
+fn window_size_dependent_setup_msaa(
     dimensions: [u32; 2],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     vk: Arc<VulkanManager>,
     samples: SampleCount,
-) -> (Arc<Framebuffer>, Arc<StorageImage>) {
+) -> (Arc<Framebuffer>, Arc<dyn ImageAccess>) {
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
 
     let depth_buffer = ImageView::new_default(
@@ -522,26 +644,66 @@ fn window_size_dependent_setup(
     .unwrap();
     let view = ImageView::new_default(image.clone()).unwrap();
 
-    // let frame_buf = Framebuffer::new(
-    //     render_pass.clone(),
-    //     FramebufferCreateInfo {
-    //         attachments: vec![view, depth_buffer.clone()],
-    //         ..Default::default()
-    //     },
+    let frame_buf = if samples == SampleCount::Sample1 {
+        Framebuffer::new(
+            render_pass.clone(),
+            FramebufferCreateInfo {
+                attachments: vec![view, depth_buffer],
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    } else {
+        Framebuffer::new(
+            render_pass.clone(),
+            FramebufferCreateInfo {
+                attachments: vec![intermediary, depth_buffer, view],
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+
+    (frame_buf, image)
+}
+
+/// This method is called once during initialization, then again whenever the window is resized
+fn window_size_dependent_setup(
+    dimensions: [u32; 2],
+    render_pass: Arc<RenderPass>,
+    viewport: &mut Viewport,
+    vk: Arc<VulkanManager>,
+) -> (Arc<Framebuffer>, Arc<dyn ImageAccess>) {
+    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+    let depth_buffer = ImageView::new_default(
+        AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::D32_SFLOAT).unwrap(),
+    )
+    .unwrap();
+    // let garbage = ImageView::new_default(
+    //     AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::R8_UNORM).unwrap(),
     // )
     // .unwrap();
 
+    let image = AttachmentImage::with_usage(
+        &vk.mem_alloc,
+        dimensions,
+        Format::R8G8B8A8_UNORM,
+        ImageUsage::SAMPLED
+            | ImageUsage::STORAGE
+            | ImageUsage::COLOR_ATTACHMENT
+            | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
+    )
+    .unwrap();
+    let view = ImageView::new_default(image.clone()).unwrap();
     let frame_buf = Framebuffer::new(
         render_pass.clone(),
         FramebufferCreateInfo {
-            attachments: vec![intermediary, depth_buffer, view],
+            attachments: vec![view, depth_buffer.clone()],
             ..Default::default()
         },
     )
     .unwrap();
 
-    // })
-    // .collect::<Vec<_>>();
     (frame_buf, image)
     // (fb, images)
 }

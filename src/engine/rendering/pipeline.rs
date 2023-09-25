@@ -90,6 +90,7 @@ impl RenderPipeline {
         sub_pass_index: u32,
         mem: Arc<StandardMemoryAllocator>,
         command_allocator: &StandardCommandBufferAllocator,
+        // use_msaa: bool,
     ) -> RenderPipeline {
         let subpass = Subpass::from(render_pass, sub_pass_index).unwrap();
         let vs = vs::load(device.clone()).unwrap();
@@ -121,6 +122,15 @@ impl RenderPipeline {
             .render_pass(subpass)
             .build(device.clone())
             .unwrap();
+        // let pipeline = if use_msaa {
+        //     pipeline.multisample_state(MultisampleState {
+        //         rasterization_samples: subpass.num_samples().unwrap(),
+        //         ..Default::default()
+        //     })
+        // } else {
+        //     pipeline
+        // };
+        // let pipeline = pipeline
 
         let mut builder = AutoCommandBufferBuilder::primary(
             command_allocator,
