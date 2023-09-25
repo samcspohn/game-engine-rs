@@ -69,35 +69,35 @@ impl Component for Renderer {
         } else {
             let mut vec = Vec::new();
 
-            let ind_id = sys
-                .get_model_manager()
-                .lock()
-                .as_any()
-                .downcast_ref::<ModelManager>()
-                .unwrap()
-                .assets_id
-                .get(&self.model_id.id)
-                .unwrap()
-                .lock()
-                .meshes
-                .iter()
-                .map(|mesh| {
-                    let id = rm
-                        .shr_data
-                        .write()
-                        .indirect
-                        .emplace(DrawIndexedIndirectCommand {
-                            index_count: mesh.indeces.len() as u32,
-                            instance_count: 0,
-                            first_index: 0,
-                            vertex_offset: 0,
-                            first_instance: 0,
-                        });
-                    vec.push(Indirect { id, count: 1 });
-                    rm.indirect_model.write().insert(id, self.model_id.id);
-                    id
-                })
-                .collect();
+            let ind_id = unsafe {
+                sys.get_model_manager()
+                    .lock()
+                    .as_any()
+                    .downcast_ref_unchecked::<ModelManager>()
+            }
+            .assets_id
+            .get(&self.model_id.id)
+            .unwrap()
+            .lock()
+            .meshes
+            .iter()
+            .map(|mesh| {
+                let id = rm
+                    .shr_data
+                    .write()
+                    .indirect
+                    .emplace(DrawIndexedIndirectCommand {
+                        index_count: mesh.indeces.len() as u32,
+                        instance_count: 0,
+                        first_index: 0,
+                        vertex_offset: 0,
+                        first_instance: 0,
+                    });
+                vec.push(Indirect { id, count: 1 });
+                rm.indirect_model.write().insert(id, self.model_id.id);
+                id
+            })
+            .collect();
             model_indirect.insert(self.model_id.id, vec);
             ind_id
         };

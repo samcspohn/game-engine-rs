@@ -250,9 +250,9 @@ impl CameraData {
         cvd.cam_pos = pos;
         cvd.cam_rot = rot;
         let rot = glm::quat_to_mat3(&cvd.cam_rot);
-        let target = cvd.cam_pos + rot * Vec3::z();
+        let target = cvd.cam_pos + rot * -Vec3::z();
         let up = rot * Vec3::y();
-        cvd.inv_rot = glm::look_at_lh(&glm::vec3(0., 0., 0.), &(rot * Vec3::z()), &up);
+        cvd.inv_rot = glm::look_at_lh(&glm::vec3(0., 0., 0.), &(rot * -Vec3::z()), &up);
         cvd.view = glm::look_at_lh(&cvd.cam_pos, &target, &up);
         let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
         cvd.proj = glm::perspective(aspect_ratio, radians(&vec1(fov)).x, near, far);

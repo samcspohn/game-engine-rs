@@ -1,4 +1,4 @@
-use egui::{Color32, Context, Rounding, Ui, Layout, Pos2, ScrollArea};
+use egui::{Color32, Context, Rounding, Ui, Layout, Pos2, ScrollArea, Sense, Rect};
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -42,7 +42,7 @@ struct TabViewer<'a> {
     // goi: &'a GameObjectInspector<'b>,
     inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
     assets_manager: Arc<AssetsManager>,
-    func: Box<dyn Fn(&str, &mut egui::Ui, &mut World, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<AssetsManager>)>,
+    func: Box<dyn Fn(&str, &mut egui::Ui, &mut World, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<AssetsManager>, Rect, egui::Id)>,
 }
 pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_> {
@@ -51,7 +51,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         if tab != "Game" {
             // ui.label(format!("Content of {tab}"));
-            (self.func)(tab, ui, self.world, self.fps, self.inspectable, self.assets_manager.clone());
+            (self.func)(tab, ui, self.world, self.fps, self.inspectable, self.assets_manager.clone(), ui.max_rect(), ui.id());
         } else {
             ui.horizontal_top(|ui| {
                 if unsafe {PLAYING_GAME} {
@@ -123,7 +123,7 @@ pub fn editor_ui(
             DockArea::new(&mut DOCK)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
                 .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut INSPECTABLE, assets_manager, func:
-                    Box::new(|tab, ui, world: &mut World, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>| {
+                    Box::new(|tab, ui, world: &mut World, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>, rec: Rect, id: egui::Id| {
                         let assets_manager = assets_manager;
                         match tab {
                             "Hierarchy" => {
@@ -131,7 +131,36 @@ pub fn editor_ui(
                                 // let resp = {
                                     // let _w = &world;
                                     // let mut world = world.lock();
-                                    let resp = ui.scope(|ui| {
+                                    // egui::ScrollArea::both().auto_shrink([false;false]).
+                                    let resp = ui.interact(rec, id, Sense::click());
+                                    // println!("clickable {}:", resp.response.sense.click);
+                                    // println!("clicked: {}", resp.response.clicked_by(egui::PointerButton::Secondary));
+                                    resp.context_menu(|ui: &mut Ui| {
+                                        // println!("here");
+                                        let resp = ui.menu_button("Add Game Object", |_ui| {});
+                                        if resp.response.clicked() {
+                                            let e = world.create();
+                                            unsafe {
+                                                _selected = Some(e);
+                                                _SELECTED_TRANSFORMS.clear();
+                                                _SELECTED_TRANSFORMS.insert(e, true);
+                                            }
+                                            println!("add game object");
+                                            ui.close_menu();
+                                        }
+                                        if ui.menu_button("Save", |_ui| {}).response.clicked() {
+                                            serialize::serialize(world);
+                                            assets_manager.serialize();
+                                            ui.close_menu();
+                                        }
+                                        if ui.menu_button("Load", |_ui| {}).response.clicked() {
+                                            serialize::deserialize(world);
+                                            ui.close_menu();
+                                        }
+                                    });
+
+                                    let mut clicked = false;
+                                    let mut resp = ui.scope(|ui| {
 
                                     let transforms = &mut world.transforms;
 
@@ -328,7 +357,7 @@ pub fn editor_ui(
                                         let mut count = 0;
 
                                         // unsafe {
-                                            egui::ScrollArea::both()
+                                        let widg = egui::ScrollArea::both()
                                                 .auto_shrink([false, false])
                                                 .show(ui, |ui| {
                                                     transform_hierarchy_ui(
@@ -341,6 +370,7 @@ pub fn editor_ui(
                                                     );
                                                 });
                                         // }
+                                        widg
                                     };
 
                                     // windows
@@ -369,7 +399,8 @@ pub fn editor_ui(
                                         }
                                     }
                                 });
-                                    // resp
+                                // resp.response.sense.click = true;
+                                    // ui.add(resp).sense(Sense::click())
                                 // };
                                 if let Some(cm) = &CONTEXT_MENU {
                                     let e = match cm {
@@ -403,28 +434,7 @@ pub fn editor_ui(
                                         // }
                                     }
                                 }
-                                resp.response.context_menu(|ui: &mut Ui| {
-                                    let resp = ui.menu_button("Add Game Object", |_ui| {});
-                                    if resp.response.clicked() {
-                                        let e = world.create();
-                                        unsafe {
-                                            _selected = Some(e);
-                                            _SELECTED_TRANSFORMS.clear();
-                                            _SELECTED_TRANSFORMS.insert(e, true);
-                                        }
-                                        println!("add game object");
-                                        ui.close_menu();
-                                    }
-                                    if ui.menu_button("Save", |_ui| {}).response.clicked() {
-                                        serialize::serialize(world);
-                                        assets_manager.serialize();
-                                        ui.close_menu();
-                                    }
-                                    if ui.menu_button("Load", |_ui| {}).response.clicked() {
-                                        serialize::deserialize(world);
-                                        ui.close_menu();
-                                    }
-                                });
+
                             },
                             "Inspector" => {
                                 
