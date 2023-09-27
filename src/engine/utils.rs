@@ -1,4 +1,4 @@
-use std::{sync::Arc, path::Path};
+use std::{path::Path, sync::Arc};
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
@@ -85,17 +85,7 @@ fn mat3_quat(m: &Mat3) -> Quat {
     return q;
 }
 use nalgebra_glm as glm;
-pub fn look_at(look_at: &Vec3, up: &Vec3) -> Quat {
-    // #define m00 right.x
-    // #define m01 up.x
-    // #define m02 forward.x
-    // #define m10 right.y
-    // #define m11 up.y
-    // #define m12 forward.y
-    // #define m20 right.z
-    // #define m21 up.z
-    // #define m22 forward.z
-
+pub fn look_at_mat3(look_at: &Vec3, up: &Vec3) -> Mat3 {
     let mut forward = look_at.clone();
     forward = glm::normalize(&forward);
     let right = glm::normalize(&glm::cross(&up, &forward));
@@ -108,5 +98,8 @@ pub fn look_at(look_at: &Vec3, up: &Vec3) -> Quat {
     m = glm::transpose(&m);
     // mat3 m = {{right.x,up.x,forward.x},{right.y,up.y,forward.y},{right.z,up.z,forward.z}};
     // transpose(m);
-    return mat3_quat(&m);
+    m
+}
+pub fn look_at(look_at: &Vec3, up: &Vec3) -> Quat {
+    return mat3_quat(&look_at_mat3(look_at, up));
 }

@@ -13,5 +13,5 @@ void main() {
     // vec3 dark_color = vec3(0.6, 0.0, 0.0);
     // vec3 regular_color = vec3(1.0, 0.0, 0.0);
 
-    f_color = texture(tex, coords) * brightness;//min(brightness + 0.8, 1.0);
+    f_color = texture(tex, coords) * (brightness + 0.1);//min(brightness + 0.8, 1.0);
 }

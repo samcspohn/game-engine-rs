@@ -36,4 +36,6 @@ void main() {
     v_normal = mat3(mvp[ids[id]].m) * normal;
     // mat4 mvp = mvp[id];
     gl_Position = mvp[ids[id]].mvp * vec4(position, 1.0);
+    // gl_Position.z *= -1;
+    // gl_Position.y *= -1;
 }

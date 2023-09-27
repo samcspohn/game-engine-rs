@@ -157,6 +157,61 @@ impl Default for Camera {
         }
     }
 }
+
+fn set_view_direction(position: glm::Vec3, direction: glm::Vec3, up: glm::Vec3) -> Mat4 {
+    let w = glm::normalize(&direction);
+    let u = glm::normalize(&glm::cross(&w, &up));
+    let v = glm::cross(&w, &u);
+
+    let mut viewMatrix = glm::Mat4::zeros();
+    viewMatrix.column_mut(0)[0] = u.x;
+    viewMatrix.column_mut(1)[0] = u.y;
+    viewMatrix.column_mut(2)[0] = u.z;
+    viewMatrix.column_mut(3)[0] = 1.;
+    viewMatrix.column_mut(0)[1] = v.x;
+    viewMatrix.column_mut(1)[1] = v.y;
+    viewMatrix.column_mut(2)[1] = v.z;
+    viewMatrix.column_mut(3)[1] = 1.;
+    viewMatrix.column_mut(0)[2] = w.x;
+    viewMatrix.column_mut(1)[2] = w.y;
+    viewMatrix.column_mut(2)[2] = w.z;
+    viewMatrix.column_mut(3)[2] = 1.;
+    viewMatrix.column_mut(3)[0] = -glm::dot(&u, &position);
+    viewMatrix.column_mut(3)[1] = -glm::dot(&v, &position);
+    viewMatrix.column_mut(3)[2] = -glm::dot(&w, &position);
+    viewMatrix.column_mut(3)[3] = 1.;
+    viewMatrix
+}
+
+//   void LveCamera::setViewTarget(glm::vec3 position, glm::vec3 target, glm::vec3 up) {
+//     setViewDirection(position, target - position, up);
+//   }
+
+//   void LveCamera::setViewYXZ(glm::vec3 position, glm::vec3 rotation) {
+//     const float c3 = glm::cos(rotation.z);
+//     const float s3 = glm::sin(rotation.z);
+//     const float c2 = glm::cos(rotation.x);
+//     const float s2 = glm::sin(rotation.x);
+//     const float c1 = glm::cos(rotation.y);
+//     const float s1 = glm::sin(rotation.y);
+//     const glm::vec3 u{(c1 * c3 + s1 * s2 * s3), (c2 * s3), (c1 * s2 * s3 - c3 * s1)};
+//     const glm::vec3 v{(c3 * s1 * s2 - c1 * s3), (c2 * c3), (c1 * c3 * s2 + s1 * s3)};
+//     const glm::vec3 w{(c2 * s1), (-s2), (c1 * c2)};
+//     viewMatrix = glm::mat4{1.f};
+//     viewMatrix[0][0] = u.x;
+//     viewMatrix[1][0] = u.y;
+//     viewMatrix[2][0] = u.z;
+//     viewMatrix[0][1] = v.x;
+//     viewMatrix[1][1] = v.y;
+//     viewMatrix[2][1] = v.z;
+//     viewMatrix[0][2] = w.x;
+//     viewMatrix[1][2] = w.y;
+//     viewMatrix[2][2] = w.z;
+//     viewMatrix[3][0] = -glm::dot(u, position);
+//     viewMatrix[3][1] = -glm::dot(v, position);
+//     viewMatrix[3][2] = -glm::dot(w, position);
+//   }
+
 impl Inspectable for Camera {
     fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         Ins(&mut self.fov).inspect("fov", ui, sys);
@@ -250,12 +305,16 @@ impl CameraData {
         cvd.cam_pos = pos;
         cvd.cam_rot = rot;
         let rot = glm::quat_to_mat3(&cvd.cam_rot);
-        let target = cvd.cam_pos + rot * -Vec3::z();
+        let target = cvd.cam_pos + rot * Vec3::z();
         let up = rot * Vec3::y();
-        cvd.inv_rot = glm::look_at_lh(&glm::vec3(0., 0., 0.), &(rot * -Vec3::z()), &up);
-        cvd.view = glm::look_at_lh(&cvd.cam_pos, &target, &up);
+        // cvd.inv_rot = glm::inverse(&glm::quat_to_mat4(&rot));
+        cvd.inv_rot = glm::look_at_rh(&glm::vec3(0., 0., 0.), &(rot * Vec3::z()), &up);
+        // cvd.view = glm::quat_to_mat4(&glm::quat_conjugate(&rot)) * glm::translate(&glm::identity(), &-pos);
+        cvd.view = glm::look_at_rh(&cvd.cam_pos, &target, &up);
+        // cvd.view = set_view_direction(pos, rot * -Vec3::z(), Vec3::y());
         let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
         cvd.proj = glm::perspective(aspect_ratio, radians(&vec1(fov)).x, near, far);
+        // cvd.proj.column_mut(1)[1] *= -1.;
         cvd
         // self.camera_view_data.push_back(cvd);
     }
@@ -609,8 +668,8 @@ fn window_size_dependent_setup_msaa(
     vk: Arc<VulkanManager>,
     samples: SampleCount,
 ) -> (Arc<Framebuffer>, Arc<dyn ImageAccess>) {
-    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-
+    viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
+    viewport.origin[1] = -viewport.dimensions[1];
     let depth_buffer = ImageView::new_default(
         AttachmentImage::transient_multisampled(
             &vk.mem_alloc,
@@ -674,7 +733,8 @@ fn window_size_dependent_setup(
     viewport: &mut Viewport,
     vk: Arc<VulkanManager>,
 ) -> (Arc<Framebuffer>, Arc<dyn ImageAccess>) {
-    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+    viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
+    viewport.origin[1] = -viewport.dimensions[1];
     let depth_buffer = ImageView::new_default(
         AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::D32_SFLOAT).unwrap(),
     )

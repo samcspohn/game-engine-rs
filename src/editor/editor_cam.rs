@@ -26,27 +26,27 @@ impl EditorCam {
 
             // forward/backward
             if input.get_key(&VirtualKeyCode::W) {
-                self.pos += (glm::quat_to_mat4(&self.rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
+                self.pos += glm::quat_to_mat3(&self.rot) * Vec3::z() * speed;
             }
             if input.get_key(&VirtualKeyCode::S) {
                 self.pos +=
-                    (glm::quat_to_mat4(&self.rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
+                glm::quat_to_mat3(&self.rot) * Vec3::z() * -speed;
             }
             //left/right
             if input.get_key(&VirtualKeyCode::A) {
-                self.pos += (glm::quat_to_mat4(&self.rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * speed;
+                self.pos += glm::quat_to_mat3(&self.rot) * Vec3::x() * -speed;
             }
             if input.get_key(&VirtualKeyCode::D) {
                 self.pos +=
-                    (glm::quat_to_mat4(&self.rot) * vec4(1.0, 0.0, 0.0, 1.0)).xyz() * -speed;
+                glm::quat_to_mat3(&self.rot) * Vec3::x() * speed;
             }
             // up/down
             if input.get_key(&VirtualKeyCode::Space) {
                 self.pos +=
-                    (glm::quat_to_mat4(&self.rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * -speed;
+                glm::quat_to_mat3(&self.rot) * Vec3::y() * speed;
             }
             if input.get_key(&VirtualKeyCode::LShift) {
-                self.pos += (glm::quat_to_mat4(&self.rot) * vec4(0.0, 1.0, 0.0, 1.0)).xyz() * speed;
+                self.pos += glm::quat_to_mat3(&self.rot) * Vec3::y() * -speed;
             }
 
             // if input.get_mouse_button(&2) {
@@ -57,7 +57,7 @@ impl EditorCam {
             );
             self.rot = glm::quat_rotate(
                 &self.rot,
-                input.get_mouse_delta().1 as f32 * -0.01,
+                input.get_mouse_delta().1 as f32 * 0.01,
                 &Vec3::x(),
             );
             // }

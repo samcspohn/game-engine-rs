@@ -23,6 +23,7 @@ use egui_winit_vulkano::Gui;
 use egui_winit_vulkano::GuiConfig;
 use force_send_sync::SendSync;
 use glm::Vec3;
+use glm::vec3;
 use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
@@ -90,6 +91,7 @@ use crate::engine::particles::component::ParticleEmitter;
 use crate::engine::particles::shaders::scs::l;
 use crate::engine::project::asset_manager::AssetManagerBase;
 use crate::engine::rendering::model::ModelManager;
+use crate::engine::utils::look_at;
 
 use self::input::Input;
 use self::particles::particles::ParticleCompute;
@@ -308,14 +310,6 @@ impl Engine {
             depth_range: 0.0..1.0,
         };
 
-        // let mut framebuffers =
-        //     window_size_dependent_setup(&vk.images, render_pass.clone(), &mut viewport);
-        // let mut recreate_swapchain = false;
-
-        // let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-
-        // let mut modifiers = ModifiersState::default();
-
         //////////////////////////////////////////////////
 
         let mut input = Input {
@@ -330,17 +324,6 @@ impl Engine {
 
         let mut fps_queue: VecDeque<f32> = std::collections::VecDeque::new();
 
-        // let mut focused = true;
-
-        // puffin::set_scopes_on(true);
-
-        // let _cull_view = glm::Mat4::identity();
-        // let mut lock_cull = false;
-        // let mut first_frame = true;
-
-        /////////////////////////////////////////////////////////////////////////////////////////
-        // let (tx, rx): (Sender<_>, Receiver<_>) = crossbeam::channel::bounded(1);
-        // let (rtx, rrx): (Sender<_>, Receiver<_>) = crossbeam::channel::bounded(1);
         let running = Arc::new(AtomicBool::new(true));
 
         // let coms = (rrx, tx);
@@ -358,31 +341,10 @@ impl Engine {
             let rm = w.sys.renderer_manager.read();
             rm.shr_data.clone()
         };
-
-        // let game_thread = Arc::new({
-        //     let _running = running.clone();
-        //     let world = world.clone();
-        //     thread::spawn(move || main_loop(world.clone(), (rtx, rx), _running))
-        // });
-
-        // let _res = coms.1.send((input.clone(), false));
         let mut file_watcher = file_watcher::FileWatcher::new(".");
 
         // let mut cam_data = CameraData::new(vk.clone(), 2);
         let (input_snd, input_rcv) = crossbeam::channel::bounded(1);
-        // let final_render_pass = vulkano::single_pass_renderpass!(
-        //     vk.device.clone(),
-        //     attachments: {
-        //         final_color: {
-        //             load: Clear,
-        //             store: Store,
-        //             format: vk.swapchain().image_format(),
-        //             samples: 1,
-        //         }
-        //     },
-        //     pass: { color: [final_color], depth_stencil: {}} // Create a second renderpass to draw egui
-        // )
-        // .unwrap();
         let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
             &event_loop,
             vk.surface.clone(),
@@ -419,7 +381,7 @@ impl Engine {
         let mut recreate_swapchain = true;
         let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
         let mut editor_window_image: Option<Arc<dyn ImageAccess>> = None;
-
+        println!("default quat: {}", glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()).coords);
         Self {
             world,
             assets_manager,
@@ -432,7 +394,7 @@ impl Engine {
             input: input_rcv,
             rendering_data: rendering_snd,
             rendering_complete: rendering_rcv2,
-            cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone(), 4))),
+            cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone(), 1))),
             renderer: EngineRenderer {
                 viewport,
                 framebuffers,
@@ -442,8 +404,8 @@ impl Engine {
             },
             vk,
             editor_cam: editor::editor_cam::EditorCam {
-                rot: glm::quat(-1., 0., 0., 0.),
-                pos: Vec3::default(),
+                rot: glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()),
+                pos: Vec3::zeros(),
                 speed: 30f32,
             },
             time: Time::default(),

@@ -53,7 +53,7 @@ impl Default for _Transform {
     fn default() -> Self {
         _Transform {
             position: glm::vec3(0., 0., 0.),
-            rotation: glm::quat(1.0, 0.0, 0.0, 0.0),
+            rotation: glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()),
             scale: glm::vec3(1.0, 1.0, 1.0),
         }
     }
@@ -428,7 +428,7 @@ impl Transforms {
             self.positions
                 .resize_with(c, || SyncUnsafeCell::new([0., 0., 0.].into()));
             self.rotations
-                .resize_with(c, || SyncUnsafeCell::new([1., 0., 0., 0.].into()));
+                .resize_with(c, || SyncUnsafeCell::new(glm::quat_look_at_lh(&Vec3::z(), &Vec3::y())));
             self.scales
                 .resize_with(c, || SyncUnsafeCell::new([1., 1., 1.].into()));
             self.meta
@@ -737,34 +737,34 @@ impl Transforms {
         self.u_rot(t);
         let pos = self.get_position(t);
         let mut ax = glm::quat_to_mat3(&rot) * axis;
-        ax.x = -ax.x;
-        ax.y = -ax.y;
+        // ax.x = -ax.x;
+        // ax.y = -ax.y;
         for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
             let child = self.get(*child_id).unwrap();
-            self.rotate_child(&child, &ax, &pos, &rot, radians);
+            self.rotate_child(&child, &ax, &pos, radians);
         }
     }
 
-    fn rotate_child(&self, t: &Transform, axis: &Vec3, pos: &Vec3, r: &Quat, radians: f32) {
+    fn rotate_child(&self, t: &Transform, ax: &Vec3, pos: &Vec3, radians: f32) {
         // let ax = glm::quat_to_mat3(&r) * axis;
         // let ax = quat_x_vec(&r, axis);
         // let _ax = glm::inverse(&glm::quat_to_mat3(&r)) * axis;
-        let mut ax = *axis;
-        ax.x = -ax.x;
-        ax.y = -ax.y;
+        // let mut ax = *axis;
+        // ax.x = -ax.x;
+        // ax.y = -ax.y;
         self.u_rot(t.id);
         self.u_pos(t.id);
         let rot = unsafe { &mut *self.rotations[t.id as usize].get() };
         let p = unsafe { &mut *self.positions[t.id as usize].get() };
 
-        *p = pos + glm::rotate_vec3(&(*p - pos), radians, axis);
+        *p = pos + glm::rotate_vec3(&(*p - pos), radians, ax);
         *rot = glm::quat_rotate(
-            &*rot,
+            rot,
             radians,
             &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * ax),
         );
         for child in t.get_children() {
-            self.rotate_child(&child, axis, pos, r, radians);
+            self.rotate_child(&child, ax, pos, radians);
         }
     }
 
@@ -861,7 +861,7 @@ impl Transforms {
                         }
                         if u[ROT_U] {
                             let r = &*r[i].get();
-                            (*rot.get())[i] = [r.w, r.k, r.j, r.i];
+                            (*rot.get())[i] = r.coords.into();
                             rot_mask |= 1 << bit;
                             // (*rot_i.get())[i] = 1;
                             // r_ids.push(i as i32);
