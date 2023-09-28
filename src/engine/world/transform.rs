@@ -14,6 +14,7 @@ use vulkano::buffer::Subbuffer;
 // use spin::{Mutex,RwLock};
 use num_integer::Roots;
 
+use crate::engine::world::nalgebra::Isometry3;
 use serde::{Deserialize, Serialize};
 use std::{
     cell::SyncUnsafeCell,
@@ -94,8 +95,11 @@ impl<'a> Transform<'a> {
     pub fn get_rotation(&self) -> Quat {
         self.transforms.get_rotation(self.id)
     }
-    pub fn set_rotation(&self, r: Quat) {
+    pub fn set_rotation(&self, r: &Quat) {
         self.transforms.set_rotation(self.id, r);
+    }
+    pub fn look_at(&self, direction: &Vec3, up: &Vec3) {
+        self.transforms.look_at(self.id, direction, up);
     }
     pub fn get_scale(&self) -> Vec3 {
         self.transforms.get_scale(self.id)
@@ -284,6 +288,9 @@ impl Transforms {
     pub fn len(&self) -> usize {
         self.meta.len()
     }
+    pub fn extent(&self) -> i32 {
+        self.extent
+    }
     pub fn get<'a>(&self, t: i32) -> Option<Transform> {
         // TODO: make option
         if unsafe { *self.valid[t as usize].get() } {
@@ -427,8 +434,9 @@ impl Transforms {
                 .resize_with(c, || SyncUnsafeCell::new(Mutex::new(())));
             self.positions
                 .resize_with(c, || SyncUnsafeCell::new([0., 0., 0.].into()));
-            self.rotations
-                .resize_with(c, || SyncUnsafeCell::new(glm::quat_look_at_lh(&Vec3::z(), &Vec3::y())));
+            self.rotations.resize_with(c, || {
+                SyncUnsafeCell::new(glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()))
+            });
             self.scales
                 .resize_with(c, || SyncUnsafeCell::new([1., 1., 1.].into()));
             self.meta
@@ -675,11 +683,24 @@ impl Transforms {
     fn get_rotation(&self, t: i32) -> Quat {
         unsafe { *self.rotations[t as usize].get() }
     }
-    fn set_rotation(&self, t: i32, r: Quat) {
+    fn look_at(&self, t: i32, dir: &Vec3, up: &Vec3) {
+        let rot = Isometry3::face_towards(&[0., 0., 0.].into(), &[dir.x, dir.y, dir.z].into(), up);
+        self.set_rotation(t, &rot.rotation.coords.into());
+        // self.u_rot(t);
+        // let r_l = unsafe { &mut *self.rotations[t as usize].get() };
+        // let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l)); //glm::inverse(&glm::quat_to_mat3(&*r_l));
+        // *r_l = r;
+        // let pos = unsafe { *self.positions[t as usize].get() };
+        // for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
+        //     let child = self.get(*child_id).unwrap();
+        //     self.set_rotation_child(&child, &rot, &pos)
+        // }
+    }
+    fn set_rotation(&self, t: i32, r: &Quat) {
         self.u_rot(t);
         let r_l = unsafe { &mut *self.rotations[t as usize].get() };
         let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l)); //glm::inverse(&glm::quat_to_mat3(&*r_l));
-        *r_l = r;
+        *r_l = *r;
         let pos = unsafe { *self.positions[t as usize].get() };
         for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
             let child = self.get(*child_id).unwrap();

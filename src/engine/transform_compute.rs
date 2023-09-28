@@ -42,16 +42,9 @@ pub mod cs {
 }
 
 pub struct TransformCompute {
-    // TODO: replace cache with subbufferallocator
     pub gpu_transforms: Subbuffer<[transform]>,
     pub(crate) update_data_alloc: Mutex<Vec<SubbufferAllocator>>,
     pub cycle: usize,
-    // pub position_cache: Vec<Subbuffer<[[f32; 4]]>>,
-    // pub position_id_cache: Vec<Subbuffer<[i32]>>,
-    // pub rotation_cache: Vec<Subbuffer<[[f32; 4]]>>,
-    // pub rotation_id_cache: Vec<Subbuffer<[i32]>>,
-    // pub scale_cache: Vec<Subbuffer<[[f32; 4]]>>,
-    // pub scale_id_cache: Vec<Subbuffer<[i32]>>,
     pub mvp: Subbuffer<[MVP]>,
     pub(crate) vk: Arc<VulkanManager>,
     // update_count: (Option<u32>, Option<u32>, Option<u32>),
@@ -80,32 +73,12 @@ impl TransformCompute {
             gpu_transforms,
             mvp,
             update_data_alloc: Mutex::new(
-                (0..3)
+                (0..2)
                     .into_iter()
                     .map(|_| vk.sub_buffer_allocator_with_usage(BufferUsage::STORAGE_BUFFER))
                     .collect(),
             ),
             cycle: 0,
-            // position_cache: (0..num_images)
-            //     .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
-            //     .collect(),
-            // position_id_cache: (0..num_images)
-            //     .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
-            //     .collect(),
-            // // rotation
-            // rotation_cache: (0..num_images)
-            //     .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
-            //     .collect(),
-            // rotation_id_cache: (0..num_images)
-            //     .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
-            //     .collect(),
-            // // scale
-            // scale_cache: (0..num_images)
-            //     .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
-            //     .collect(),
-            // scale_id_cache: (0..num_images)
-            //     .map(|_| vk.buffer_array(1, MemoryUsage::Upload))
-            //     .collect(),
             update_data: (None, None, None),
             uniforms: Mutex::new(vk.sub_buffer_allocator()),
             compute: vulkano::pipeline::ComputePipeline::new(
@@ -124,171 +97,31 @@ impl TransformCompute {
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    // fn __get_update_data<T: Copy + Send + Sync>(
-    //     &mut self,
-    //     ids: &Vec<CacheVec<i32>>,
-    //     data: &Vec<CacheVec<T>>,
-    //     // ids_buf: &mut Vec<Subbuffer<[i32]>>,
-    //     // data_buf: &mut Vec<Subbuffer<[T]>>,
-    //     vk: Arc<VulkanManager>,
-    //     image_num: u32,
-    // ) -> Option<(Subbuffer<[i32]>, Subbuffer<[T]>)>
-    // where
-    //     [T]: BufferContents,
-    // {
-    //     let transform_ids_len_pos: u64 = ids.iter().map(|x| x.len() as u64).sum();
-
-    //     if transform_ids_len_pos == 0 {
-    //         return None;
-    //     }
-
-    //     puffin::profile_scope!("transform_ids_buffer");
-    //     unsafe {
-    //         // let ids_buf: Subbuffer<[i32]> = self
-    //         //     .update_data_alloc
-    //         //     .get_mut()
-    //         //     .allocate_unsized(transform_ids_len_pos)
-    //         //     .unwrap();
-    //         // let mut offset = 0;
-    //         // {
-    //         //     let mut u_w = ids_buf.write().unwrap();
-    //         //     for i in ids {
-    //         //         let m_slice = &mut u_w[offset..offset + i.len()];
-    //         //         m_slice.copy_from_slice((*i.v.get()).as_slice());
-    //         //         offset += i.len();
-    //         //     }
-    //         // }
-    //         // let data_buf: Subbuffer<[T]> = self
-    //         //     .update_data_alloc
-    //         //     .get_mut()
-    //         //     .allocate_unsized(transform_ids_len_pos)
-    //         //     .unwrap();
-    //         // let mut offset = 0;
-    //         // {
-    //         //     let mut u_w = data_buf.write().unwrap();
-    //         //     for i in data {
-    //         //         let m_slice = &mut u_w[offset..offset + i.len()];
-    //         //         m_slice.copy_from_slice((*i.v.get()).as_slice());
-    //         //         offset += i.len();
-    //         //     }
-    //         // }
-
-    //         let ids_buf: Subbuffer<[i32]> = self.update_data_alloc.get_mut()[self.cycle]
-    //             .allocate_unsized(transform_ids_len_pos)
-    //             .unwrap();
-    //         let mut offset = 0;
-    //         {
-    //             let mut u_w = SyncUnsafeCell::new(ids_buf.write().unwrap());
-    //             rayon::scope(|s| {
-    //                 for i in ids {
-    //                     let offs = offset;
-    //                     let u_w = &u_w;
-    //                     s.spawn(move |s| {
-    //                         let m_slice = &mut (*u_w.get())[offs..offs + i.len()];
-    //                         m_slice.copy_from_slice((*i.v.get()).as_slice());
-    //                     });
-    //                     offset += i.len();
-    //                 }
-    //             });
-    //         }
-    //         let data_buf: Subbuffer<[T]> = self.update_data_alloc.get_mut()[self.cycle]
-    //             .allocate_unsized(transform_ids_len_pos)
-    //             .unwrap();
-    //         let mut offset = 0;
-    //         {
-    //             let mut u_w = SyncUnsafeCell::new(data_buf.write().unwrap());
-    //             rayon::scope(|s| {
-    //                 for i in data {
-    //                     let offs = offset;
-    //                     let u_w = &u_w;
-    //                     s.spawn(move |s| {
-    //                         let m_slice = &mut (*u_w.get())[offs..offs + i.len()];
-    //                         m_slice.copy_from_slice((*i.v.get()).as_slice());
-    //                     });
-    //                     offset += i.len();
-    //                 }
-    //             });
-    //         }
-    //         self.cycle = (self.cycle + 1) % 2;
-    //         Some((ids_buf, data_buf))
-    //     }
-    // }
-
-    // fn get_position_update_data(
-    //     &mut self,
-    //     transform_data: &TransformData,
-    //     image_num: u32,
-    //     mem: Arc<StandardMemoryAllocator>,
-    // ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
-    //     self.__get_update_data(
-    //         &transform_data.pos_id,
-    //         &transform_data.pos_data,
-    //         // &mut self.position_id_cache,
-    //         // &mut self.position_cache,
-    //         self.vk.clone(),
-    //         image_num,
-    //     )
-    // }
-    // fn get_rotation_update_data(
-    //     &mut self,
-    //     transform_data: &TransformData,
-    //     image_num: u32,
-    //     mem: Arc<StandardMemoryAllocator>,
-    // ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
-    //     self.__get_update_data(
-    //         &transform_data.rot_id,
-    //         &transform_data.rot_data,
-    //         // &mut self.rotation_id_cache,
-    //         // &mut self.rotation_cache,
-    //         self.vk.clone(),
-    //         image_num,
-    //     )
-    // }
-    // fn get_scale_update_data(
-    //     &mut self,
-    //     transform_data: &TransformData,
-    //     image_num: u32,
-    //     mem: Arc<StandardMemoryAllocator>,
-    // ) -> Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)> {
-    //     self.__get_update_data(
-    //         &transform_data.scl_id,
-    //         &transform_data.scl_data,
-    //         // &mut self.scale_id_cache,
-    //         // &mut self.scale_cache,
-    //         self.vk.clone(),
-    //         image_num,
-    //     )
-    // }
-    // pub(crate) fn _get_update_data(
-    //     &mut self,
-    //     transform_data: &TransformData,
-    //     image_num: u32,
-    //     perf: &Perf,
-    // ) {
-    //     let write_to_buffer = perf.node("write to buffer");
-    //     self.update_data = {
-    //         puffin::profile_scope!("buffer transform data");
-    //         let position_update_data = self.get_position_update_data(
-    //             &transform_data,
-    //             image_num,
-    //             self.vk.mem_alloc.clone(),
-    //         );
-
-    //         let rotation_update_data = self.get_rotation_update_data(
-    //             &transform_data,
-    //             image_num,
-    //             self.vk.mem_alloc.clone(),
-    //         );
-
-    //         let scale_update_data =
-    //             self.get_scale_update_data(&transform_data, image_num, self.vk.mem_alloc.clone());
-    //         (
-    //             position_update_data,
-    //             rotation_update_data,
-    //             scale_update_data,
-    //         )
-    //     };
-    // }
+    pub(crate) fn alloc_buffers(&mut self, len: u64) -> TransformBuf {
+        let alloc = self.update_data_alloc.lock();
+        let cycle = self.cycle;
+        let pos_i = alloc[cycle]
+            .allocate_unsized((len / 32 + 1))
+            .unwrap();
+        let pos = alloc[cycle]
+            .allocate_unsized(len)
+            .unwrap();
+        let rot_i = alloc[cycle]
+            .allocate_unsized((len / 32 + 1))
+            .unwrap();
+        let rot = alloc[cycle]
+            .allocate_unsized(len)
+            .unwrap();
+        let scl_i = alloc[cycle]
+            .allocate_unsized((len / 32 + 1))
+            .unwrap();
+        let scl = alloc[cycle]
+            .allocate_unsized(len)
+            .unwrap();
+        self.cycle = (cycle + 1) % alloc.len();
+        drop(alloc);
+        (pos_i, pos, rot_i, rot, scl_i, scl)
+    }
 
     pub(crate) fn update_data(
         &mut self,

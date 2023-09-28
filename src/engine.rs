@@ -505,6 +505,7 @@ impl Engine {
         let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
         let (main_cam_id, mut cam_datas) = world.get_cam_datas();
         let render_jobs = world.render();
+        let transform_extent = world.transforms.extent();
 
         self._image_num = (self._image_num + 1) % self.vk.swapchain().image_count();
 
@@ -585,31 +586,8 @@ impl Engine {
 
         let transforms_buf = {
             let allocate_transform_buf = self.perf.node("allocate transforms_buf");
-            let world = self.world.lock();
-            let mut transform_compute = self.transform_compute.write();
-            let alloc = transform_compute.update_data_alloc.lock();
-            let cycle = transform_compute.cycle;
-            let pos_i = alloc[cycle]
-                .allocate_unsized((world.transforms.len() / 32 + 1) as DeviceSize)
-                .unwrap();
-            let pos = alloc[cycle]
-                .allocate_unsized(world.transforms.len() as DeviceSize)
-                .unwrap();
-            let rot_i = alloc[cycle]
-                .allocate_unsized((world.transforms.len() / 32 + 1) as DeviceSize)
-                .unwrap();
-            let rot = alloc[cycle]
-                .allocate_unsized(world.transforms.len() as DeviceSize)
-                .unwrap();
-            let scl_i = alloc[cycle]
-                .allocate_unsized((world.transforms.len() / 32 + 1) as DeviceSize)
-                .unwrap();
-            let scl = alloc[cycle]
-                .allocate_unsized(world.transforms.len() as DeviceSize)
-                .unwrap();
-            drop(alloc);
-            transform_compute.cycle = (cycle + 1) % 3;
-            (pos_i, pos, rot_i, rot, scl_i, scl)
+            // let world = self.world.lock();
+            self.transform_compute.write().alloc_buffers(transform_extent as DeviceSize)
         };
         {
             let get_transform_data = self.perf.node("get transform data");
