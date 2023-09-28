@@ -288,8 +288,8 @@ impl Transforms {
     pub fn len(&self) -> usize {
         self.meta.len()
     }
-    pub fn extent(&self) -> i32 {
-        self.extent
+    pub fn last_active(&self) -> i32 {
+        self.last + 1
     }
     pub fn get<'a>(&self, t: i32) -> Option<Transform> {
         // TODO: make option
@@ -401,9 +401,6 @@ impl Transforms {
         self.new_transform_with(parent, Default::default())
     }
     pub fn new_transform_with(&mut self, parent: i32, transform: _Transform) -> i32 {
-        // if parent == -1 {
-        //     panic!("no")
-        // }
         let (write, id) = self.get_next_id();
         if write {
             self.write_transform(id, transform);
@@ -425,8 +422,6 @@ impl Transforms {
     }
     fn reserve(&mut self, count: usize) {
         let c = self.avail.len().min(count);
-        // let c = self.avail.len() - count as usize;
-        // let t = _Transform::default();
         let c = count - c;
         if c > 0 {
             let c = c + self.len();

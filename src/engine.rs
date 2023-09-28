@@ -350,8 +350,10 @@ impl Engine {
             vk.surface.clone(),
             vk.queue.clone(),
             Subpass::from(render_pass.clone(), 0).unwrap(),
+            vk.swapchain().image_format(),
             GuiConfig {
-                preferred_format: Some(vk.swapchain().image_format()),
+                // preferred_format: Some(vk.swapchain().image_format()),
+                allow_srgb_render_target: true,
                 is_overlay: true,
                 ..Default::default()
             },
@@ -505,7 +507,7 @@ impl Engine {
         let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
         let (main_cam_id, mut cam_datas) = world.get_cam_datas();
         let render_jobs = world.render();
-        let transform_extent = world.transforms.extent();
+        let transform_extent = world.transforms.last_active();
 
         self._image_num = (self._image_num + 1) % self.vk.swapchain().image_count();
 

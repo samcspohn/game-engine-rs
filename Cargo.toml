@@ -68,7 +68,7 @@ vulkano-win = "0.33.0"
 
 egui = "0.22.0"
 # egui_vulkano = "*"
-egui_winit_vulkano = {git = "https://github.com/hakolao/egui_winit_vulkano.git"}
+egui_winit_vulkano = "0.25.0"
 egui-winit = "0.22.0"
 egui_demo_lib = "0.22.0"
 puffin_egui = "0.22.0"

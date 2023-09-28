@@ -250,11 +250,13 @@ impl SharedRendererData {
 
         let mut offset_vec = Vec::new();
         let mut offset = 0;
-        for (_, m_id) in rd.indirect_model.iter() {
+        for (ind_id, m_id) in rd.indirect_model.iter() {
             if let Some(model_ind) = rd.model_indirect.get(m_id) {
                 for ind in model_ind.iter() {
-                    offset_vec.push(offset);
-                    offset += ind.count;
+                    if ind.id == *ind_id {
+                        offset_vec.push(offset);
+                        offset += ind.count;
+                    }
                 }
             }
         }
