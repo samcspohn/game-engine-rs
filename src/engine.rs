@@ -1,29 +1,25 @@
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::VecDeque;
-use std::env;
-use std::mem::size_of;
-use std::path::Path;
-use std::path::PathBuf;
-use std::process::Command;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::thread;
-use std::thread::JoinHandle;
-use std::thread::Thread;
-use std::time::Duration;
-use std::time::Instant;
+use std::{
+    collections::{BTreeMap, HashMap, VecDeque},
+    env,
+    mem::size_of,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::{self, JoinHandle, Thread},
+    time::{Duration, Instant},
+};
 
-use crossbeam::channel::Receiver;
-use crossbeam::channel::Sender;
-use crossbeam::queue::SegQueue;
+use crossbeam::{
+    channel::{Receiver, Sender},
+    queue::SegQueue,
+};
 use egui::TextureId;
-use egui_winit_vulkano::Gui;
-use egui_winit_vulkano::GuiConfig;
+use egui_winit_vulkano::{Gui, GuiConfig};
 use force_send_sync::SendSync;
-use glm::vec3;
-use glm::Vec3;
+use glm::{vec3, Vec3};
 use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
@@ -32,91 +28,74 @@ use serde::{Deserialize, Serialize};
 
 use rayon::prelude::*;
 
-use parking_lot::Mutex;
-use parking_lot::RwLock;
-use vulkano::buffer::Subbuffer;
-use vulkano::command_buffer::CommandBufferUsage;
-use vulkano::command_buffer::CopyImageInfo;
-use vulkano::command_buffer::PrimaryCommandBufferAbstract;
-use vulkano::command_buffer::RenderPassBeginInfo;
-use vulkano::command_buffer::SubpassContents;
-use vulkano::format::Format;
-use vulkano::image::view::ImageView;
-use vulkano::image::ImageAccess;
-use vulkano::image::ImageDimensions;
-use vulkano::image::ImageUsage;
-use vulkano::image::ImmutableImage;
-use vulkano::image::MipmapsCount;
-use vulkano::image::SwapchainImage;
-use vulkano::memory::allocator::MemoryUsage;
-use vulkano::render_pass::Framebuffer;
-use vulkano::render_pass::FramebufferCreateInfo;
-use vulkano::render_pass::RenderPass;
-use vulkano::render_pass::Subpass;
-use vulkano::sampler::SamplerAddressMode;
-use vulkano::sampler::SamplerCreateInfo;
-use vulkano::sampler::LOD_CLAMP_NONE;
-use vulkano::swapchain::acquire_next_image;
-use vulkano::swapchain::AcquireError;
-use vulkano::swapchain::SwapchainAcquireFuture;
-use vulkano::swapchain::SwapchainCreateInfo;
-use vulkano::swapchain::SwapchainCreationError;
-use vulkano::swapchain::SwapchainPresentInfo;
-use vulkano::sync;
-use vulkano::sync::FlushError;
-use vulkano::sync::GpuFuture;
-use vulkano::DeviceSize;
-// use spin::Mutex;
 use nalgebra_glm as glm;
+use parking_lot::{Mutex, RwLock};
 use vulkano::{
+    buffer::Subbuffer,
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
-        PrimaryAutoCommandBuffer,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        CopyImageInfo, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
+        SubpassContents,
     },
+    format::Format,
+    image::{
+        view::ImageView, ImageAccess, ImageDimensions, ImageUsage, ImmutableImage, MipmapsCount,
+        SwapchainImage,
+    },
+    memory::allocator::MemoryUsage,
     pipeline::graphics::viewport::Viewport,
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
+    sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
+    swapchain::{
+        acquire_next_image, AcquireError, SwapchainAcquireFuture, SwapchainCreateInfo,
+        SwapchainCreationError, SwapchainPresentInfo,
+    },
+    sync::{self, FlushError, GpuFuture},
+    DeviceSize,
 };
-use winit::dpi::PhysicalSize;
-use winit::event::Event;
-use winit::event::ModifiersState;
-use winit::event::WindowEvent;
-use winit::event_loop::EventLoop;
-use winit::event_loop::EventLoopBuilder;
-use winit::event_loop::EventLoopProxy;
+use winit::{
+    dpi::PhysicalSize,
+    event::{Event, ModifiersState, WindowEvent},
+    event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
+};
 // use crate::{physics::Physics};
 
-use crate::editor;
-use crate::editor::editor_cam::EditorCam;
-use crate::editor::editor_ui::EDITOR_WINDOW_DIM;
-use crate::engine::particles::component::ParticleEmitter;
-use crate::engine::particles::shaders::scs::l;
-use crate::engine::project::asset_manager::AssetManagerBase;
-use crate::engine::rendering::model::ModelManager;
-use crate::engine::utils::look_at;
+use crate::{
+    editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
+    engine::{
+        particles::{component::ParticleEmitter, shaders::scs::l},
+        physics::collider::_Collider,
+        project::asset_manager::AssetManagerBase,
+        rendering::model::ModelManager,
+        // utils::look_at,
+    },
+};
 
-use self::input::Input;
-use self::particles::particles::ParticleCompute;
-use self::perf::Perf;
-use self::project::asset_manager::AssetsManager;
-use self::project::file_watcher;
-use self::project::file_watcher::FileWatcher;
-use self::project::save_project;
-use self::project::Project;
-use self::render_thread::RenderingData;
-use self::rendering::camera::Camera;
-use self::rendering::camera::CameraData;
-use self::rendering::component::Renderer;
-use self::rendering::component::SharedRendererData;
-use self::rendering::model::Mesh;
-use self::rendering::model::ModelRenderer;
-use self::rendering::pipeline::RenderPipeline;
-use self::rendering::texture::Texture;
-use self::rendering::texture::TextureManager;
-use self::rendering::vulkan_manager::VulkanManager;
-use self::time::Time;
-use self::transform_compute::cs::transform;
-use self::transform_compute::cs::MVP;
-use self::transform_compute::TransformCompute;
-use self::world::World;
+use self::{
+    input::Input,
+    particles::particles::ParticleCompute,
+    perf::Perf,
+    project::{
+        asset_manager::AssetsManager,
+        file_watcher::{self, FileWatcher},
+        save_project, Project,
+    },
+    render_thread::RenderingData,
+    rendering::{
+        camera::{Camera, CameraData},
+        component::{Renderer, SharedRendererData},
+        model::{Mesh, ModelRenderer},
+        pipeline::RenderPipeline,
+        texture::{Texture, TextureManager},
+        vulkan_manager::VulkanManager,
+    },
+    time::Time,
+    transform_compute::{
+        cs::{transform, MVP},
+        TransformCompute,
+    },
+    world::World,
+};
 
 pub mod atomic_vec;
 pub mod input;
@@ -135,7 +114,7 @@ mod input_thread;
 pub mod main_loop;
 pub mod particles;
 pub mod physics;
-mod prelude;
+pub(crate) mod prelude;
 mod render_thread;
 pub mod utils;
 #[repr(C)]
@@ -333,6 +312,7 @@ impl Engine {
             world.register::<Renderer>(false, false, false);
             world.register::<ParticleEmitter>(false, false, false);
             world.register::<Camera>(false, false, false);
+            world.register::<_Collider>(false, true, false);
             // world.register::<terrain_eng::TerrainEng>(true, false, true);
         };
 
@@ -510,7 +490,6 @@ impl Engine {
         let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
         let (main_cam_id, mut cam_datas) = world.get_cam_datas();
         let render_jobs = world.render();
-        let transform_extent = world.transforms.last_active();
 
         self._image_num = (self._image_num + 1) % self.vk.swapchain().image_count();
 
@@ -535,6 +514,7 @@ impl Engine {
                 self.assets_manager.clone(),
             );
         });
+        let transform_extent = world.transforms.last_active();
 
         if self.playing_game {
             // cam_datas[0].clone()
