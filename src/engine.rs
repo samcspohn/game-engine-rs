@@ -64,7 +64,7 @@ use crate::{
     editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
     engine::{
         particles::{component::ParticleEmitter, shaders::scs::l},
-        physics::collider::_Collider,
+        // physics::collider::_Collider,
         project::asset_manager::AssetManagerBase,
         rendering::model::ModelManager,
         // utils::look_at,
@@ -312,7 +312,7 @@ impl Engine {
             world.register::<Renderer>(false, false, false);
             world.register::<ParticleEmitter>(false, false, false);
             world.register::<Camera>(false, false, false);
-            world.register::<_Collider>(false, true, false);
+            // world.register::<_Collider>(false, true, false);
             // world.register::<terrain_eng::TerrainEng>(true, false, true);
         };
 
