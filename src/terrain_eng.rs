@@ -285,7 +285,7 @@ impl TerrainEng {
 
                             let _chunks = chunks.clone();
                             sys.defer.append(move |world| {
-                                let handle = world.sys.physics.lock().collider_set.insert(collider);
+                                let handle = world.sys.physics.lock().add_collider(collider);
                                 _chunks.lock().get_mut(&x_).unwrap().insert(z_, handle);
                             });
                             cur_chunks.fetch_add(1, Ordering::Relaxed);

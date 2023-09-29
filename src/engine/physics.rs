@@ -1,13 +1,14 @@
-use std::time::Instant;
+use std::{cell::SyncUnsafeCell, time::Instant};
 
 use num_integer::Roots;
+use parking_lot::Mutex;
 use rapier3d::prelude::*;
 
 use super::perf::Perf;
-
+pub mod collider;
 pub struct Physics {
     pub rigid_body_set: RigidBodySet,
-    pub collider_set: ColliderSet,
+    pub collider_set: SyncUnsafeCell<ColliderSet>,
     integration_parameters: IntegrationParameters,
     physics_pipeline: PhysicsPipeline,
     island_manager: IslandManager,
@@ -20,13 +21,14 @@ pub struct Physics {
     physics_hooks: (),
     event_handler: (),
     gravity: Vector<f32>,
+    lock: Mutex<()>,
 }
 
 impl Physics {
     pub fn new() -> Physics {
         Physics {
             rigid_body_set: RigidBodySet::new(),
-            collider_set: ColliderSet::new(),
+            collider_set: SyncUnsafeCell::new(ColliderSet::new()),
             integration_parameters: IntegrationParameters::default(),
             physics_pipeline: PhysicsPipeline::new(),
             island_manager: IslandManager::new(),
@@ -39,6 +41,7 @@ impl Physics {
             physics_hooks: (),
             event_handler: (),
             gravity: vector![0.0, -9.81, 0.0],
+            lock: Mutex::new(()),
         }
     }
     pub fn step(&mut self, perf: &Perf) {
@@ -60,7 +63,7 @@ impl Physics {
                             &mut self.broad_phase,
                             &mut self.narrow_phase,
                             &mut self.rigid_body_set,
-                            &mut self.collider_set,
+                            unsafe { &mut *self.collider_set.get() },
                             &mut self.impulse_joint_set,
                             &mut self.multibody_joint_set,
                             &mut self.ccd_solver,
@@ -80,12 +83,12 @@ impl Physics {
         self.query_pipeline.update(
             // &self.island_manager,
             &self.rigid_body_set,
-            &self.collider_set,
+            unsafe { &*self.collider_set.get() },
         );
     }
     pub fn get_counters() {}
     pub fn remove_collider(&mut self, handle: ColliderHandle) {
-        if let Some(_) = self.collider_set.remove(
+        if let Some(_) = unsafe { &mut *self.collider_set.get() }.remove(
             handle,
             &mut self.island_manager,
             &mut self.rigid_body_set,
@@ -96,15 +99,28 @@ impl Physics {
         if let Some(_) = self.rigid_body_set.remove(
             handle,
             &mut self.island_manager,
-            &mut self.collider_set,
+            unsafe { &mut *self.collider_set.get() },
             &mut self.impulse_joint_set,
             &mut self.multibody_joint_set,
             true,
         ) {}
     }
+    pub fn add_collider(&mut self, collider: Collider) -> ColliderHandle {
+        unsafe { &mut *self.collider_set.get() }.insert(collider)
+    }
     pub fn add_collider_to_rigid_body(&mut self, collider: Collider, handle: RigidBodyHandle) {
-        self.collider_set
-            .insert_with_parent(collider, handle, &mut self.rigid_body_set);
+        unsafe { &mut *self.collider_set.get() }.insert_with_parent(
+            collider,
+            handle,
+            &mut self.rigid_body_set,
+        );
+    }
+    pub(crate) unsafe fn get_collider(&self, handle: ColliderHandle) -> Option<&mut Collider> {
+        let collider_set = unsafe { &mut *self.collider_set.get() };
+        let col = { self.lock.lock(); collider_set.get_mut(handle) };
+        col
+        // let col: &mut Collider = unsafe { transmute(col) };
+        // col.set_translation(_transform.get_position().into());
     }
     pub fn clear(&mut self) {
         *self = Physics::new();

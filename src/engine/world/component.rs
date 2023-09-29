@@ -66,13 +66,13 @@ impl<'a> System<'a> {
 
 pub trait Component {
     // fn assign_transform(&mut self, t: Transform);
-    fn init(&mut self, _transform: &Transform, _id: i32, _sys: &Sys) {}
-    fn deinit(&mut self, _transform: &Transform, _id: i32, _sys: &Sys) {}
-    fn on_start(&mut self, _transform: &Transform, _sys: &System) {} // TODO implement call
-    fn on_destroy(&mut self, _transform: &Transform, _sys: &System) {} // TODO implement call
-    fn update(&mut self, _transform: &Transform, _sys: &System, world: &World) {}
-    fn late_update(&mut self, _transform: &Transform, _sys: &System) {}
-    fn editor_update(&mut self, _transform: &Transform, _sys: &System) {}
+    fn init(&mut self, transform: &Transform, id: i32, sys: &Sys) {}
+    fn deinit(&mut self, transform: &Transform, _id: i32, sys: &Sys) {}
+    fn on_start(&mut self, transform: &Transform, sys: &System) {} // TODO implement call
+    fn on_destroy(&mut self, transform: &Transform, sys: &System) {} // TODO implement call
+    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {}
+    fn late_update(&mut self, transform: &Transform, sys: &System) {}
+    fn editor_update(&mut self, transform: &Transform, sys: &System) {}
     fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
         Box::new(|_rd: &mut RenderJobData| {})
     }

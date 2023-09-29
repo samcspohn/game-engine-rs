@@ -52,7 +52,7 @@ ron = "*"
 serde_yaml = "*"
 glium = { git = "https://github.com/glium/glium.git" }
 
-rapier3d = { version = "*", features = [ "simd-stable","parallel" ] }
+rapier3d = { version = "*", features = [ "simd-stable","parallel", "serde-serialize" ] }
 
 parking_lot = "*"
 deepmesa = "*"
