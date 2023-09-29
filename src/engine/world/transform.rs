@@ -262,7 +262,7 @@ pub struct Transforms {
     self_lock: Mutex<()>,
     mutex: SegVec<SyncUnsafeCell<Mutex<()>>>,
     positions: SegVec<SyncUnsafeCell<glm::Vec3>>,
-    rotations: SegVec<SyncUnsafeCell<glm::Quat>>,
+    pub(crate) rotations: SegVec<SyncUnsafeCell<glm::Quat>>,
     scales: SegVec<SyncUnsafeCell<glm::Vec3>>,
     pub(super) valid: SegVec<SyncUnsafeCell<bool>>,
     meta: SegVec<SyncUnsafeCell<TransformMeta>>,

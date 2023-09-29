@@ -1,7 +1,11 @@
 use crate::{
     editor::inspectable::Inspectable_,
-    engine::world::{entity, World},
+    engine::{
+        prelude::utils::euler_to_quat,
+        world::{entity, World},
+    },
 };
+use glm::{Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 
@@ -14,7 +18,8 @@ impl Inspectable_ for GameObjectInspector {
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
         // let mut world = world.lock();
         let mut rmv: Option<(i32, u64, i32)> = None;
-
+        static mut ROTATION_EULER: Option<Vec3> = None;
+        static mut QUAT_PTR: Option<*mut Quat> = None;
         let resp = ui.scope(|ui| {
             egui::ScrollArea::both().auto_shrink([false,true]).show(ui, |ui| {
 
@@ -39,31 +44,25 @@ impl Inspectable_ for GameObjectInspector {
                                 }
                                 let rot = _t.get_rotation();
                                 let mut rot = glm::quat_euler_angles(&rot);
+                                if let Some(ptr) = unsafe { &mut QUAT_PTR } {
+                                    if *ptr != world.transforms.rotations[t_id as usize].get() {
+                                        unsafe { ROTATION_EULER = Some(rot); }
+                                        {*ptr = world.transforms.rotations[t_id as usize].get(); }
+                                    }
+                                } else {
+                                    unsafe {
+                                        QUAT_PTR = Some(world.transforms.rotations[t_id as usize].get());
+                                        ROTATION_EULER = Some(rot);
+                                    }
+                                }
                                 ui.vertical(|ui| {
                                     ui.horizontal(|ui| {
                                         ui.add(egui::Label::new("Rotation"));
-                                        let x = ui.drag_angle(&mut rot.z);
-                                        if x.dragged() && x.drag_delta().x != 0. {
-                                            _t.rotate(
-                                                &glm::vec3(1., 0., 0.),
-                                                x.drag_delta().x / 10.,
-                                            );
-                                        }
-                                        let y = ui.drag_angle(&mut rot.y);
-                                        // y.sense.drag = true;
-                                        if y.dragged() && y.drag_delta().x != 0. {
-                                            _t.rotate(
-                                                &glm::vec3(0., 1., 0.),
-                                                y.drag_delta().x / 10.,
-                                            );
-                                        }
-                                        let z = ui.drag_angle(&mut rot.x);
-                                        // z.sense.drag = true;
-                                        if z.dragged() && z.drag_delta().x != 0. {
-                                            _t.rotate(
-                                                &glm::vec3(0., 0., 1.),
-                                                z.drag_delta().x / 10.,
-                                            );
+                                        if let Some(rot) = unsafe { &mut ROTATION_EULER } {
+                                            let x = ui.drag_angle(&mut rot.z);
+                                            let y = ui.drag_angle(&mut rot.y);
+                                            let z = ui.drag_angle(&mut rot.x);
+                                            _t.set_rotation(&euler_to_quat(&rot));
                                         }
                                     });
                                 });
