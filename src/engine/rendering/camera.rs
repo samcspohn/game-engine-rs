@@ -626,6 +626,7 @@ impl CameraData {
                             );
                         }
                         offset += indr.count as u64;
+                        break;
                     }
                 }
             }

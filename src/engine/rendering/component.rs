@@ -256,6 +256,7 @@ impl SharedRendererData {
                     if ind.id == *ind_id {
                         offset_vec.push(offset);
                         offset += ind.count;
+                        break;
                     }
                 }
             }

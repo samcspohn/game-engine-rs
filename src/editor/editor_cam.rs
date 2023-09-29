@@ -41,11 +41,11 @@ impl EditorCam {
                 glm::quat_to_mat3(&self.rot) * Vec3::x() * speed;
             }
             // up/down
-            if input.get_key(&VirtualKeyCode::Space) {
+            if input.get_key(&VirtualKeyCode::E) {
                 self.pos +=
                 glm::quat_to_mat3(&self.rot) * Vec3::y() * speed;
             }
-            if input.get_key(&VirtualKeyCode::LShift) {
+            if input.get_key(&VirtualKeyCode::Q) {
                 self.pos += glm::quat_to_mat3(&self.rot) * Vec3::y() * -speed;
             }
 
