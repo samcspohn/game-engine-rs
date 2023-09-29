@@ -1,13 +1,14 @@
 use std::{
+    cell::SyncUnsafeCell,
     marker::PhantomData,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    }, cell::SyncUnsafeCell,
+    },
 };
 
 use lazy_static::lazy_static;
-use nalgebra_glm::{Vec2, vec2};
+use nalgebra_glm::{vec2, Vec2};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
@@ -64,7 +65,7 @@ impl Default for ParticleTemplate {
             max_speed: 1.,
             min_lifetime: 1.,
             max_lifetime: 1.,
-            size: vec2(1.,1.),
+            size: vec2(1., 1.),
             color_over_life: ColorGradient::new(),
             trail: false,
             billboard: true,
@@ -96,7 +97,6 @@ impl ParticleTemplate {
             padding2: 0,
             padding3: 0,
             // _dummy0: Default::default(),
-
         }
     }
 }
@@ -202,7 +202,10 @@ impl Inspectable_ for ParticleTemplate {
         if ui.checkbox(&mut self.billboard, "billboard").changed() {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
         }
-        if ui.checkbox(&mut self.align_vel, "align to velocity").changed() {
+        if ui
+            .checkbox(&mut self.align_vel, "align to velocity")
+            .changed()
+        {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
         }
     }

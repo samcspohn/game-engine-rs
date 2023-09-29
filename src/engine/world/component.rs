@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
-use nalgebra_glm::{Vec3, Quat};
+use nalgebra_glm::{Quat, Vec3};
 use parking_lot::{Mutex, RwLock};
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
@@ -14,12 +14,11 @@ use crate::engine::{
     particles::{particle_asset::ParticleTemplate, particles::ParticleCompute},
     physics::Physics,
     project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
-    rendering::{
-        model::ModelRenderer, component::RendererManager, vulkan_manager::VulkanManager,
-    },
+    rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
+    time::Time,
     utils::{GPUWork, PrimaryCommandBuffer},
     world::{transform::Transform, Sys, World},
-    Defer, RenderJobData, time::Time,
+    Defer, RenderJobData,
 };
 
 pub struct System<'a> {
@@ -51,7 +50,7 @@ impl<'a> System<'a> {
         template: &AssetInstance<ParticleTemplate>,
         count: u32,
         position: Vec3,
-        direction: Vec3
+        direction: Vec3,
     ) {
         // let r = rotation;
         let burst = crate::engine::particles::shaders::cs::burst {

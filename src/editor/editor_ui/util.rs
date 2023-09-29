@@ -3,14 +3,13 @@
 // use egui::{Ui, Pos2};
 // use lazy_static::lazy::Lazy;
 
-
 // fn m_menu<R>(ui: &mut Ui, enable: bool, popup_name: &str, add_contents: impl FnOnce(&mut Ui) -> R){
 //     // let right_clicked = ui.input().pointer.button_clicked(egui::PointerButton::Secondary);
 //     let popup_id = ui.auto_id_with(popup_name);
 //     // if ui.input().pointer.button_clicked(egui::PointerButton::Secondary) {
 //         //     println!("clicked right");
 //         //     // let popup_id = ui.auto_id_with("inspector_popup");
-        
+
 //         // }
 //     static mut POPUP_POS: Lazy<HashMap<String,Pos2>> = Lazy::new(|| {
 //         HashMap::default()

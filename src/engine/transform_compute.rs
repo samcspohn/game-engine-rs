@@ -100,24 +100,12 @@ impl TransformCompute {
     pub(crate) fn alloc_buffers(&mut self, len: u64) -> TransformBuf {
         let alloc = self.update_data_alloc.lock();
         let cycle = self.cycle;
-        let pos_i = alloc[cycle]
-            .allocate_unsized((len / 32 + 1))
-            .unwrap();
-        let pos = alloc[cycle]
-            .allocate_unsized(len)
-            .unwrap();
-        let rot_i = alloc[cycle]
-            .allocate_unsized((len / 32 + 1))
-            .unwrap();
-        let rot = alloc[cycle]
-            .allocate_unsized(len)
-            .unwrap();
-        let scl_i = alloc[cycle]
-            .allocate_unsized((len / 32 + 1))
-            .unwrap();
-        let scl = alloc[cycle]
-            .allocate_unsized(len)
-            .unwrap();
+        let pos_i = alloc[cycle].allocate_unsized((len / 32 + 1)).unwrap();
+        let pos = alloc[cycle].allocate_unsized(len).unwrap();
+        let rot_i = alloc[cycle].allocate_unsized((len / 32 + 1)).unwrap();
+        let rot = alloc[cycle].allocate_unsized(len).unwrap();
+        let scl_i = alloc[cycle].allocate_unsized((len / 32 + 1)).unwrap();
+        let scl = alloc[cycle].allocate_unsized(len).unwrap();
         self.cycle = (cycle + 1) % alloc.len();
         drop(alloc);
         (pos_i, pos, rot_i, rot, scl_i, scl)

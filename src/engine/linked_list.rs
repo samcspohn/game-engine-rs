@@ -56,7 +56,8 @@ impl<T> LinkedList<T> {
         let next = self.next[id as usize];
         let prev = self.prev[id as usize];
         if self.len() > 0 {
-            if prev >= 0 { // not front
+            if prev >= 0 {
+                // not front
                 self.next[prev as usize] = next;
             } else {
                 self.front = Some(next)
@@ -77,8 +78,6 @@ impl<T> LinkedList<T> {
             self.next[before as usize] = id;
             self.prev[id as usize] = before;
             self.prev[b_next as usize] = id;
-
         }
     }
 }
-

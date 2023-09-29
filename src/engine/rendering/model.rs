@@ -207,9 +207,7 @@ pub struct ModelRenderer {
     pub count: u32,
 }
 
-impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)>
-    for ModelRenderer
-{
+impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)> for ModelRenderer {
     fn from_file(
         file: &str,
         params: &(Arc<Mutex<TextureManager>>, Arc<VulkanManager>),
@@ -222,11 +220,7 @@ impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)>
         }
     }
 
-    fn reload(
-        &mut self,
-        file: &str,
-        params: &(Arc<Mutex<TextureManager>>, Arc<VulkanManager>),
-    ) {
+    fn reload(&mut self, file: &str, params: &(Arc<Mutex<TextureManager>>, Arc<VulkanManager>)) {
         let _mesh = Mesh::load_model(file, params.0.clone(), &params.1);
     }
 }
@@ -237,7 +231,5 @@ impl Inspectable_ for ModelRenderer {
     }
 }
 
-pub type ModelManager = asset_manager::AssetManager<
-    (Arc<Mutex<TextureManager>>, Arc<VulkanManager>),
-    ModelRenderer,
->;
+pub type ModelManager =
+    asset_manager::AssetManager<(Arc<Mutex<TextureManager>>, Arc<VulkanManager>), ModelRenderer>;

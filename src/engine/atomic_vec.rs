@@ -1,6 +1,9 @@
-use std::{cell::SyncUnsafeCell, sync::atomic::{AtomicUsize, Ordering}};
-use segvec::{SegVec, Slice, SliceMut};
 use parking_lot::Mutex;
+use segvec::{SegVec, Slice, SliceMut};
+use std::{
+    cell::SyncUnsafeCell,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 pub struct AtomicVec<T> {
     lock: Mutex<()>,
@@ -62,7 +65,9 @@ impl<T> AtomicVec<T> {
         let len = self.index.load(Ordering::Relaxed);
         let a = unsafe { (*self.data.get()).slice_mut(0..len) };
         for b in a {
-            unsafe { b.assume_init_drop();}
+            unsafe {
+                b.assume_init_drop();
+            }
         }
         self.index.store(0, Ordering::Relaxed);
     }

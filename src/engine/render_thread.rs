@@ -111,7 +111,8 @@ pub(super) fn render_thread(
                     vk.queue.clone(),
                     SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
                 )
-                .then_signal_fence().flush();
+                .then_signal_fence()
+                .flush();
 
             match future {
                 Ok(future) => {

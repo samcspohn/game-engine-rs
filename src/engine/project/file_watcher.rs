@@ -76,7 +76,7 @@ impl FileWatcher {
         let target_dir = "release";
         #[cfg(debug_assertions)]
         let target_dir = "debug";
-        if parent == format!("/target/{target_dir}"){
+        if parent == format!("/target/{target_dir}") {
             return true;
         }
         !f_name.contains(format!("target{0}", SEP).as_str()) && !f_name.contains("runtime")

@@ -20,7 +20,8 @@ use std::{
     time::Instant,
 };
 use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage, SecondaryAutoCommandBuffer, allocator::StandardCommandBufferAllocator,
+    allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
+    CommandBufferInheritanceInfo, CommandBufferUsage, SecondaryAutoCommandBuffer,
 };
 
 use winit::{event::VirtualKeyCode, window::Window};

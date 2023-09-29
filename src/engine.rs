@@ -22,8 +22,8 @@ use egui::TextureId;
 use egui_winit_vulkano::Gui;
 use egui_winit_vulkano::GuiConfig;
 use force_send_sync::SendSync;
-use glm::Vec3;
 use glm::vec3;
+use glm::Vec3;
 use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
@@ -383,7 +383,10 @@ impl Engine {
         let mut recreate_swapchain = true;
         let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
         let mut editor_window_image: Option<Arc<dyn ImageAccess>> = None;
-        println!("default quat: {}", glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()).coords);
+        println!(
+            "default quat: {}",
+            glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()).coords
+        );
         Self {
             world,
             assets_manager,
@@ -594,7 +597,9 @@ impl Engine {
         let transforms_buf = {
             let allocate_transform_buf = self.perf.node("allocate transforms_buf");
             // let world = self.world.lock();
-            self.transform_compute.write().alloc_buffers(transform_extent as DeviceSize)
+            self.transform_compute
+                .write()
+                .alloc_buffers(transform_extent as DeviceSize)
         };
         {
             let get_transform_data = self.perf.node("get transform data");

@@ -44,8 +44,7 @@ pub(crate) fn input_thread(
                                 .set_cursor_grab(winit::window::CursorGrabMode::None);
                             match _er {
                                 Ok(_) => {}
-                                Err(e) => {
-                                }
+                                Err(e) => {}
                             }
                         }
                     }

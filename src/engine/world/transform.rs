@@ -6,7 +6,7 @@ use deepmesa::lists::{
     LinkedList,
 };
 use force_send_sync::SendSync;
-use glm::{quat_cross_vec, vec3, Quat, Vec3, quat_rotate_vec3};
+use glm::{quat_cross_vec, quat_rotate_vec3, vec3, Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
 use rayon::prelude::*;

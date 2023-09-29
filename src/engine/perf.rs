@@ -10,7 +10,7 @@ use segvec::SegVec;
 
 struct SubPerf {
     data: RwLock<SegVec<Duration>>,
-    outliers: RwLock<Vec<(Instant,f32)>>,
+    outliers: RwLock<Vec<(Instant, f32)>>,
     avg: RwLock<f32>,
 }
 impl SubPerf {
@@ -47,9 +47,10 @@ impl SubPerf {
         if outliers.len() > 0 {
             println!(
                 "              outliers: {:?}",
-                outliers[0..4.min(outliers.len())].iter().map(|(inst, dur)| {
-                    ((start_time - *inst).as_millis() / 1000,dur)
-                }).collect::<Vec<_>>()
+                outliers[0..4.min(outliers.len())]
+                    .iter()
+                    .map(|(inst, dur)| { ((start_time - *inst).as_millis() / 1000, dur) })
+                    .collect::<Vec<_>>()
             );
         }
     }

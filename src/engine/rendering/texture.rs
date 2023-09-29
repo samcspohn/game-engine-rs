@@ -1,8 +1,4 @@
-
-use std::{
-    sync::Arc,
-};
-
+use std::sync::Arc;
 
 use component_derive::AssetID;
 use egui::TextureId;
@@ -18,9 +14,16 @@ use vulkano::{
     sampler::{Sampler, SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
 };
 
-use crate::{editor::inspectable::Inspectable_, engine::{world::World, project::asset_manager::{AssetManager, Asset}}};
+use crate::{
+    editor::inspectable::Inspectable_,
+    engine::{
+        project::asset_manager::{Asset, AssetManager},
+        world::World,
+    },
+};
 
-pub type TextureManager = AssetManager<(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>),Texture>;
+pub type TextureManager =
+    AssetManager<(Arc<Device>, Arc<Queue>, Arc<StandardMemoryAllocator>), Texture>;
 use crate::engine::project::asset_manager::_AssetID;
 #[derive(AssetID)]
 pub struct Texture {
@@ -37,15 +40,12 @@ impl Inspectable_ for Texture {
         }
     }
 }
-impl Asset<Texture, (Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)> for Texture {
+impl Asset<Texture, (Arc<Device>, Arc<Queue>, Arc<StandardMemoryAllocator>)> for Texture {
     fn from_file(
         path: &str,
-        params: &(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)
+        params: &(Arc<Device>, Arc<Queue>, Arc<StandardMemoryAllocator>),
     ) -> Texture {
-
-        let (device,
-        queue,
-        mem) = params;
+        let (device, queue, mem) = params;
         let image = {
             match image::open(path) {
                 Ok(img) => {
@@ -112,10 +112,19 @@ impl Asset<Texture, (Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)> for T
         )
         .unwrap();
 
-        Texture { file: path.into(), image, sampler, ui_id: None }
+        Texture {
+            file: path.into(),
+            image,
+            sampler,
+            ui_id: None,
+        }
     }
 
-    fn reload(&mut self, file: &str, params: &(Arc<Device>,Arc<Queue>,Arc<StandardMemoryAllocator>)) {
+    fn reload(
+        &mut self,
+        file: &str,
+        params: &(Arc<Device>, Arc<Queue>, Arc<StandardMemoryAllocator>),
+    ) {
         *self = Self::from_file(file, params)
     }
 }

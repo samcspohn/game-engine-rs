@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use thincollections::thin_vec::ThinVec;
 
 use super::{
+    atomic_vec::AtomicVec,
     input::Input,
     perf::Perf,
     world::{
@@ -25,7 +26,7 @@ use super::{
         transform::{CacheVec, Transform, Transforms, VecCache},
         Sys, World,
     },
-    RenderJobData, atomic_vec::AtomicVec,
+    RenderJobData,
 };
 
 pub struct _Storage<T> {
@@ -113,8 +114,8 @@ impl Avail {
         // let mut a = self.new_ids.lock();
         // let mut a = SegQueue::new();
         // std::mem::swap(&mut a, &mut self.new_ids);
-        self.new_ids.get().iter().for_each(|i| {
-            unsafe { self.data.push(i.assume_init()); }
+        self.new_ids.get().iter().for_each(|i| unsafe {
+            self.data.push(i.assume_init());
         });
         self.new_ids.clear();
 

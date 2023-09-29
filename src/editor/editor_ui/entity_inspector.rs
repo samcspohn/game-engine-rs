@@ -1,4 +1,7 @@
-use crate::{editor::inspectable::Inspectable_, engine::world::{World, entity}};
+use crate::{
+    editor::inspectable::Inspectable_,
+    engine::world::{entity, World},
+};
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 
@@ -81,7 +84,6 @@ impl Inspectable_ for GameObjectInspector {
                         // let components = &mut ent;
                         let mut comp_rend = |world: &World, c_type: &u64,id: i32| {
                             if let Some(c) = world.components.get(c_type) {
-                                
                                 let c = c.1.write();
                                 // let name: String = c.get_name().into();
                                 ui.separator();

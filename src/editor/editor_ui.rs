@@ -1,4 +1,4 @@
-use egui::{Color32, Context, Rounding, Ui, Layout, Pos2, ScrollArea, Sense, Rect};
+use egui::{Color32, Context, Layout, Pos2, Rect, Rounding, ScrollArea, Sense, Ui};
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -7,13 +7,20 @@ use std::{
     any::TypeId,
     collections::{HashMap, VecDeque},
     fs,
-    path::{PathBuf, self},
-    sync::{Arc},
+    path::{self, PathBuf},
+    sync::Arc,
 };
 
-
 use crate::{
-    editor::{inspectable::{Inspectable, Inspectable_}, editor_ui::entity_inspector::_selected}, engine::{world::{World, transform::Transform, Sys }, project::{serialize, asset_manager::AssetsManager}, utils},
+    editor::{
+        editor_ui::entity_inspector::_selected,
+        inspectable::{Inspectable, Inspectable_},
+    },
+    engine::{
+        project::{asset_manager::AssetsManager, serialize},
+        utils,
+        world::{transform::Transform, Sys, World},
+    },
 };
 use egui_dock::{DockArea, NodeIndex, Style, Tree};
 
@@ -33,7 +40,7 @@ enum GameObjectContextMenu {
     CopyGameObject(i32),
     DeleteGameObject(i32),
 }
-pub static EDITOR_WINDOW_DIM: Lazy<Mutex<[u32;2]>> = Lazy::new(|| {Mutex::new([1920,1080])});
+pub static EDITOR_WINDOW_DIM: Lazy<Mutex<[u32; 2]>> = Lazy::new(|| Mutex::new([1920, 1080]));
 
 struct TabViewer<'a> {
     image: egui::TextureId,
@@ -42,7 +49,18 @@ struct TabViewer<'a> {
     // goi: &'a GameObjectInspector<'b>,
     inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
     assets_manager: Arc<AssetsManager>,
-    func: Box<dyn Fn(&str, &mut egui::Ui, &mut World, &mut VecDeque<f32>, &mut Option<Arc<Mutex<dyn Inspectable_>>>, Arc<AssetsManager>, Rect, egui::Id)>,
+    func: Box<
+        dyn Fn(
+            &str,
+            &mut egui::Ui,
+            &mut World,
+            &mut VecDeque<f32>,
+            &mut Option<Arc<Mutex<dyn Inspectable_>>>,
+            Arc<AssetsManager>,
+            Rect,
+            egui::Id,
+        ),
+    >,
 }
 pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_> {
@@ -51,22 +69,35 @@ impl egui_dock::TabViewer for TabViewer<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         if tab != "Game" {
             // ui.label(format!("Content of {tab}"));
-            (self.func)(tab, ui, self.world, self.fps, self.inspectable, self.assets_manager.clone(), ui.max_rect(), ui.id());
+            (self.func)(
+                tab,
+                ui,
+                self.world,
+                self.fps,
+                self.inspectable,
+                self.assets_manager.clone(),
+                ui.max_rect(),
+                ui.id(),
+            );
         } else {
             ui.horizontal_top(|ui| {
-                if unsafe {PLAYING_GAME} {
+                if unsafe { PLAYING_GAME } {
                     if ui.button("Stop").clicked() {
                         println!("stop game");
-                        unsafe { PLAYING_GAME = false; }
+                        unsafe {
+                            PLAYING_GAME = false;
+                        }
                         {
                             // let mut world = self.world;
                             self.world.clear();
                             serialize::deserialize(&mut self.world);
                         }
-                    }    
+                    }
                 } else if ui.button("Play").clicked() {
                     println!("play game");
-                    unsafe { PLAYING_GAME = true; }
+                    unsafe {
+                        PLAYING_GAME = true;
+                    }
                 }
             });
             let a = ui.available_size();
@@ -80,9 +111,8 @@ impl egui_dock::TabViewer for TabViewer<'_> {
     }
 }
 
-
 struct ModelInspector {
-    file: String
+    file: String,
 }
 
 impl Inspectable_ for ModelInspector {
@@ -96,7 +126,7 @@ pub fn editor_ui(
     fps_queue: &mut VecDeque<f32>,
     egui_ctx: &Context,
     frame_color: egui::TextureId,
-    assets_manager: Arc<AssetsManager>
+    assets_manager: Arc<AssetsManager>,
 ) -> bool {
     {
         static mut _SELECTED_TRANSFORMS: Lazy<HashMap<i32, bool>> =
@@ -434,10 +464,8 @@ pub fn editor_ui(
                                         // }
                                     }
                                 }
-
                             },
                             "Inspector" => {
-                                
                                 if let Some(ins) = &mut INSPECTABLE {
                                     // let mut world = world.lock();
                                     ins.lock().inspect(ui, world);
@@ -467,7 +495,7 @@ pub fn editor_ui(
                                                     ui.menu_button("new particle template", |ui| {
                                                         static mut TEXT: String = String::new();
 
-                                                        unsafe { let resp2 = ui.text_edit_singleline(&mut TEXT); 
+                                                        unsafe { let resp2 = ui.text_edit_singleline(&mut TEXT);
                                                             if resp2.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                                                 ui.close_menu();
                                                                 assets_manager.new_asset(format!("{label}/{TEXT}.ptem").as_str());
@@ -508,7 +536,6 @@ pub fn editor_ui(
                                                     ui.add(egui::Label::new(_label.clone()).sense(egui::Sense::click()));
                                                 });
                                                 if resp.clicked() {
-                                                    
                                                     unsafe { INSPECTABLE = assets_manager.inspect(&path) };
                                                 }
                                             // }

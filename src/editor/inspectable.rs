@@ -1,4 +1,3 @@
-
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 
@@ -17,20 +16,24 @@ pub trait Inpsect {
 }
 
 impl<'a> Inpsect for Ins<'a, bool> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, _sys: &Sys) -> bool{
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, _sys: &Sys) -> bool {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             ui.add(egui::Checkbox::new(self.0, ""));
-        }).response.changed()
+        })
+        .response
+        .changed()
     }
 }
 
 impl<'a> Inpsect for Ins<'a, i32> {
-    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, _sys: &Sys)  -> bool {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, _sys: &Sys) -> bool {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             ui.add(egui::DragValue::new(self.0));
-        }).response.changed()
+        })
+        .response
+        .changed()
     }
 }
 
@@ -39,7 +42,9 @@ impl<'a> Inpsect for Ins<'a, f32> {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
             ui.add(egui::DragValue::new(self.0).speed(0.1));
-        }).response.changed()
+        })
+        .response
+        .changed()
     }
 }
 impl<'a> Inpsect for Ins<'a, glm::Vec2> {
@@ -48,7 +53,9 @@ impl<'a> Inpsect for Ins<'a, glm::Vec2> {
             ui.add(egui::Label::new(name));
             ui.add(egui::DragValue::new(&mut self.0.x).speed(0.1));
             ui.add(egui::DragValue::new(&mut self.0.y).speed(0.1));
-        }).response.changed()
+        })
+        .response
+        .changed()
     }
 }
 impl<'a> Inpsect for Ins<'a, glm::Vec3> {
@@ -58,7 +65,9 @@ impl<'a> Inpsect for Ins<'a, glm::Vec3> {
             ui.add(egui::DragValue::new(&mut self.0.x).speed(0.1));
             ui.add(egui::DragValue::new(&mut self.0.y).speed(0.1));
             ui.add(egui::DragValue::new(&mut self.0.z).speed(0.1));
-        }).response.changed()
+        })
+        .response
+        .changed()
     }
 }
 impl<'a> Inpsect for Ins<'a, glm::Quat> {
@@ -69,7 +78,9 @@ impl<'a> Inpsect for Ins<'a, glm::Quat> {
             ui.add(egui::DragValue::new(&mut self.0.coords.x).speed(0.1));
             ui.add(egui::DragValue::new(&mut self.0.coords.y).speed(0.1));
             ui.add(egui::DragValue::new(&mut self.0.coords.z).speed(0.1));
-        }).response.changed()
+        })
+        .response
+        .changed()
     }
 }
 // impl<'a> Inpsect for Wrapper<'a, f32> {

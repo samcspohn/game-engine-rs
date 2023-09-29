@@ -18,7 +18,10 @@ use vulkano::{
 };
 
 use crate::engine::{
-    rendering::component::buffer_usage_all, transform_compute::cs::transform, VulkanManager, perf::{self, Perf},
+    perf::{self, Perf},
+    rendering::component::buffer_usage_all,
+    transform_compute::cs::transform,
+    VulkanManager,
 };
 
 use super::{

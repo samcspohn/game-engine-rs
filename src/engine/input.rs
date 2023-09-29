@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::time::Time;
 use winit::event::{
     DeviceEvent, DeviceId, ElementState, Event, KeyboardInput, ModifiersState, MouseButton,
-    VirtualKeyCode, WindowEvent, MouseScrollDelta, TouchPhase,
+    MouseScrollDelta, TouchPhase, VirtualKeyCode, WindowEvent,
 };
 
 #[derive(Default, Clone)]
@@ -40,7 +40,7 @@ impl Input {
     pub fn get_mouse_button(&self, id: &u32) -> bool {
         *self.mouse_buttons.get(id).unwrap_or(&false)
     }
-    pub fn get_mouse_scroll(&self) -> (&f32,&f32) {
+    pub fn get_mouse_scroll(&self) -> (&f32, &f32) {
         (&self.mouse_whl_horz, &self.mouse_whl_vert)
     }
     pub(crate) fn reset(&mut self) {
@@ -127,11 +127,17 @@ impl Input {
     }
     pub(crate) fn process_mouse_wheel(
         &mut self,
-        device_id: DeviceId, delta: MouseScrollDelta, phase: TouchPhase, modifiers: ModifiersState
+        device_id: DeviceId,
+        delta: MouseScrollDelta,
+        phase: TouchPhase,
+        modifiers: ModifiersState,
     ) {
         match delta {
-            MouseScrollDelta::LineDelta(x, y) => { self.mouse_whl_vert += y; self.mouse_whl_horz += x },
-            MouseScrollDelta::PixelDelta(_) => {},
+            MouseScrollDelta::LineDelta(x, y) => {
+                self.mouse_whl_vert += y;
+                self.mouse_whl_horz += x
+            }
+            MouseScrollDelta::PixelDelta(_) => {}
         }
     }
     pub(crate) fn process_keyboard(

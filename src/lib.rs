@@ -8,41 +8,40 @@ pub mod editor;
 pub mod engine;
 pub use component_derive;
 
-pub use vulkano;
-pub use rayon;
-pub use noise;
-pub use parking_lot;
+pub use egui;
 pub use force_send_sync;
 pub use nalgebra_glm as glm;
+pub use noise;
+pub use parking_lot;
 pub use rapier3d;
+pub use rayon;
 pub use serde;
+pub use vulkano;
 pub use winit;
-pub use egui;
 pub mod prelude {
-    pub use component_derive::ComponentID;
+    pub use crate::engine::particles::component::ParticleEmitter;
+    pub use crate::engine::rendering::component::Renderer;
     pub use component_derive::AssetID;
+    pub use component_derive::ComponentID;
     pub use engine::{
+        input, utils,
         world::{
             component::{Component, System, _ComponentID},
             transform::{Transform, _Transform},
             Sys, World,
         },
-        input,
         RenderJobData,
-        utils,
     };
     pub use inspectable::{Inpsect, Ins, Inspectable};
-    pub use crate::engine::particles::component::ParticleEmitter;
-    pub use crate::engine::rendering::component::Renderer;
 
     pub use crate::engine::rendering::vulkan_manager::VulkanManager;
-    pub use crate::{engine, editor::inspectable};
+    pub use crate::{editor::inspectable, engine};
     // pub use crate::engine::utils;
 }
 #[cfg(target_os = "windows")]
 pub mod win_alloc {
     pub use mimalloc::MiMalloc;
-    
+
     #[global_allocator]
     static GLOBAL: MiMalloc = MiMalloc;
 }
