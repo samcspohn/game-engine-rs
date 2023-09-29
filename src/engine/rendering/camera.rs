@@ -29,6 +29,7 @@ use crate::{
     editor::inspectable::{Inpsect, Ins, Inspectable},
     engine::{
         particles::particles::{ParticleCompute, ParticleRenderPipeline},
+        perf::Perf,
         project::asset_manager::AssetsManager,
         rendering::component::ur,
         transform_compute::{cs::Data, TransformCompute},
@@ -498,6 +499,7 @@ impl CameraData {
         assets: Arc<AssetsManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
         cvd: CameraViewData,
+        perf: &Perf,
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
@@ -563,6 +565,7 @@ impl CameraData {
                 }
             }
         }
+        let particle_sort = perf.node("particle sort");
         particles.sort.sort(
             // per camera
             cvd.view.into(),
@@ -574,7 +577,9 @@ impl CameraData {
             vk.queue.clone(),
             builder,
             &vk.desc_alloc,
+            &perf,
         );
+        drop(particle_sort);
         // let clear_values = if self.samples == SampleCount::Sample1 {
         //     vec![Some(1f32.into()), Some([0.2, 0.25, 1., 1.].into()), None]
         // } else {
@@ -596,7 +601,7 @@ impl CameraData {
         // {
         // let mm = model_manager.lock();
         let mm = model_manager;
-
+        let render_models = perf.node("render models");
         let mut offset = 0;
         let max = rm.renderers_gpu.len();
         for (_ind_id, m_id) in rd.indirect_model.iter() {
@@ -631,7 +636,9 @@ impl CameraData {
                 }
             }
         }
+        drop(render_models);
         // }
+        let render_jobs_perf = perf.node("render jobs");
         let mut rjd = RenderJobData {
             builder,
             gpu_transforms: transform_compute.gpu_transforms.clone(),
@@ -646,6 +653,7 @@ impl CameraData {
         for job in render_jobs {
             job(&mut rjd);
         }
+        drop(render_jobs_perf);
         particles.render_particles(
             &self.particle_render_pipeline,
             builder,

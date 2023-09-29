@@ -74,6 +74,11 @@ impl Drop for PerfNode {
         );
     }
 }
+impl PerfNode {
+    pub fn get_elapsed(&self) -> Duration {
+        Instant::now() - self.inst
+    }
+}
 impl Perf {
     pub fn new() -> Self {
         Self {

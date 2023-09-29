@@ -585,7 +585,12 @@ impl Engine {
 
         let mut rm = self.shared_render_data.write();
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
-
+        // rayon::scope(|s| {
+        //     let mut a = 0;
+        //     s.spawn(|s| {
+        //         a = 1;
+        //     });
+        // });
         let transforms_buf = {
             let allocate_transform_buf = self.perf.node("allocate transforms_buf");
             // let world = self.world.lock();
@@ -674,6 +679,7 @@ impl Engine {
                     self.assets_manager.clone(),
                     &render_jobs,
                     cvd,
+                    &self.perf,
                 );
             }
         }

@@ -6,7 +6,7 @@ use deepmesa::lists::{
     LinkedList,
 };
 use force_send_sync::SendSync;
-use glm::{vec3, Quat, Vec3};
+use glm::{quat_cross_vec, vec3, Quat, Vec3, quat_rotate_vec3};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard};
 use rayon::prelude::*;
@@ -89,7 +89,7 @@ impl<'a> Transform<'a> {
     pub fn get_position(&self) -> Vec3 {
         self.transforms.get_position(self.id)
     }
-    pub fn set_position(&self, v: Vec3) {
+    pub fn set_position(&self, v: &Vec3) {
         self.transforms.set_position(self.id, v);
     }
     pub fn get_rotation(&self) -> Quat {
@@ -633,13 +633,13 @@ impl Transforms {
     }
 
     fn forward(&self, t: i32) -> glm::Vec3 {
-        glm::quat_to_mat3(unsafe { &*self.rotations[t as usize].get() }) * glm::Vec3::z()
+        unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &glm::Vec3::z()) }
     }
     fn right(&self, t: i32) -> glm::Vec3 {
-        glm::quat_to_mat3(unsafe { &*self.rotations[t as usize].get() }) * glm::Vec3::x()
+        unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &glm::Vec3::x()) }
     }
     fn up(&self, t: i32) -> glm::Vec3 {
-        glm::quat_to_mat3(unsafe { &*self.rotations[t as usize].get() }) * glm::Vec3::y()
+        unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &glm::Vec3::y()) }
     }
 
     fn _move(&self, t: i32, v: Vec3) {
@@ -655,8 +655,11 @@ impl Transforms {
             self.move_child(&child, v);
         }
     }
+    fn rot_mul(&self, t: i32, v: &Vec3) -> Vec3 {
+        unsafe { glm::quat_rotate_vec3(&*self.rotations[t as usize].get(), v) }
+    }
     fn translate(&self, t: i32, mut v: Vec3) {
-        v = glm::quat_to_mat3(unsafe { &*self.rotations[t as usize].get() }) * v;
+        v = self.rot_mul(t, &v);
         unsafe {
             *self.positions[t as usize].get() += v;
         }
@@ -669,11 +672,17 @@ impl Transforms {
     fn get_position(&self, t: i32) -> Vec3 {
         unsafe { *self.positions[t as usize].get() }
     }
-    fn set_position(&self, t: i32, v: Vec3) {
-        unsafe {
-            *self.positions[t as usize].get() = v;
-        }
-        self.u_pos(t);
+    fn set_position(&self, t: i32, v: &Vec3) {
+        // self.u_pos(t);
+        let offset = v - self.get_position(t);
+        self.translate(t, offset);
+        // unsafe {
+        //     *self.positions[t as usize].get() = v;
+        // }
+        // for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
+        //     let child = self.get(*child_id).unwrap();
+        //     self.move_child(&child, offset);
+        // }
     }
     fn get_rotation(&self, t: i32) -> Quat {
         unsafe { *self.rotations[t as usize].get() }
@@ -681,20 +690,11 @@ impl Transforms {
     fn look_at(&self, t: i32, dir: &Vec3, up: &Vec3) {
         let rot = Isometry3::face_towards(&[0., 0., 0.].into(), &[dir.x, dir.y, dir.z].into(), up);
         self.set_rotation(t, &rot.rotation.coords.into());
-        // self.u_rot(t);
-        // let r_l = unsafe { &mut *self.rotations[t as usize].get() };
-        // let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l)); //glm::inverse(&glm::quat_to_mat3(&*r_l));
-        // *r_l = r;
-        // let pos = unsafe { *self.positions[t as usize].get() };
-        // for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
-        //     let child = self.get(*child_id).unwrap();
-        //     self.set_rotation_child(&child, &rot, &pos)
-        // }
     }
     fn set_rotation(&self, t: i32, r: &Quat) {
         self.u_rot(t);
         let r_l = unsafe { &mut *self.rotations[t as usize].get() };
-        let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l)); //glm::inverse(&glm::quat_to_mat3(&*r_l));
+        let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l));
         *r_l = *r;
         let pos = unsafe { *self.positions[t as usize].get() };
         for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
@@ -706,7 +706,7 @@ impl Transforms {
         let rotat = unsafe { &mut *self.rotations[t.id as usize].get() };
         let posi = unsafe { &mut *self.positions[t.id as usize].get() };
 
-        *posi = pos + glm::quat_to_mat3(rot) * (*posi - pos);
+        *posi = pos + glm::quat_rotate_vec3(rot, &(*posi - pos));
         *rotat = rot * *rotat;
         self.u_pos(t.id);
         self.u_rot(t.id);
@@ -752,9 +752,7 @@ impl Transforms {
         let rot = *rot;
         self.u_rot(t);
         let pos = self.get_position(t);
-        let mut ax = glm::quat_to_mat3(&rot) * axis;
-        // ax.x = -ax.x;
-        // ax.y = -ax.y;
+        let mut ax = glm::quat_rotate_vec3(&rot, &axis);
         for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
             let child = self.get(*child_id).unwrap();
             self.rotate_child(&child, &ax, &pos, radians);
@@ -762,12 +760,6 @@ impl Transforms {
     }
 
     fn rotate_child(&self, t: &Transform, ax: &Vec3, pos: &Vec3, radians: f32) {
-        // let ax = glm::quat_to_mat3(&r) * axis;
-        // let ax = quat_x_vec(&r, axis);
-        // let _ax = glm::inverse(&glm::quat_to_mat3(&r)) * axis;
-        // let mut ax = *axis;
-        // ax.x = -ax.x;
-        // ax.y = -ax.y;
         self.u_rot(t.id);
         self.u_pos(t.id);
         let rot = unsafe { &mut *self.rotations[t.id as usize].get() };
@@ -777,7 +769,7 @@ impl Transforms {
         *rot = glm::quat_rotate(
             rot,
             radians,
-            &(glm::quat_to_mat3(&glm::quat_inverse(&*rot)) * ax),
+            &(glm::quat_rotate_vec3(&glm::quat_inverse(&*rot), &ax)),
         );
         for child in t.get_children() {
             self.rotate_child(&child, ax, pos, radians);

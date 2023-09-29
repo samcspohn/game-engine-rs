@@ -543,35 +543,42 @@ impl World {
         transforms.remove(_t);
     }
     pub(crate) fn _destroy(&mut self, perf: &Perf) {
-        {
-            let world_destroy_todestroy = perf.node("world _destroy to_destroy");
-            let mut to_destroy = self.to_destroy.lock();
+        // {
+        let world_destroy_todestroy = perf.node("world _destroy to_destroy");
+        let mut to_destroy = self.to_destroy.lock();
 
-            let mut unlocked: HashMap<
-                u64,
-                RwLockReadGuard<Box<dyn StorageBase + 'static + Sync + Send>>,
-                nohash_hasher::BuildNoHashHasher<i32>,
-            > = HashMap::default();
-            self.components.iter().for_each(|c| {
-                unlocked.insert(*c.0, c.1 .1.read());
-            });
+        let mut unlocked: HashMap<
+            u64,
+            RwLockReadGuard<Box<dyn StorageBase + 'static + Sync + Send>>,
+            nohash_hasher::BuildNoHashHasher<i32>,
+        > = HashMap::default();
+        self.components.iter().for_each(|c| {
+            unlocked.insert(*c.0, c.1 .1.read());
+        });
 
-            to_destroy.par_iter().for_each(|t| {
-                Self::__destroy(&self.transforms, &unlocked, &self.sys, *t);
-            });
-            to_destroy.clear();
-        }
+        to_destroy.par_iter().for_each(|t| {
+            Self::__destroy(&self.transforms, &unlocked, &self.sys, *t);
+        });
+        drop(world_destroy_todestroy);
+        drop(unlocked);
+        // }
         let world_destroy_reduce = perf.node("world _destroy reduce");
-        rayon::scope(|s| {
-            s.spawn(|s| {
-                self.transforms.reduce_last();
-            });
+        if to_destroy.len() < 1000 {
+            self.transforms.reduce_last();
             self.components.iter().for_each(|(id, c)| {
+                c.1.write().reduce_last();
+            });
+        } else {
+            rayon::scope(|s| {
                 s.spawn(|s| {
+                    self.transforms.reduce_last();
+                });
+                self.components.par_iter().for_each(|(id, c)| {
                     c.1.write().reduce_last();
                 });
             });
-        });
+        }
+        to_destroy.clear();
     }
     // pub fn get_component<T: 'static + Send + Sync + Component, F>(&self, g: i32, f: F)
     // where
@@ -617,25 +624,27 @@ impl World {
             };
             {
                 let world_update = perf.node("world update");
-                for (_, stor) in self.components.iter() {
+                self.components.iter().for_each(|(_, stor)| {
                     let mut stor = stor.1.write();
                     let world_update = perf.node(&format!("world update: {}", stor.get_name()));
                     stor.update(&self.transforms, &sys, &self);
-                }
+                });
             }
             {
                 let world_update = perf.node("world late_update");
-                for (_, stor) in self.components.iter() {
+                self.components.iter().for_each(|(_, stor)| {
                     let mut stor = stor.1.write();
                     let world_update =
                         perf.node(&format!("world late update: {}", stor.get_name()));
                     stor.late_update(&self.transforms, &sys);
-                }
+                });
             }
         }
         // self.update_cameras();
     }
-    pub(crate) fn update_cameras(&mut self) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
+    pub(crate) fn update_cameras(
+        &mut self,
+    ) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
         let camera_components = self.get_components::<Camera>().unwrap().1.read();
         let mut ret = Vec::new();
         let camera_storage = camera_components
@@ -651,10 +660,10 @@ impl World {
                     let mut d = d.lock();
                     let id: i32 = d.0;
                     let cvd = d.1._update(&self.transforms.get(id).unwrap());
-                    ret.push((d.1.get_data(),cvd))
+                    ret.push((d.1.get_data(), cvd))
                 }
             });
-            ret
+        ret
     }
     pub(crate) fn editor_update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork) {
         let sys = &self.sys;

@@ -18,7 +18,7 @@ use vulkano::{
 };
 
 use crate::engine::{
-    rendering::component::buffer_usage_all, transform_compute::cs::transform, VulkanManager,
+    rendering::component::buffer_usage_all, transform_compute::cs::transform, VulkanManager, perf::{self, Perf},
 };
 
 use super::{
@@ -144,6 +144,7 @@ impl ParticleSort {
             Arc<StandardCommandBufferAllocator>,
         >,
         desc_allocator: &StandardDescriptorSetAllocator,
+        perf: &Perf,
     ) {
         let max_particles: i32 = *_MAX_PARTICLES;
 
