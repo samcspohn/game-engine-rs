@@ -4,6 +4,7 @@ pub mod transform;
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
+use nalgebra_glm::{quat_euler_angles, Quat, Vec3};
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rapier3d::prelude::vector;
 use rapier3d::prelude::*;
@@ -26,14 +27,12 @@ use std::{
 };
 use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
-use crate::editor::inspectable::Inspectable;
-
 use self::{
     component::{Component, System, _ComponentID},
     entity::{
         Entity, EntityBuilder, EntityParBuilder, Unlocked, _EntityBuilder, _EntityParBuilder,
     },
-    transform::{CacheVec, Transform, Transforms, VecCache, _Transform},
+    transform::{CacheVec, Transform, Transforms, VecCache, _Transform, TRANSFORMS, TRANSFORM_MAP},
 };
 
 use super::{
@@ -41,7 +40,7 @@ use super::{
     input::Input,
     particles::{component::ParticleEmitter, particles::ParticleCompute},
     perf::Perf,
-    physics::Physics,
+    physics::{collider::_ColliderType, Physics},
     project::asset_manager::{AssetManagerBase, AssetsManager},
     rendering::{
         camera::{Camera, CameraData, CameraViewData},
@@ -63,6 +62,19 @@ pub struct Sys {
     pub particles_system: Arc<ParticleCompute>,
     pub vk: Arc<VulkanManager>,
     pub defer: Defer,
+    pub(crate) dragged_transform: i32,
+    pub(crate) new_rigid_bodies: SegQueue<(
+        _ColliderType,
+        Vec3,
+        Quat,
+        force_send_sync::SendSync<*mut RigidBodyHandle>,
+    )>,
+    pub new_colliders: SegQueue<(
+        _ColliderType,
+        Vec3,
+        Quat,
+        force_send_sync::SendSync<*mut ColliderHandle>,
+    )>,
 }
 
 impl Sys {
@@ -74,9 +86,11 @@ impl Sys {
 }
 
 pub struct World {
-    pub(super) phys_time: f32,
-    pub(super) phys_step: f32,
-    pub(crate) transforms: Transforms,
+    pub phys_time: f32,
+    pub phys_step: f32,
+    pub transforms: Transforms,
+    pub(super) transform_map: HashMap<i32, i32>,
+    // pub(super) dragged_transform: i32,
     pub(crate) components: HashMap<
         u64,
         (
@@ -112,13 +126,17 @@ impl World {
         particles: Arc<ParticleCompute>,
         vk: Arc<VulkanManager>,
         assets_manager: Arc<AssetsManager>,
+        // trans: &'static mut Transforms,
     ) -> World {
         let mut trans = Transforms::new();
+        // let root = TRANSFORMS.new_root();
         let root = trans.new_root();
         World {
             phys_time: 0f32,
             phys_step: 1. / 30.,
             transforms: trans,
+            transform_map: HashMap::new(),
+            // dragged_transform: -1,
             components: HashMap::default(),
             components_names: HashMap::new(),
             root,
@@ -129,6 +147,9 @@ impl World {
                 particles_system: particles,
                 vk: vk,
                 defer: Defer::new(),
+                dragged_transform: -1,
+                new_rigid_bodies: SegQueue::new(),
+                new_colliders: SegQueue::new(),
             },
             to_destroy: Mutex::new(Vec::new()),
             to_instantiate_multi: AtomicVec::new(),
@@ -245,10 +266,11 @@ impl World {
             stor.1.write().init(&trans, c_id, &self.sys);
         }
     }
-    pub fn deserialize(&mut self, g: i32, key: String, s: serde_yaml::Value) {
-        if let Some(stor) = self.components_names.get(&key) {
+    pub fn deserialize(&mut self, g: i32, key: &String, s: &serde_yaml::Value) {
+        println!("key: {}", key);
+        if let Some(stor) = self.components_names.get(key) {
             let mut stor = stor.write();
-            let c_id = stor.deserialize(g, s);
+            let c_id = stor.deserialize(g, s.clone());
             let trans = self.transforms.get(g).unwrap();
             stor.init(&trans, c_id, &self.sys);
             let ent = trans.entity();
@@ -272,7 +294,6 @@ impl World {
             + Sync
             + Component
             + _ComponentID
-            + Inspectable
             + Default
             + Clone
             + Serialize
@@ -289,10 +310,18 @@ impl World {
             Arc::new(RwLock::new(Box::new(data)));
         self.components
             .insert(key, (AtomicI32::new(0), component_storage.clone()));
+
         self.components_names.insert(
             component_storage.read().get_name().to_string(),
             component_storage.clone(),
         );
+    }
+    pub fn re_init(&mut self) {
+        unsafe {
+            TRANSFORMS = std::ptr::from_mut(&mut self.transforms);
+            TRANSFORM_MAP = std::ptr::from_mut(&mut self.transform_map);
+        }
+        self.sys.physics = Arc::new(Mutex::new(Physics::new()));
     }
 
     pub fn unregister<
@@ -301,7 +330,6 @@ impl World {
             + Sync
             + Component
             + _ComponentID
-            + Inspectable
             + Default
             + Clone
             + Serialize
@@ -314,8 +342,29 @@ impl World {
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
-    pub fn defer_instantiate(&mut self, perf: &Perf) {
+    pub fn defer_instantiate(
+        &mut self,
+        input: &Input,
+        time: &Time,
+        gpu_work: &GPUWork,
+        perf: &Perf,
+    ) {
         let world_alloc_transforms = perf.node("world allocate transforms");
+
+        let sys = &self.sys;
+        // let syst = System {
+        //     physics: &sys.physics.lock(),
+        //     defer: &sys.defer,
+        //     input,
+        //     time,
+        //     rendering: &sys.renderer_manager,
+        //     assets: &sys.assets_manager,
+        //     vk: sys.vk.clone(),
+        //     gpu_work,
+        //     particle_system: &sys.particles_system,
+        //     new_rigid_bodies: &sys.new_rigid_bodies,
+        // };
+
         let mut trans_count = self.to_instantiate_count_trans.as_ptr();
         let t = self
             .transforms
@@ -351,10 +400,49 @@ impl World {
         self.to_instantiate_count_trans.store(0, Ordering::Relaxed);
         self.to_instantiate.clear();
         self.to_instantiate_multi.clear();
+        // drop(syst);
+
+        while let Some(new_rb) = self.sys.new_rigid_bodies.pop() {
+            let (ty, pos, rot, mut ptr) = new_rb;
+            if unsafe { **ptr } != RigidBodyHandle::invalid() {
+                unsafe {
+                    self.sys.physics.lock().remove_rigid_body(**ptr);
+                }
+            }
+            let rb = RigidBodyBuilder::dynamic()
+                .translation(pos.into())
+                .rotation(quat_euler_angles(&rot))
+                .build();
+            unsafe {
+                **ptr = self.sys.physics.lock().add_rigid_body(rb);
+            }
+            let col = ty.get_collider().build();
+            self.sys
+                .physics
+                .lock()
+                .add_collider_to_rigid_body(col, unsafe { **ptr });
+        }
+        while let Some(new_col) = self.sys.new_colliders.pop() {
+            let (ty, pos, rot, mut ptr) = new_col;
+            if unsafe { **ptr } != ColliderHandle::invalid() {
+                unsafe {
+                    self.sys.physics.lock().remove_collider(**ptr);
+                }
+            }
+            let col = ty
+                .get_collider()
+                .position(pos.into())
+                .rotation(quat_euler_angles(&rot))
+                .build();
+            unsafe {
+                **ptr = self.sys.physics.lock().add_collider(col);
+            }
+        }
     }
     pub fn _defer_instantiate_single(
         &self,
         perf: &Perf,
+        // syst: &System,
         trans: &CacheVec<i32>,
         comp_ids: &HashMap<
             u64,
@@ -392,6 +480,7 @@ impl World {
                     let c_id = comp.0.fetch_add(1, Ordering::Relaxed);
                     b.1(
                         &self,
+                        // syst,
                         comp.1.as_ref(),
                         (unsafe { &*comp_ids.get(&b.0).unwrap().get() }).get()[c_id as usize],
                         t,
@@ -405,6 +494,7 @@ impl World {
     pub fn _defer_instantiate_multi(
         &self,
         perf: &Perf,
+        // syst: &System,
         trans: &CacheVec<i32>,
         comp_ids: &HashMap<
             u64,
@@ -542,7 +632,7 @@ impl World {
         // remove transform
         transforms.remove(_t);
     }
-    pub(crate) fn _destroy(&mut self, perf: &Perf) {
+    pub fn _destroy(&mut self, perf: &Perf) {
         // {
         let world_destroy_todestroy = perf.node("world _destroy to_destroy");
         let mut to_destroy = self.to_destroy.lock();
@@ -608,7 +698,7 @@ impl World {
             w(self);
         }
     }
-    pub(crate) fn _update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork, perf: &Perf) {
+    pub fn _update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork, perf: &Perf) {
         {
             let sys = &self.sys;
             let sys = System {
@@ -621,6 +711,7 @@ impl World {
                 vk: sys.vk.clone(),
                 gpu_work,
                 particle_system: &sys.particles_system,
+                new_rigid_bodies: &sys.new_rigid_bodies,
             };
             {
                 let world_update = perf.node("world update");
@@ -642,15 +733,16 @@ impl World {
         }
         // self.update_cameras();
     }
-    pub(crate) fn update_cameras(
+    pub fn update_cameras(
         &mut self,
     ) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
         let camera_components = self.get_components::<Camera>().unwrap().1.read();
         let mut ret = Vec::new();
-        let camera_storage = camera_components
-            .as_any()
-            .downcast_ref::<Storage<Camera>>()
-            .unwrap();
+        let camera_storage = unsafe {
+            camera_components
+                .as_any()
+                .downcast_ref_unchecked::<Storage<Camera>>()
+        };
         camera_storage
             .valid
             .iter()
@@ -677,6 +769,7 @@ impl World {
             vk: sys.vk.clone(),
             gpu_work,
             particle_system: &sys.particles_system,
+            new_rigid_bodies: &sys.new_rigid_bodies,
         };
         for (_, stor) in self.components.iter() {
             stor.1.write().editor_update(&self.transforms, &sys, input);
@@ -691,10 +784,12 @@ impl World {
     }
     pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
         let camera_components = self.get_components::<Camera>().unwrap().1.read();
-        let camera_storage = camera_components
-            .as_any()
-            .downcast_ref::<Storage<Camera>>()
-            .unwrap();
+        let camera_storage = unsafe {
+            camera_components
+                .as_any()
+                .downcast_ref::<Storage<Camera>>()
+                .unwrap()
+        };
         let mut main_cam_id = -1;
         let cam_datas = camera_storage
             .valid
@@ -714,15 +809,17 @@ impl World {
         (main_cam_id, cam_datas)
     }
     pub(crate) fn get_emitter_len(&self) -> usize {
-        self.get_components::<ParticleEmitter>()
-            .unwrap()
-            .1
-            .read()
-            .as_any()
-            .downcast_ref::<Storage<ParticleEmitter>>()
-            .unwrap()
-            .data
-            .len()
+        unsafe {
+            self.get_components::<ParticleEmitter>()
+                .unwrap()
+                .1
+                .read()
+                .as_any()
+                .downcast_ref::<Storage<ParticleEmitter>>()
+                .unwrap()
+                .data
+                .len()
+        }
     }
 
     pub fn clear(&mut self) {

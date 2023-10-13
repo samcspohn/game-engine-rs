@@ -19,16 +19,6 @@ impl Default for ParticleEmitter {
     }
 }
 
-impl Inspectable for ParticleEmitter {
-    fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys) {
-        let mut temp = self.template;
-        if Ins(&mut temp).inspect("template", ui, sys) {
-            self.deinit(transform, id, sys);
-            self.template = temp;
-            self.init(transform, id, sys);
-        }
-    }
-}
 impl ParticleEmitter {
     pub fn new(template: i32) -> ParticleEmitter {
         let inst = AssetInstance::<ParticleTemplate>::new(template);
@@ -56,5 +46,13 @@ impl Component for ParticleEmitter {
         };
 
         sys.particles_system.emitter_deinits.push(d);
+    }
+    fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys) {
+        let mut temp = self.template;
+        if Ins(&mut temp).inspect("template", ui, sys) {
+            self.deinit(transform, id, sys);
+            self.template = temp;
+            self.init(transform, id, sys);
+        }
     }
 }

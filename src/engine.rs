@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     env,
     mem::size_of,
+    ops::Add,
     path::{Path, PathBuf},
     process::Command,
     sync::{
@@ -24,6 +25,7 @@ use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
 use puffin_egui::puffin;
+use rapier3d::{na::ComplexField, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use rayon::prelude::*;
@@ -33,14 +35,14 @@ use parking_lot::{Mutex, RwLock};
 use vulkano::{
     buffer::Subbuffer,
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        CopyImageInfo, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
-        SubpassContents,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
+        CommandBufferUsage, CopyImageInfo, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
+        RenderPassBeginInfo, SubpassContents,
     },
     format::Format,
     image::{
-        view::ImageView, ImageAccess, ImageDimensions, ImageUsage, ImmutableImage, MipmapsCount,
-        SwapchainImage,
+        view::ImageView, AttachmentImage, ImageAccess, ImageDimensions, ImageUsage, ImmutableImage,
+        MipmapsCount, StorageImage, SwapchainImage,
     },
     memory::allocator::MemoryUsage,
     pipeline::graphics::viewport::Viewport,
@@ -54,8 +56,8 @@ use vulkano::{
     DeviceSize,
 };
 use winit::{
-    dpi::PhysicalSize,
-    event::{Event, ModifiersState, WindowEvent},
+    dpi::{LogicalPosition, PhysicalSize},
+    event::{Event, ModifiersState, VirtualKeyCode, WindowEvent},
     event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy},
 };
 // use crate::{physics::Physics};
@@ -64,10 +66,12 @@ use crate::{
     editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
     engine::{
         particles::{component::ParticleEmitter, shaders::scs::l},
-        physics::collider::_Collider,
+        physics::{collider::_Collider, rigid_body::_RigidBody},
+        // utils::look_at,
+        prelude::{TransformRef, _Transform},
         project::asset_manager::AssetManagerBase,
         rendering::model::ModelManager,
-        // utils::look_at,
+        world::transform::{Transforms, TRANSFORMS, TRANSFORM_MAP},
     },
 };
 
@@ -75,14 +79,16 @@ use self::{
     input::Input,
     particles::particles::ParticleCompute,
     perf::Perf,
+    physics::collider::_ColliderType,
+    prelude::{Component, Inpsect, Ins, Sys, System, Transform},
     project::{
         asset_manager::AssetsManager,
         file_watcher::{self, FileWatcher},
-        save_project, Project,
+        save_project, serialize, Project,
     },
     render_thread::RenderingData,
     rendering::{
-        camera::{Camera, CameraData},
+        camera::{Camera, CameraData, CameraViewData},
         component::{Renderer, SharedRendererData},
         model::{Mesh, ModelRenderer},
         pipeline::RenderPipeline,
@@ -94,6 +100,7 @@ use self::{
         cs::{transform, MVP},
         TransformCompute,
     },
+    utils::GPUWork,
     world::World,
 };
 
@@ -105,6 +112,7 @@ pub mod project;
 pub mod rendering;
 pub mod runtime_compilation;
 pub mod storage;
+mod terrain_eng;
 pub mod time;
 pub mod transform_compute;
 pub mod world;
@@ -170,13 +178,13 @@ pub(crate) enum EngineEvent {
 }
 struct EngineRenderer {
     viewport: Viewport,
-    framebuffers: Vec<Arc<Framebuffer>>,
+    framebuffers: Vec<(Arc<SwapchainImage>, Arc<Framebuffer>)>,
     recreate_swapchain: bool,
     editor_window_image: Option<Arc<dyn ImageAccess>>,
     render_pass: Arc<RenderPass>,
 }
-pub(crate) struct Engine {
-    pub(crate) world: Arc<Mutex<World>>,
+pub struct Engine {
+    pub world: Arc<Mutex<World>>,
     pub(crate) assets_manager: Arc<AssetsManager>,
     pub(crate) project: Project,
     pub(crate) transform_compute: RwLock<TransformCompute>,
@@ -194,8 +202,8 @@ pub(crate) struct Engine {
     pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
-    pub(crate) time: Time,
-    pub(crate) perf: Arc<Perf>,
+    pub time: Time,
+    pub perf: Arc<Perf>,
     pub(crate) vk: Arc<VulkanManager>,
     pub(crate) shared_render_data: Arc<RwLock<SharedRendererData>>,
     pub(crate) fps_queue: VecDeque<f32>,
@@ -204,10 +212,11 @@ pub(crate) struct Engine {
     pub(crate) input_thread: Arc<JoinHandle<()>>,
     pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     pub(crate) file_watcher: FileWatcher,
-    pub(crate) _image_num: u32,
     pub(crate) gui: SendSync<Gui>,
     pub(crate) tex_id: Option<TextureId>,
     pub(crate) image_view: Option<Arc<ImageView<ImmutableImage>>>,
+    engine_dir: String,
+    game_mode: bool,
     update_editor_window: bool,
     event_loop_proxy: EventLoopProxy<EngineEvent>,
     renderer: EngineRenderer,
@@ -218,8 +227,226 @@ pub struct EnginePtr {
 unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
 
+use crate::engine::prelude::{ComponentID, _ComponentID};
+
+#[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Player2 {
+    rof: f32,
+    speed: f32,
+    grab_mode: bool,
+    cursor_vis: bool,
+    fov: f32,
+    // explosion: AssetInstance<ParticleTemplate>,
+    // shockwave: AssetInstance<ParticleTemplate>,
+    // trail: AssetInstance<ParticleTemplate>,
+    // flame: AssetInstance<ParticleTemplate>,
+    init: bool,
+    should_shoot: bool,
+    player: TransformRef,
+    // vel: Vec3,
+}
+
+impl Component for Player2 {
+    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
+        // unsafe {
+        //     *EXPLOSION.get() = self.explosion;
+        //     *SHOCKWAVE.get() = self.shockwave;
+        // }
+        let input = &sys.input;
+        let speed = self.speed * sys.time.dt;
+
+        if input.get_key_press(&VirtualKeyCode::G) {
+            self.grab_mode = !self.grab_mode;
+        }
+        let _er = sys.vk.window().set_cursor_grab(match self.grab_mode {
+            true => winit::window::CursorGrabMode::Locked,
+            false => winit::window::CursorGrabMode::None,
+        });
+        // if self.grab_mode {
+        match _er {
+            Ok(_) => {}
+            Err(e) => {
+                if self.grab_mode {
+                    match sys
+                        .vk
+                        .window()
+                        .set_cursor_position(LogicalPosition::new(960, 540))
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            println!("{}", e);
+                        }
+                    }
+                }
+            }
+        }
+        // }
+        if input.get_key_press(&VirtualKeyCode::H) {
+            self.cursor_vis = !self.cursor_vis;
+        }
+        // if !self.cursor_vis {
+        sys.vk.window().set_cursor_visible(self.cursor_vis);
+        // }
+        // if input.get_key_press(&VirtualKeyCode::J) {
+        //     lock_cull = !lock_cull;
+        //     // lock_cull.
+        // }
+
+        if input.get_key_press(&VirtualKeyCode::R) {
+            self.speed *= 1.5;
+        }
+        if input.get_key_press(&VirtualKeyCode::F) {
+            self.speed /= 1.5;
+        }
+
+        let mut vel = vec3(0., 0., 0.);
+        // forward/backward
+        if input.get_key(&VirtualKeyCode::W) {
+            vel += vec3(0., 0., 1.);
+            // transform.translate(vec3(0., 0., 1.) * speed);
+        }
+        if input.get_key(&VirtualKeyCode::S) {
+            vel -= vec3(0., 0., 1.);
+            // transform.translate(vec3(0., 0., 1.) * -speed);
+        }
+        // up/down
+        if input.get_key(&VirtualKeyCode::Space) {
+            vel += vec3(0., 1., 0.);
+            // transform.translate(vec3(0., 1., 0.) * speed);
+        }
+        if input.get_key(&VirtualKeyCode::LShift) {
+            vel -= vec3(0., 1., 0.);
+            // transform.translate(vec3(0., 1., 0.) * -speed);
+        }
+        //left/right
+        if input.get_key(&VirtualKeyCode::A) {
+            vel -= vec3(1., 0., 0.);
+            // transform.translate(vec3(1., 0., 0.) * -speed);
+        }
+        if input.get_key(&VirtualKeyCode::D) {
+            vel += vec3(1., 0., 0.);
+            // transform.translate(vec3(1., 0., 0.) * speed);
+        }
+
+        let y = input.get_mouse_scroll().1;
+        self.fov = self.fov.add(y).clamp(5., 50.);
+        // todo get_component Camera. adjust fov
+
+        // if input.get_mouse_button(&2) {
+        // let mut cam_rot = transform.get_rotation();
+        // cam_rot = glm::quat_rotate(
+        //     &cam_rot,
+        //     input.get_mouse_delta().0 as f32 * 0.01,
+        //     &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
+        // );
+        // cam_rot = glm::quat_rotate(
+        //     &cam_rot,
+        //     input.get_mouse_delta().1 as f32 * 0.01,
+        //     &Vec3::x(),
+        // );
+        // transform.set_rotation(cam_rot);
+        transform.rotate(&Vec3::y(), input.get_mouse_delta().0 as f32 * 0.01);
+        transform.rotate(&Vec3::x(), input.get_mouse_delta().1 as f32 * 0.01);
+
+        transform.look_at(&transform.forward(), &Vec3::y());
+        let player = self.player.clone();
+        // let vel = self.vel;
+        let rotation = transform.get_rotation();
+        let speed = speed;
+        sys.defer.append(move |world: &mut World| {
+            if let Some(player_transform) = player.get() {
+                player_transform.move_child(glm::quat_rotate_vec3(&rotation, &(vel * speed)));
+            }
+        });
+
+        // if !self.init {
+        //     // transform.set_position(vec3(0., 0., 0.));
+        //     transform.set_rotation(look_at(&vec3(0.,0.,1.), &Vec3::y()));
+        //     assert!(transform.forward() == vec3(0.,0.,1.));
+        // //     let trail = self.trail.clone();
+        // //     let flame = self.flame.clone();
+        // //     for _ in 0..2000 {
+        // //         world
+        // //             .instantiate(0)
+        // //             .with_transform(|| _Transform {
+        // //                 position: glm::vec3(
+        // //                     (rand::random::<f32>() - 0.5) * 1500f32,
+        // //                     140f32,
+        // //                     (rand::random::<f32>() - 0.5) * 1500f32,
+        // //                 ),
+        // //                 ..Default::default()
+        // //             })
+        // //             .with_com(move || Shooter {
+        // //                 rpm: 0,
+        // //                 trail,
+        // //                 flame,
+        // //                 accum: rand::random::<f32>() * 2.7,
+        // //             }) // random max accum per frame
+        // //             .build();
+        // //     }
+        //     self.init = true;
+        // }
+        // const ALOT: f32 = 10_000_000. / 60.;
+        // // let id = self.trail.id;
+        // // let id2 = self.flame.id;
+        // let len = (ALOT * sys.time.dt.min(1.0 / 30.0)) as usize;
+        // if input.get_key_press(&VirtualKeyCode::O) {
+        //     self.should_shoot = !self.should_shoot;
+        // }
+        // if self.should_shoot {
+        //     world
+        //         .instantiate_many(len as i32, 0, -1)
+        //         .with_transform(|| _Transform {
+        //             position: glm::vec3(
+        //                 (rand::random::<f32>() - 0.5) * 1500f32,
+        //                 140f32,
+        //                 (rand::random::<f32>() - 0.5) * 1500f32,
+        //             ),
+        //             ..Default::default()
+        //         })
+        //         .with_com(|| Bomb {
+        //             vel: glm::Vec3::y() * 70. + utils::rand_sphere() * 50.,
+        //         })
+        //         .with_com(move || ParticleEmitter::new(id))
+        //         // .with_com(move || ParticleEmitter::new(id2))
+        //         // .with_com(move || Renderer::new(0))
+        //         .build();
+        // }
+
+        if input.get_mouse_button(&2) {
+            // let len = (ALOT / 1000. * sys.time.dt.min(1.0 / 30.0)) as usize;
+            let pos = transform.get_position() - transform.up() * 10. + transform.forward() * 15.;
+            let forw = transform.forward();
+            world
+                .instantiate(-1)
+                .with_transform(move || _Transform {
+                    position: pos,
+                    ..Default::default()
+                })
+                // .with_com(move || Bomb {
+                //     vel: forw * 100. + utils::rand_sphere() * 40. * rand::random::<f32>().sqrt(),
+                // })
+                .with_com(|| Renderer::new(0))
+                // .with_com(move || ParticleEmitter::new(id))
+                // .with_com(move || ParticleEmitter::new(id2))
+                .with_com(move || _RigidBody::new(_ColliderType::Cuboid(vec3(1.0, 1.0, 1.0))))
+                .build();
+        }
+    }
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
+        Ins(&mut self.rof).inspect("rof", ui, sys);
+        Ins(&mut self.speed).inspect("speed", ui, sys);
+        // Ins(&mut self.explosion).inspect("explosion", ui, sys);
+        // Ins(&mut self.shockwave).inspect("shockwave", ui, sys);
+        // Ins(&mut self.trail).inspect("trail", ui, sys);
+        // Ins(&mut self.flame).inspect("flame", ui, sys);
+        Ins(&mut self.player).inspect("player container", ui, sys);
+    }
+}
+
 impl Engine {
-    pub(crate) fn new(engine_dir: &PathBuf, project_dir: &str) -> Self {
+    pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
         let event_loop: SendSync<EventLoop<EngineEvent>> =
             unsafe { SendSync::new(EventLoopBuilder::with_user_event().build()) };
         let vk = VulkanManager::new(&event_loop);
@@ -250,9 +477,9 @@ impl Engine {
         let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
 
         assert!(env::set_current_dir(&Path::new(engine_dir)).is_ok()); // procedurally generate cube/move cube to built in assets
-        model_manager.lock().from_file("eng_res/cube/cube.obj");
+        model_manager.lock().from_file("default/cube/cube.obj");
 
-        texture_manager.lock().from_file("eng_res/particle.png");
+        texture_manager.lock().from_file("default/particle.png");
         assert!(env::set_current_dir(&Path::new(project_dir)).is_ok());
 
         let particles_system = Arc::new(ParticleCompute::new(vk.clone(), texture_manager.clone()));
@@ -262,6 +489,10 @@ impl Engine {
             vk.clone(),
             assets_manager.clone(),
         )));
+        unsafe {
+            TRANSFORMS = std::ptr::from_mut(&mut world.lock().transforms);
+            TRANSFORM_MAP = std::ptr::from_mut(&mut world.lock().transform_map);
+        }
 
         #[cfg(target_os = "windows")]
         let dylib_ext = ["dll"];
@@ -273,8 +504,10 @@ impl Engine {
             &dylib_ext,
         )));
         unsafe {
-            assets_manager.add_asset_manager("rs", rs_manager.clone());
-            assets_manager.add_asset_manager("lib", lib_manager.clone());
+            if !game_mode {
+                assets_manager.add_asset_manager("rs", rs_manager.clone());
+                assets_manager.add_asset_manager("lib", lib_manager.clone());
+            }
             assets_manager.add_asset_manager("model", model_manager.clone());
             assets_manager.add_asset_manager("texture", texture_manager.clone());
             assets_manager.add_asset_manager(
@@ -313,7 +546,9 @@ impl Engine {
             world.register::<ParticleEmitter>(false, false, false);
             world.register::<Camera>(false, false, false);
             world.register::<_Collider>(false, true, false);
-            // world.register::<terrain_eng::TerrainEng>(true, false, true);
+            world.register::<_RigidBody>(false, true, false);
+            world.register::<terrain_eng::TerrainEng>(true, false, true);
+            world.register::<Player2>(true, false, false);
         };
 
         let rm = {
@@ -358,8 +593,8 @@ impl Engine {
             depth_range: 0.0..1.0,
         };
 
-        let mut framebuffers =
-            window_size_dependent_setup(&vk.images, render_pass.clone(), &mut viewport);
+        let framebuffers =
+            window_size_dependent_setup(&vk.images, render_pass.clone(), &mut viewport, &vk);
         let mut recreate_swapchain = true;
         let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
         let mut editor_window_image: Option<Arc<dyn ImageAccess>> = None;
@@ -372,7 +607,7 @@ impl Engine {
             assets_manager,
             project: Project::default(),
             transform_compute: RwLock::new(transform_compute),
-            playing_game: false,
+            playing_game: game_mode,
             // coms,
             perf: Arc::new(perf),
             shared_render_data: rm,
@@ -401,15 +636,16 @@ impl Engine {
             input_thread,
             rendering_thread,
             file_watcher,
-            _image_num: 0,
             tex_id: None,
             image_view: None,
+            game_mode,
             gui: unsafe { SendSync::new(gui) },
             update_editor_window: true,
             event_loop_proxy: proxy,
+            engine_dir: engine_dir.as_path().to_str().unwrap().to_string(),
         }
     }
-    pub(crate) fn init(&mut self) {
+    pub fn init(&mut self) {
         self.project = if let Ok(s) = std::fs::read_to_string("project.yaml") {
             // {
             let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
@@ -422,8 +658,9 @@ impl Engine {
         } else {
             Project::default()
         };
+        serialize::deserialize(&mut self.world.lock());
     }
-    pub(crate) fn update_sim(&mut self) -> bool {
+    pub fn update_sim(&mut self) -> bool {
         let full_frame_time = self.perf.node("full frame time");
         let (events, input, window_size, should_exit) = self.input.recv().unwrap();
         for event in events {
@@ -432,14 +669,17 @@ impl Engine {
         let mut world = self.world.lock();
         let gpu_work = SegQueue::new();
         let world_sim = self.perf.node("world _update");
-        let cvd = if self.playing_game {
+        let cvd = if (self.game_mode | self.playing_game) {
             puffin::profile_scope!("game loop");
             {
+                // if self.playing_game != _playing_game {
+                // world.sys.physics.lock().reset();
+                // }
                 puffin::profile_scope!("world update");
                 if world.phys_time >= world.phys_step {
                     // let mut physics = world.sys.physics.lock();
-                    let len = world.sys.physics.lock().rigid_body_set.len();
-                    let num_threads = (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
+                    // let len = world.sys.physics.lock().rigid_body_set.len();
+                    // let num_threads = (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
                     world.sys.physics.lock().step(&self.perf);
                     world.phys_time -= world.phys_step;
                 }
@@ -460,11 +700,14 @@ impl Engine {
                 }
                 {
                     let world_update = self.perf.node("world instantiate");
-                    world.defer_instantiate(&self.perf);
+                    world.defer_instantiate(&input, &self.time, &gpu_work, &self.perf);
                 }
             }
+            // let mut world = self.world.lock();
             world.update_cameras()
         } else {
+            // let mut world = self.world.lock();
+
             world._destroy(&self.perf);
             world.editor_update(&input, &self.time, &gpu_work); // TODO: terrain update still breaking
             self.editor_cam.update(&input, &self.time);
@@ -479,6 +722,8 @@ impl Engine {
             );
             vec![(Some(self.cam_data.clone()), Some(cvd))]
         };
+        // let mut world = self.world.lock();
+
         drop(world_sim);
 
         let get_renderer_data = self.perf.node("get renderer data");
@@ -491,15 +736,13 @@ impl Engine {
         let (main_cam_id, mut cam_datas) = world.get_cam_datas();
         let render_jobs = world.render();
 
-        self._image_num = (self._image_num + 1) % self.vk.swapchain().image_count();
-
-        let cd = if self.playing_game {
+        let cd = if (self.game_mode | self.playing_game) && cam_datas.len() > 0 {
             cam_datas[0].clone()
         } else {
             let cd = self.cam_data.clone();
             cd
         };
-
+        if !self.game_mode {}
         let mut _cd = cd.lock();
         let _gui = self.perf.node("_ gui");
         let dimensions = *EDITOR_WINDOW_DIM.lock();
@@ -512,16 +755,25 @@ impl Engine {
                 &ctx,
                 self.tex_id.unwrap_or_default(),
                 self.assets_manager.clone(),
+                &self.file_watcher,
+                if self.game_mode {
+                    true
+                } else {
+                    self.playing_game
+                },
             );
         });
-        let transform_extent = world.transforms.last_active();
-
-        if self.playing_game {
-            // cam_datas[0].clone()
-        } else {
+        // if _playing_game && self.playing_game != _playing_game {
+        //     Command::new("cargo")
+        //         .args(["run", "-r", "--bin", "game", "--", &self.engine_dir])
+        //         .status()
+        //         .unwrap();
+        // }
+        if !(self.game_mode | self.playing_game) {
             cam_datas = vec![cd.clone()];
             // let cd = self.cam_data.clone();
         };
+        let transform_extent = world.transforms.last_active();
 
         drop(_cd);
         drop(world);
@@ -542,7 +794,7 @@ impl Engine {
 
         let particle_init_data = (emitter_len, emitter_inits, emitter_deinits, particle_bursts);
 
-        let _recreate_swapchain = window_size.is_some() | self.playing_game != _playing_game;
+        let _recreate_swapchain = window_size.is_some();
         let editor_size = *EDITOR_WINDOW_DIM.lock();
         self.time.time += self.time.dt;
         self.time.dt = self.frame_time.elapsed().as_secs_f64() as f32;
@@ -649,7 +901,12 @@ impl Engine {
         let mut game_image = None;
         for cam in cam_datas {
             if let (Some(cam), Some(cvd)) = cam {
-                cam.lock().resize(*EDITOR_WINDOW_DIM.lock(), vk.clone());
+                let dims = if self.game_mode {
+                    framebuffers[0].0.dimensions().width_height()
+                } else {
+                    *EDITOR_WINDOW_DIM.lock()
+                };
+                cam.lock().resize(dims, vk.clone());
                 game_image = cam.lock().render(
                     vk.clone(),
                     &mut builder,
@@ -660,7 +917,6 @@ impl Engine {
                     offset_vec.clone(),
                     &mut rm,
                     &mut renderer_data,
-                    // image_num,
                     self.assets_manager.clone(),
                     &render_jobs,
                     cvd,
@@ -709,12 +965,20 @@ impl Engine {
 
             self.image_view = Some(img_view);
         }
-
-        if let Some(image) = &editor_window_image {
-            if let Some(game_image) = game_image {
-                builder
-                    .copy_image(CopyImageInfo::images(game_image, image.clone()))
-                    .unwrap();
+        // if self.game_mode {
+        //     if let Some(game_image) = game_image {
+        //         builder
+        //             .copy_image(CopyImageInfo::images(game_image, .clone()))
+        //             .unwrap();
+        //     }
+        // }
+        if !self.game_mode {
+            if let Some(image) = &editor_window_image {
+                if let Some(game_image) = &game_image {
+                    builder
+                        .copy_image(CopyImageInfo::images(game_image.clone(), image.clone()))
+                        .unwrap();
+                }
             }
         }
 
@@ -750,7 +1014,8 @@ impl Engine {
 
             vk.update_swapchain(new_swapchain);
 
-            *framebuffers = window_size_dependent_setup(&new_images, render_pass.clone(), viewport);
+            *framebuffers =
+                window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
             viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
             *recreate_swapchain = false;
         }
@@ -770,21 +1035,32 @@ impl Engine {
             *recreate_swapchain = true;
         }
 
+        // engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
+        let gui_commands = gui_commands.unwrap();
+
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
                     clear_values: vec![Some([0., 0., 0., 1.].into())],
-                    ..RenderPassBeginInfo::framebuffer(framebuffers[image_num as usize].clone())
+                    ..RenderPassBeginInfo::framebuffer(framebuffers[image_num as usize].1.clone())
                 },
                 SubpassContents::SecondaryCommandBuffers,
             )
             .unwrap()
             .set_viewport(0, [viewport.clone()]);
-        // engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
-        let gui_commands = gui_commands.unwrap();
+        if !self.game_mode {
         builder.execute_commands(gui_commands).unwrap();
-
+        }
         builder.end_render_pass().unwrap();
+
+        if self.game_mode {
+            if let Some(game_image) = &game_image {
+                let image = framebuffers[image_num as usize].0.clone();
+                builder
+                    .blit_image(BlitImageInfo::images(game_image.clone(), image))
+                    .unwrap();
+            }
+        }
 
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();
@@ -802,7 +1078,6 @@ impl Engine {
         drop(_execute);
 
         self.update_editor_window = window_size.is_some();
-
         self.playing_game = _playing_game;
         if !should_exit {
             self.event_loop_proxy.send_event(EngineEvent::Send);
@@ -823,22 +1098,36 @@ fn window_size_dependent_setup(
     images: &[Arc<SwapchainImage>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
-) -> Vec<Arc<Framebuffer>> {
+    vk: &VulkanManager,
+) -> Vec<(Arc<SwapchainImage>, Arc<Framebuffer>)> {
     let dimensions = images[0].dimensions().width_height();
     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+    // let _image = AttachmentImage::with_usage(
+    //     &vk.mem_alloc,
+    //     dimensions,
+    //     vk.swapchain().image_format(),
+    //     // ImageUsage::SAMPLED
+    //     ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST, // | ImageUsage::TRANSIENT_ATTACHMENT
+    // | ImageUsage::STORAGE, // | ImageUsage::INPUT_ATTACHMENT,
+    // )
+    // .unwrap();
     images
         .iter()
         .map(|image| {
+            // let view = ImageView::new_default(image.clone()).unwrap();
             let view = ImageView::new_default(image.clone()).unwrap();
             // let color_view = ImageView::new_default(color.arc.clone()).unwrap();
-            Framebuffer::new(
-                render_pass.clone(),
-                FramebufferCreateInfo {
-                    attachments: vec![view],
-                    ..Default::default()
-                },
+            (
+                image.clone(),
+                Framebuffer::new(
+                    render_pass.clone(),
+                    FramebufferCreateInfo {
+                        attachments: vec![view],
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
             )
-            .unwrap()
         })
         .collect::<Vec<_>>()
 }

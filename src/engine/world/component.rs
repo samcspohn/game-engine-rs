@@ -4,6 +4,7 @@ use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
 use nalgebra_glm::{Quat, Vec3};
 use parking_lot::{Mutex, RwLock};
+use rapier3d::prelude::RigidBodyHandle;
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
     SecondaryAutoCommandBuffer,
@@ -12,7 +13,7 @@ use vulkano::command_buffer::{
 use crate::engine::{
     input::Input,
     particles::{particle_asset::ParticleTemplate, particles::ParticleCompute},
-    physics::Physics,
+    physics::{Physics, collider::_ColliderType},
     project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
     rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
     time::Time,
@@ -31,6 +32,7 @@ pub struct System<'a> {
     pub vk: Arc<VulkanManager>,
     pub gpu_work: &'a GPUWork,
     pub(crate) particle_system: &'a ParticleCompute,
+    pub(crate) new_rigid_bodies: &'a SegQueue<(_ColliderType,Vec3,Quat,force_send_sync::SendSync<*mut RigidBodyHandle>)>
 }
 impl<'a> System<'a> {
     pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
@@ -76,6 +78,7 @@ pub trait Component {
     fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
         Box::new(|_rd: &mut RenderJobData| {})
     }
+    fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
     // fn as_any(&self) -> &dyn Any;
 }
 

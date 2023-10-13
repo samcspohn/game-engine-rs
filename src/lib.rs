@@ -19,6 +19,9 @@ pub use serde;
 pub use vulkano;
 pub use winit;
 pub mod prelude {
+    // pub use serde;
+    pub use rand;
+    pub use lazy_static;
     pub use crate::engine::particles::component::ParticleEmitter;
     pub use crate::engine::rendering::component::Renderer;
     pub use component_derive::AssetID;
@@ -27,12 +30,12 @@ pub mod prelude {
         input, utils,
         world::{
             component::{Component, System, _ComponentID},
-            transform::{Transform, _Transform},
+            transform::{Transform, _Transform, TransformRef},
             Sys, World,
         },
         RenderJobData,
     };
-    pub use inspectable::{Inpsect, Ins, Inspectable};
+    pub use inspectable::{Inpsect, Ins};
 
     pub use crate::engine::rendering::vulkan_manager::VulkanManager;
     pub use crate::{editor::inspectable, engine};

@@ -1,28 +1,37 @@
+use std::collections::HashMap;
+
+use segvec::SegVec;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::world::{
     entity,
-    transform::{Transforms, _Transform},
+    transform::{Transforms, _Transform, TRANSFORM_MAP},
     World,
 };
-
+struct SerTransform {
+    id: i32,
+    t: _Transform,
+}
 #[derive(Serialize, Deserialize)]
 struct SerGameObject {
-    t: _Transform,
+    t: (i32, _Transform),
     c: Vec<(String, serde_yaml::Value)>,
     t_c: Vec<SerGameObject>,
+}
+#[derive(Serialize, Deserialize)]
+struct SerGameObject2 {
+    t: _Transform,
+    c: Vec<(String, serde_yaml::Value)>,
+    t_c: Vec<SerGameObject2>,
 }
 
 fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject {
     let trans = world.transforms.get(t).unwrap();
     let mut g_o = SerGameObject {
-        t: trans.get_transform(), // set t
+        t: (trans.id, trans.get_transform()), // set t
         c: vec![],
         t_c: vec![],
     };
-    // set components
-    // let entities = world.entities.read();
-    // if let Some(ent) = entities[t as usize].lock().as_ref() {
     let ent = trans.entity();
     for c in ent.components.iter() {
         if let Some(stor) = &world.components.get(c.0) {
@@ -59,7 +68,7 @@ pub fn serialize(world: &World) {
     // };
     let t_r = transforms.get(root).unwrap();
     let mut root = SerGameObject {
-        t: _Transform::default(),
+        t: (0, _Transform::default()),
         c: vec![],
         t_c: vec![],
     };
@@ -70,23 +79,42 @@ pub fn serialize(world: &World) {
     std::fs::write("test.yaml", serde_yaml::to_string(&root).unwrap()).unwrap();
 }
 
-fn deserialize_c(parent: i32, sgo: SerGameObject, world: &mut World) {
-    let g = world.create_with_transform_with_parent(parent, sgo.t);
-    for (typ, val) in sgo.c {
-        // let id: TypeId = unsafe {std::mem::transmute(typ)};
-        world.deserialize(g, typ, val);
-    }
+fn deserialize_c<'a>(
+    parent: i32,
+    sgo: SerGameObject,
+    world: &'a mut World,
+    defer: &mut SegVec<Box<dyn Fn(&mut World)>>,
+) {
+    let g = world.create_with_transform_with_parent(parent, sgo.t.1);
+    unsafe { &mut *TRANSFORM_MAP}.insert(sgo.t.0, g);
+    // let c = sgo.c.clone();
+    defer.push(Box::new(move |world: &mut World| {
+        for (typ, val) in &sgo.c {
+            // let id: TypeId = unsafe {std::mem::transmute(typ)};
+            world.deserialize(g, typ, val);
+        }
+    }));
     for c in sgo.t_c {
-        deserialize_c(g, c, world);
+        deserialize_c(g, c, world, defer);
     }
 }
 
 pub fn deserialize(world: &mut World) {
     if let Ok(s) = std::fs::read_to_string("test.yaml") {
+        unsafe {
+
+            (*TRANSFORM_MAP).clear();
+            (*TRANSFORM_MAP).insert(-1, -1);
+            (*TRANSFORM_MAP).insert(0, 0);
+        }
         let sgo: SerGameObject = serde_yaml::from_str(s.as_str()).unwrap();
         world.clear();
+        let mut defer: SegVec<Box<dyn Fn(&mut World)>> = SegVec::new();
         for c in sgo.t_c {
-            deserialize_c(world.root, c, world);
+            deserialize_c(world.root, c, world, &mut defer);
+        }
+        for a in defer {
+            a(world);
         }
     }
 }

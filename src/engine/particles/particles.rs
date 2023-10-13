@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
+    editor::inspectable::{Inpsect, Ins, Inspectable_},
     engine::{
         atomic_vec::{self, AtomicVec},
         color_gradient::ColorGradient,
@@ -320,7 +320,7 @@ impl ParticleCompute {
 
         unsafe {
             *super::particle_asset::DEFAULT_TEXTURE.get() =
-                AssetInstance::<Texture>::new(tex_man.lock().from_file("eng_res/particle.png"));
+                AssetInstance::<Texture>::new(tex_man.lock().from_file("default/particle.png"));
         }
         let particle_textures = Arc::new(Mutex::new(ParticleTextures::new(
             tex_man,

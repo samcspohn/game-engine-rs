@@ -26,7 +26,7 @@ use vulkano::{
 };
 
 use crate::{
-    editor::inspectable::{Inpsect, Ins, Inspectable},
+    editor::inspectable::{Inpsect, Ins},
     engine::{
         particles::particles::{ParticleCompute, ParticleRenderPipeline},
         perf::Perf,
@@ -121,6 +121,7 @@ impl Frustum {
     }
 }
 #[derive(Clone, Default)]
+#[repr(C)]
 pub struct CameraViewData {
     cam_pos: Vec3,
     cam_rot: Quat,
@@ -213,7 +214,13 @@ fn set_view_direction(position: glm::Vec3, direction: glm::Vec3, up: glm::Vec3) 
 //     viewMatrix[3][2] = -glm::dot(w, position);
 //   }
 
-impl Inspectable for Camera {
+impl Component for Camera {
+    fn init(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
+        self.data = Some(Arc::new(Mutex::new(CameraData::new(
+            sys.vk.clone(),
+            self.samples,
+        ))));
+    }
     fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         Ins(&mut self.fov).inspect("fov", ui, sys);
         Ins(&mut self.near).inspect("near", ui, sys);
@@ -255,14 +262,6 @@ impl Inspectable for Camera {
         });
 
         // Ins(&mut self.samples).inspect("samples", ui, sys);
-    }
-}
-impl Component for Camera {
-    fn init(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
-        self.data = Some(Arc::new(Mutex::new(CameraData::new(
-            sys.vk.clone(),
-            self.samples,
-        ))));
     }
 }
 impl Camera {
@@ -503,10 +502,12 @@ impl CameraData {
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
-        let model_manager: &ModelManager = __model_manager.as_any().downcast_ref().unwrap();
+        let model_manager: &ModelManager =
+            unsafe { __model_manager.as_any().downcast_ref_unchecked() };
         let _texture_manager = assets.get_manager::<Texture>();
         let __texture_manager = _texture_manager.lock();
-        let texture_manager: &TextureManager = __texture_manager.as_any().downcast_ref().unwrap();
+        let texture_manager: &TextureManager =
+            unsafe { __texture_manager.as_any().downcast_ref_unchecked() };
         transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_buf);
 
         if !offset_vec.is_empty() {

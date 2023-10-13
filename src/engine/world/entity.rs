@@ -12,12 +12,10 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
-use crate::{
-    editor::inspectable::Inspectable,
-    engine::{
-        perf::Perf,
-        storage::{Storage, StorageBase},
-    },
+use crate::engine::{
+    perf::Perf,
+    prelude::System,
+    storage::{Storage, StorageBase},
 };
 
 use super::{
@@ -134,7 +132,6 @@ impl<'a> EntityBuilder<'a> {
             + Sync
             + Component
             + _ComponentID
-            + Inspectable
             + Default
             + Clone
             + Serialize
@@ -155,7 +152,11 @@ impl<'a> EntityBuilder<'a> {
         self.comp_funcs.push((
             T::ID,
             Box::new(
-                move |world: &World, stor: &(dyn StorageBase + Send + Sync), id: i32, t: i32| {
+                move |world: &World,
+                    //   syst: &System,
+                      stor: &(dyn StorageBase + Send + Sync),
+                      id: i32,
+                      t: i32| {
                     let stor: &Storage<T> = unsafe { stor.as_any().downcast_ref_unchecked() };
                     stor.insert_exact(id, t, &world.transforms, &world.sys, &f);
                 },
@@ -227,70 +228,70 @@ impl _EntityParBuilder {
 static T_DEFAULT: Lazy<Box<dyn Fn() -> _Transform + Send + Sync>> =
     Lazy::new(|| Box::new(|| _Transform::default()));
 
-fn low_count(
-    a: &_EntityParBuilder,
-    _trans: &Vec<i32>,
-    comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
-    world: &World,
-    unlocked: &SendSync<
-        ThinMap<
-            u64,
-            (
-                AtomicI32,
-                RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
-            ),
-        >,
-    >,
-) {
-    let t_func = a.t_func.1.as_ref().unwrap_or(&T_DEFAULT);
-    let t_id = unsafe { *a.t_func.0.get() };
-    (0..a.count).into_iter().for_each(|i| {
-        let t = _trans[(t_id + i) as usize];
-        world.transforms.write_transform(t, t_func());
-    });
-    a.comp_funcs.iter().for_each(|b| {
-        let comp = &unlocked.get(&b.0).unwrap();
-        let c_id = unsafe { *b.1.get() };
-        let stor = comp.1.as_ref();
-        let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
-        (0..a.count).into_iter().for_each(|i| {
-            let t = _trans[(t_id + i) as usize];
-            b.2(&world, stor, cto[(c_id + i) as usize], t);
-        });
-    });
-}
-fn high_count(
-    a: &_EntityParBuilder,
-    _trans: &Vec<i32>,
-    comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
-    world: &World,
-    unlocked: &SendSync<
-        ThinMap<
-            u64,
-            (
-                AtomicI32,
-                RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
-            ),
-        >,
-    >,
-) {
-    let t_func = a.t_func.1.as_ref().unwrap_or(&T_DEFAULT);
-    let t_id = unsafe { *a.t_func.0.get() };
-    (0..a.count).into_par_iter().for_each(|i| {
-        let t = _trans[(t_id + i) as usize];
-        world.transforms.write_transform(t, t_func());
-    });
-    a.comp_funcs.par_iter().for_each(|b| {
-        let comp = &unlocked.get(&b.0).unwrap();
-        let c_id = unsafe { *b.1.get() };
-        let stor = comp.1.as_ref();
-        let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
-        (0..a.count).into_par_iter().for_each(|i| {
-            let t = _trans[(t_id + i) as usize];
-            b.2(world, stor, cto[(c_id + i) as usize], t);
-        });
-    });
-}
+// fn low_count(
+//     a: &_EntityParBuilder,
+//     _trans: &Vec<i32>,
+//     comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
+//     world: &World,
+//     unlocked: &SendSync<
+//         ThinMap<
+//             u64,
+//             (
+//                 AtomicI32,
+//                 RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
+//             ),
+//         >,
+//     >,
+// ) {
+//     let t_func = a.t_func.1.as_ref().unwrap_or(&T_DEFAULT);
+//     let t_id = unsafe { *a.t_func.0.get() };
+//     (0..a.count).into_iter().for_each(|i| {
+//         let t = _trans[(t_id + i) as usize];
+//         world.transforms.write_transform(t, t_func());
+//     });
+//     a.comp_funcs.iter().for_each(|b| {
+//         let comp = &unlocked.get(&b.0).unwrap();
+//         let c_id = unsafe { *b.1.get() };
+//         let stor = comp.1.as_ref();
+//         let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
+//         (0..a.count).into_iter().for_each(|i| {
+//             let t = _trans[(t_id + i) as usize];
+//             b.2(&world, stor, cto[(c_id + i) as usize], t);
+//         });
+//     });
+// }
+// fn high_count(
+//     a: &_EntityParBuilder,
+//     _trans: &Vec<i32>,
+//     comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
+//     world: &World,
+//     unlocked: &SendSync<
+//         ThinMap<
+//             u64,
+//             (
+//                 AtomicI32,
+//                 RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
+//             ),
+//         >,
+//     >,
+// ) {
+//     let t_func = a.t_func.1.as_ref().unwrap_or(&T_DEFAULT);
+//     let t_id = unsafe { *a.t_func.0.get() };
+//     (0..a.count).into_par_iter().for_each(|i| {
+//         let t = _trans[(t_id + i) as usize];
+//         world.transforms.write_transform(t, t_func());
+//     });
+//     a.comp_funcs.par_iter().for_each(|b| {
+//         let comp = &unlocked.get(&b.0).unwrap();
+//         let c_id = unsafe { *b.1.get() };
+//         let stor = comp.1.as_ref();
+//         let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
+//         (0..a.count).into_par_iter().for_each(|i| {
+//             let t = _trans[(t_id + i) as usize];
+//             b.2(world, stor, cto[(c_id + i) as usize], t);
+//         });
+//     });
+// }
 
 pub struct EntityParBuilder<'a> {
     world: &'a World,
@@ -328,7 +329,6 @@ impl<'a> EntityParBuilder<'a> {
             + Sync
             + Component
             + _ComponentID
-            + Inspectable
             + Default
             + Clone
             + Serialize
@@ -350,7 +350,11 @@ impl<'a> EntityParBuilder<'a> {
             T::ID,
             SyncUnsafeCell::new(-1),
             Box::new(
-                move |world: &World, stor: &(dyn StorageBase + Send + Sync), id: i32, t: i32| {
+                move |world: &World,
+                    //   syst: &System,
+                      stor: &(dyn StorageBase + Send + Sync),
+                      id: i32,
+                      t: i32| {
                     let stor: &Storage<T> = unsafe { stor.as_any().downcast_ref_unchecked() };
                     stor.insert_exact(id, t, &world.transforms, &world.sys, &f);
                 },

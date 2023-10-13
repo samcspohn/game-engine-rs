@@ -12,7 +12,7 @@ use std::{
 };
 
 use crate::{
-    editor::inspectable::{Inpsect, Ins, Inspectable, Inspectable_},
+    editor::inspectable::{Inpsect, Ins, Inspectable_},
     engine::world::{Sys, World},
 };
 
@@ -598,14 +598,14 @@ impl AssetsManager {
             if n == "lib" || n == "texture" {
                 continue;
             }
-            let a = unsafe { &*self.asset_managers_names.get() }.get(n).unwrap();
-            a.lock().regen(v.clone());
+            if let Some(a) = unsafe { &*self.asset_managers_names.get() }.get(n) {
+                a.lock().regen(v.clone());
+            }
         }
-        let a = unsafe { &*self.asset_managers_names.get() }
-            .get("lib")
-            .unwrap();
-        if let Some(libs) = val.get("lib") {
-            a.lock().regen(libs.clone());
+        if let Some(a) = unsafe { &*self.asset_managers_names.get() }.get("lib") {
+            if let Some(libs) = val.get("lib") {
+                a.lock().regen(libs.clone());
+            }
         }
     }
     pub fn save_assets(&self) {

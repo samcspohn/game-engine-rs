@@ -10,7 +10,7 @@ use std::{
 use thincollections::thin_vec::ThinVec;
 
 use crate::{
-    editor::inspectable::{Inpsect, Ins, Inspectable},
+    editor::inspectable::{Inpsect, Ins},
     engine::{
         project::asset_manager::AssetInstance,
         storage::_Storage,
@@ -140,9 +140,6 @@ impl Component for Renderer {
             rm.transforms.erase(*id);
         }
     }
-}
-
-impl Inspectable for Renderer {
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys) {
         let mut m_id = self.model_id;
         if Ins(&mut m_id).inspect("model_id", ui, sys) {
@@ -152,6 +149,7 @@ impl Inspectable for Renderer {
         }
     }
 }
+
 // #[derive(Default)]
 // pub struct RendererInstances {
 //     pub model_id: i32,

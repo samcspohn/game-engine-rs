@@ -3,9 +3,9 @@ use parking_lot::Mutex;
 
 use crate::engine::world::{transform::Transform, Sys, World};
 
-pub trait Inspectable {
-    fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
-}
+// pub trait Inspectable {
+//     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
+// }
 
 pub trait Inspectable_ {
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World);
