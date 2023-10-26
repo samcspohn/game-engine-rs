@@ -40,7 +40,10 @@ use super::{
     input::Input,
     particles::{component::ParticleEmitter, particles::ParticleCompute},
     perf::Perf,
-    physics::{collider::_ColliderType, Physics},
+    physics::{
+        collider::{PhysMesh, _ColliderType, MESH_MAP, PROC_MESH_ID},
+        Physics,
+    },
     project::asset_manager::{AssetManagerBase, AssetsManager},
     rendering::{
         camera::{Camera, CameraData, CameraViewData},
@@ -54,6 +57,21 @@ use super::{
     Defer, RenderJobData,
 };
 
+pub(crate) struct NewRigidBody {
+    pub ct: SendSync<*mut _ColliderType>,
+    pub pos: Vec3,
+    pub rot: Quat,
+    pub vel: Vec3,
+    pub tid: i32,
+    pub rb: SendSync<*mut RigidBodyHandle>,
+}
+pub struct NewCollider {
+    pub ct: SendSync<*mut _ColliderType>,
+    pub pos: Vec3,
+    pub rot: Quat,
+    pub tid: i32,
+    pub rb: SendSync<*mut ColliderHandle>,
+}
 pub struct Sys {
     // pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
@@ -63,18 +81,8 @@ pub struct Sys {
     pub vk: Arc<VulkanManager>,
     pub defer: Defer,
     pub(crate) dragged_transform: i32,
-    pub(crate) new_rigid_bodies: SegQueue<(
-        _ColliderType,
-        Vec3,
-        Quat,
-        force_send_sync::SendSync<*mut RigidBodyHandle>,
-    )>,
-    pub new_colliders: SegQueue<(
-        _ColliderType,
-        Vec3,
-        Quat,
-        force_send_sync::SendSync<*mut ColliderHandle>,
-    )>,
+    pub(crate) new_rigid_bodies: SegQueue<NewRigidBody>,
+    pub new_colliders: SegQueue<NewCollider>,
 }
 
 impl Sys {
@@ -89,6 +97,8 @@ pub struct World {
     pub phys_time: f32,
     pub phys_step: f32,
     pub transforms: Transforms,
+    pub mesh_map: HashMap<i32, ColliderBuilder>,
+    pub proc_mesh_id: i32,
     pub(super) transform_map: HashMap<i32, i32>,
     // pub(super) dragged_transform: i32,
     pub(crate) components: HashMap<
@@ -129,12 +139,15 @@ impl World {
         // trans: &'static mut Transforms,
     ) -> World {
         let mut trans = Transforms::new();
+        // let mesh_map = HashMap::new();
         // let root = TRANSFORMS.new_root();
         let root = trans.new_root();
         World {
             phys_time: 0f32,
             phys_step: 1. / 30.,
             transforms: trans,
+            mesh_map: HashMap::new(),
+            proc_mesh_id: -1,
             transform_map: HashMap::new(),
             // dragged_transform: -1,
             components: HashMap::default(),
@@ -267,7 +280,6 @@ impl World {
         }
     }
     pub fn deserialize(&mut self, g: i32, key: &String, s: &serde_yaml::Value) {
-        println!("key: {}", key);
         if let Some(stor) = self.components_names.get(key) {
             let mut stor = stor.write();
             let c_id = stor.deserialize(g, s.clone());
@@ -320,6 +332,8 @@ impl World {
         unsafe {
             TRANSFORMS = std::ptr::from_mut(&mut self.transforms);
             TRANSFORM_MAP = std::ptr::from_mut(&mut self.transform_map);
+            MESH_MAP = std::ptr::from_mut(&mut self.mesh_map);
+            PROC_MESH_ID = std::ptr::from_mut(&mut self.proc_mesh_id);
         }
         self.sys.physics = Arc::new(Mutex::new(Physics::new()));
     }
@@ -341,6 +355,58 @@ impl World {
         self.components.remove(&key);
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
+    }
+    pub fn init_colls_rbs(&mut self) {
+        while let Some(new_rb) = self.sys.new_rigid_bodies.pop() {
+            let NewRigidBody {
+                mut ct,
+                pos,
+                rot,
+                vel,
+                tid,
+                mut rb,
+            } = new_rb;
+            if unsafe { **rb != RigidBodyHandle::invalid() } {
+                unsafe {
+                    self.sys.physics.lock().remove_rigid_body(unsafe { **rb });
+                }
+            }
+            let _rb = RigidBodyBuilder::dynamic()
+                .translation(pos.into())
+                .rotation(quat_euler_angles(&rot))
+                .user_data(tid as u128)
+                .build();
+            unsafe {
+                **rb = self.sys.physics.lock().add_rigid_body(_rb);
+                let col = (**ct).get_collider(&self.sys).user_data(tid as u128).build();
+                self.sys
+                    .physics
+                    .lock()
+                    .add_collider_to_rigid_body(col, unsafe { **rb });
+            }
+        }
+        while let Some(new_col) = self.sys.new_colliders.pop() {
+            let NewCollider {
+                mut ct,
+                pos,
+                rot,
+                tid,
+                mut rb,
+            } = new_col;
+            if unsafe { **rb != ColliderHandle::invalid() } {
+                unsafe {
+                    self.sys.physics.lock().remove_collider(**rb);
+                }
+            }
+            unsafe {
+                let col = (**ct)
+                    .get_collider(&self.sys)
+                    .position(pos.into())
+                    .rotation(quat_euler_angles(&rot))
+                    .build();
+                **rb = self.sys.physics.lock().add_collider(col);
+            }
+        }
     }
     pub fn defer_instantiate(
         &mut self,
@@ -401,44 +467,8 @@ impl World {
         self.to_instantiate.clear();
         self.to_instantiate_multi.clear();
         // drop(syst);
-
-        while let Some(new_rb) = self.sys.new_rigid_bodies.pop() {
-            let (ty, pos, rot, mut ptr) = new_rb;
-            if unsafe { **ptr } != RigidBodyHandle::invalid() {
-                unsafe {
-                    self.sys.physics.lock().remove_rigid_body(**ptr);
-                }
-            }
-            let rb = RigidBodyBuilder::dynamic()
-                .translation(pos.into())
-                .rotation(quat_euler_angles(&rot))
-                .build();
-            unsafe {
-                **ptr = self.sys.physics.lock().add_rigid_body(rb);
-            }
-            let col = ty.get_collider().build();
-            self.sys
-                .physics
-                .lock()
-                .add_collider_to_rigid_body(col, unsafe { **ptr });
-        }
-        while let Some(new_col) = self.sys.new_colliders.pop() {
-            let (ty, pos, rot, mut ptr) = new_col;
-            if unsafe { **ptr } != ColliderHandle::invalid() {
-                unsafe {
-                    self.sys.physics.lock().remove_collider(**ptr);
-                }
-            }
-            let col = ty
-                .get_collider()
-                .position(pos.into())
-                .rotation(quat_euler_angles(&rot))
-                .build();
-            unsafe {
-                **ptr = self.sys.physics.lock().add_collider(col);
-            }
-        }
     }
+
     pub fn _defer_instantiate_single(
         &self,
         perf: &Perf,
@@ -835,7 +865,7 @@ impl World {
         self.components.iter().for_each(|c| {
             unlocked.insert(*c.0, c.1 .1.read());
         });
-
+        // destroy entities not part of hierarchy
         for i in 0..self.transforms.valid.len() {
             if let Some(trans) = self.transforms.get(i as i32) {
                 let ent = trans.entity();

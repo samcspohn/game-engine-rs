@@ -1,9 +1,9 @@
-use std::mem::transmute;
+use std::{cell::SyncUnsafeCell, mem::transmute, sync::Arc};
 
 // use component_derive::ComponentID;
 use super::collider::_ColliderType;
-use crate::engine::prelude::*;
 use crate::engine::project::asset_manager::AssetInstance;
+use crate::engine::{prelude::*, world::NewRigidBody};
 use force_send_sync::SendSync;
 use nalgebra_glm::{quat_euler_angles, vec3, Quat, Vec3};
 use rapier3d::{na::UnitQuaternion, prelude::*};
@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(ComponentID, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
+#[repr(C)]
 pub struct _RigidBody {
     pub _type: _ColliderType,
     // #[serde(skip_serializing, skip_deserializing)]
@@ -20,33 +21,20 @@ pub struct _RigidBody {
 }
 impl Component for _RigidBody {
     fn init(&mut self, _transform: &Transform, _id: i32, _sys: &Sys) {
-        _sys.new_rigid_bodies.push((
-            self._type.clone(),
-            _transform.get_position(),
-            _transform.get_rotation(),
-            unsafe { SendSync::new(&mut self.rb_handle) },
-        ));
+        _sys.new_rigid_bodies.push(NewRigidBody {
+            ct: unsafe { SendSync::new(&mut self._type) },
+            pos: _transform.get_position(),
+            rot: _transform.get_rotation(),
+            vel: Vec3::zeros(),
+            tid: _transform.id,
+            rb: unsafe { SendSync::new(&mut self.rb_handle) },
+        });
     }
     fn deinit(&mut self, _transform: &Transform, _id: i32, _sys: &Sys) {
         if self.rb_handle != RigidBodyHandle::invalid() {
             _sys.physics.lock().remove_rigid_body(self.rb_handle);
         }
-    }
-    fn late_update(&mut self, _transform: &Transform, _sys: &System) {
-        if self.rb_handle != RigidBodyHandle::invalid() {
-            let rb = unsafe { _sys.physics.get_rigid_body(self.rb_handle).unwrap() };
-            if !rb.is_sleeping() {
-                _transform.set_position(rb.translation());
-                _transform.set_rotation(rb.rotation());
-            }
-        } else {
-            _sys.new_rigid_bodies.push((
-                self._type.clone(),
-                _transform.get_position(),
-                _transform.get_rotation(),
-                unsafe { SendSync::new(&mut self.rb_handle) },
-            ));
-        }
+        self.rb_handle = RigidBodyHandle::invalid();
     }
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys) {
         ui.menu_button("shape", |ui| {
@@ -61,7 +49,8 @@ impl Component for _RigidBody {
         if match &mut self._type {
             _ColliderType::Cuboid(v) => Ins(v).inspect("Dimensions", ui, sys),
             _ColliderType::Ball(f) => Ins(f).inspect("radius", ui, sys),
-            _ColliderType::TriMesh((_,_)) => false,
+            _ColliderType::TriMesh(_) => false,
+            _ColliderType::TriMeshUnint((_, _)) => false,
         } {
             // let phys = sys.physics.lock();
             // phys.get_collider(self.handle).unwrap().set_shape(shape)
@@ -69,14 +58,13 @@ impl Component for _RigidBody {
             self.init(transform, id, sys);
         }
         if self.rb_handle != RigidBodyHandle::invalid() {
-
-        let mut phys = sys.physics.lock();
-        let rb = unsafe { phys.get_rigid_body_mut(self.rb_handle).unwrap() };
-        rb.set_translation(transform.get_position().into(), false);
-        rb.set_rotation(
-            UnitQuaternion::new_unchecked(transform.get_rotation()),
-            false,
-        );
+            let mut phys = sys.physics.lock();
+            let rb = unsafe { phys.get_rigid_body_mut(self.rb_handle).unwrap() };
+            rb.set_translation(transform.get_position().into(), false);
+            rb.set_rotation(
+                UnitQuaternion::new_unchecked(transform.get_rotation()),
+                false,
+            );
         }
     }
 }

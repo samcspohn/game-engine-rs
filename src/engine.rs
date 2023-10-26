@@ -25,7 +25,10 @@ use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
 use puffin_egui::puffin;
-use rapier3d::{na::ComplexField, prelude::*};
+use rapier3d::{
+    na::{ComplexField, UnitQuaternion},
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
 
 use rayon::prelude::*;
@@ -66,11 +69,15 @@ use crate::{
     editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
     engine::{
         particles::{component::ParticleEmitter, shaders::scs::l},
-        physics::{collider::_Collider, rigid_body::_RigidBody},
+        physics::{
+            collider::{_Collider, MESH_MAP, PROC_MESH_ID},
+            rigid_body::_RigidBody,
+        },
         // utils::look_at,
         prelude::{TransformRef, _Transform},
         project::asset_manager::AssetManagerBase,
         rendering::model::ModelManager,
+        storage::Storage,
         world::transform::{Transforms, TRANSFORMS, TRANSFORM_MAP},
     },
 };
@@ -492,6 +499,8 @@ impl Engine {
         unsafe {
             TRANSFORMS = std::ptr::from_mut(&mut world.lock().transforms);
             TRANSFORM_MAP = std::ptr::from_mut(&mut world.lock().transform_map);
+            MESH_MAP = std::ptr::from_mut(&mut world.lock().mesh_map);
+            PROC_MESH_ID = std::ptr::from_mut(&mut world.lock().proc_mesh_id);
         }
 
         #[cfg(target_os = "windows")]
@@ -545,8 +554,9 @@ impl Engine {
             world.register::<Renderer>(false, false, false);
             world.register::<ParticleEmitter>(false, false, false);
             world.register::<Camera>(false, false, false);
-            world.register::<_Collider>(false, true, false);
-            world.register::<_RigidBody>(false, true, false);
+            world.register::<_Collider>(false, false, false);
+            world.register::<_RigidBody>(false, false, false);
+            //
             world.register::<terrain_eng::TerrainEng>(true, false, true);
             world.register::<Player2>(true, false, false);
         };
@@ -680,7 +690,37 @@ impl Engine {
                     // let mut physics = world.sys.physics.lock();
                     // let len = world.sys.physics.lock().rigid_body_set.len();
                     // let num_threads = (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
-                    world.sys.physics.lock().step(&self.perf);
+                    {
+                        let mut physics = world.sys.physics.lock();
+                        let a = &world.get_components::<_Collider>().as_ref().unwrap().1;
+                        let b = a.write();
+                        let c = b.as_any().downcast_ref::<Storage<_Collider>>().unwrap();
+                        (0..c.data.len()).into_par_iter().for_each(|i| {
+                            if unsafe { *c.valid[i].get() } {
+                                let d = c.data[i].lock();
+                                let t = world.transforms.get(d.0).unwrap();
+                                let handle = d.1.handle;
+                                let collider =
+                                    &mut (unsafe { &mut *physics.collider_set.get() })[handle];
+                                collider.set_translation(t.get_position());
+                                collider.set_rotation(UnitQuaternion::from_quaternion(
+                                    t.get_rotation(),
+                                ));
+                            }
+                        });
+                        physics.step(&self.perf);
+                        physics
+                            .island_manager
+                            .active_dynamic_bodies()
+                            .par_iter()
+                            .chain(physics.island_manager.active_kinematic_bodies().par_iter())
+                            .for_each(|a| {
+                                let rb = unsafe { physics.get_rigid_body(*a).unwrap() };
+                                let t = world.transforms.get(rb.user_data as i32).unwrap();
+                                t.set_position(rb.translation());
+                                t.set_rotation(rb.rotation());
+                            });
+                    }
                     world.phys_time -= world.phys_step;
                 }
                 world.phys_time += self.time.dt;
@@ -701,6 +741,7 @@ impl Engine {
                 {
                     let world_update = self.perf.node("world instantiate");
                     world.defer_instantiate(&input, &self.time, &gpu_work, &self.perf);
+                    world.init_colls_rbs();
                 }
             }
             // let mut world = self.world.lock();
@@ -709,6 +750,7 @@ impl Engine {
             // let mut world = self.world.lock();
 
             world._destroy(&self.perf);
+            world.init_colls_rbs();
             world.editor_update(&input, &self.time, &gpu_work); // TODO: terrain update still breaking
             self.editor_cam.update(&input, &self.time);
             let cvd = self.cam_data.lock().update(
@@ -941,7 +983,7 @@ impl Engine {
                     array_layers: 1,
                 },
                 MipmapsCount::Log2,
-                Format::R8G8B8A8_UNORM,
+                Format::E5B9G9R9_UFLOAT_PACK32,
                 &mut builder,
             )
             .unwrap();
@@ -1049,7 +1091,7 @@ impl Engine {
             .unwrap()
             .set_viewport(0, [viewport.clone()]);
         if !self.game_mode {
-        builder.execute_commands(gui_commands).unwrap();
+            builder.execute_commands(gui_commands).unwrap();
         }
         builder.end_render_pass().unwrap();
 
@@ -1086,6 +1128,7 @@ impl Engine {
     }
     pub fn end(mut self) {
         println!("end");
+        // self.world.lock().sys.physics.lock().get_counters();
         self.perf.print();
         Arc::into_inner(self.rendering_thread).unwrap().join();
         self.event_loop_proxy.send_event(EngineEvent::Quit);

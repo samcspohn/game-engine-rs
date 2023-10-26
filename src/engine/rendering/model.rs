@@ -76,14 +76,14 @@ pub struct Normal {
 
 #[derive(Clone)]
 pub struct Mesh {
-    pub vertices: Vec<_Vertex>,
+    pub vertices: Vec<_Vertex>, // TODO: change to [f32;3]
     pub normals: Vec<Normal>,
     pub uvs: Vec<UV>,
-    pub indeces: Vec<u16>,
+    pub indeces: Vec<u32>,
 
     pub vertex_buffer: Subbuffer<[_Vertex]>,
     pub uvs_buffer: Subbuffer<[UV]>,
-    pub index_buffer: Subbuffer<[u16]>,
+    pub index_buffer: Subbuffer<[u32]>,
     pub normals_buffer: Subbuffer<[Normal]>,
     pub texture: Option<i32>,
 }
@@ -92,13 +92,11 @@ impl Mesh {
     pub fn new_procedural(
         vertices: Vec<_Vertex>,
         normals: Vec<Normal>,
-        indeces: Vec<u16>,
+        indeces: Vec<u32>,
         uvs: Vec<UV>,
         vk: &VulkanManager,
     ) -> Mesh {
         let vertex_buffer = vk.buffer_from_iter(vertices.clone());
-        // Buffer::from_iter(allocator, buffer_usage_all(), false, vertices.clone())
-        //     .unwrap();
         let uvs_buffer = vk.buffer_from_iter(uvs.clone());
         let normals_buffer = vk.buffer_from_iter(normals.clone());
         let index_buffer = vk.buffer_from_iter(indeces.clone());
@@ -135,9 +133,9 @@ impl Mesh {
             let mesh = &m.mesh;
 
             for face in mesh.indices.chunks(3) {
-                indices.push(face[0] as u16);
-                indices.push(face[2] as u16);
-                indices.push(face[1] as u16);
+                indices.push(face[0]);
+                indices.push(face[2]);
+                indices.push(face[1]);
             }
             for v in mesh.positions.chunks(3) {
                 vertices.push(_Vertex {

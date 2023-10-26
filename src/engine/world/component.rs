@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{cell::SyncUnsafeCell, sync::Arc};
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
@@ -13,7 +13,7 @@ use vulkano::command_buffer::{
 use crate::engine::{
     input::Input,
     particles::{particle_asset::ParticleTemplate, particles::ParticleCompute},
-    physics::{Physics, collider::_ColliderType},
+    physics::{collider::_ColliderType, Physics},
     project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
     rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
     time::Time,
@@ -21,6 +21,8 @@ use crate::engine::{
     world::{transform::Transform, Sys, World},
     Defer, RenderJobData,
 };
+
+use super::NewRigidBody;
 
 pub struct System<'a> {
     pub physics: &'a Physics,
@@ -32,7 +34,8 @@ pub struct System<'a> {
     pub vk: Arc<VulkanManager>,
     pub gpu_work: &'a GPUWork,
     pub(crate) particle_system: &'a ParticleCompute,
-    pub(crate) new_rigid_bodies: &'a SegQueue<(_ColliderType,Vec3,Quat,force_send_sync::SendSync<*mut RigidBodyHandle>)>
+    pub(crate) new_rigid_bodies:
+        &'a SegQueue<NewRigidBody>,
 }
 impl<'a> System<'a> {
     pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {

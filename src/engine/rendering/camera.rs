@@ -391,7 +391,7 @@ impl CameraData {
                     color: {
                         load: Clear,
                         store: Store,
-                        format: Format::R8G8B8A8_UNORM,
+                        format: Format::E5B9G9R9_UFLOAT_PACK32,
                         samples: 1,
                     },
                     depth: {
@@ -757,7 +757,7 @@ fn window_size_dependent_setup(
     let image = AttachmentImage::with_usage(
         &vk.mem_alloc,
         dimensions,
-        Format::R8G8B8A8_UNORM,
+        Format::E5B9G9R9_UFLOAT_PACK32,
         ImageUsage::SAMPLED
             | ImageUsage::STORAGE
             | ImageUsage::COLOR_ATTACHMENT
