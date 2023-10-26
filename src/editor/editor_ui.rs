@@ -14,10 +14,10 @@ use std::{
 use crate::{
     editor::{
         editor_ui::entity_inspector::_selected,
-        inspectable::{Inspectable, Inspectable_},
+        inspectable::{Inspectable_},
     },
     engine::{
-        project::{asset_manager::AssetsManager, serialize},
+        project::{asset_manager::AssetsManager, serialize, save_project, file_watcher::{self, FileWatcher}},
         utils,
         world::{transform::Transform, Sys, World},
     },
@@ -32,7 +32,7 @@ enum TransformDrag {
 }
 lazy_static::lazy_static! {
 
-    static ref DRAGGED_TRANSFORM: Mutex<i32> = Mutex::new(0);
+    pub(crate) static ref DRAGGED_TRANSFORM: Mutex<i32> = Mutex::new(0);
     static ref TRANSFORM_DRAG: Mutex<Option<TransformDrag>> = Mutex::new(None);
 }
 enum GameObjectContextMenu {
@@ -49,6 +49,7 @@ struct TabViewer<'a> {
     // goi: &'a GameObjectInspector<'b>,
     inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
     assets_manager: Arc<AssetsManager>,
+    file_watcher: &'a FileWatcher,
     func: Box<
         dyn Fn(
             &str,
@@ -57,6 +58,7 @@ struct TabViewer<'a> {
             &mut VecDeque<f32>,
             &mut Option<Arc<Mutex<dyn Inspectable_>>>,
             Arc<AssetsManager>,
+            &FileWatcher,
             Rect,
             egui::Id,
         ),
@@ -76,6 +78,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                 self.fps,
                 self.inspectable,
                 self.assets_manager.clone(),
+                self.file_watcher,
                 ui.max_rect(),
                 ui.id(),
             );
@@ -98,6 +101,11 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                     unsafe {
                         PLAYING_GAME = true;
                     }
+                    // {
+                    //     // let mut world = self.world;
+                    //     self.world.clear();
+                    //     serialize::deserialize(&mut self.world);
+                    // }
                 }
             });
             let a = ui.available_size();
@@ -127,8 +135,11 @@ pub fn editor_ui(
     egui_ctx: &Context,
     frame_color: egui::TextureId,
     assets_manager: Arc<AssetsManager>,
+    file_watcher: &FileWatcher,
+    curr_playing: bool,
 ) -> bool {
     {
+        unsafe { PLAYING_GAME = curr_playing; }
         static mut _SELECTED_TRANSFORMS: Lazy<HashMap<i32, bool>> =
             Lazy::new(HashMap::<i32, bool>::new);
 
@@ -152,8 +163,8 @@ pub fn editor_ui(
         unsafe {
             DockArea::new(&mut DOCK)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
-                .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut INSPECTABLE, assets_manager, func:
-                    Box::new(|tab, ui, world: &mut World, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>, rec: Rect, id: egui::Id| {
+                .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut INSPECTABLE, assets_manager, file_watcher, func:
+                    Box::new(|tab, ui, world: &mut World, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>, file_watcher: &FileWatcher, rec: Rect, id: egui::Id| {
                         let assets_manager = assets_manager;
                         match tab {
                             "Hierarchy" => {
@@ -167,8 +178,8 @@ pub fn editor_ui(
                                     // println!("clicked: {}", resp.response.clicked_by(egui::PointerButton::Secondary));
                                     resp.context_menu(|ui: &mut Ui| {
                                         // println!("here");
-                                        let resp = ui.menu_button("Add Game Object", |_ui| {});
-                                        if resp.response.clicked() {
+                                        let resp = ui.button("Add Game Object");
+                                        if resp.clicked() {
                                             let e = world.create();
                                             unsafe {
                                                 _selected = Some(e);
@@ -178,12 +189,13 @@ pub fn editor_ui(
                                             println!("add game object");
                                             ui.close_menu();
                                         }
-                                        if ui.menu_button("Save", |_ui| {}).response.clicked() {
+                                        if ui.button("Save").clicked() {
                                             serialize::serialize(world);
-                                            assets_manager.serialize();
+                                            save_project(file_watcher, world, assets_manager);
+                                            // assets_manager.serialize();
                                             ui.close_menu();
                                         }
-                                        if ui.menu_button("Load", |_ui| {}).response.clicked() {
+                                        if ui.button("Load").clicked() {
                                             serialize::deserialize(world);
                                             ui.close_menu();
                                         }
@@ -299,6 +311,7 @@ pub fn editor_ui(
                                                     let resp = ui.interact(resp.rect, id, egui::Sense::drag());
                                                     if resp.drag_started() {
                                                         *DRAGGED_TRANSFORM.lock() = t.id;
+                                                        
                                                     }
                                                     if is_being_dragged {
                                                         ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
@@ -416,9 +429,12 @@ pub fn editor_ui(
                                     //     .show(&egui_ctx, hierarchy_ui);
                                     hierarchy_ui(ui);
 
+                                    world.sys.dragged_transform = *DRAGGED_TRANSFORM.lock();
                                     let d = &*TRANSFORM_DRAG.lock();
                                     if let Some(d) = d {
                                         // (d_t_id, t_id)
+                                        // if let _d = *DRAGGED_TRANSFORM.lock() {
+                                        // }
                                         match d {
                                             TransformDrag::DragToTransform(d_t_id, t_id) => {
                                                 transforms.adopt(*t_id, *d_t_id);

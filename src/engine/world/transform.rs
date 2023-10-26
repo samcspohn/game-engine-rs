@@ -8,22 +8,36 @@ use deepmesa::lists::{
 use force_send_sync::SendSync;
 use glm::{quat_cross_vec, quat_rotate_vec3, vec3, Quat, Vec3};
 use nalgebra_glm as glm;
+use once_cell::sync::Lazy;
 use parking_lot::{Mutex, MutexGuard};
 use rayon::prelude::*;
 use vulkano::buffer::Subbuffer;
 // use spin::{Mutex,RwLock};
 use num_integer::Roots;
 
-use crate::engine::world::nalgebra::Isometry3;
-use serde::{Deserialize, Serialize};
+use crate::{
+    editor::editor_ui::DRAGGED_TRANSFORM,
+    engine::{
+        prelude::Inspectable_,
+        prelude::{Inpsect, Ins},
+        project::asset_manager::drop_target,
+        world::nalgebra::Isometry3,
+    },
+};
+use serde::{
+    de::{self, Visitor},
+    ser::SerializeStruct,
+    Deserialize, Deserializer, Serialize,
+};
 use std::{
     cell::SyncUnsafeCell,
     cmp::Reverse,
-    collections::BinaryHeap,
+    collections::{BinaryHeap, HashMap},
+    mem::MaybeUninit,
     sync::{
         atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
         Arc,
-    },
+    }, thread::ThreadId,
 };
 
 pub struct TransformMeta {
@@ -61,70 +75,77 @@ impl Default for _Transform {
 }
 
 pub struct Transform<'a> {
+    // thr_id: ThreadId,
     _lock: MutexGuard<'a, ()>,
     pub id: i32,
-    pub transforms: &'a Transforms,
+    // pub transforms: &'a Transforms,
 }
 
 #[allow(dead_code)]
 impl<'a> Transform<'a> {
     pub fn forward(&self) -> glm::Vec3 {
-        self.transforms.forward(self.id)
+        unsafe { &*TRANSFORMS }.forward(self.id)
     }
     pub fn right(&self) -> glm::Vec3 {
-        self.transforms.right(self.id)
+        unsafe { &*TRANSFORMS }.right(self.id)
     }
     pub fn up(&self) -> glm::Vec3 {
-        self.transforms.up(self.id)
+        unsafe { &*TRANSFORMS }.up(self.id)
     }
     pub fn _move(&self, v: Vec3) {
-        self.transforms._move(self.id, v);
+        unsafe { &*TRANSFORMS }._move(self.id, v);
     }
     pub fn move_child(&self, v: Vec3) {
-        self.transforms.move_child(&self, v);
+        unsafe { &*TRANSFORMS }.move_child(self.id, v);
     }
     pub fn translate(&self, v: Vec3) {
-        self.transforms.translate(self.id, v);
+        unsafe { &*TRANSFORMS }.translate(self.id, v);
     }
     pub fn get_position(&self) -> Vec3 {
-        self.transforms.get_position(self.id)
+        unsafe { &*TRANSFORMS }.get_position(self.id)
     }
     pub fn set_position(&self, v: &Vec3) {
-        self.transforms.set_position(self.id, v);
+        unsafe { &*TRANSFORMS }.set_position(self.id, v);
+    }
+    pub(crate) fn set_position_(&self, v: &Vec3) {
+        unsafe { &*TRANSFORMS }.set_position_(self.id, v);
     }
     pub fn get_rotation(&self) -> Quat {
-        self.transforms.get_rotation(self.id)
+        unsafe { &*TRANSFORMS }.get_rotation(self.id)
     }
     pub fn set_rotation(&self, r: &Quat) {
-        self.transforms.set_rotation(self.id, r);
+        unsafe { &*TRANSFORMS }.set_rotation(self.id, r);
+    }
+    pub(crate) fn set_rotation_(&self, r: &Quat) {
+        unsafe { &*TRANSFORMS }.set_rotation_(self.id, r);
     }
     pub fn look_at(&self, direction: &Vec3, up: &Vec3) {
-        self.transforms.look_at(self.id, direction, up);
+        unsafe { &*TRANSFORMS }.look_at(self.id, direction, up);
     }
     pub fn get_scale(&self) -> Vec3 {
-        self.transforms.get_scale(self.id)
+        unsafe { &*TRANSFORMS }.get_scale(self.id)
     }
     pub fn set_scale(&self, s: Vec3) {
-        self.transforms.set_scale(self.id, s);
+        unsafe { &*TRANSFORMS }.set_scale(self.id, s);
     }
     pub fn scale(&self, s: Vec3) {
-        self.transforms.scale(self.id, s);
+        unsafe { &*TRANSFORMS }.scale(self.id, s);
     }
     pub fn rotate(&self, axis: &Vec3, radians: f32) {
-        self.transforms.rotate(self.id, axis, radians);
+        unsafe { &*TRANSFORMS }.rotate(self.id, axis, radians);
     }
     pub fn get_children(&self) -> TransformIter {
-        let meta = unsafe { &*self.transforms.meta[self.id as usize].get() };
+        let meta = unsafe { &*unsafe { &*TRANSFORMS }.meta[self.id as usize].get() };
         TransformIter {
             iter: meta.children.iter(),
-            transforms: self.transforms,
+            transforms: unsafe { &*TRANSFORMS },
         }
     }
     pub fn adopt(&self, child: &Transform) {
-        self.transforms.adopt(self.id, child.id);
+        unsafe { &*TRANSFORMS }.adopt(self.id, child.id);
     }
     pub fn get_transform(&self) -> _Transform {
-        // let transforms = &self.transforms;
+        // let transforms = &unsafe { **TRANSFORMS };
         _Transform {
             position: self.get_position(),
             rotation: self.get_rotation(),
@@ -132,16 +153,16 @@ impl<'a> Transform<'a> {
         }
     }
     pub fn get_parent(&self) -> Transform {
-        self.transforms
-            .get(self.transforms.get_parent(self.id))
+        unsafe { &*TRANSFORMS }
+            .get(unsafe { &*TRANSFORMS }.get_parent(self.id))
             .unwrap()
     }
 
     pub(crate) fn get_meta(&self) -> &mut TransformMeta {
-        unsafe { &mut *self.transforms.meta[self.id as usize].get() }
+        unsafe { &mut *unsafe { &*TRANSFORMS }.meta[self.id as usize].get() }
     }
     pub fn entity(&self) -> &mut Entity {
-        unsafe { &mut *self.transforms.entity[self.id as usize].get() }
+        unsafe { &mut *unsafe { &*TRANSFORMS }.entity[self.id as usize].get() }
     }
 }
 
@@ -154,7 +175,7 @@ impl<'a> Iterator for TransformIter<'a> {
     type Item = Transform<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(it) = self.iter.next() {
-            Some(self.transforms.get(*it).unwrap())
+            Some(unsafe { &*TRANSFORMS }.get(*it).unwrap())
         } else {
             None
         }
@@ -249,7 +270,7 @@ use segvec::SegVec;
 
 use crate::engine::{storage::Avail, transform_compute::cs::transform};
 
-use super::entity::Entity;
+use super::{entity::Entity, Sys};
 pub type TransformBuf = (
     Subbuffer<[u32]>,      // pos_i
     Subbuffer<[[f32; 3]]>, // pos
@@ -258,6 +279,57 @@ pub type TransformBuf = (
     Subbuffer<[u32]>,      //scl_i
     Subbuffer<[[f32; 3]]>, // scl
 );
+
+// lazy_static::lazy_static! {
+// }
+// pub static TRANSFORM_MAP: *const SendSync<Mutex<HashMap<i32, i32>>> = std::ptr::null_mut(); //Lazy<Mutex<HashMap<i32, i32>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+pub static mut TRANSFORM_MAP: *mut HashMap<i32, i32> = std::ptr::null_mut();
+
+pub static mut TRANSFORMS: *mut Transforms = std::ptr::null_mut();
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct TransformRef {
+    #[serde(deserialize_with = "transform_map")]
+    id: i32,
+}
+impl Default for TransformRef {
+    fn default() -> Self {
+        Self { id: -1 }
+    }
+}
+impl TransformRef {
+    pub fn get(&self) -> Option<Transform> {
+        unsafe { &*TRANSFORMS }.get(self.id)
+    }
+}
+fn transform_map<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: i32 = Deserialize::deserialize(deserializer)?;
+    println!("transform ref: {}", s);
+    Ok(*unsafe { &*TRANSFORM_MAP }.get(&s).unwrap())
+}
+impl<'a> Inpsect for Ins<'a, TransformRef> {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, _sys: &Sys) -> bool {
+        let label = format!("{}", self.0.id);
+        // let drop_data = _sys.assets_manager.drag_drop_data.lock().clone();
+        let drop_data = _sys.dragged_transform;
+        ui.horizontal(|ui| {
+            ui.add(egui::Label::new(name));
+            drop_target(ui, true, |ui| {
+                let response = ui.add(egui::Label::new(label.as_str()));
+                if response.hovered() && ui.input(|i| i.pointer.any_released()) {
+                    // if let id = drop_data {
+                    self.0.id = drop_data;
+                    // }
+                }
+            });
+        })
+        .response
+        .changed()
+    }
+}
 pub struct Transforms {
     self_lock: Mutex<()>,
     mutex: SegVec<SyncUnsafeCell<Mutex<()>>>,
@@ -295,9 +367,9 @@ impl Transforms {
         // TODO: make option
         if unsafe { *self.valid[t as usize].get() } {
             Some(Transform {
+                // thr_id: std::thread::current().id(),
                 _lock: unsafe { (*self.mutex[t as usize].get()).lock() },
                 id: t,
-                transforms: self,
             })
         } else {
             None
@@ -648,11 +720,12 @@ impl Transforms {
         }
         self.u_pos(t);
     }
-    fn move_child(&self, t: &Transform, v: Vec3) {
-        self._move(t.id, v);
+    fn move_child(&self, t: i32, v: Vec3) {
+        self._move(t, v);
 
-        for child in t.get_children() {
-            self.move_child(&child, v);
+        for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
+            let child = self.get(*child_id).unwrap();
+            self.move_child(child.id, v);
         }
     }
     fn rot_mul(&self, t: i32, v: &Vec3) -> Vec3 {
@@ -666,19 +739,37 @@ impl Transforms {
         self.u_pos(t);
         for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
             let child = self.get(*child_id).unwrap();
-            self.move_child(&child, v);
+            self.move_child(child.id, v);
         }
     }
     fn get_position(&self, t: i32) -> Vec3 {
         unsafe { *self.positions[t as usize].get() }
     }
+    fn set_position_(&self, t: i32, v: &Vec3) {
+        self.u_pos(t);
+        // let offset = v - self.get_position(t);
+        // self.translate(t, offset);
+        unsafe {
+            *self.positions[t as usize].get() = *v;
+        }
+        //         player_transform.move_child(glm::quat_rotate_vec3(&rotation, &(vel * speed)));
+        //     }
+        // });
+        // for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
+        //     let child = self.get(*child_id).unwrap();
+        //     self.move_child(&child, offset);
+        // }
+    }
     fn set_position(&self, t: i32, v: &Vec3) {
         // self.u_pos(t);
         let offset = v - self.get_position(t);
-        self.translate(t, offset);
+        self.move_child(t, offset);
         // unsafe {
         //     *self.positions[t as usize].get() = v;
         // }
+        //         player_transform.move_child(glm::quat_rotate_vec3(&rotation, &(vel * speed)));
+        //     }
+        // });
         // for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
         //     let child = self.get(*child_id).unwrap();
         //     self.move_child(&child, offset);
@@ -694,13 +785,34 @@ impl Transforms {
     fn set_rotation(&self, t: i32, r: &Quat) {
         self.u_rot(t);
         let r_l = unsafe { &mut *self.rotations[t as usize].get() };
-        let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l));
+        // let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l));
+
+        let mut rot: Option<Quat> = if unsafe { (*self.meta[t as usize].get()).children.len() } > 0
+        {
+            Some(r * r_l.simd_try_inverse().simd_unwrap())
+        } else {
+            None
+        };
         *r_l = *r;
         let pos = unsafe { *self.positions[t as usize].get() };
-        for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
-            let child = self.get(*child_id).unwrap();
-            self.set_rotation_child(&child, &rot, &pos)
+        if let Some(rot) = rot {
+            for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
+                let child = self.get(*child_id).unwrap();
+                self.set_rotation_child(&child, &rot, &pos)
+            }
         }
+    }
+    fn set_rotation_(&self, t: i32, r: &Quat) {
+        self.u_rot(t);
+        let r_l = unsafe { &mut *self.rotations[t as usize].get() };
+        // let rot = r * (glm::quat_conjugate(&*r_l) / glm::quat_dot(&*r_l, &*r_l));
+        // let rot = r * r_l.simd_try_inverse().simd_unwrap();
+        *r_l = *r;
+        // let pos = unsafe { *self.positions[t as usize].get() };
+        // for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
+        //     let child = self.get(*child_id).unwrap();
+        //     self.set_rotation_child(&child, &rot, &pos)
+        // }
     }
     fn set_rotation_child(&self, t: &Transform, rot: &Quat, pos: &Vec3) {
         let rotat = unsafe { &mut *self.rotations[t.id as usize].get() };

@@ -44,7 +44,7 @@ once_cell = "*"
 pqueue = "*"
 rand = "*"
 scoped_threadpool = "*"
-nalgebra-glm = { version = "*", features = ["serde-serialize"]}
+nalgebra-glm = { version = "*", features = ["serde-serialize"] }
 png = "*"
 image = "*"
 serde = { version = "*", features = ["derive"] }
@@ -52,9 +52,13 @@ ron = "*"
 serde_yaml = "*"
 glium = { git = "https://github.com/glium/glium.git" }
 
-rapier3d = { version = "*", features = [ "simd-stable","parallel" ] }
+rapier3d = { version = "*", features = [
+    "simd-nightly",
+    "parallel",
+    "serde-serialize",
+] }
 
-parking_lot = "*"
+parking_lot = { version = "*" }
 deepmesa = "*"
 force-send-sync = "*"
 # assimp = "*"

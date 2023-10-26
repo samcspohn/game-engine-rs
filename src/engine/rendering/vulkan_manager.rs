@@ -33,11 +33,11 @@ use vulkano::{
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
     sync::Sharing,
-    NonZeroDeviceSize, VulkanLibrary,
+    NonZeroDeviceSize, VulkanLibrary, format::Format,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
-    dpi::LogicalSize,
+    dpi::{LogicalSize, PhysicalSize},
     event_loop::EventLoop,
     window::{self, Window, WindowBuilder},
 };
@@ -188,7 +188,7 @@ impl VulkanManager {
         // let event_loop = EventLoop::new();
         let surface = WindowBuilder::new()
             // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-            .with_inner_size(LogicalSize {
+            .with_inner_size(PhysicalSize {
                 width: 1920,
                 height: 1080,
             })
@@ -299,7 +299,7 @@ impl VulkanManager {
                 min_image_count,
                 image_format,
                 image_extent: window.inner_size().into(),
-                image_usage: ImageUsage::COLOR_ATTACHMENT,
+                image_usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
                 composite_alpha: surface_capabilities
                     .supported_composite_alpha
                     .into_iter()

@@ -7,7 +7,6 @@ use std::{
     sync::atomic::{AtomicBool, AtomicI32, Ordering},
 };
 
-use crate::editor::inspectable::Inspectable;
 use bitvec::vec::BitVec;
 use crossbeam::queue::SegQueue;
 use parking_lot::Mutex;
@@ -85,6 +84,8 @@ pub trait StorageBase {
     fn remove(&self, i: i32);
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys);
     fn init(&self, transform: &Transform, i: i32, sys: &Sys);
+    fn on_start(&self, transform: &Transform, i: i32, sys: &System);
+    fn on_destroy(&self, transform: &Transform, i: i32, sys: &System);
     fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &Sys);
     fn get_name(&self) -> &'static str;
     fn get_id(&self) -> u64;
@@ -153,7 +154,6 @@ impl<
         T: 'static
             + Component
             + _ComponentID
-            + Inspectable
             + Send
             + Sync
             + Default
@@ -211,6 +211,7 @@ impl<
         self.write_t(id, t, f());
         if let Some(trans) = transforms.get(t) {
             self.init(&trans, id, sys);
+            // self.on_start(&trans, id, syst);
             trans.entity().insert(T::ID, id);
         }
     }
@@ -296,7 +297,6 @@ impl<
         T: 'static
             + Component
             + _ComponentID
-            + Inspectable
             + Send
             + Sync
             + Default
@@ -345,6 +345,12 @@ impl<
     }
     fn init(&self, transform: &Transform, i: i32, sys: &Sys) {
         self.data[i as usize].lock().1.init(transform, i, sys);
+    }
+    fn on_start(&self, transform: &Transform, i: i32, sys: &System) {
+        self.data[i as usize].lock().1.on_start(transform, sys);
+    }
+    fn on_destroy(&self, transform: &Transform, i: i32, sys: &System) {
+        self.data[i as usize].lock().1.on_destroy(transform, sys);
     }
     fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &Sys) {
         self.data[i as usize]

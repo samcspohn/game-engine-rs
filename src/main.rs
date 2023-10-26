@@ -5,7 +5,7 @@
 
 mod editor;
 mod engine;
-mod terrain_eng;
+// mod terrain_eng;
 
 use crate::engine::input::Input;
 use crate::engine::particles::{component::ParticleEmitter, particles::ParticleCompute};
@@ -101,7 +101,7 @@ fn main() {
     if let Ok(_) = fs::remove_dir_all(path) {}
     fs::create_dir(path).unwrap();
 
-    let mut engine = engine::Engine::new(&engine_dir, &args[1]);
+    let mut engine = engine::Engine::new(&engine_dir, &args[1], false);
     engine.init();
 
     while !engine.update_sim() {}

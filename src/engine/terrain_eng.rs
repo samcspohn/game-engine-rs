@@ -35,7 +35,7 @@ use vulkano::{
 
 use crate::engine::world::component::_ComponentID;
 use crate::{
-    editor::inspectable::{Inpsect, Ins, Inspectable},
+    editor::inspectable::{Inpsect, Ins},
     engine::{
         rendering::{
             component::buffer_usage_all,
@@ -80,17 +80,6 @@ pub struct TerrainEng {
     tcrd: Option<Arc<TerrainChunkRenderData>>,
     pub terrain_size: i32,
     pub chunk_range: i32,
-}
-
-impl Inspectable for TerrainEng {
-    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
-        // egui::CollapsingHeader::new("Terrain")
-        //     .default_open(true)
-        //     .show(ui, |ui| {
-        Ins(&mut self.chunk_range).inspect("chunk_range", ui, sys);
-        Ins(&mut self.terrain_size).inspect("terrain_size", ui, sys);
-        // });
-    }
 }
 
 impl TerrainEng {
@@ -141,11 +130,11 @@ impl TerrainEng {
         // if self.cur_chunks.load(Ordering::Relaxed) == self.prev_chunks {
         //     return;
         // }
-        let builder = AutoCommandBufferBuilder::primary(
+        let builder = AutoCommandBufferBuilder::secondary(
             &sys.vk.comm_alloc,
             sys.vk.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
-            // CommandBufferInheritanceInfo::default(),
+            CommandBufferInheritanceInfo::default(),
         )
         .unwrap();
         let builder = unsafe { Arc::new(Mutex::new(SendSync::new(builder))) };
@@ -209,8 +198,8 @@ impl TerrainEng {
                             //     .build();
 
                             let collider = ColliderBuilder::trimesh(ter_verts, ter_indeces)
-                                .collision_groups(InteractionGroups::none())
-                                .solver_groups(InteractionGroups::none())
+                                // .collision_groups(InteractionGroups::none())
+                                // .solver_groups(InteractionGroups::none())
                                 // .collision_groups(InteractionGroups::new(
                                 //     0b10.into(),
                                 //     (!0b10).into(),
@@ -285,7 +274,7 @@ impl TerrainEng {
 
                             let _chunks = chunks.clone();
                             sys.defer.append(move |world| {
-                                let handle = world.sys.physics.lock().collider_set.insert(collider);
+                                let handle = world.sys.physics.lock().add_collider(collider);
                                 _chunks.lock().get_mut(&x_).unwrap().insert(z_, handle);
                             });
                             cur_chunks.fetch_add(1, Ordering::Relaxed);
@@ -297,11 +286,15 @@ impl TerrainEng {
         {
             let builder = Arc::try_unwrap(builder).ok().unwrap();
             let builder = builder.into_inner().unwrap();
-            let _ = builder
-                .build()
-                .unwrap()
-                .execute(sys.vk.queue.clone())
-                .unwrap();
+            let cb = builder.build().unwrap();
+            sys.enque_gpu_work(|builder, vk| {
+                builder.execute_commands(cb).unwrap();
+            })
+            // let _ = builder
+            //     .build()
+            //     .unwrap()
+            //     .execute(sys.vk.queue.clone())
+            //     .unwrap();
             // let mut builder = AutoCommandBufferBuilder::primary(
             //     &sys.vk.comm_alloc,
             //     sys.vk.queue.queue_family_index(),
@@ -336,25 +329,18 @@ impl TerrainEng {
         let make_vert = |x: i32, z: i32| {
             let __x = x as f32 + (_x * (terrain_size - 1)) as f32;
             let __z = z as f32 + (_z * (terrain_size - 1)) as f32;
+            let mut normalized = noise.get([__x as f64 / 50., __z as f64 / 50.])
+                + noise.get([__x as f64 / 10., __z as f64 / 10.]) * 0.2
+                + noise.get([__x as f64 / 5., __z as f64 / 5.]) * 0.02;
+            normalized /= 1.22;
+            normalized = normalized * 0.5 + 0.5;
+            normalized *= normalized * normalized;
             _Vertex {
-                position: [
-                    __x * 10.0,
-                    noise.get([__x as f64 / 50., __z as f64 / 50.]) as f32 * 100.
-                        + noise.get([__x as f64 / 10., __z as f64 / 10.]) as f32 * 7.,
-                    __z * 10.0,
-                ],
+                position: [__x * 10.0, normalized as f32 * 200f32 - 30f32, __z * 10.0],
             }
         };
-
         for i in 0..terrain_size {
             for j in 0..terrain_size {
-                // let _x = i as f32 - (terrain_size as f32 / 2.);
-                // let _z = j as f32 - (terrain_size as f32 / 2.);
-                // let _y = noise.get([i as f64 / 50.0, j as f64 / 50.0]) * 10.;
-
-                // let _v = Vertex {
-                //     position: [_x, _y as f32, _z],
-                // };
                 vertices.push(make_vert(i, j));
                 let x = i as f32 + (_x * (terrain_size - 1)) as f32;
                 let z = j as f32 + (_z * (terrain_size - 1)) as f32;
@@ -365,12 +351,6 @@ impl TerrainEng {
         let xz = |x, z| (x * terrain_size + z) as usize;
 
         let mut normals = Vec::with_capacity((terrain_size * terrain_size) as usize);
-        // normals.resize(
-        //     (terrain_size * terrain_size) as usize,
-        //     Normal {
-        //         normal: [0., 0., 0.],
-        //     },
-        // );
         unsafe {
             normals.set_len((terrain_size * terrain_size) as usize);
         }
@@ -460,6 +440,14 @@ impl TerrainEng {
 }
 
 impl Component for TerrainEng {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
+        // egui::CollapsingHeader::new("Terrain")
+        //     .default_open(true)
+        //     .show(ui, |ui| {
+        Ins(&mut self.chunk_range).inspect("chunk_range", ui, sys);
+        Ins(&mut self.terrain_size).inspect("terrain_size", ui, sys);
+        // });
+    }
     fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
         let _chunks = self.chunks.clone();
         // static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
