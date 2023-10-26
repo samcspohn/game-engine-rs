@@ -334,7 +334,7 @@ impl CameraData {
                     intermediary: {
                         load: Clear,
                         store: DontCare,
-                        format: Format::R8G8B8A8_UNORM,
+                        format: Format::E5B9G9R9_UFLOAT_PACK32,
                         samples: num_samples,
                     },
                     depth: {
@@ -346,7 +346,7 @@ impl CameraData {
                     color: {
                         load: DontCare,
                         store: Store,
-                        format: Format::R8G8B8A8_UNORM,
+                        format: Format::E5B9G9R9_UFLOAT_PACK32,
                         // Same here, this has to match.
                         samples: 1,
                     },
@@ -695,7 +695,7 @@ fn window_size_dependent_setup_msaa(
         &vk.mem_alloc,
         dimensions,
         samples,
-        Format::R8G8B8A8_UNORM,
+        Format::E5B9G9R9_UFLOAT_PACK32,
     )
     .unwrap();
     let intermediary = ImageView::new_default(intermediary.clone()).unwrap();
@@ -707,7 +707,7 @@ fn window_size_dependent_setup_msaa(
             height: dimensions[1],
             array_layers: 1,
         },
-        Format::R8G8B8A8_UNORM,
+        Format::E5B9G9R9_UFLOAT_PACK32,
         Some(vk.queue.queue_family_index()),
     )
     .unwrap();
