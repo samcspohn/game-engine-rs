@@ -42,7 +42,7 @@ use super::{
     perf::Perf,
     physics::{
         collider::{PhysMesh, _ColliderType, MESH_MAP, PROC_MESH_ID},
-        Physics,
+        Physics, PhysicsData,
     },
     project::asset_manager::{AssetManagerBase, AssetsManager},
     rendering::{
@@ -77,12 +77,15 @@ pub struct Sys {
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub assets_manager: Arc<AssetsManager>,
     pub physics: Arc<Mutex<Physics>>,
+    pub physics2: Arc<Mutex<PhysicsData>>,
     pub particles_system: Arc<ParticleCompute>,
     pub vk: Arc<VulkanManager>,
     pub defer: Defer,
     pub(crate) dragged_transform: i32,
     pub(crate) new_rigid_bodies: SegQueue<NewRigidBody>,
     pub new_colliders: SegQueue<NewCollider>,
+    pub(crate) to_remove_rigid_bodies: SegQueue<RigidBodyHandle>,
+    pub to_remove_colliders: SegQueue<ColliderHandle>,
 }
 
 impl Sys {
@@ -157,12 +160,15 @@ impl World {
                 renderer_manager: Arc::new(RwLock::new(RendererManager::new(vk.clone()))),
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
+                physics2: Arc::new(Mutex::new(PhysicsData::new())),
                 particles_system: particles,
                 vk: vk,
                 defer: Defer::new(),
                 dragged_transform: -1,
                 new_rigid_bodies: SegQueue::new(),
                 new_colliders: SegQueue::new(),
+                to_remove_colliders: SegQueue::new(),
+                to_remove_rigid_bodies: SegQueue::new(),
             },
             to_destroy: Mutex::new(Vec::new()),
             to_instantiate_multi: AtomicVec::new(),
@@ -271,6 +277,34 @@ impl World {
     //         panic!("no type key?")
     //     }
     // }
+    pub fn get_component<T: 'static + Component + _ComponentID>(
+        &self,
+        g_id: i32,
+    ) -> Option<Vec<*const Mutex<T>>> {
+        let Some(ent) = self.transforms.entity.get(g_id as usize) else {
+            return None;
+        };
+        let Some(c) = unsafe { &*ent.get() }.components.get(&T::ID) else {
+            return None;
+        };
+        let Some(stor) = self.components.get(&T::ID) else {
+            return None;
+        };
+        let a = stor.1.read();
+        let b = unsafe { a.as_any().downcast_ref_unchecked::<Storage<T>>() };
+        let mut _v: Vec<*const Mutex<T>> = vec![];
+        match c {
+            entity::Components::Id(id) => {
+                _v.push(&b.data.get(*id as usize).unwrap().1);
+            }
+            entity::Components::V(v) => {
+                for id in v {
+                    _v.push(&b.data.get(*id as usize).unwrap().1);
+                }
+            }
+        }
+        return Some(_v);
+    }
     pub fn add_component_id(&mut self, g: i32, key: u64, c_id: i32) {
         let trans = self.transforms.get(g).unwrap();
         let ent = trans.entity();
@@ -330,10 +364,10 @@ impl World {
     }
     pub fn re_init(&mut self) {
         unsafe {
-            TRANSFORMS = std::ptr::from_mut(&mut self.transforms);
-            TRANSFORM_MAP = std::ptr::from_mut(&mut self.transform_map);
-            MESH_MAP = std::ptr::from_mut(&mut self.mesh_map);
-            PROC_MESH_ID = std::ptr::from_mut(&mut self.proc_mesh_id);
+            TRANSFORMS = &mut self.transforms;
+            TRANSFORM_MAP = &mut self.transform_map;
+            MESH_MAP = &mut self.mesh_map;
+            PROC_MESH_ID = &mut self.proc_mesh_id;
         }
         self.sys.physics = Arc::new(Mutex::new(Physics::new()));
     }
@@ -356,7 +390,7 @@ impl World {
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
-    pub fn init_colls_rbs(&mut self) {
+    pub fn init_colls_rbs(&self) {
         while let Some(new_rb) = self.sys.new_rigid_bodies.pop() {
             let NewRigidBody {
                 mut ct,
@@ -378,7 +412,10 @@ impl World {
                 .build();
             unsafe {
                 **rb = self.sys.physics.lock().add_rigid_body(_rb);
-                let col = (**ct).get_collider(&self.sys).user_data(tid as u128).build();
+                let col = (**ct)
+                    .get_collider(&self.sys)
+                    .user_data(tid as u128)
+                    .build();
                 self.sys
                     .physics
                     .lock()
@@ -730,9 +767,10 @@ impl World {
     }
     pub fn _update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork, perf: &Perf) {
         {
+            let world_update = perf.node("get sys in update");
             let sys = &self.sys;
             let sys = System {
-                physics: &sys.physics.lock(),
+                physics: &sys.physics2.lock(),
                 defer: &sys.defer,
                 input,
                 time,
@@ -743,10 +781,11 @@ impl World {
                 particle_system: &sys.particles_system,
                 new_rigid_bodies: &sys.new_rigid_bodies,
             };
+            drop(world_update);
             {
                 let world_update = perf.node("world update");
                 self.components.iter().for_each(|(_, stor)| {
-                    let mut stor = stor.1.write();
+                    let mut stor = stor.1.read();
                     let world_update = perf.node(&format!("world update: {}", stor.get_name()));
                     stor.update(&self.transforms, &sys, &self);
                 });
@@ -754,7 +793,7 @@ impl World {
             {
                 let world_update = perf.node("world late_update");
                 self.components.iter().for_each(|(_, stor)| {
-                    let mut stor = stor.1.write();
+                    let mut stor = stor.1.read();
                     let world_update =
                         perf.node(&format!("world late update: {}", stor.get_name()));
                     stor.late_update(&self.transforms, &sys);
@@ -777,12 +816,12 @@ impl World {
             .valid
             .iter()
             .zip(camera_storage.data.iter())
-            .for_each(|(v, d)| {
+            .for_each(|(v, _d)| {
                 if unsafe { *v.get() } {
-                    let mut d = d.lock();
-                    let id: i32 = d.0;
-                    let cvd = d.1._update(&self.transforms.get(id).unwrap());
-                    ret.push((d.1.get_data(), cvd))
+                    let mut d = _d.1.lock();
+                    let id: i32 = unsafe { *_d.0.get() };
+                    let cvd = d._update(&self.transforms.get(id).unwrap());
+                    ret.push((d.get_data(), cvd))
                 }
             });
         ret
@@ -790,7 +829,7 @@ impl World {
     pub(crate) fn editor_update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork) {
         let sys = &self.sys;
         let sys = System {
-            physics: &sys.physics.lock(),
+            physics: &sys.physics2.lock(),
             defer: &sys.defer,
             input,
             time,
@@ -825,11 +864,11 @@ impl World {
             .valid
             .iter()
             .zip(camera_storage.data.iter())
-            .map(|(v, d)| {
+            .map(|(v, _d)| {
                 if unsafe { *v.get() } {
-                    let d = d.lock();
-                    main_cam_id = d.0;
-                    d.1.get_data()
+                    let d = _d.1.lock();
+                    main_cam_id = unsafe { *_d.0.get() };
+                    d.get_data()
                 } else {
                     None
                 }

@@ -53,7 +53,7 @@ serde_yaml = "*"
 glium = { git = "https://github.com/glium/glium.git" }
 
 rapier3d = { version = "*", features = [
-    "simd-nightly",
+    "simd-stable",
     "parallel",
     "serde-serialize",
 ] }

@@ -76,8 +76,8 @@ impl<T: 'static> _Storage<T> {
 pub trait StorageBase {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn update(&mut self, transforms: &Transforms, sys: &System, world: &World);
-    fn late_update(&mut self, transforms: &Transforms, sys: &System);
+    fn update(&self, transforms: &Transforms, sys: &System, world: &World);
+    fn late_update(&self, transforms: &Transforms, sys: &System);
     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
@@ -139,7 +139,7 @@ impl Avail {
 
 #[repr(C)]
 pub struct Storage<T> {
-    pub data: SegVec<Mutex<(i32, T)>>,
+    pub data: SegVec<(SyncUnsafeCell<i32>, Mutex<T>)>,
     pub valid: SegVec<SyncUnsafeCell<bool>>,
     new_ids_cache: VecCache<i32>,
     new_offsets_cache: VecCache<i32>,
@@ -179,11 +179,13 @@ impl<
     fn write_t(&self, id: i32, transform: i32, d: T) {
         unsafe {
             *self.valid[id as usize].get() = true;
+            *self.data[id as usize].0.get() = transform;
         };
-        *self.data[id as usize].lock() = (transform, d);
+        *self.data[id as usize].1.lock() = d;
     }
     fn push_t(&mut self, transform: i32, d: T) {
-        self.data.push(Mutex::new((transform, d)));
+        self.data
+            .push((SyncUnsafeCell::new(transform), Mutex::new(d)));
         self.valid.push(SyncUnsafeCell::new(true));
     }
     fn reserve(&mut self, count: usize) {
@@ -191,7 +193,8 @@ impl<
         let c = count - c;
         if c > 0 {
             let c = c + self.len();
-            self.data.resize_with(c, || Mutex::new((-1, T::default())));
+            self.data
+                .resize_with(c, || (SyncUnsafeCell::new(-1), Mutex::new(T::default())));
             self.valid.resize_with(c, || SyncUnsafeCell::new(false));
         }
     }
@@ -311,29 +314,29 @@ impl<
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
     }
-    fn update(&mut self, transforms: &Transforms, sys: &System, world: &World) {
+    fn update(&self, transforms: &Transforms, sys: &System, world: &World) {
         if !self.has_update {
             return;
         }
         let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].lock();
-                let trans = transforms.get(d.0).unwrap();
-                d.1.update(&trans, &sys, world);
+                let mut d = self.data[i].1.lock();
+                let trans = transforms.get(unsafe { *self.data[i].0.get() }).unwrap();
+                d.update(&trans, &sys, world);
             }
         });
     }
-    fn late_update(&mut self, transforms: &Transforms, sys: &System) {
+    fn late_update(&self, transforms: &Transforms, sys: &System) {
         if !self.has_late_update {
             return;
         }
         let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].lock();
-                let trans = transforms.get(d.0).unwrap();
-                d.1.late_update(&trans, &sys);
+                let mut d = self.data[i].1.lock();
+                let trans = transforms.get(unsafe { *self.data[i].0.get() }).unwrap();
+                d.late_update(&trans, &sys);
             }
         });
     }
@@ -341,21 +344,21 @@ impl<
         self._erase(i);
     }
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys) {
-        self.data[i as usize].lock().1.deinit(transform, i, sys);
+        self.data[i as usize].1.lock().deinit(transform, i, sys);
     }
     fn init(&self, transform: &Transform, i: i32, sys: &Sys) {
-        self.data[i as usize].lock().1.init(transform, i, sys);
+        self.data[i as usize].1.lock().init(transform, i, sys);
     }
     fn on_start(&self, transform: &Transform, i: i32, sys: &System) {
-        self.data[i as usize].lock().1.on_start(transform, sys);
+        self.data[i as usize].1.lock().on_start(transform, sys);
     }
     fn on_destroy(&self, transform: &Transform, i: i32, sys: &System) {
-        self.data[i as usize].lock().1.on_destroy(transform, sys);
+        self.data[i as usize].1.lock().on_destroy(transform, sys);
     }
     fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &Sys) {
         self.data[i as usize]
-            .lock()
             .1
+            .lock()
             .inspect(transform, i, ui, sys);
     }
 
@@ -373,22 +376,22 @@ impl<
     }
 
     fn copy(&mut self, t: i32, i: i32) -> i32 {
-        let p = self.data[i as usize].lock().1.clone();
+        let p = self.data[i as usize].1.lock().clone();
 
         self.insert(t, p)
     }
 
     fn serialize(&self, i: i32) -> serde_yaml::Value {
-        serde_yaml::to_value(&self.data[i as usize].lock().1).unwrap()
+        serde_yaml::to_value(&*self.data[i as usize].1.lock()).unwrap()
     }
     fn clear(&mut self, transforms: &Transforms, sys: &Sys) {
         let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].lock();
-                let id: i32 = d.0;
-                let trans = transforms.get(d.0).unwrap();
-                d.1.deinit(&trans, id, sys);
+                let mut d = self.data[i].1.lock();
+                let id: i32 = unsafe { *self.data[i].0.get() };
+                let trans = transforms.get(id).unwrap();
+                d.deinit(&trans, id, sys);
             }
         });
         // *self = Self::new(self.has_update, self.has_late_update, self.has_render);
@@ -406,9 +409,9 @@ impl<
         let last = (self.last + 1) as usize;
         (0..last).into_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].lock();
-                let t_id = d.0;
-                render_jobs.push(d.1.on_render(t_id));
+                let mut d = self.data[i].1.lock();
+                let t_id = unsafe { *self.data[i].0.get() };
+                render_jobs.push(d.on_render(t_id));
             }
         });
     }
@@ -421,9 +424,9 @@ impl<
         let last = (self.last + 1) as usize;
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].lock();
-                let trans = transforms.get(d.0).unwrap();
-                d.1.editor_update(&trans, &sys);
+                let mut d = self.data[i].1.lock();
+                let trans = transforms.get(unsafe { *self.data[i].0.get() }).unwrap();
+                d.editor_update(&trans, &sys);
             }
             // }
         });

@@ -44,7 +44,6 @@ impl _ColliderType {
             _ColliderType::Cuboid(v) => ColliderBuilder::cuboid(v.x, v.y, v.z),
             _ColliderType::Ball(r) => ColliderBuilder::ball(*r),
             _ColliderType::TriMesh(id) => {
-                println!("{}", id);
                 unsafe {
                     if !(*MESH_MAP).contains_key(&id) {
                         let model_manager_mutex = sys.get_model_manager();
@@ -55,6 +54,7 @@ impl _ColliderType {
                             .unwrap();
                         if let Some(_id) = model_manager.assets_id.get(&id) {
                             unsafe {
+                                #[cold]
                                 if MESH_MAP == std::ptr::null_mut() {
                                     panic!("uninitialized MESH_MAP")
                                 }
@@ -108,7 +108,8 @@ impl Component for _Collider {
     }
     fn deinit(&mut self, _transform: &Transform, _id: i32, _sys: &Sys) {
         if self.handle != ColliderHandle::invalid() {
-            _sys.physics.lock().remove_collider(self.handle);
+            _sys.to_remove_colliders.push(self.handle);
+            // _sys.physics.lock().remove_collider(self.handle);
         }
         self.handle = ColliderHandle::invalid();
     }

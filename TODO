@@ -27,7 +27,8 @@ game-engine:
   ☐ add LOD to particles
   ✔ add antialiasing @done(23-09-23 11:28)
   ☐ compute shader triangle rasterization for pixel sized triangles (particles)
-  ranndom freeze comes from editor_update in main_loop. terrain update
+  ☐ implement storage as maybeunint
+  ✔ ranndom freeze comes from editor_update in main_loop. terrain update @done(23-10-27 20:27)
   rendering:
     ☐ add materials
     ☐ use indirect to draw all geometry in one pass

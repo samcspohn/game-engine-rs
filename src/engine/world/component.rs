@@ -4,7 +4,7 @@ use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
 use nalgebra_glm::{Quat, Vec3};
 use parking_lot::{Mutex, RwLock};
-use rapier3d::prelude::RigidBodyHandle;
+use rapier3d::prelude::{RigidBodyHandle, QueryPipeline};
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
     SecondaryAutoCommandBuffer,
@@ -13,7 +13,7 @@ use vulkano::command_buffer::{
 use crate::engine::{
     input::Input,
     particles::{particle_asset::ParticleTemplate, particles::ParticleCompute},
-    physics::{collider::_ColliderType, Physics},
+    physics::{collider::_ColliderType, Physics, PhysicsData},
     project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
     rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
     time::Time,
@@ -25,7 +25,7 @@ use crate::engine::{
 use super::NewRigidBody;
 
 pub struct System<'a> {
-    pub physics: &'a Physics,
+    pub physics: &'a PhysicsData,
     pub defer: &'a Defer,
     pub input: &'a Input,
     pub time: &'a Time,

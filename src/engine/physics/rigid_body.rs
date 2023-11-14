@@ -32,7 +32,8 @@ impl Component for _RigidBody {
     }
     fn deinit(&mut self, _transform: &Transform, _id: i32, _sys: &Sys) {
         if self.rb_handle != RigidBodyHandle::invalid() {
-            _sys.physics.lock().remove_rigid_body(self.rb_handle);
+            _sys.to_remove_rigid_bodies.push(self.rb_handle);
+            // _sys.physics.lock().remove_rigid_body(self.rb_handle);
         }
         self.rb_handle = RigidBodyHandle::invalid();
     }

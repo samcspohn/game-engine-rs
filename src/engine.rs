@@ -20,7 +20,7 @@ use crossbeam::{
 use egui::TextureId;
 use egui_winit_vulkano::{Gui, GuiConfig};
 use force_send_sync::SendSync;
-use glm::{vec3, Vec3};
+use glm::{quat_euler_angles, vec3, Vec3};
 use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
@@ -35,6 +35,7 @@ use rayon::prelude::*;
 
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
+use thincollections::thin_map::ThinMap;
 use vulkano::{
     buffer::Subbuffer,
     command_buffer::{
@@ -72,13 +73,17 @@ use crate::{
         physics::{
             collider::{_Collider, MESH_MAP, PROC_MESH_ID},
             rigid_body::_RigidBody,
+            Physics,
         },
         // utils::look_at,
         prelude::{TransformRef, _Transform},
         project::asset_manager::AssetManagerBase,
         rendering::model::ModelManager,
         storage::Storage,
-        world::transform::{Transforms, TRANSFORMS, TRANSFORM_MAP},
+        world::{
+            transform::{Transforms, TRANSFORMS, TRANSFORM_MAP},
+            NewCollider, NewRigidBody,
+        },
     },
 };
 
@@ -206,6 +211,9 @@ pub struct Engine {
     )>,
     pub(crate) rendering_data:
         Sender<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+    phys_upd_start: Sender<()>,
+    phys_upd_compl: Receiver<()>,
+    phys_upd_compl2: Receiver<()>,
     pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
@@ -217,6 +225,7 @@ pub struct Engine {
     pub(crate) frame_time: Instant,
     pub(crate) running: Arc<AtomicBool>,
     pub(crate) input_thread: Arc<JoinHandle<()>>,
+    pub(crate) physics_thread: Arc<JoinHandle<()>>,
     pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     pub(crate) file_watcher: FileWatcher,
     pub(crate) gui: SendSync<Gui>,
@@ -233,224 +242,6 @@ pub struct EnginePtr {
 }
 unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
-
-use crate::engine::prelude::{ComponentID, _ComponentID};
-
-#[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Player2 {
-    rof: f32,
-    speed: f32,
-    grab_mode: bool,
-    cursor_vis: bool,
-    fov: f32,
-    // explosion: AssetInstance<ParticleTemplate>,
-    // shockwave: AssetInstance<ParticleTemplate>,
-    // trail: AssetInstance<ParticleTemplate>,
-    // flame: AssetInstance<ParticleTemplate>,
-    init: bool,
-    should_shoot: bool,
-    player: TransformRef,
-    // vel: Vec3,
-}
-
-impl Component for Player2 {
-    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
-        // unsafe {
-        //     *EXPLOSION.get() = self.explosion;
-        //     *SHOCKWAVE.get() = self.shockwave;
-        // }
-        let input = &sys.input;
-        let speed = self.speed * sys.time.dt;
-
-        if input.get_key_press(&VirtualKeyCode::G) {
-            self.grab_mode = !self.grab_mode;
-        }
-        let _er = sys.vk.window().set_cursor_grab(match self.grab_mode {
-            true => winit::window::CursorGrabMode::Locked,
-            false => winit::window::CursorGrabMode::None,
-        });
-        // if self.grab_mode {
-        match _er {
-            Ok(_) => {}
-            Err(e) => {
-                if self.grab_mode {
-                    match sys
-                        .vk
-                        .window()
-                        .set_cursor_position(LogicalPosition::new(960, 540))
-                    {
-                        Ok(_) => {}
-                        Err(e) => {
-                            println!("{}", e);
-                        }
-                    }
-                }
-            }
-        }
-        // }
-        if input.get_key_press(&VirtualKeyCode::H) {
-            self.cursor_vis = !self.cursor_vis;
-        }
-        // if !self.cursor_vis {
-        sys.vk.window().set_cursor_visible(self.cursor_vis);
-        // }
-        // if input.get_key_press(&VirtualKeyCode::J) {
-        //     lock_cull = !lock_cull;
-        //     // lock_cull.
-        // }
-
-        if input.get_key_press(&VirtualKeyCode::R) {
-            self.speed *= 1.5;
-        }
-        if input.get_key_press(&VirtualKeyCode::F) {
-            self.speed /= 1.5;
-        }
-
-        let mut vel = vec3(0., 0., 0.);
-        // forward/backward
-        if input.get_key(&VirtualKeyCode::W) {
-            vel += vec3(0., 0., 1.);
-            // transform.translate(vec3(0., 0., 1.) * speed);
-        }
-        if input.get_key(&VirtualKeyCode::S) {
-            vel -= vec3(0., 0., 1.);
-            // transform.translate(vec3(0., 0., 1.) * -speed);
-        }
-        // up/down
-        if input.get_key(&VirtualKeyCode::Space) {
-            vel += vec3(0., 1., 0.);
-            // transform.translate(vec3(0., 1., 0.) * speed);
-        }
-        if input.get_key(&VirtualKeyCode::LShift) {
-            vel -= vec3(0., 1., 0.);
-            // transform.translate(vec3(0., 1., 0.) * -speed);
-        }
-        //left/right
-        if input.get_key(&VirtualKeyCode::A) {
-            vel -= vec3(1., 0., 0.);
-            // transform.translate(vec3(1., 0., 0.) * -speed);
-        }
-        if input.get_key(&VirtualKeyCode::D) {
-            vel += vec3(1., 0., 0.);
-            // transform.translate(vec3(1., 0., 0.) * speed);
-        }
-
-        let y = input.get_mouse_scroll().1;
-        self.fov = self.fov.add(y).clamp(5., 50.);
-        // todo get_component Camera. adjust fov
-
-        // if input.get_mouse_button(&2) {
-        // let mut cam_rot = transform.get_rotation();
-        // cam_rot = glm::quat_rotate(
-        //     &cam_rot,
-        //     input.get_mouse_delta().0 as f32 * 0.01,
-        //     &(glm::inverse(&glm::quat_to_mat3(&cam_rot)) * Vec3::y()),
-        // );
-        // cam_rot = glm::quat_rotate(
-        //     &cam_rot,
-        //     input.get_mouse_delta().1 as f32 * 0.01,
-        //     &Vec3::x(),
-        // );
-        // transform.set_rotation(cam_rot);
-        transform.rotate(&Vec3::y(), input.get_mouse_delta().0 as f32 * 0.01);
-        transform.rotate(&Vec3::x(), input.get_mouse_delta().1 as f32 * 0.01);
-
-        transform.look_at(&transform.forward(), &Vec3::y());
-        let player = self.player.clone();
-        // let vel = self.vel;
-        let rotation = transform.get_rotation();
-        let speed = speed;
-        sys.defer.append(move |world: &mut World| {
-            if let Some(player_transform) = player.get() {
-                player_transform.move_child(glm::quat_rotate_vec3(&rotation, &(vel * speed)));
-            }
-        });
-
-        // if !self.init {
-        //     // transform.set_position(vec3(0., 0., 0.));
-        //     transform.set_rotation(look_at(&vec3(0.,0.,1.), &Vec3::y()));
-        //     assert!(transform.forward() == vec3(0.,0.,1.));
-        // //     let trail = self.trail.clone();
-        // //     let flame = self.flame.clone();
-        // //     for _ in 0..2000 {
-        // //         world
-        // //             .instantiate(0)
-        // //             .with_transform(|| _Transform {
-        // //                 position: glm::vec3(
-        // //                     (rand::random::<f32>() - 0.5) * 1500f32,
-        // //                     140f32,
-        // //                     (rand::random::<f32>() - 0.5) * 1500f32,
-        // //                 ),
-        // //                 ..Default::default()
-        // //             })
-        // //             .with_com(move || Shooter {
-        // //                 rpm: 0,
-        // //                 trail,
-        // //                 flame,
-        // //                 accum: rand::random::<f32>() * 2.7,
-        // //             }) // random max accum per frame
-        // //             .build();
-        // //     }
-        //     self.init = true;
-        // }
-        // const ALOT: f32 = 10_000_000. / 60.;
-        // // let id = self.trail.id;
-        // // let id2 = self.flame.id;
-        // let len = (ALOT * sys.time.dt.min(1.0 / 30.0)) as usize;
-        // if input.get_key_press(&VirtualKeyCode::O) {
-        //     self.should_shoot = !self.should_shoot;
-        // }
-        // if self.should_shoot {
-        //     world
-        //         .instantiate_many(len as i32, 0, -1)
-        //         .with_transform(|| _Transform {
-        //             position: glm::vec3(
-        //                 (rand::random::<f32>() - 0.5) * 1500f32,
-        //                 140f32,
-        //                 (rand::random::<f32>() - 0.5) * 1500f32,
-        //             ),
-        //             ..Default::default()
-        //         })
-        //         .with_com(|| Bomb {
-        //             vel: glm::Vec3::y() * 70. + utils::rand_sphere() * 50.,
-        //         })
-        //         .with_com(move || ParticleEmitter::new(id))
-        //         // .with_com(move || ParticleEmitter::new(id2))
-        //         // .with_com(move || Renderer::new(0))
-        //         .build();
-        // }
-
-        if input.get_mouse_button(&2) {
-            // let len = (ALOT / 1000. * sys.time.dt.min(1.0 / 30.0)) as usize;
-            let pos = transform.get_position() - transform.up() * 10. + transform.forward() * 15.;
-            let forw = transform.forward();
-            world
-                .instantiate(-1)
-                .with_transform(move || _Transform {
-                    position: pos,
-                    ..Default::default()
-                })
-                // .with_com(move || Bomb {
-                //     vel: forw * 100. + utils::rand_sphere() * 40. * rand::random::<f32>().sqrt(),
-                // })
-                .with_com(|| Renderer::new(0))
-                // .with_com(move || ParticleEmitter::new(id))
-                // .with_com(move || ParticleEmitter::new(id2))
-                .with_com(move || _RigidBody::new(_ColliderType::Cuboid(vec3(1.0, 1.0, 1.0))))
-                .build();
-        }
-    }
-    fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
-        Ins(&mut self.rof).inspect("rof", ui, sys);
-        Ins(&mut self.speed).inspect("speed", ui, sys);
-        // Ins(&mut self.explosion).inspect("explosion", ui, sys);
-        // Ins(&mut self.shockwave).inspect("shockwave", ui, sys);
-        // Ins(&mut self.trail).inspect("trail", ui, sys);
-        // Ins(&mut self.flame).inspect("flame", ui, sys);
-        Ins(&mut self.player).inspect("player container", ui, sys);
-    }
-}
 
 impl Engine {
     pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
@@ -547,8 +338,6 @@ impl Engine {
 
         let running = Arc::new(AtomicBool::new(true));
 
-        // let coms = (rrx, tx);
-
         {
             let mut world = world.lock();
             world.register::<Renderer>(false, false, false);
@@ -556,9 +345,8 @@ impl Engine {
             world.register::<Camera>(false, false, false);
             world.register::<_Collider>(false, false, false);
             world.register::<_RigidBody>(false, false, false);
-            //
+            // 
             world.register::<terrain_eng::TerrainEng>(true, false, true);
-            world.register::<Player2>(true, false, false);
         };
 
         let rm = {
@@ -586,6 +374,9 @@ impl Engine {
         let proxy = event_loop.create_proxy();
         let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
         let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
+        let (phys_snd, phys_rcv) = crossbeam::channel::bounded(1);
+        let (phys_snd2, phys_rcv2) = crossbeam::channel::bounded(1);
+        let (phys_snd3, phys_rcv3) = crossbeam::channel::bounded(1);
         // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
         let input_thread = Arc::new({
             let vk = vk.clone();
@@ -594,6 +385,16 @@ impl Engine {
         let rendering_thread = Arc::new({
             let vk = vk.clone();
             thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
+        });
+        let perf = Arc::new(perf);
+        let mut phys = world.lock().sys.physics.clone();
+        let physics_thread = Arc::new({
+            // let vk = vk.clone();
+            let perf = perf.clone();
+            let world: SendSync<*const World> = unsafe { SendSync::new(&mut *world.lock()) };
+            thread::spawn(move || {
+                physics::physics_thread(world, phys, perf, phys_rcv, phys_snd2, phys_snd3);
+            })
         });
         proxy.send_event(EngineEvent::Send);
 
@@ -619,11 +420,14 @@ impl Engine {
             transform_compute: RwLock::new(transform_compute),
             playing_game: game_mode,
             // coms,
-            perf: Arc::new(perf),
+            perf,
             shared_render_data: rm,
             input: input_rcv,
             rendering_data: rendering_snd,
             rendering_complete: rendering_rcv2,
+            phys_upd_start: phys_snd,
+            phys_upd_compl: phys_rcv2,
+            phys_upd_compl2: phys_rcv3,
             cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone(), 1))),
             renderer: EngineRenderer {
                 viewport,
@@ -645,6 +449,7 @@ impl Engine {
             running,
             input_thread,
             rendering_thread,
+            physics_thread,
             file_watcher,
             tex_id: None,
             image_view: None,
@@ -678,50 +483,20 @@ impl Engine {
         }
         let mut world = self.world.lock();
         let gpu_work = SegQueue::new();
-        let world_sim = self.perf.node("world _update");
+        // let world_sim = self.perf.node("world _update");
         let cvd = if (self.game_mode | self.playing_game) {
             puffin::profile_scope!("game loop");
             {
-                // if self.playing_game != _playing_game {
-                // world.sys.physics.lock().reset();
-                // }
                 puffin::profile_scope!("world update");
                 if world.phys_time >= world.phys_step {
-                    // let mut physics = world.sys.physics.lock();
-                    // let len = world.sys.physics.lock().rigid_body_set.len();
-                    // let num_threads = (len / (num_cpus::get().sqrt())).max(1).min(num_cpus::get());
-                    {
-                        let mut physics = world.sys.physics.lock();
-                        let a = &world.get_components::<_Collider>().as_ref().unwrap().1;
-                        let b = a.write();
-                        let c = b.as_any().downcast_ref::<Storage<_Collider>>().unwrap();
-                        (0..c.data.len()).into_par_iter().for_each(|i| {
-                            if unsafe { *c.valid[i].get() } {
-                                let d = c.data[i].lock();
-                                let t = world.transforms.get(d.0).unwrap();
-                                let handle = d.1.handle;
-                                let collider =
-                                    &mut (unsafe { &mut *physics.collider_set.get() })[handle];
-                                collider.set_translation(t.get_position());
-                                collider.set_rotation(UnitQuaternion::from_quaternion(
-                                    t.get_rotation(),
-                                ));
-                            }
-                        });
-                        physics.step(&self.perf);
-                        physics
-                            .island_manager
-                            .active_dynamic_bodies()
-                            .par_iter()
-                            .chain(physics.island_manager.active_kinematic_bodies().par_iter())
-                            .for_each(|a| {
-                                let rb = unsafe { physics.get_rigid_body(*a).unwrap() };
-                                let t = world.transforms.get(rb.user_data as i32).unwrap();
-                                t.set_position(rb.translation());
-                                t.set_rotation(rb.rotation());
-                            });
+                    if let Ok(_) = self.phys_upd_compl2.try_recv() {
+                        // skip if physics sim not complete
+
+                        let phys_sim = self.perf.node("wait for phyiscs");
+                        self.phys_upd_start.send(()).unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
+                        self.phys_upd_compl.recv().unwrap();
+                        world.phys_time = 0f32;
                     }
-                    world.phys_time -= world.phys_step;
                 }
                 world.phys_time += self.time.dt;
                 let world_update = self.perf.node("world _update");
@@ -741,7 +516,7 @@ impl Engine {
                 {
                     let world_update = self.perf.node("world instantiate");
                     world.defer_instantiate(&input, &self.time, &gpu_work, &self.perf);
-                    world.init_colls_rbs();
+                    // world.init_colls_rbs();
                 }
             }
             // let mut world = self.world.lock();
@@ -750,7 +525,7 @@ impl Engine {
             // let mut world = self.world.lock();
 
             world._destroy(&self.perf);
-            world.init_colls_rbs();
+            // world.init_colls_rbs();
             world.editor_update(&input, &self.time, &gpu_work); // TODO: terrain update still breaking
             self.editor_cam.update(&input, &self.time);
             let cvd = self.cam_data.lock().update(
@@ -766,7 +541,7 @@ impl Engine {
         };
         // let mut world = self.world.lock();
 
-        drop(world_sim);
+        // drop(world_sim);
 
         let get_renderer_data = self.perf.node("get renderer data");
         let mut renderer_data = world.sys.renderer_manager.write().get_renderer_data();

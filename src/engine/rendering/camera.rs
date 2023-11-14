@@ -137,9 +137,9 @@ pub struct CameraViewData {
 pub struct Camera {
     #[serde(skip_serializing, skip_deserializing)]
     data: Option<Arc<Mutex<CameraData>>>,
-    fov: f32,
-    near: f32,
-    far: f32,
+    pub fov: f32,
+    pub near: f32,
+    pub far: f32,
     use_msaa: bool,
     samples: u32,
     #[serde(skip_serializing, skip_deserializing)]

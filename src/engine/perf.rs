@@ -95,7 +95,6 @@ impl Perf {
         }
     }
     fn update(data: Arc<RwLock<BTreeMap<String, SubPerf>>>, k: String, d: Duration) {
-        // let perf = &mut self.data;
         let b = {
             let a = data.read();
             if let Some(q) = a.get(&k) {
@@ -112,14 +111,7 @@ impl Perf {
                 q.push(d)
             }
         }
-        // if let Some(q) = data.read().get(&k) {
-        //     q.push(d);
-        // } else {
-        //     data.write().insert(k.clone(), SubPerf::new());
-        //     if let Some(q) = data.read().get(&k) {
-        //         q.push(d);
-        //     }
-        // }
+
     }
 
     pub fn print(&self) {
