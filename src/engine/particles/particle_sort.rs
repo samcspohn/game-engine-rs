@@ -252,22 +252,23 @@ impl ParticleSort {
         // build_stage(builder, 0, 1);
 
         // stage 1
-        build_stage(builder, 1, -1);
+        build_stage(builder, 1, -1); // number of active particles
 
         // stage 2
-        build_stage(builder, 2, 65536);
+        builder.fill_buffer(self.buckets.clone(), 0);
+        build_stage(builder, 2, 1);
 
         // stage 3
-        build_stage(builder, 3, -1);
+        build_stage(builder, 3, -1); // number of visible particles
 
         // stage 4
-        build_stage(builder, 4, 128); // buckets
+        build_stage(builder, 4, 256); // prefix sum
 
         // stage 5
-        build_stage(builder, 5, -1);
+        build_stage(builder, 5, -1); // number of visible particles
 
         // stage 6
-        build_stage(builder, 6, 1);
+        build_stage(builder, 6, 1); // set draw data
 
         // let temp = self.a1.clone();
         // self.a1 = self.a2.clone();

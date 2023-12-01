@@ -1,0 +1,153 @@
+#version 450
+#include "util.glsl"
+
+layout(set = 0, binding = 0) uniform Data {
+    int num_jobs;
+    int stage;   // dont need to update light if off screen
+    // mat4 view;
+    // mat4 proj;
+};
+
+// layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
+layout(set = 0, binding = 1) buffer l { light lights[]; };
+layout(set = 0, binding = 2) buffer ld { light_deinit deinits[]; };
+layout(set = 0, binding = 3) buffer li { light_init inits[]; };
+layout(set = 0, binding = 4) buffer tr { transform transforms[]; };
+layout(set = 0, binding = 5) buffer b { uint buckets[]; };
+layout(set = 0, binding = 6) buffer bc { uint buckets_count[]; };
+layout(set = 0, binding = 7) buffer b2 {
+    uint buckets2[];
+};   // copy buckets to buckets 2 between steps 3 & 4
+layout(set = 0, binding = 8) buffer lid { uint light_ids[]; };
+
+// layout(set = 0, binding = 3) buffer _t { int transform_ids[]; };
+
+// struct light {
+//  int templ;
+// 	int t_id;
+//  int enabled;
+// 	int hash;
+// };
+const uint skip_size = 65536 / 128;
+shared uint[128] local_sums;   // TODO: increase local sums
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void main() {
+    const uint id = gl_GlobalInvocationID.x;
+    if (id < num_jobs) {
+        switch (stage) {
+        case 0: {   // deinit
+            light_deinit di = deinits[id];
+            lights[di.id].enabled = 0;
+        } break;
+        case 1: {   // init
+            light_init li = inits[id];
+            lights[li.id].t_id = li.t_id;
+            lights[li.id].templ = li.templ_id;
+            lights[li.id].enabled = 1;
+        } break;
+        case 2: {   // calc buckets
+            if (lights[id].enabled == 0) break;
+            uint hashes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            vec3 pos = transforms[lights[id].t_id].position;
+            uint main_hash = hash_pos(pos);
+            atomicAdd(buckets_count[main_hash], 1);
+
+            hashes[0] = main_hash;
+            uint curr_hash = 1;
+            for (int x = -1; x <= 1; x += 2) {
+                for (int y = -1; y <= 1; y += 2) {
+                    for (int z = -1; z <= 1; z += 2) {
+                        uint hash = hash_pos(pos + vec3(x, y, z) * 20);
+                        bool b = true;
+                        for (int a = 0; a < curr_hash; ++a) {
+                            if (hashes[a] == hash) {
+                                b = false;
+                                break;
+                            };
+                        }
+                        if (b) {
+                            hashes[curr_hash] = hash;
+                            curr_hash += 1;
+                            atomicAdd(buckets_count[hash], 1);
+                        }
+                    }
+                }
+            }
+        } break;
+        // copy buckets_count to buckets
+        case 3: {   // prefix sum
+            // if (id > 0) break;
+            // uint temp = buckets[0];
+            // buckets[0] = 0;
+            // for (int i = 1; i < 65536; ++i) {
+            //     uint temp2 = buckets[i];
+            //     buckets[i] = temp;
+            //     temp += temp2;
+            // }
+            uint start = id * skip_size;
+            uint end = start + skip_size;
+            uint temp = buckets[start];
+            buckets[start] = 0;
+            for (uint i = start + 1; i < end; i++) {
+                uint temp2 = buckets[i];
+                buckets[i] = temp;
+                temp += temp2;
+            }
+            local_sums[id] = temp;
+            barrier();
+
+            if (id == 0) {
+                temp = local_sums[0];
+                for (uint i = 1; i < 128; i++) {
+                    uint temp2 = local_sums[i];
+                    local_sums[i] = temp;
+                    temp += temp2;
+                }
+            }
+            barrier();
+            for (uint i = start; i < end; i++) {
+                buckets[i] += local_sums[id];
+            }
+        } break;
+        // copy buckets
+        case 4: {
+            if (lights[id].enabled == 0) break;
+
+            // uint i = atomicAdd(buckets2[lights[id].hash], 1);
+            // light_ids[i] = id;
+
+            uint hashes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            vec3 pos = transforms[lights[id].t_id].position;
+            uint main_hash = hash_pos(pos);
+            uint i = atomicAdd(buckets2[main_hash], 1);
+            light_ids[i] = id;
+
+            hashes[0] = main_hash;
+            uint curr_hash = 1;
+            for (int x = -1; x <= 1; x += 2) {
+                for (int y = -1; y <= 1; y += 2) {
+                    for (int z = -1; z <= 1; z += 2) {
+                        uint hash = hash_pos(pos + vec3(x, y, z) * 20);
+                        bool b = true;
+                        for (int a = 0; a < curr_hash; ++a) {
+                            if (hashes[a] == hash) {
+                                b = false;
+                                break;
+                            };
+                        }
+                        if (b) {
+                            hashes[curr_hash] = hash;
+                            curr_hash += 1;
+                            // atomicAdd(buckets_count[hash], 1);
+                            uint i = atomicAdd(buckets2[hash], 1);
+                            light_ids[i] = id;
+                        }
+                    }
+                }
+            }
+
+        } break;
+        }
+    }
+}

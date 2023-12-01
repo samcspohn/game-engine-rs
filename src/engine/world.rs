@@ -38,7 +38,7 @@ use self::{
 use super::{
     atomic_vec::{self, AtomicVec},
     input::Input,
-    particles::{component::ParticleEmitter, particles::ParticleCompute},
+    particles::{component::ParticleEmitter, particles::ParticlesSystem},
     perf::Perf,
     physics::{
         collider::{PhysMesh, _ColliderType, MESH_MAP, PROC_MESH_ID},
@@ -48,6 +48,7 @@ use super::{
     rendering::{
         camera::{Camera, CameraData, CameraViewData},
         component::RendererManager,
+        lighting::lighting::LightingSystem,
         model::ModelRenderer,
         vulkan_manager::VulkanManager,
     },
@@ -78,7 +79,8 @@ pub struct Sys {
     pub assets_manager: Arc<AssetsManager>,
     pub physics: Arc<Mutex<Physics>>,
     pub physics2: Arc<Mutex<PhysicsData>>,
-    pub particles_system: Arc<ParticleCompute>,
+    pub particles_system: Arc<ParticlesSystem>,
+    pub lighting_system: Arc<LightingSystem>,
     pub vk: Arc<VulkanManager>,
     pub defer: Defer,
     pub(crate) dragged_transform: i32,
@@ -136,7 +138,8 @@ pub struct World {
 #[allow(dead_code)]
 impl World {
     pub fn new(
-        particles: Arc<ParticleCompute>,
+        particles: Arc<ParticlesSystem>,
+        lighting: Arc<LightingSystem>,
         vk: Arc<VulkanManager>,
         assets_manager: Arc<AssetsManager>,
         // trans: &'static mut Transforms,
@@ -162,6 +165,7 @@ impl World {
                 physics: Arc::new(Mutex::new(Physics::new())),
                 physics2: Arc::new(Mutex::new(PhysicsData::new())),
                 particles_system: particles,
+                lighting_system: lighting,
                 vk: vk,
                 defer: Defer::new(),
                 dragged_transform: -1,

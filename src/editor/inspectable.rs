@@ -71,6 +71,19 @@ impl<'a> Inpsect for Ins<'a, glm::Vec3> {
         changed
     }
 }
+
+impl<'a> Inpsect for Ins<'a, [f32;3]> {
+    fn inspect(&mut self, name: &str, ui: &mut egui::Ui, _sys: &Sys) -> bool {
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.add(egui::Label::new(name));
+            changed |= ui.add(egui::DragValue::new(&mut self.0[0]).speed(0.1)).changed();
+            changed |= ui.add(egui::DragValue::new(&mut self.0[1]).speed(0.1)).changed();
+            changed |= ui.add(egui::DragValue::new(&mut self.0[2]).speed(0.1)).changed();
+        });
+        changed
+    }
+}
 impl<'a> Inpsect for Ins<'a, glm::Quat> {
     fn inspect(&mut self, name: &str, ui: &mut egui::Ui, _sys: &Sys) -> bool {
         ui.horizontal(|ui| {

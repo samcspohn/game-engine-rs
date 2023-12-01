@@ -507,6 +507,7 @@ pub fn editor_ui(
                                             if let Some(last_slash) = label.rfind(path::MAIN_SEPARATOR_STR) {
                                                 let _label = label.substring(last_slash + 1, label.len());
                                                 let resp = ui.label(_label);//.sense(Sense::click());
+                                                let resp = ui.interact(resp.rect, id, Sense::click());
                                                 resp.context_menu(|ui| {
                                                     ui.menu_button("new particle template", |ui| {
                                                         static mut TEXT: String = String::new();
@@ -515,6 +516,17 @@ pub fn editor_ui(
                                                             if resp2.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                                                 ui.close_menu();
                                                                 assets_manager.new_asset(format!("{label}/{TEXT}.ptem").as_str());
+                                                                TEXT = "".into();
+                                                            }
+                                                        }
+                                                    });
+                                                    ui.menu_button("new light template", |ui| {
+                                                        static mut TEXT: String = String::new();
+
+                                                        unsafe { let resp2 = ui.text_edit_singleline(&mut TEXT);
+                                                            if resp2.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                                                ui.close_menu();
+                                                                assets_manager.new_asset(format!("{label}/{TEXT}.lgt").as_str());
                                                                 TEXT = "".into();
                                                             }
                                                         }

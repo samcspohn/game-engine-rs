@@ -27,8 +27,8 @@ layout(set = 0, binding = 13) buffer al { uint alive[]; };
 layout(set = 0, binding = 14) buffer al_c { uint alive_count; };
 layout(set = 0, binding = 15) buffer _pl_c { pos_life_comp p_lc[]; };
 // shared uint[512] local_buckets;
-const uint skip_size = (1 << 16) / 128;
-shared uint[128] local_sums;   // TODO: increase local sums
+const uint skip_size = 65536 / 256;
+shared uint[256] local_sums;   // TODO: increase local sums
 
 vec2 get_radius(in vec3 pos1, in vec3 pos2) {
     vec4 _vp_pos1 = (proj * view * vec4(pos1, 1.0));
@@ -123,7 +123,7 @@ void main() {
                 indirect[0].y = 1;
                 indirect[0].z = 1;
             }
-            buckets[id] = 0;
+            // buckets[id] = 0;
             break;
         case 3:
             if (id < avail_count) {
@@ -145,7 +145,7 @@ void main() {
 
             if (id == 0) {
                 temp = local_sums[0];
-                for (uint i = 1; i < 128; i++) {
+                for (uint i = 1; i < 256; i++) {
                     uint temp2 = local_sums[i];
                     local_sums[i] = temp;
                     temp += temp2;

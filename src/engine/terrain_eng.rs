@@ -465,7 +465,10 @@ impl Component for TerrainEng {
             Box::new(move |rd: &mut RenderJobData| {
                 let RenderJobData {
                     builder,
+                    uniforms,
                     gpu_transforms: _,
+                    lights: lighting,
+                    light_templates,
                     mvp,
                     view: _,
                     proj: _,
@@ -473,6 +476,11 @@ impl Component for TerrainEng {
                     viewport: _,
                     texture_manager,
                     vk,
+                    light_len,
+                    cam_pos,
+                    light_buckets,
+                    light_buckets_count,
+                    light_ids,
                 } = rd;
                 let instance_data = vec![t_id];
                 // let mvp_data = vec![MVP {

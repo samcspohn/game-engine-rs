@@ -6,7 +6,42 @@ struct transform {
     vec3 scale;
     int padding2;
 };
+struct attenuation {
+    float constant;
+    float linear;
+    float exponential;
+    float brightness;
+};
 
+struct lightTemplate {
+	vec3 Color;
+    int p1;
+	attenuation atten;
+};
+struct light {
+    int templ;
+	int t_id;
+    int enabled;
+	uint hash;
+};
+
+struct light_init {
+    int templ_id;
+    int t_id;
+    int id;
+	int p1;
+};
+struct light_deinit {
+    int id;
+};
+
+uint hash_pos(vec3 p) {
+	const float bucket_size = 40.0;
+	ivec3 pos_hash = ivec3(p / bucket_size);
+    // uvec3 hash_vec = uvec3(floatBitsToUint(pos_hash.x),floatBitsToUint(pos_hash.y),floatBitsToUint(pos_hash.z));
+    return (pos_hash.x ^ pos_hash.y ^ pos_hash.z) & 0x00ff;
+	// return (pos_hash.x * pos_hash.y * pos_hash.z) % 0x00ff;
+}
 struct DispatchIndirectCommand {
     uint x;
     uint y;

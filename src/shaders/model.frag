@@ -1,17 +1,81 @@
 #version 450
+#include "util.glsl"
 
 layout(location = 0) in vec3 v_normal;
 layout(location = 1) in vec2 coords;
+layout(location = 2) in vec3 v_pos;
 layout(location = 0) out vec4 f_color;
 
 layout(set = 0, binding = 1) uniform sampler2D tex;
+layout(set = 0, binding = 3) buffer tr1 { transform transforms[]; };
+layout(set = 0, binding = 4) buffer lt { lightTemplate light_templates[]; };
+// layout(set = 0, binding = 5) uniform Data {
+//     vec3 cam_pos;
+//     uint num_lights;
+// };
+layout(set = 0, binding = 6) buffer l { light lights[]; };
+layout(set = 0, binding = 7) buffer lid { uint light_ids[]; };
+layout(set = 0, binding = 8) buffer b { uint buckets[]; };
+layout(set = 0, binding = 9) buffer bc { uint buckets_count[]; };
+// const float bucket_size = 120.0;
+
+vec4 CalcLightInternal(lightTemplate Light, vec3 LightDirection, vec3 Normal) {
+    vec4 AmbientColor = vec4(Light.Color, 1.0f);
+    float DiffuseFactor = dot(Normal, -LightDirection);
+
+    vec4 DiffuseColor = vec4(0, 0, 0, 0);
+    vec4 SpecularColor = vec4(0, 0, 0, 0);
+
+    if (DiffuseFactor > 0) {
+        DiffuseColor = vec4(Light.Color * DiffuseFactor, 1.0f);
+        // vec3 VertexToEye = normalize(cam_pos - v_pos);
+        // vec3 LightReflect = normalize(reflect(LightDirection, Normal));
+        // float SpecularFactor = dot(VertexToEye, LightReflect);
+        // if (SpecularFactor > 0) {
+        //     SpecularFactor = pow(SpecularFactor, gSpecularPower);
+        //     SpecularColor = vec4(Light.Color * gMatSpecularIntensity *
+        //     SpecularFactor, 1.0f);
+        // }
+    }
+
+    return (AmbientColor + DiffuseColor + SpecularColor);
+}
+
+vec4 CalcPointLight(uint Index, vec3 Normal) {
+
+#define _l    lights[Index]
+#define templ light_templates[_l.templ]
+
+    vec3 LightDirection = v_pos - transforms[_l.t_id].position;
+    float Distance = length(LightDirection);
+    LightDirection = normalize(LightDirection);
+
+    vec4 Color = CalcLightInternal(templ, LightDirection, Normal);
+    float Attenuation = templ.atten.constant + templ.atten.linear * Distance +
+                        templ.atten.exponential * Distance * Distance;
+
+    return Color * templ.atten.brightness / Attenuation;
+}
 
 const vec3 LIGHT = vec3(1.0, 1.0, -0.7);
 
 void main() {
-    float brightness = dot(normalize(v_normal), normalize(LIGHT));
-    // vec3 dark_color = vec3(0.6, 0.0, 0.0);
-    // vec3 regular_color = vec3(1.0, 0.0, 0.0);
-
-    f_color = texture(tex, coords) * max(brightness + 0.05, 0.05);//min(brightness + 0.8, 1.0);
+    vec4 total_light = vec4(vec3(0.05), 1.0f);
+    float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
+    total_light += vec4(vec3(brightness), 1.0f);
+    uint hash = hash_pos(v_pos);
+    uint count = buckets_count[hash];
+    if (count > 0) {
+        uint offset = buckets[hash];
+        for (uint i = 0; i < count; ++i) {
+            uint l_id = light_ids[offset + i];
+            vec3 v = v_pos - transforms[lights[l_id].t_id].position;
+            if (dot(v, v) < 20 * 20) {
+                total_light += CalcPointLight(l_id, v_normal);
+            }
+        }
+    }
+    total_light.a = 1.0f;
+    f_color =
+        texture(tex, coords) * total_light;   // min(brightness + 0.8, 1.0);
 }

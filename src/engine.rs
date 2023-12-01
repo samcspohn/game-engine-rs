@@ -37,7 +37,7 @@ use nalgebra_glm as glm;
 use parking_lot::{Mutex, RwLock};
 use thincollections::thin_map::ThinMap;
 use vulkano::{
-    buffer::Subbuffer,
+    buffer::{allocator::SubbufferAllocator, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
         CommandBufferUsage, CopyImageInfo, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
@@ -78,7 +78,13 @@ use crate::{
         // utils::look_at,
         prelude::{TransformRef, _Transform},
         project::asset_manager::AssetManagerBase,
-        rendering::model::ModelManager,
+        rendering::{
+            lighting::{
+                lighting::{Light, LightingSystem},
+                lighting_asset::{self, LightTemplateManager},
+            },
+            model::ModelManager,
+        },
         storage::Storage,
         world::{
             transform::{Transforms, TRANSFORMS, TRANSFORM_MAP},
@@ -89,7 +95,7 @@ use crate::{
 
 use self::{
     input::Input,
-    particles::particles::ParticleCompute,
+    particles::particles::ParticlesSystem,
     perf::Perf,
     physics::collider::_ColliderType,
     prelude::{Component, Inpsect, Ins, Sys, System, Transform},
@@ -102,8 +108,12 @@ use self::{
     rendering::{
         camera::{Camera, CameraData, CameraViewData},
         component::{Renderer, SharedRendererData},
+        lighting::lighting_compute::{LightingCompute, cs},
         model::{Mesh, ModelRenderer},
-        pipeline::RenderPipeline,
+        pipeline::{
+            fs::{light, lightTemplate},
+            RenderPipeline,
+        },
         texture::{Texture, TextureManager},
         vulkan_manager::VulkanManager,
     },
@@ -143,8 +153,16 @@ pub struct RenderJobData<'a> {
         PrimaryAutoCommandBuffer,
         Arc<StandardCommandBufferAllocator>,
     >,
+    pub uniforms: Arc<Mutex<SubbufferAllocator>>,
     pub gpu_transforms: Subbuffer<[transform]>,
+    pub light_len: u32,
+    pub lights: Subbuffer<[cs::light]>,
+    pub light_templates: Subbuffer<[lightTemplate]>,
+    pub light_buckets: Subbuffer<[u32]>,
+    pub light_buckets_count: Subbuffer<[u32]>,
+    pub light_ids: Subbuffer<[u32]>,
     pub mvp: Subbuffer<[MVP]>,
+    pub cam_pos: Vec3,
     pub view: &'a nalgebra_glm::Mat4,
     pub proj: &'a nalgebra_glm::Mat4,
     pub pipeline: &'a RenderPipeline,
@@ -200,9 +218,11 @@ pub struct Engine {
     pub(crate) assets_manager: Arc<AssetsManager>,
     pub(crate) project: Project,
     pub(crate) transform_compute: RwLock<TransformCompute>,
-    pub(crate) particles_system: Arc<ParticleCompute>,
+    pub(crate) lighting_compute: RwLock<LightingCompute>,
+    pub(crate) particles_system: Arc<ParticlesSystem>,
+    pub(crate) lighting_system: Arc<LightingSystem>,
     pub(crate) playing_game: bool,
-    // pub(crate) coms: (Receiver<RenderingData>, Sender<(Input, bool)>),
+    // channels
     pub(crate) input: Receiver<(
         Vec<WindowEvent<'static>>,
         Input,
@@ -214,6 +234,7 @@ pub struct Engine {
     phys_upd_start: Sender<()>,
     phys_upd_compl: Receiver<()>,
     phys_upd_compl2: Receiver<()>,
+    // end of channels
     pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
@@ -280,18 +301,23 @@ impl Engine {
         texture_manager.lock().from_file("default/particle.png");
         assert!(env::set_current_dir(&Path::new(project_dir)).is_ok());
 
-        let particles_system = Arc::new(ParticleCompute::new(vk.clone(), texture_manager.clone()));
-
+        let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
+        let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
+        let light_manager = Arc::new(Mutex::new(LightTemplateManager::new(
+            (lighting_system.light_templates.clone()),
+            &["lgt"],
+        )));
         let world = Arc::new(Mutex::new(World::new(
             particles_system.clone(),
+            lighting_system.clone(),
             vk.clone(),
             assets_manager.clone(),
         )));
         unsafe {
-            TRANSFORMS = std::ptr::from_mut(&mut world.lock().transforms);
-            TRANSFORM_MAP = std::ptr::from_mut(&mut world.lock().transform_map);
-            MESH_MAP = std::ptr::from_mut(&mut world.lock().mesh_map);
-            PROC_MESH_ID = std::ptr::from_mut(&mut world.lock().proc_mesh_id);
+            TRANSFORMS = &mut world.lock().transforms;
+            TRANSFORM_MAP = &mut world.lock().transform_map;
+            MESH_MAP = &mut world.lock().mesh_map;
+            PROC_MESH_ID = &mut world.lock().proc_mesh_id;
         }
 
         #[cfg(target_os = "windows")]
@@ -303,6 +329,7 @@ impl Engine {
             world.clone(),
             &dylib_ext,
         )));
+
         unsafe {
             if !game_mode {
                 assets_manager.add_asset_manager("rs", rs_manager.clone());
@@ -314,6 +341,7 @@ impl Engine {
                 "particle_template",
                 particles_system.particle_template_manager.clone(),
             );
+            assets_manager.add_asset_manager("light", light_manager.clone());
         }
 
         let mut viewport = Viewport {
@@ -345,7 +373,8 @@ impl Engine {
             world.register::<Camera>(false, false, false);
             world.register::<_Collider>(false, false, false);
             world.register::<_RigidBody>(false, false, false);
-            // 
+            world.register::<Light>(false, false, false);
+            //
             world.register::<terrain_eng::TerrainEng>(true, false, true);
         };
 
@@ -418,6 +447,7 @@ impl Engine {
             assets_manager,
             project: Project::default(),
             transform_compute: RwLock::new(transform_compute),
+            lighting_compute: RwLock::new(LightingCompute::new(vk.clone())),
             playing_game: game_mode,
             // coms,
             perf,
@@ -444,6 +474,7 @@ impl Engine {
             },
             time: Time::default(),
             particles_system,
+            lighting_system,
             fps_queue,
             frame_time,
             running,
@@ -714,7 +745,19 @@ impl Engine {
         while let Some(job) = gpu_work.pop() {
             job.unwrap()(&mut builder, vk.clone());
         }
-
+        let light_len = self.world.lock().get_components::<Light>().unwrap().1.read().len();
+        let (light_templates, light_deinits, light_inits) = self
+            .lighting_system
+            .get_light_buffer(light_len, &mut builder);
+        self.lighting_compute.write().update_lights(
+            &mut builder,
+            light_deinits,
+            light_inits,
+            self.lighting_system.lights.lock().clone(),
+            self.transform_compute.read().gpu_transforms.clone(),
+        );
+        // let light_len = self.lighting_system.lights.lock().data.len() as u32;
+        let lc = self.lighting_compute.read();
         let mut game_image = None;
         for cam in cam_datas {
             if let (Some(cam), Some(cvd)) = cam {
@@ -728,6 +771,12 @@ impl Engine {
                     vk.clone(),
                     &mut builder,
                     &self.transform_compute.read(),
+                    light_len as u32,
+                    self.lighting_system.lights.lock().clone(),
+                    light_templates.clone(),
+                    lc.buckets.clone(),
+                    lc.buckets_count.clone(),
+                    lc.light_ids.lock().clone(),
                     self.particles_system.clone(),
                     transforms_buf.clone(),
                     rm.pipeline.clone(),

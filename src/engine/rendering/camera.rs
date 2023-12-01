@@ -28,7 +28,7 @@ use vulkano::{
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        particles::particles::{ParticleCompute, ParticleRenderPipeline},
+        particles::particles::{ParticlesSystem, ParticleRenderPipeline},
         perf::Perf,
         project::asset_manager::AssetsManager,
         rendering::component::ur,
@@ -43,9 +43,10 @@ use crate::{
 };
 
 use super::{
-    component::{buffer_usage_all, RendererData, SharedRendererData},
+    component::{RendererData, SharedRendererData},
+    lighting::{lighting::LightingSystem, lighting_compute::cs},
     model::{ModelManager, ModelRenderer},
-    pipeline::RenderPipeline,
+    pipeline::{fs, RenderPipeline},
     texture::{Texture, TextureManager},
     vulkan_manager::VulkanManager,
 };
@@ -431,17 +432,7 @@ impl CameraData {
             )
         };
         // let subpass = Subpass::from(render_pass, 0).unwrap();
-        let rend = RenderPipeline::new(
-            vk.device.clone(),
-            render_pass.clone(),
-            [1920, 1080],
-            vk.queue.clone(),
-            0,
-            vk.mem_alloc.clone(),
-            &vk.comm_alloc,
-            // use_msaa,
-            // &subpass,
-        );
+        let rend = RenderPipeline::new(render_pass.clone(), [1920, 1080], 0, vk.clone());
         Self {
             rend,
             particle_render_pipeline: ParticleRenderPipeline::new(
@@ -487,14 +478,20 @@ impl CameraData {
             Arc<StandardCommandBufferAllocator>,
         >,
         transform_compute: &TransformCompute,
-        particles: Arc<ParticleCompute>,
-        // transform_data: &TransformData,
+        // lights
+        light_len: u32,
+        lights: Subbuffer<[cs::light]>,
+        light_templates: Subbuffer<[fs::lightTemplate]>,
+        light_buckets: Subbuffer<[u32]>,
+        light_buckets_count: Subbuffer<[u32]>,
+        light_ids: Subbuffer<[u32]>,
+        // end lights
+        particles: Arc<ParticlesSystem>,
         transform_buf: TransformBuf,
         renderer_pipeline: Arc<ComputePipeline>,
         offset_vec: Vec<i32>,
         rm: &mut RwLockWriteGuard<SharedRendererData>,
         rd: &mut RendererData,
-        // image_num: u32,
         assets: Arc<AssetsManager>,
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
         cvd: CameraViewData,
@@ -581,11 +578,6 @@ impl CameraData {
             &perf,
         );
         drop(particle_sort);
-        // let clear_values = if self.samples == SampleCount::Sample1 {
-        //     vec![Some(1f32.into()), Some([0.2, 0.25, 1., 1.].into()), None]
-        // } else {
-        //     vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into()), None]
-        // };
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
@@ -627,8 +619,18 @@ impl CameraData {
                                 vk.desc_alloc.clone(),
                                 renderer_buffer.clone(),
                                 transform_compute.mvp.clone(),
+                                // lights
+                                light_len,
+                                lights.clone(),
+                                light_templates.clone(),
+                                light_buckets.clone(),
+                                light_buckets_count.clone(),
+                                light_ids.clone(),
+                                // end lights
+                                transform_compute.gpu_transforms.clone(),
                                 &mr.meshes[i],
                                 indirect_buffer.clone(),
+                                cvd.cam_pos.clone(),
                             );
                         }
                         offset += indr.count as u64;
@@ -642,7 +644,14 @@ impl CameraData {
         let render_jobs_perf = perf.node("render jobs");
         let mut rjd = RenderJobData {
             builder,
+            uniforms: Arc::new(Mutex::new(vk.sub_buffer_allocator())),
             gpu_transforms: transform_compute.gpu_transforms.clone(),
+            light_len,
+            lights,
+            light_templates,
+            light_buckets,
+            light_buckets_count,
+            light_ids,
             mvp: transform_compute.mvp.clone(),
             view: &cvd.view,
             proj: &cvd.proj,
@@ -650,6 +659,7 @@ impl CameraData {
             viewport: &self.viewport,
             texture_manager: texture_manager,
             vk: vk.clone(),
+            cam_pos: cvd.cam_pos,
         };
         for job in render_jobs {
             job(&mut rjd);

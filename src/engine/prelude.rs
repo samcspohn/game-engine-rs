@@ -8,3 +8,4 @@ pub use crate::engine::world::{transform::{Transform, _Transform, TransformRef},
 pub use component_derive::AssetID;
 pub use component_derive::ComponentID;
 pub use crate::engine::utils;
+pub use crate::engine::rendering::vulkan_manager::VulkanManager;

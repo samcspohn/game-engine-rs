@@ -12,7 +12,7 @@ use vulkano::command_buffer::{
 
 use crate::engine::{
     input::Input,
-    particles::{particle_asset::ParticleTemplate, particles::ParticleCompute},
+    particles::{particle_asset::ParticleTemplate, particles::ParticlesSystem},
     physics::{collider::_ColliderType, Physics, PhysicsData},
     project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
     rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
@@ -33,7 +33,7 @@ pub struct System<'a> {
     pub assets: &'a AssetsManager,
     pub vk: Arc<VulkanManager>,
     pub gpu_work: &'a GPUWork,
-    pub(crate) particle_system: &'a ParticleCompute,
+    pub(crate) particle_system: &'a ParticlesSystem,
     pub(crate) new_rigid_bodies:
         &'a SegQueue<NewRigidBody>,
 }

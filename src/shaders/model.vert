@@ -10,9 +10,11 @@ layout(location = 2) in vec2 uv;
 
 layout(location = 0) out vec3 v_normal;
 layout(location = 1) out vec2 coords;
+layout(location = 2) out vec3 v_pos;
 
 struct MVP {
     mat4 mvp;
+    mat4 mv;
     mat4 m;
 };
 
@@ -34,8 +36,10 @@ void main() {
         // v_normal = transpose(inverse(mat3(worldview))) * normal;
     coords = uv;
     v_normal = mat3(mvp[ids[id]].m) * normal;
+    v_pos = (mvp[ids[id]].m * vec4(position, 1.0)).xyz;
     // mat4 mvp = mvp[id];
     gl_Position = mvp[ids[id]].mvp * vec4(position, 1.0);
+
     // gl_Position.z *= -1;
     // gl_Position.y *= -1;
 }

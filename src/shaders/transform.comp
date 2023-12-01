@@ -5,6 +5,7 @@ layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 struct MVP {
     mat4 mvp;
+    mat4 mv;
     mat4 m;
 };
 
@@ -48,24 +49,12 @@ void main() {
                 transforms[id].scale =
                     vec3(scl[_id], scl[_id + 1], scl[_id + 2]);
             }
-            // int i = int(id) * 4;
-            // transforms[transform_ids[id]].position =
-            //     vec3(to_buffer[id].xyz);
         } break;
-        // case 1: {
-        //     // int i = int(id) * 4;
-        //     transforms[transform_ids[id]].rotation =
-        //         vec4(to_buffer[id]);
-        // } break;
-        // case 2: {
-        //     // int i = int(id) * 4;
-        //     transforms[transform_ids[id]].scale =
-        //         vec3(to_buffer[id].xyz);
-        // } break;
         case 3:
             mvp[id].m = translate(transforms[id].position) *
                         rotate(transforms[id].rotation) *
                         scale(transforms[id].scale);
+            mvp[id].mv = view * mvp[id].m;
             mvp[id].mvp = proj * view * mvp[id].m;
             break;
         }

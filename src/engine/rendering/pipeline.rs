@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use nalgebra_glm::Vec3;
 use vulkano::{
-    buffer::{Buffer, BufferContents, Subbuffer},
+    buffer::{allocator::SubbufferAllocator, Buffer, BufferContents, Subbuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
@@ -30,11 +31,16 @@ use vulkano::{
     shader::ShaderModule,
 };
 
-use crate::engine::transform_compute::cs::MVP;
+use crate::engine::{
+    rendering::vulkan_manager::VulkanManager,
+    transform_compute::cs::{transform, MVP},
+};
+
+use self::fs::light;
 
 use super::{
     model::{Mesh, Normal, _Vertex, UV},
-    texture::TextureManager,
+    texture::TextureManager, lighting::lighting_compute::cs,
 };
 
 pub mod vs {
@@ -77,24 +83,22 @@ pub struct RenderPipeline {
     _vs: Arc<ShaderModule>,
     _fs: Arc<ShaderModule>,
     pub pipeline: Arc<GraphicsPipeline>,
+    pub uniforms: SubbufferAllocator,
     pub def_texture: Arc<ImageView<ImmutableImage>>,
     pub def_sampler: Arc<Sampler>,
 }
 
 impl RenderPipeline {
     pub fn new(
-        device: Arc<Device>,
         render_pass: Arc<RenderPass>,
         _dimensions: [u32; 2],
-        queue: Arc<Queue>,
         sub_pass_index: u32,
-        mem: Arc<StandardMemoryAllocator>,
-        command_allocator: &StandardCommandBufferAllocator,
+        vk: Arc<VulkanManager>,
         // use_msaa: bool,
     ) -> RenderPipeline {
         let subpass = Subpass::from(render_pass, sub_pass_index).unwrap();
-        let vs = vs::load(device.clone()).unwrap();
-        let fs = fs::load(device.clone()).unwrap();
+        let vs = vs::load(vk.device.clone()).unwrap();
+        let fs = fs::load(vk.device.clone()).unwrap();
         let pipeline = GraphicsPipeline::start()
             .vertex_input_state(
                 BuffersDefinition::new()
@@ -120,7 +124,7 @@ impl RenderPipeline {
                 ..Default::default()
             })
             .render_pass(subpass)
-            .build(device.clone())
+            .build(vk.device.clone())
             .unwrap();
         // let pipeline = if use_msaa {
         //     pipeline.multisample_state(MultisampleState {
@@ -133,8 +137,8 @@ impl RenderPipeline {
         // let pipeline = pipeline
 
         let mut builder = AutoCommandBufferBuilder::primary(
-            command_allocator,
-            queue.queue_family_index(),
+            &vk.comm_alloc,
+            vk.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
@@ -147,7 +151,7 @@ impl RenderPipeline {
             };
             let image_data = vec![255_u8, 255, 255, 255];
             let image = ImmutableImage::from_iter(
-                &mem,
+                &vk.mem_alloc,
                 image_data,
                 dimensions,
                 MipmapsCount::One,
@@ -157,10 +161,10 @@ impl RenderPipeline {
             .unwrap();
             ImageView::new_default(image).unwrap()
         };
-        let _ = builder.build().unwrap().execute(queue).unwrap();
+        let _ = builder.build().unwrap().execute(vk.queue.clone()).unwrap();
 
         let def_sampler = Sampler::new(
-            device,
+            vk.device.clone(),
             SamplerCreateInfo {
                 mag_filter: Filter::Linear,
                 min_filter: Filter::Linear,
@@ -176,6 +180,7 @@ impl RenderPipeline {
             pipeline,
             def_texture,
             def_sampler,
+            uniforms: vk.sub_buffer_allocator(),
         }
     }
     pub fn _regen(
@@ -224,7 +229,6 @@ impl RenderPipeline {
     pub fn bind_mesh(
         &self,
         texture_manager: &TextureManager,
-        // device: Arc<Device>,
         builder: &mut AutoCommandBufferBuilder<
             PrimaryAutoCommandBuffer,
             Arc<StandardCommandBufferAllocator>,
@@ -232,11 +236,18 @@ impl RenderPipeline {
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
         instance_buffer: Subbuffer<[i32]>,
         mvp_buffer: Subbuffer<[MVP]>,
+        ////
+        light_len: u32,
+        lights: Subbuffer<[cs::light]>,
+        light_templates: Subbuffer<[fs::lightTemplate]>,
+        light_buckets: Subbuffer<[u32]>,
+        light_buckets_count: Subbuffer<[u32]>,
+        light_ids: Subbuffer<[u32]>,
+        /////
+        transforms: Subbuffer<[transform]>,
         mesh: &Mesh,
-        indirect_buffer: Subbuffer<
-            [DrawIndexedIndirectCommand],
-            // CpuAccessibleBuffer<[DrawIndexedIndirectCommand]>,
-        >,
+        indirect_buffer: Subbuffer<[DrawIndexedIndirectCommand]>,
+        cam_pos: Vec3,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
@@ -259,6 +270,21 @@ impl RenderPipeline {
             ));
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
+        descriptors.push(WriteDescriptorSet::buffer(3, transforms));
+        descriptors.push(WriteDescriptorSet::buffer(4, light_templates));
+        // let uniform = {
+        //     let uni = self.uniforms.allocate_sized().unwrap();
+        //     *uni.write().unwrap() = fs::Data {
+        //         cam_pos: cam_pos.into(),
+        //         num_lights: light_len,
+        //     };
+        //     uni
+        // };
+        // descriptors.push(WriteDescriptorSet::buffer(5, uniform));
+        descriptors.push(WriteDescriptorSet::buffer(6, lights));
+        descriptors.push(WriteDescriptorSet::buffer(7, light_ids));
+        descriptors.push(WriteDescriptorSet::buffer(8, light_buckets));
+        descriptors.push(WriteDescriptorSet::buffer(9, light_buckets_count));
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
         {
             builder

@@ -96,6 +96,7 @@ pub trait StorageBase {
     fn serialize(&self, i: i32) -> serde_yaml::Value;
     fn deserialize(&mut self, transform: i32, d: serde_yaml::Value) -> i32;
     fn clear(&mut self, transforms: &Transforms, sys: &Sys);
+    fn len(&self) -> usize;
 }
 use dary_heap::DaryHeap;
 // use pqueue::Queue;
@@ -439,5 +440,9 @@ impl<
     }
     fn allocate(&mut self, count: usize) -> CacheVec<i32> {
         self._allocate(count)
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
     }
 }

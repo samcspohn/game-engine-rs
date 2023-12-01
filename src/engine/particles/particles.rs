@@ -128,7 +128,7 @@ pub struct ParticleBuffers {
     pub alive_b: Subbuffer<[cs::b]>,
 }
 
-pub struct ParticleCompute {
+pub struct ParticlesSystem {
     pub sort: ParticleSort,
     pub emitter_inits: AtomicVec<cs::emitter_init>,
     pub emitter_deinits: AtomicVec<cs::emitter_init>,
@@ -197,8 +197,8 @@ impl ParticleRenderPipeline {
     }
 }
 
-impl ParticleCompute {
-    pub fn new(vk: Arc<VulkanManager>, tex_man: Arc<Mutex<TextureManager>>) -> ParticleCompute {
+impl ParticlesSystem {
+    pub fn new(vk: Arc<VulkanManager>, tex_man: Arc<Mutex<TextureManager>>) -> ParticlesSystem {
         let performance = PerformanceCounters {
             update_particles: vk.new_query(),
             update_emitters: vk.new_query(),
@@ -412,7 +412,7 @@ impl ParticleCompute {
         let emitter_init_dummy = vk.buffer_array(1 as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
         let particle_burst_dummy =
             vk.buffer_array(1 as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
-        ParticleCompute {
+        ParticlesSystem {
             sort: ParticleSort::new(&vk),
             emitter_inits: AtomicVec::new(),
             emitter_deinits: AtomicVec::new(),
