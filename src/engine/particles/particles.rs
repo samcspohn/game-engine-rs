@@ -182,7 +182,7 @@ impl ParticleRenderPipeline {
             .color_blend_state(blend_state)
             .render_pass(subpass)
             .with_auto_layout(vk.device.clone(), |layout_create_infos| {
-                let binding = layout_create_infos[0].bindings.get_mut(&11).unwrap();
+                let binding = layout_create_infos[0].bindings.get_mut(&16).unwrap();
                 binding.variable_descriptor_count = true;
                 binding.descriptor_count = 16;
             })
@@ -898,6 +898,12 @@ impl ParticlesSystem {
         cam_rot: [f32; 4],
         cam_pos: [f32; 3],
         transform: Subbuffer<[transform]>,
+
+        lights: Subbuffer<[crate::engine::rendering::lighting::lighting_compute::cs::light]>,
+        light_templates: Subbuffer<[crate::engine::rendering::pipeline::fs::lightTemplate]>,
+        light_buckets: Subbuffer<[u32]>,
+        light_buckets_count: Subbuffer<[u32]>,
+        light_ids: Subbuffer<[u32]>,
     ) {
         // static mut RENDER_QUERY: Lazy<i32> = Lazy::new(|| -1);
         // unsafe {
@@ -948,8 +954,13 @@ impl ParticlesSystem {
                     pt.color_tex.0.clone(),
                     pt.color_tex.1.clone(),
                 ),
+                WriteDescriptorSet::buffer(11, light_templates),
+                WriteDescriptorSet::buffer(12, lights),
+                WriteDescriptorSet::buffer(13, light_ids),
+                WriteDescriptorSet::buffer(14, light_buckets),
+                WriteDescriptorSet::buffer(15, light_buckets_count),
                 WriteDescriptorSet::image_view_sampler_array(
-                    11,
+                    16,
                     0,
                     pt.samplers.iter().map(|a| (a.0.clone() as _, a.1.clone())),
                 ),

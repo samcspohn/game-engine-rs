@@ -22,7 +22,11 @@ struct light {
     int templ;
 	int t_id;
     int enabled;
+	float radius;
+	// 4
+	vec3 pos;
 	uint hash;
+	// 8
 };
 
 struct light_init {
@@ -36,10 +40,10 @@ struct light_deinit {
 };
 
 uint hash_pos(vec3 p) {
-	const float bucket_size = 40.0;
+	const float bucket_size = 32.0;
 	ivec3 pos_hash = ivec3(p / bucket_size);
     // uvec3 hash_vec = uvec3(floatBitsToUint(pos_hash.x),floatBitsToUint(pos_hash.y),floatBitsToUint(pos_hash.z));
-    return (pos_hash.x ^ pos_hash.y ^ pos_hash.z) & 0x00ff;
+    return uint(pos_hash.x * (pos_hash.y * 32) * (pos_hash.z * 32 * 32)) % 65536;
 	// return (pos_hash.x * pos_hash.y * pos_hash.z) % 0x00ff;
 }
 struct DispatchIndirectCommand {

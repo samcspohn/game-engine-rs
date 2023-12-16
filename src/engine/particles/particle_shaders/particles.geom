@@ -10,6 +10,7 @@ layout(location = 0) out float life;
 layout(location = 1) out int templ_id;
 layout(location = 2) out vec2 uv;
 layout(location = 3) out vec2 uv2;
+layout(location = 4) out vec3 v_pos;
 
 // layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
 layout(set = 0, binding = 0) buffer pl_c { pos_life_comp p_l[]; };
@@ -115,12 +116,14 @@ void main() {
         mat4 mvp = proj * cam_inv_rot * model;
         templ_id = template_ids[i];
         gl_Position = get_position(mvp, 0);
+        v_pos = (model * vert_pos[0]).xyz;
         uv = vert_uv[0];
         uv2 = vec2(l1, color_id);
         life = l1;
         EmitVertex();
 
         gl_Position = get_position(mvp, 1);
+        v_pos = (model * vert_pos[1]).xyz;
         templ_id = template_ids[i];
         uv = vert_uv[1];
         uv2 = vec2(l2, color_id);
@@ -128,6 +131,7 @@ void main() {
         EmitVertex();
 
         gl_Position = get_position(mvp, 2);
+        v_pos = (model * vert_pos[2]).xyz;
         templ_id = template_ids[i];
         uv = vert_uv[2];
         uv2 = vec2(l1, color_id);
@@ -135,6 +139,7 @@ void main() {
         EmitVertex();
 
         gl_Position = get_position(mvp, 3);
+        v_pos = (model * vert_pos[3]).xyz;
         templ_id = template_ids[i];
         uv = vert_uv[3];
         uv2 = vec2(l2, color_id);

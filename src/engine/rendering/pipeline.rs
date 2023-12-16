@@ -270,7 +270,7 @@ impl RenderPipeline {
             ));
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
-        descriptors.push(WriteDescriptorSet::buffer(3, transforms));
+        // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
         descriptors.push(WriteDescriptorSet::buffer(4, light_templates));
         // let uniform = {
         //     let uni = self.uniforms.allocate_sized().unwrap();

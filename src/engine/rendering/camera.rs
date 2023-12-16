@@ -647,11 +647,11 @@ impl CameraData {
             uniforms: Arc::new(Mutex::new(vk.sub_buffer_allocator())),
             gpu_transforms: transform_compute.gpu_transforms.clone(),
             light_len,
-            lights,
-            light_templates,
-            light_buckets,
-            light_buckets_count,
-            light_ids,
+            lights: lights.clone(),
+            light_templates: light_templates.clone(),
+            light_buckets: light_buckets.clone(),
+            light_buckets_count: light_buckets_count.clone(),
+            light_ids: light_ids.clone(),
             mvp: transform_compute.mvp.clone(),
             view: &cvd.view,
             proj: &cvd.proj,
@@ -674,6 +674,12 @@ impl CameraData {
             cvd.cam_rot.coords.into(),
             cvd.cam_pos.into(),
             transform_compute.gpu_transforms.clone(),
+            //
+            lights.clone(),
+            light_templates.clone(),
+            light_buckets.clone(),
+            light_buckets_count.clone(),
+            light_ids.clone(),
         );
         builder.end_render_pass().unwrap();
         // self.camera_view_data.pop_front();
