@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::Subbuffer,
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, DrawIndirectCommand,
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
@@ -28,7 +28,7 @@ use vulkano::{
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        particles::particles::{ParticlesSystem, ParticleRenderPipeline},
+        particles::particles::{ParticleRenderPipeline, ParticlesSystem},
         perf::Perf,
         project::asset_manager::AssetsManager,
         rendering::component::ur,
@@ -44,7 +44,7 @@ use crate::{
 
 use super::{
     component::{RendererData, SharedRendererData},
-    lighting::{lighting::LightingSystem, lighting_compute::cs},
+    lighting::{light_bounding::LightBounding, lighting::LightingSystem, lighting_compute::cs::{self, cluster}},
     model::{ModelManager, ModelRenderer},
     pipeline::{fs, RenderPipeline},
     texture::{Texture, TextureManager},
@@ -126,10 +126,10 @@ impl Frustum {
 pub struct CameraViewData {
     cam_pos: Vec3,
     cam_rot: Quat,
-    view: Mat4,
+    pub(crate) view: Mat4,
+    pub(crate) proj: Mat4,
     inv_rot: Mat4,
     frustum: Frustum,
-    proj: Mat4,
 }
 
 #[derive(ComponentID, Clone, Serialize, Deserialize)]
@@ -479,12 +479,15 @@ impl CameraData {
         >,
         transform_compute: &TransformCompute,
         // lights
+        clusters: Subbuffer<[cluster]>,
         light_len: u32,
         lights: Subbuffer<[cs::light]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
-        light_buckets: Subbuffer<[u32]>,
-        light_buckets_count: Subbuffer<[u32]>,
-        light_ids: Subbuffer<[u32]>,
+        // light_buckets: Subbuffer<[u32]>,
+        // light_buckets_count: Subbuffer<[u32]>,
+        // light_ids: Subbuffer<[u32]>,
+        // light_bounding: &LightBounding,
+        // light_draw_indirect: Subbuffer<[DrawIndirectCommand]>,
         // end lights
         particles: Arc<ParticlesSystem>,
         transform_buf: TransformBuf,
@@ -578,6 +581,15 @@ impl CameraData {
             &perf,
         );
         drop(particle_sort);
+        // light_bounding.render(
+        //     builder,
+        //     light_ids.clone(),
+        //     lights.clone(),
+        //     clusters.clone(),
+        //     light_draw_indirect.clone(),
+        //     cvd.proj * cvd.view,
+        // );
+
         builder
             .begin_render_pass(
                 RenderPassBeginInfo {
@@ -586,8 +598,8 @@ impl CameraData {
                 },
                 SubpassContents::Inline,
             )
-            .unwrap()
-            .set_viewport(0, [self.viewport.clone()]);
+            .unwrap();
+        builder.set_viewport(0, [self.viewport.clone()]);
 
         self.rend.bind_pipeline(builder);
 
@@ -623,9 +635,10 @@ impl CameraData {
                                 light_len,
                                 lights.clone(),
                                 light_templates.clone(),
-                                light_buckets.clone(),
-                                light_buckets_count.clone(),
-                                light_ids.clone(),
+                                clusters.clone(),
+                                // light_buckets.clone(),
+                                // light_buckets_count.clone(),
+                                // light_ids.clone(),
                                 // end lights
                                 transform_compute.gpu_transforms.clone(),
                                 &mr.meshes[i],
@@ -649,9 +662,10 @@ impl CameraData {
             light_len,
             lights: lights.clone(),
             light_templates: light_templates.clone(),
-            light_buckets: light_buckets.clone(),
-            light_buckets_count: light_buckets_count.clone(),
-            light_ids: light_ids.clone(),
+            // light_buckets: light_buckets.clone(),
+            // light_buckets_count: light_buckets_count.clone(),
+            // light_ids: light_ids.clone(),
+            clusters: clusters.clone(),
             mvp: transform_compute.mvp.clone(),
             view: &cvd.view,
             proj: &cvd.proj,
@@ -677,9 +691,9 @@ impl CameraData {
             //
             lights.clone(),
             light_templates.clone(),
-            light_buckets.clone(),
-            light_buckets_count.clone(),
-            light_ids.clone(),
+            // light_buckets.clone(),
+            // light_buckets_count.clone(),
+            clusters.clone(),
         );
         builder.end_render_pass().unwrap();
         // self.camera_view_data.pop_front();

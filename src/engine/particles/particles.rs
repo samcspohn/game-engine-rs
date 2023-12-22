@@ -15,7 +15,7 @@ use crate::{
         rendering::{
             component::buffer_usage_all,
             texture::{Texture, TextureManager},
-            vulkan_manager::VulkanManager,
+            vulkan_manager::VulkanManager, lighting::lighting_compute::cs::cluster,
         },
         storage::_Storage,
         time::Time,
@@ -901,9 +901,9 @@ impl ParticlesSystem {
 
         lights: Subbuffer<[crate::engine::rendering::lighting::lighting_compute::cs::light]>,
         light_templates: Subbuffer<[crate::engine::rendering::pipeline::fs::lightTemplate]>,
-        light_buckets: Subbuffer<[u32]>,
-        light_buckets_count: Subbuffer<[u32]>,
-        light_ids: Subbuffer<[u32]>,
+        // light_buckets: Subbuffer<[u32]>,
+        // light_buckets_count: Subbuffer<[u32]>,
+        clusters: Subbuffer<[cluster]>,
     ) {
         // static mut RENDER_QUERY: Lazy<i32> = Lazy::new(|| -1);
         // unsafe {
@@ -954,11 +954,11 @@ impl ParticlesSystem {
                     pt.color_tex.0.clone(),
                     pt.color_tex.1.clone(),
                 ),
-                WriteDescriptorSet::buffer(11, light_templates),
-                WriteDescriptorSet::buffer(12, lights),
-                WriteDescriptorSet::buffer(13, light_ids),
-                WriteDescriptorSet::buffer(14, light_buckets),
-                WriteDescriptorSet::buffer(15, light_buckets_count),
+                // WriteDescriptorSet::buffer(11, light_templates),
+                // WriteDescriptorSet::buffer(12, lights),
+                // WriteDescriptorSet::buffer(13, light_ids),
+                // WriteDescriptorSet::buffer(14, light_buckets),
+                // WriteDescriptorSet::buffer(15, light_buckets_count),
                 WriteDescriptorSet::image_view_sampler_array(
                     16,
                     0,

@@ -478,9 +478,10 @@ impl Component for TerrainEng {
                     vk,
                     light_len,
                     cam_pos,
-                    light_buckets,
-                    light_buckets_count,
-                    light_ids,
+                    // light_buckets,
+                    // light_buckets_count,
+                    // light_ids,
+                    clusters,
                 } = rd;
                 let instance_data = vec![t_id];
                 // let mvp_data = vec![MVP {

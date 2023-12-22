@@ -38,7 +38,29 @@ struct light_init {
 struct light_deinit {
     int id;
 };
-
+struct cluster {
+    uint count;
+    uint lights[100];
+};
+float modify(float x, float m) {
+	return (x * 0.5 + 2) * m;
+}
+vec3 get_cluster_idx(vec4 v) {
+	// vec3 _v = vec3(1, 1, 0);
+	// if (v.x > 0.5) {
+	// 	_v.x = 0.;
+	// }
+	// if (v.y > 0.5) {
+	// 	_v.y = 0.;
+	// }
+	// vec3 _v = vec3(0, 0, (v.z + 1) * -24);
+	// vec3 _v = vec3(modify(v.x,16 / 5), modify(v.y, 9 / 5), z * 24);
+	// vec3 _v = vec3(v.x * 16, v.y * 9, 0);
+	// vec3 _v = vec3(mod(v.x,16), mod(v.y,9), 0);
+	vec3 _v = v.xyz / v.w;
+	_v = vec3((_v.x + 1) * 8, (_v.y + 1) * 4.5, _v.z * 32);
+	return _v;
+}
 uint hash_pos(vec3 p) {
 	const float bucket_size = 32.0;
 	ivec3 pos_hash = ivec3(p / bucket_size);

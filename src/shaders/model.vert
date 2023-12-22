@@ -1,4 +1,5 @@
 #version 450
+#include "util.glsl"
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
@@ -11,6 +12,7 @@ layout(location = 2) in vec2 uv;
 layout(location = 0) out vec3 v_normal;
 layout(location = 1) out vec2 coords;
 layout(location = 2) out vec3 v_pos;
+layout(location = 3) out vec3 _v;
 
 struct MVP {
     mat4 mvp;
@@ -37,6 +39,8 @@ void main() {
     coords = uv;
     v_normal = mat3(mvp[ids[id]].m) * normal;
     v_pos = (mvp[ids[id]].m * vec4(position, 1.0)).xyz;
+    vec4 v = (mvp[ids[id]].mvp * vec4(position, 1.0));
+    _v = get_cluster_idx(v);
     // mat4 mvp = mvp[id];
     gl_Position = mvp[ids[id]].mvp * vec4(position, 1.0);
 

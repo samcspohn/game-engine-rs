@@ -108,7 +108,10 @@ use self::{
     rendering::{
         camera::{Camera, CameraData, CameraViewData},
         component::{Renderer, SharedRendererData},
-        lighting::lighting_compute::{LightingCompute, cs},
+        lighting::{
+            light_bounding::LightBounding,
+            lighting_compute::{cs::{self, cluster}, LightingCompute},
+        },
         model::{Mesh, ModelRenderer},
         pipeline::{
             fs::{light, lightTemplate},
@@ -158,9 +161,10 @@ pub struct RenderJobData<'a> {
     pub light_len: u32,
     pub lights: Subbuffer<[cs::light]>,
     pub light_templates: Subbuffer<[lightTemplate]>,
-    pub light_buckets: Subbuffer<[u32]>,
-    pub light_buckets_count: Subbuffer<[u32]>,
-    pub light_ids: Subbuffer<[u32]>,
+    // pub light_buckets: Subbuffer<[u32]>,
+    // pub light_buckets_count: Subbuffer<[u32]>,
+    // pub light_ids: Subbuffer<[u32]>,
+    pub clusters: Subbuffer<[cluster]>,
     pub mvp: Subbuffer<[MVP]>,
     pub cam_pos: Vec3,
     pub view: &'a nalgebra_glm::Mat4,
@@ -219,6 +223,7 @@ pub struct Engine {
     pub(crate) project: Project,
     pub(crate) transform_compute: RwLock<TransformCompute>,
     pub(crate) lighting_compute: RwLock<LightingCompute>,
+    pub(crate) light_bounding: RwLock<LightBounding>,
     pub(crate) particles_system: Arc<ParticlesSystem>,
     pub(crate) lighting_system: Arc<LightingSystem>,
     pub(crate) playing_game: bool,
@@ -448,6 +453,7 @@ impl Engine {
             project: Project::default(),
             transform_compute: RwLock::new(transform_compute),
             lighting_compute: RwLock::new(LightingCompute::new(vk.clone())),
+            light_bounding: RwLock::new(LightBounding::new(vk.clone())),
             playing_game: game_mode,
             // coms,
             perf,
@@ -745,22 +751,36 @@ impl Engine {
         while let Some(job) = gpu_work.pop() {
             job.unwrap()(&mut builder, vk.clone());
         }
-        let light_len = self.world.lock().get_components::<Light>().unwrap().1.read().len();
+        let light_len = self
+            .world
+            .lock()
+            .get_components::<Light>()
+            .unwrap()
+            .1
+            .read()
+            .len();
         let (light_templates, light_deinits, light_inits) = self
             .lighting_system
             .get_light_buffer(light_len, &mut builder);
-        self.lighting_compute.write().update_lights(
+        // let light_len = self.lighting_system.lights.lock().data.len() as u32;
+        self.lighting_compute.write().update_lights_1(
             &mut builder,
             light_deinits,
             light_inits,
             self.lighting_system.lights.lock().clone(),
             self.transform_compute.read().gpu_transforms.clone(),
         );
-        // let light_len = self.lighting_system.lights.lock().data.len() as u32;
-        let lc = self.lighting_compute.read();
         let mut game_image = None;
         for cam in cam_datas {
             if let (Some(cam), Some(cvd)) = cam {
+                self.lighting_compute.write().update_lights_2(
+                    &mut builder,
+                    self.lighting_system.lights.lock().clone(),
+                    self.transform_compute.read().gpu_transforms.clone(),
+                    cvd.proj * cvd.view,
+                );
+                let lc = self.lighting_compute.read();
+
                 let dims = if self.game_mode {
                     framebuffers[0].0.dimensions().width_height()
                 } else {
@@ -771,12 +791,15 @@ impl Engine {
                     vk.clone(),
                     &mut builder,
                     &self.transform_compute.read(),
+                    lc.clusters.clone(),
                     light_len as u32,
                     self.lighting_system.lights.lock().clone(),
                     light_templates.clone(),
-                    lc.buckets.clone(),
-                    lc.buckets_count.clone(),
-                    lc.light_ids.lock().clone(),
+                    // lc.buckets.clone(),
+                    // lc.buckets_count.clone(),
+                    // lc.visible_lights.lock().clone(),
+                    // &self.light_bounding.read(),
+                    // lc.draw_indirect.clone(),
                     self.particles_system.clone(),
                     transforms_buf.clone(),
                     rm.pipeline.clone(),

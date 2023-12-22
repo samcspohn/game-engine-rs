@@ -40,7 +40,7 @@ use self::fs::light;
 
 use super::{
     model::{Mesh, Normal, _Vertex, UV},
-    texture::TextureManager, lighting::lighting_compute::cs,
+    texture::TextureManager, lighting::lighting_compute::cs::{self, cluster},
 };
 
 pub mod vs {
@@ -240,9 +240,10 @@ impl RenderPipeline {
         light_len: u32,
         lights: Subbuffer<[cs::light]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
-        light_buckets: Subbuffer<[u32]>,
-        light_buckets_count: Subbuffer<[u32]>,
-        light_ids: Subbuffer<[u32]>,
+        clusters: Subbuffer<[cluster]>,
+        // light_buckets: Subbuffer<[u32]>,
+        // light_buckets_count: Subbuffer<[u32]>,
+        // light_ids: Subbuffer<[u32]>,
         /////
         transforms: Subbuffer<[transform]>,
         mesh: &Mesh,
@@ -271,7 +272,7 @@ impl RenderPipeline {
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
         // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
-        descriptors.push(WriteDescriptorSet::buffer(4, light_templates));
+        descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
         // let uniform = {
         //     let uni = self.uniforms.allocate_sized().unwrap();
         //     *uni.write().unwrap() = fs::Data {
@@ -281,10 +282,11 @@ impl RenderPipeline {
         //     uni
         // };
         // descriptors.push(WriteDescriptorSet::buffer(5, uniform));
-        descriptors.push(WriteDescriptorSet::buffer(6, lights));
-        descriptors.push(WriteDescriptorSet::buffer(7, light_ids));
-        descriptors.push(WriteDescriptorSet::buffer(8, light_buckets));
-        descriptors.push(WriteDescriptorSet::buffer(9, light_buckets_count));
+        descriptors.push(WriteDescriptorSet::buffer(4, lights));
+        descriptors.push(WriteDescriptorSet::buffer(5, clusters));
+        // descriptors.push(WriteDescriptorSet::buffer(7, light_ids));
+        // descriptors.push(WriteDescriptorSet::buffer(8, light_buckets));
+        // descriptors.push(WriteDescriptorSet::buffer(9, light_buckets_count));
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
         {
             builder
