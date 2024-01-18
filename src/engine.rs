@@ -109,8 +109,11 @@ use self::{
         camera::{Camera, CameraData, CameraViewData},
         component::{Renderer, SharedRendererData},
         lighting::{
-            light_bounding::LightBounding,
-            lighting_compute::{cs::{self, cluster}, LightingCompute},
+            // light_bounding::LightBounding,
+            lighting_compute::{
+                cs::{self, cluster},
+                LightingCompute,
+            },
         },
         model::{Mesh, ModelRenderer},
         pipeline::{
@@ -167,6 +170,7 @@ pub struct RenderJobData<'a> {
     pub clusters: Subbuffer<[cluster]>,
     pub mvp: Subbuffer<[MVP]>,
     pub cam_pos: Vec3,
+    pub screen_dims: [f32; 2],
     pub view: &'a nalgebra_glm::Mat4,
     pub proj: &'a nalgebra_glm::Mat4,
     pub pipeline: &'a RenderPipeline,
@@ -223,7 +227,7 @@ pub struct Engine {
     pub(crate) project: Project,
     pub(crate) transform_compute: RwLock<TransformCompute>,
     pub(crate) lighting_compute: RwLock<LightingCompute>,
-    pub(crate) light_bounding: RwLock<LightBounding>,
+    // pub(crate) light_bounding: RwLock<LightBounding>,
     pub(crate) particles_system: Arc<ParticlesSystem>,
     pub(crate) lighting_system: Arc<LightingSystem>,
     pub(crate) playing_game: bool,
@@ -453,7 +457,7 @@ impl Engine {
             project: Project::default(),
             transform_compute: RwLock::new(transform_compute),
             lighting_compute: RwLock::new(LightingCompute::new(vk.clone())),
-            light_bounding: RwLock::new(LightBounding::new(vk.clone())),
+            // light_bounding: RwLock::new(LightBounding::new(vk.clone())),
             playing_game: game_mode,
             // coms,
             perf,
@@ -777,7 +781,10 @@ impl Engine {
                     &mut builder,
                     self.lighting_system.lights.lock().clone(),
                     self.transform_compute.read().gpu_transforms.clone(),
-                    cvd.proj * cvd.view,
+                    cvd.view,
+                    cvd.proj,
+                    cvd.cam_pos,
+                    cvd.dimensions,
                 );
                 let lc = self.lighting_compute.read();
 
@@ -791,7 +798,7 @@ impl Engine {
                     vk.clone(),
                     &mut builder,
                     &self.transform_compute.read(),
-                    lc.clusters.clone(),
+                    lc.clusters.lock().clone(),
                     light_len as u32,
                     self.lighting_system.lights.lock().clone(),
                     light_templates.clone(),

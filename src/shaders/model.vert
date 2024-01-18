@@ -40,7 +40,8 @@ void main() {
     v_normal = mat3(mvp[ids[id]].m) * normal;
     v_pos = (mvp[ids[id]].m * vec4(position, 1.0)).xyz;
     vec4 v = (mvp[ids[id]].mvp * vec4(position, 1.0));
-    _v = get_cluster_idx(v);
+    // _v = get_cluster_idx(v);
+    _v = v.xyz;
     // mat4 mvp = mvp[id];
     gl_Position = mvp[ids[id]].mvp * vec4(position, 1.0);
 

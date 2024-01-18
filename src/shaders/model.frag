@@ -1,6 +1,8 @@
 #version 450
 #include "util.glsl"
 
+#define BLOCK_SIZE 16
+
 layout(location = 0) in vec3 v_normal;
 layout(location = 1) in vec2 coords;
 layout(location = 2) in vec3 v_pos;
@@ -19,7 +21,10 @@ layout(set = 0, binding = 4) buffer l { light lights[]; };
 // layout(set = 0, binding = 8) buffer b { uint buckets[]; };
 // layout(set = 0, binding = 9) buffer bc { uint buckets_count[]; };
 // const float bucket_size = 120.0;
-layout(set = 0, binding = 5) buffer c { cluster clusters[16][9][32]; };
+layout(set = 0, binding = 5) buffer c { cluster clusters[]; };
+layout(set = 0, binding = 6) uniform Data {
+    vec2 screenDims;
+};
 
 vec4 CalcLightInternal(lightTemplate Light, vec3 LightDirection, vec3 Normal) {
     vec4 AmbientColor = vec4(Light.Color, 1.0f);
@@ -48,7 +53,7 @@ vec4 CalcPointLight(uint Index, vec3 Normal) {
 #define _l    lights[Index]
 #define templ light_templates[_l.templ]
 
-    vec3 LightDirection = v_pos - _l.pos;
+    vec3 LightDirection = v_pos - _l.pos_radius.c;
     float Distance = length(LightDirection);
     LightDirection = normalize(LightDirection);
 
@@ -66,62 +71,19 @@ void main() {
     float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
     total_light += vec4(vec3(brightness), 1.0f);
 
-    // uint hashes[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
-    // uint curr_hash = 0;
-    // for (int x = -1; x <= 1; x += 2) {
-    //     for (int y = -1; y <= 1; y += 2) {
-    //         for (int z = -1; z <= 1; z += 2) {
-    //             uint hash = hash_pos(v_pos + vec3(x, y, z) * 8);
-    //             uint hash_hash = hash % 8;
-    //             for (int i = 0; i < 8; ++i) {
-
-    //                 if (hashes[hash_hash] == -1 || hashes[hash_hash] == hash)
-    //                 {
-    //                     hashes[hash_hash] = hash;
-    //                     break;
-    //                 }
-    //                 hash_hash = (hash_hash + 1) % 8;
-    //             }
-    //         }
-    //     }
-    // }
-    // for (int i = 0; i < 8; ++i) {
-    //     if (hashes[i] == -1) continue;
-    //     uint hash = hashes[i];
-    //     uint count = buckets_count[hash];
-    //     if (count > 0) {
-    //         uint offset = buckets[hash];
-    //         for (uint i = 0; i < count; ++i) {
-    //             uint l_id = light_ids[offset + i];
-    //             vec3 v = v_pos - lights[l_id].pos;
-    //             float radius = lights[l_id].radius;
-    //             if (dot(v, v) < radius * radius) {
-    //                 total_light += CalcPointLight(l_id, v_normal);
-    //             }
-    //         }
-    //     }
-    // }
-    // uint hash = hash_pos(v_pos);
-    // uint count = buckets_count[hash];
-    // // uint lights_in_range[8];
-    // // uint num_lights = 0;
-    uvec3 v = uvec3(_v.x, _v.y, _v.z);
-#define _cluster clusters[v.x][v.y][v.z]
+    ivec2 ti = ivec2(gl_FragCoord.xy / BLOCK_SIZE);
+    uint width = uint(ceil(abs(screenDims.x) / BLOCK_SIZE));
+    uint tileIndex = uint(ti.x + (ti.y) * width);
+#define _cluster clusters[tileIndex]
     uint count = _cluster.count;
     for (int i = 0; i < count; ++i) {
         uint l_id = _cluster.lights[i];
-        vec3 l_pos = v_pos - lights[l_id].pos;
-        float radius = lights[l_id].radius;
+        vec3 l_pos = v_pos - lights[l_id].pos_radius.c;
+        float radius = lights[l_id].pos_radius.r;
         if (dot(l_pos, l_pos) < radius * radius) {
-            // lights_in_range[num_lights] = l_id;
-            // num_lights += 1;
-            // if (num_lights >= 8) break;
             total_light += CalcPointLight(l_id, v_normal);
         }
     }
-    // for (int i = 0; i < num_lights; ++i) {
-    //     total_light += CalcPointLight(lights_in_range[i], v_normal);
-    // }
     total_light.a = 1.0f;
     f_color =
         texture(tex, coords) * total_light;   // min(brightness + 0.8, 1.0);

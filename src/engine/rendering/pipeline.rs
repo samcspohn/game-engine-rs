@@ -241,6 +241,7 @@ impl RenderPipeline {
         lights: Subbuffer<[cs::light]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
         clusters: Subbuffer<[cluster]>,
+        screen_dims: [f32;2],
         // light_buckets: Subbuffer<[u32]>,
         // light_buckets_count: Subbuffer<[u32]>,
         // light_ids: Subbuffer<[u32]>,
@@ -273,17 +274,16 @@ impl RenderPipeline {
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
         // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
         descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
-        // let uniform = {
-        //     let uni = self.uniforms.allocate_sized().unwrap();
-        //     *uni.write().unwrap() = fs::Data {
-        //         cam_pos: cam_pos.into(),
-        //         num_lights: light_len,
-        //     };
-        //     uni
-        // };
-        // descriptors.push(WriteDescriptorSet::buffer(5, uniform));
+        let uniform = {
+            let uni = self.uniforms.allocate_sized().unwrap();
+            *uni.write().unwrap() = fs::Data {
+                screenDims: screen_dims,
+            };
+            uni
+        };
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
         descriptors.push(WriteDescriptorSet::buffer(5, clusters));
+        descriptors.push(WriteDescriptorSet::buffer(6, uniform));
         // descriptors.push(WriteDescriptorSet::buffer(7, light_ids));
         // descriptors.push(WriteDescriptorSet::buffer(8, light_buckets));
         // descriptors.push(WriteDescriptorSet::buffer(9, light_buckets_count));

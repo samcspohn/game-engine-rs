@@ -1,0 +1,155 @@
+#version 450
+#include "util.glsl"
+// credit to WindyDarian / Vulkan-Forward-Plus-Renderer
+
+
+layout(set = 0, binding = 0) uniform Data {
+    mat4 vp;
+    mat4 view;
+    mat4 proj;
+    uvec2 numThreads;
+    int num_lights;
+    int stage;   // dont need to update light if off screen
+    vec3 cam_pos;
+    mat4 InverseProjection;
+    vec2 ScreenDimensions;
+    // float fov;
+    // mat4 view;
+    // mat4 proj;
+};
+
+layout(set = 0, binding = 1) buffer l { light lights[]; };
+layout(set = 0, binding = 2) buffer t { cluster out_Frustums[]; };
+bool isCollided(light light, Frustum frustum) {
+    bool result = true;
+
+    // Step1: sphere-plane test
+    for (int i = 0; i < 6; i++) {
+        if (dot(light.pos_radius.c, frustum.planes[i].xyz) + frustum.planes[i].w < -light.pos_radius.r) {
+            result = false;
+            break;
+        }
+    }
+
+    if (!result) {
+        return false;
+    }
+
+    // // Step2: bbox corner test (to reduce false positive)
+    // vec3 light_bbox_max = light.pos + vec3(light.radius);
+    // vec3 light_bbox_min = light.pos - vec3(light.radius);
+    // int probe;
+    // probe = 0;
+    // for (int i = 0; i < 8; i++)
+    //     probe += ((frustum.points[i].x > light_bbox_max.x) ? 1 : 0);
+    // if (probe == 8) return false;
+    // probe = 0;
+    // for (int i = 0; i < 8; i++)
+    //     probe += ((frustum.points[i].x < light_bbox_min.x) ? 1 : 0);
+    // if (probe == 8) return false;
+    // probe = 0;
+    // for (int i = 0; i < 8; i++)
+    //     probe += ((frustum.points[i].y > light_bbox_max.y) ? 1 : 0);
+    // if (probe == 8) return false;
+    // probe = 0;
+    // for (int i = 0; i < 8; i++)
+    //     probe += ((frustum.points[i].y < light_bbox_min.y) ? 1 : 0);
+    // if (probe == 8) return false;
+    // probe = 0;
+    // for (int i = 0; i < 8; i++)
+    //     probe += ((frustum.points[i].z > light_bbox_max.z) ? 1 : 0);
+    // if (probe == 8) return false;
+    // probe = 0;
+    // for (int i = 0; i < 8; i++)
+    //     probe += ((frustum.points[i].z < light_bbox_min.z) ? 1 : 0);
+    // if (probe == 8) return false;
+
+    return true;
+}
+
+#define BLOCK_SIZE 16
+const vec2 ndc_upper_left = vec2(-1.0, -1.0);
+shared ivec2 tile_id;
+shared uint index;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 32) in;
+void main() {
+    vec2 ScreenDimensions = ScreenDimensions;
+
+    if (gl_GlobalInvocationID.z == 0) {
+
+        ScreenDimensions.y = -ScreenDimensions.y;
+        tile_id = ivec2(gl_GlobalInvocationID.xy);
+        mat4 inv_projview = inverse(vp);
+
+        vec2 ndc_size_per_tile = 2.0 * vec2(BLOCK_SIZE / ScreenDimensions.x, BLOCK_SIZE / ScreenDimensions.y);
+
+        vec2 ndc_pts[4];                                                       // corners of tile in ndc
+        ndc_pts[0] = ndc_upper_left + tile_id * ndc_size_per_tile;             // upper left
+        ndc_pts[1] = vec2(ndc_pts[0].x + ndc_size_per_tile.x, ndc_pts[0].y);   // upper right
+        ndc_pts[2] = ndc_pts[0] + ndc_size_per_tile;
+        ndc_pts[3] = vec2(ndc_pts[0].x, ndc_pts[0].y + ndc_size_per_tile.y);   // lower left
+
+        Frustum frustum;
+        float min_depth = 0.0;
+        float max_depth = 1.0;
+        vec4 temp;
+        for (int i = 0; i < 4; i++) {
+            temp = inv_projview * vec4(ndc_pts[i], min_depth, 1.0);
+            frustum.points[i] = temp.xyz / temp.w;
+            temp = inv_projview * vec4(ndc_pts[i], max_depth, 1.0);
+            frustum.points[i + 4] = temp.xyz / temp.w;
+        }
+
+        vec3 temp_normal;
+        for (int i = 0; i < 4; i++) {
+            // Cax+Cby+Ccz+Cd = 0, planes[i] = (Ca, Cb, Cc, Cd)
+            //  temp_normal: normal without normalization
+            temp_normal = cross(frustum.points[i] - cam_pos, frustum.points[i + 1] - cam_pos);
+            temp_normal = normalize(temp_normal);
+            frustum.planes[i] = vec4(temp_normal, -dot(temp_normal, frustum.points[i]));
+        }
+        // near plane
+        {
+            temp_normal = cross(frustum.points[1] - frustum.points[0], frustum.points[3] - frustum.points[0]);
+            temp_normal = normalize(temp_normal);
+            frustum.planes[4] = vec4(temp_normal, -dot(temp_normal, frustum.points[0]));
+        }
+        // far plane
+        {
+            temp_normal = cross(frustum.points[7] - frustum.points[4], frustum.points[5] - frustum.points[4]);
+            temp_normal = normalize(temp_normal);
+            frustum.planes[5] = vec4(temp_normal, -dot(temp_normal, frustum.points[4]));
+        }
+        index = uint(tile_id.x + ((numThreads.y - tile_id.y - 1) * numThreads.x));
+
+        if (tile_id.x < numThreads.x && tile_id.y < numThreads.y) {
+            // uint index = uint(tile_id.x + (tile_id.y * numThreads.x));
+            out_Frustums[index].frustum = frustum;
+        }
+    }
+    barrier();
+
+    if (tile_id.x < numThreads.x && tile_id.y < numThreads.y) {
+#define _cluster out_Frustums[index]
+#define _l       lights[i]
+        Frustum GroupFrustum = _cluster.frustum;
+        int chunk = num_lights / 32;
+        uint start = chunk * gl_GlobalInvocationID.z;
+        uint end = (gl_GlobalInvocationID.z + 1) * chunk;
+        if(gl_GlobalInvocationID.z == 31) {
+            end = num_lights;
+        }
+        for (uint i = start; i < end; ++i) {
+            if (_l.enabled == 1) {
+                if (isCollided(_l, GroupFrustum)) {
+
+                    uint cluster_list_id = atomicAdd(_cluster.count, 1);
+                    if (cluster_list_id >= 256) {
+                        break;
+                    }
+                    _cluster.lights[cluster_list_id] = i;
+                }
+            }
+        }
+    }
+}

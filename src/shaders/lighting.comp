@@ -7,8 +7,12 @@
 // };
 layout(set = 0, binding = 0) uniform Data {
     mat4 vp;
+    mat4 view;
+    mat4 proj;
     int num_jobs;
     int stage;   // dont need to update light if off screen
+    vec3 cam_pos;
+    // float fov;
     // mat4 view;
     // mat4 proj;
 };
@@ -18,7 +22,7 @@ layout(set = 0, binding = 1) buffer l { light lights[]; };
 layout(set = 0, binding = 2) buffer ld { light_deinit deinits[]; };
 layout(set = 0, binding = 3) buffer li { light_init inits[]; };
 layout(set = 0, binding = 4) buffer tr { transform transforms[]; };
-layout(set = 0, binding = 5) buffer c { cluster clusters[16][9][32]; };
+layout(set = 0, binding = 5) buffer c { cluster clusters[]; };
 // layout(set = 0, binding = 5) buffer ll {uint visible_lights[]; };
 // layout(set = 0, binding = 6) buffer lll {uint visible_lights_index; };
 // layout(set = 0, binding = 7) buffer d {VkDrawIndirectCommand draw[]; };
@@ -53,6 +57,16 @@ const float skip_size = float(num_buckets) / 256.0;
 //     }
 //     return true;
 // }
+void swap_and_clamp(inout int a, inout int b, int _max) {
+    if (a < b) {
+        int t = a;
+        a = b;
+        b = t;
+    }
+    clamp(a, -1, _max + 1);
+    clamp(b, -1, _max + 1);
+}
+
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 void main() {
     const uint id = gl_GlobalInvocationID.x;
@@ -69,8 +83,8 @@ void main() {
             lights[li.id].enabled = 1;
         } break;
         case 2: {
-            uvec3 v = uvec3(id / (9 * 32), (id / 32) % 9, id % 32);
-            clusters[v.x][v.y][v.z].count = 0;
+            // uvec3 v = uvec3(id / 18, id % 18, 0);
+            clusters[id].count = 0;
         } break;
         case 3: {   // calc buckets
             if (lights[id].enabled == 0) break;
@@ -82,211 +96,9 @@ void main() {
             vec3 pos = transforms[lights[id].t_id].position;
             // uint main_hash = hash_pos(pos);
             float radius = 8;
-            lights[id].pos = pos;
-            // lights[id].hash = main_hash;
-            lights[id].radius = radius;
+            lights[id].pos_radius = Sphere(pos, radius);
 
-            vec4 v = vp * vec4(lights[id].pos, 1.0);
-            // uvec3 _v = uvec3(v.x * 8 + 8, v.y * 4.5 + 4.5, v.z * -24);
-            ivec3 _v = ivec3(get_cluster_idx(v));
-            if (_v.x < 16 && _v.y < 9 && _v.z < 32 &&
-                _v.x >= 0 && _v.y >= 0 && _v.z >= 0) {
-
-                uint cluster_list_id =
-                    atomicAdd(clusters[_v.x][_v.y][_v.z].count, 1);
-                if (cluster_list_id < 100) {
-                    clusters[_v.x][_v.y][_v.z].lights[cluster_list_id] = id;
-                }
-            }
-
-            // uint i = atomicAdd(visible_lights_index,1);
-            // visible_lights[i] = id;
-
-            // atomicAdd(buckets_count[main_hash], 1);
-            // atomicAdd(buckets[main_hash], 1);
-
-            // hashes[id][0] = main_hash;
-            // uint curr_hash = 0;
-            // for (int x = -1; x <= 1; x += 2) {
-            //     for (int y = -1; y <= 1; y += 2) {
-            //         for (int z = -1; z <= 1; z += 2) {
-            //             uint hash = hash_pos(pos + vec3(x, y, z) * radius);
-            //             // bool b = true;
-            //             // for (int a = 0; a < curr_hash; ++a) {
-            //             //     if (hashes[id][a] == hash) {
-            //             //         b = false;
-            //             //         break;
-            //             //     };
-            //             // }
-            //             if (hash_doesnt_exist(id, hash, curr_hash)) {
-            //                 hashes[id][curr_hash] = hash;
-            //                 curr_hash += 1;
-            //                 // atomicAdd(buckets_count[hash], 1);
-            //             }
-            //         }
-            //     }
-            // }
-            // for (int i = 0; i < 8; ++i) {
-            //     uint hash = hashes[id][i];
-            //     if (hash == -1) break;
-            //     atomicAdd(buckets_count[hash], 1);
-            // }
         } break;
-
-            // case 4: {
-            //     uint i = visible_lights[id];
-            //     vec4 v = vp * vec4(lights[i].pos, 1.0);
-            //     uint cluster_list_id = atomicAdd(
-            //         clusters[uint(v.x)][uint(v.y)][uint(v.z * 24)].count, 1);
-            //     if (cluster_list_id < 100) {
-            //         clusters[uint(v.x)][uint(v.y)][uint(v.z * 24)]
-            //             .lights[cluster_list_id] = i;
-            //     }
-            // }
-
-            // case 3: {
-            //     draw[0].instanceCount = visible_lights_index;
-            // }break;
-            // copy buckets_count to buckets
-            // case 3: {   // prefix sum
-            //     // if (id > 0) break;
-            //     // uint temp = buckets[0];
-            //     // buckets[0] = 0;
-            //     // for (int i = 1; i < 65536; ++i) {
-            //     //     uint temp2 = buckets[i];
-            //     //     buckets[i] = temp;
-            //     //     temp += temp2;
-            //     // }
-
-            //     // uint start = id * skip_size;
-            //     // uint end = (id + 1) + skip_size;
-            //     // uint local_sum = buckets[start];
-            //     // buckets[start] = 0;
-            //     // for (uint i = start + 1; i < end; ++i) {
-            //     //     uint temp = buckets[i];
-            //     //     buckets[i] = local_sum;
-            //     //     local_sum += temp;
-            //     // }
-            //     // buckets[num_buckets + id] = local_sum;
-
-            //     uint x = id;
-            //     uint start = uint(float(x) * skip_size);
-            //     uint end = uint(float(x + 1) * skip_size);
-            //     if (x == 255) end = num_buckets;
-            //     uint local_sum = buckets[start];
-            //     buckets[start] = 0;
-            //     for (uint i = start + 1; i < end; ++i) {
-            //         uint temp = buckets[i];
-            //         buckets[i] = local_sum;
-            //         local_sum += temp;
-            //     }
-            //     buckets[num_buckets + x] = local_sum;
-            //     // uint start = x * skip_size;
-            //     // uint end = (x + 1) * skip_size;
-            //     // if (id == num_jobs - 1) {
-            //     //     end = num_buckets;
-            //     // }
-            //     // uint local_sum = buckets[start];
-            //     // buckets[start] = 0;
-            //     // for (uint i = start + 1; i < end; ++i) {
-            //     //     uint temp = buckets[i];
-            //     //     buckets[i] = local_sum;
-            //     //     local_sum += temp;
-            //     // }
-            //     // buckets[num_buckets + x] = local_sum;
-            // } break;
-            // case 5: {
-            //     if (id > 0) break;
-            //     // uint temp = buckets[0];
-            //     // buckets[0] = 0;
-            //     // for (int i = 1; i < num_buckets; ++i) {
-            //     //     uint temp2 = buckets[i];
-            //     //     buckets[i] = temp;
-            //     //     // buckets2[i] = buckets[i];
-            //     //     temp += temp2;
-            //     // }
-
-            //     // for (uint x = 0; x < 256; ++x) {
-            //     //     uint start = uint(float(x) * skip_size);
-            //     //     uint end = uint(float(x + 1) * skip_size);
-            //     //     if (x == 255) end = num_buckets;
-            //     //     uint local_sum = buckets[start];
-            //     //     buckets[start] = 0;
-            //     //     for (uint i = start + 1; i < end; ++i) {
-            //     //         uint temp = buckets[i];
-            //     //         buckets[i] = local_sum;
-            //     //         local_sum += temp;
-            //     //     }
-            //     //     buckets[num_buckets + x] = local_sum;
-            //     // }
-            //     {
-            //         uint start = num_buckets;
-            //         uint end = num_buckets + 256;
-            //         uint sum = buckets[start];
-            //         buckets[start] = 0;
-            //         for (uint i = start + 1; i < end; ++i) {
-            //             uint temp = buckets[i];
-            //             buckets[i] = sum;
-            //             sum += temp;
-            //         }
-            //     }
-            //     // for (uint x = 0; x < 256; ++x) {
-            //     //     uint offset = buckets[num_buckets + x];
-            //     //     uint start = uint(float(x) * skip_size);
-            //     //     uint end = uint(float(x + 1) * skip_size);
-            //     //     // uint local_sum = buckets[start];
-            //     //     for (uint i = start; i < end; ++i) {
-            //     //         buckets[i] += offset;
-            //     //     }
-            //     // }
-            //     // for(uint i = 0; i < num_buckets; ++i){
-            //     //     buckets[i] += buckets[num_buckets + i / 256];
-            //     //     buckets2[i] = buckets[i];
-            //     // }
-
-            //     // uint sum = buckets[num_buckets + 0];
-            //     // for (uint i = 1; i < 256; i++) {
-            //     //     uint temp = buckets[num_buckets + i];
-            //     //     buckets[num_buckets + i] = sum;
-            //     //     sum += temp;
-            //     // }
-            // } break;
-            // case 6: {
-            //     uint x = id;
-            //     uint offset = buckets[num_buckets + x];
-            //     uint start = uint(float(x) * skip_size);
-            //     uint end = uint(float(x + 1) * skip_size);
-            //     if (x == 255) end = num_buckets;
-            //     // uint local_sum = buckets[start];
-            //     for (uint i = start; i < end; ++i) {
-            //         buckets[i] += offset;
-            //     }
-            //     // uint start = id * 256;
-            //     // uint end = (id + 1) * 256;
-            //     // // uint local_sum = buckets[start];
-            //     // for (uint i = start; i < end; ++i) {
-            //     //     buckets[i] += buckets[num_buckets + id];
-            //     // }
-            //     // buckets[id] += buckets[num_buckets + id / 256];
-            //     // buckets2[id] = buckets[id];
-
-            // } break;
-            // // copy buckets
-            // case 4: {
-            //     if (lights[id].enabled == 0) break;
-
-            //     uint i = atomicAdd(buckets2[lights[id].hash], 1);
-            //     light_ids[i] = id;
-            //     // uint curr_hash = 0;
-            //     // uint hash = -1;
-            //     // do {
-            //     //     hash = hashes[id][curr_hash];
-            //     //     uint i = atomicAdd(buckets2[hash], 1);
-            //     //     light_ids[i] = id;
-            //     //     curr_hash += 1;
-            //     // } while (hash != -1 && curr_hash < 8);
-
-            // } break;
         }
     }
 }

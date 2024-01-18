@@ -1,4 +1,27 @@
 
+// some credit to https://www.3dgep.com/forward-plus/#Forward Jeremiah van Oosten
+struct Plane
+{
+    vec3 N;   // Plane normal.
+    float  d;   // Distance to origin.
+};
+struct Frustum
+{
+	vec4 planes[6];
+	vec3 points[8]; // 0-3 near 4-7 far
+};
+struct Sphere
+{
+    vec3 c;   // Center point.
+    float  r;   // Radius.
+};
+struct Cone
+{
+    vec3 T;   // Cone tip.
+    float  h;   // Height of the cone.
+    vec3 d;   // Direction of the cone.
+    float  r;   // bottom radius of the cone.
+};
 struct transform {
     vec3 position;
     int padding;
@@ -14,59 +37,152 @@ struct attenuation {
 };
 
 struct lightTemplate {
-	vec3 Color;
+    vec3 Color;
     int p1;
-	attenuation atten;
+    attenuation atten;
 };
 struct light {
     int templ;
-	int t_id;
+    int t_id;
     int enabled;
-	float radius;
-	// 4
-	vec3 pos;
-	uint hash;
-	// 8
+    uint hash;
+    // 4
+    Sphere pos_radius;
+    // 8
 };
 
 struct light_init {
     int templ_id;
     int t_id;
     int id;
-	int p1;
+    int p1;
 };
 struct light_deinit {
     int id;
 };
 struct cluster {
+    Frustum frustum;
     uint count;
-    uint lights[100];
+    uint lights[256];
 };
-float modify(float x, float m) {
-	return (x * 0.5 + 2) * m;
-}
+
+// Compute a plane from 3 noncollinear points that form a triangle.
+// This equation assumes a right-handed (counter-clockwise winding order) 
+// coordinate system to determine the direction of the plane normal.
+// Plane ComputePlane( vec3 p0, vec3 p1, vec3 p2 )
+// {
+//     Plane plane;
+ 
+//     vec3 v0 = p1 - p0;
+//     vec3 v2 = p2 - p0;
+ 
+//     plane.N = normalize( cross( v0, v2 ) );
+ 
+//     // Compute the distance to the origin using p0.
+//     plane.d = dot( plane.N, p0 );
+ 
+//     return plane;
+// }
+// bool SphereInsidePlane( Sphere sphere, Plane plane )
+// {
+//     return dot( plane.N, sphere.c ) - plane.d < -sphere.r;
+// }
+
+// // Check to see of a light is partially contained within the frustum.
+// bool SphereInsideFrustum( Sphere sphere, Frustum frustum, float zNear, float zFar )
+// {
+//     bool result = true;
+ 
+//     // First check depth
+//     // Note: Here, the view vector points in the -Z axis so the 
+//     // far depth value will be approaching -infinity.
+//     if ( sphere.c.z - sphere.r > zNear || sphere.c.z + sphere.r < zFar )
+//     {
+//         result = false;
+//     }
+ 
+//     // Then check frustum planes
+//     for ( int i = 0; i < 4 && result; i++ )
+//     {
+//         if ( SphereInsidePlane( sphere, frustum.planes[i] ) )
+//         {
+//             result = false;
+//         }
+//     }
+ 
+//     return result;
+// }
+
+// // Check to see if a point is fully behind (inside the negative halfspace of) a plane.
+// bool PointInsidePlane( vec3 p, Plane plane )
+// {
+//     return dot( plane.N, p ) - plane.d < 0;
+// }
+// // Check to see if a cone if fully behind (inside the negative halfspace of) a plane.
+// // Source: Real-time collision detection, Christer Ericson (2005)
+// bool ConeInsidePlane( Cone cone, Plane plane )
+// {
+//     // Compute the farthest point on the end of the cone to the positive space of the plane.
+//     vec3 m = cross( cross( plane.N, cone.d ), cone.d );
+//     vec3 Q = cone.T + cone.d * cone.h - m * cone.r;
+ 
+//     // The cone is in the negative halfspace of the plane if both
+//     // the tip of the cone and the farthest point on the end of the cone to the 
+//     // positive halfspace of the plane are both inside the negative halfspace 
+//     // of the plane.
+//     return PointInsidePlane( cone.T, plane ) && PointInsidePlane( Q, plane );
+// }
+// bool ConeInsideFrustum( Cone cone, Frustum frustum, float zNear, float zFar )
+// {
+//     bool result = true;
+ 
+//     Plane nearPlane = { vec3( 0, 0, -1 ), -zNear };
+//     Plane farPlane = { vec3( 0, 0, 1 ), zFar };
+ 
+//     // First check the near and far clipping planes.
+//     if ( ConeInsidePlane( cone, nearPlane ) || ConeInsidePlane( cone, farPlane ) )
+//     {
+//         result = false;
+//     }
+ 
+//     // Then check frustum planes
+//     for ( int i = 0; i < 4 && result; i++ )
+//     {
+//         if ( ConeInsidePlane( cone, frustum.planes[i] ) )
+//         {
+//             result = false;
+//         }
+//     }
+ 
+//     return result;
+// }
+
+float modify(float x, float m) { return (x * 0.5 + 2) * m; }
 vec3 get_cluster_idx(vec4 v) {
-	// vec3 _v = vec3(1, 1, 0);
-	// if (v.x > 0.5) {
-	// 	_v.x = 0.;
-	// }
-	// if (v.y > 0.5) {
-	// 	_v.y = 0.;
-	// }
-	// vec3 _v = vec3(0, 0, (v.z + 1) * -24);
-	// vec3 _v = vec3(modify(v.x,16 / 5), modify(v.y, 9 / 5), z * 24);
-	// vec3 _v = vec3(v.x * 16, v.y * 9, 0);
-	// vec3 _v = vec3(mod(v.x,16), mod(v.y,9), 0);
-	vec3 _v = v.xyz / v.w;
-	_v = vec3((_v.x + 1) * 8, (_v.y + 1) * 4.5, _v.z * 32);
-	return _v;
+    // vec3 _v = vec3(1, 1, 0);
+    // if (v.x > 0.5) {
+    // 	_v.x = 0.;
+    // }
+    // if (v.y > 0.5) {
+    // 	_v.y = 0.;
+    // }
+    // vec3 _v = vec3(0, 0, (v.z + 1) * -24);
+    // vec3 _v = vec3(modify(v.x,16 / 5), modify(v.y, 9 / 5), z * 24);
+    // vec3 _v = vec3(v.x * 16, v.y * 9, 0);
+    // vec3 _v = vec3(mod(v.x,16), mod(v.y,9), 0);
+    // vec3 _v = vec3(v.xy / v.w, v.z / 2000);
+    vec3 _v = v.xyz / v.w;
+    _v = vec3((_v.x + 1) * 16, (_v.y + 1) * 9, 0);
+    return _v;
 }
 uint hash_pos(vec3 p) {
-	const float bucket_size = 32.0;
-	ivec3 pos_hash = ivec3(p / bucket_size);
-    // uvec3 hash_vec = uvec3(floatBitsToUint(pos_hash.x),floatBitsToUint(pos_hash.y),floatBitsToUint(pos_hash.z));
-    return uint(pos_hash.x * (pos_hash.y * 32) * (pos_hash.z * 32 * 32)) % 65536;
-	// return (pos_hash.x * pos_hash.y * pos_hash.z) % 0x00ff;
+    const float bucket_size = 32.0;
+    ivec3 pos_hash = ivec3(p / bucket_size);
+    // uvec3 hash_vec =
+    // uvec3(floatBitsToUint(pos_hash.x),floatBitsToUint(pos_hash.y),floatBitsToUint(pos_hash.z));
+    return uint(pos_hash.x * (pos_hash.y * 32) * (pos_hash.z * 32 * 32)) %
+           65536;
+    // return (pos_hash.x * pos_hash.y * pos_hash.z) % 0x00ff;
 }
 struct DispatchIndirectCommand {
     uint x;
