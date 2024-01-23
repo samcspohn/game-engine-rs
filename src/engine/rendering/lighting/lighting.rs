@@ -24,11 +24,11 @@ use crate::{
 };
 use component_derive::ComponentID;
 
-use super::{lighting_asset::LightTemplate, lighting_compute::cs};
+use super::{lighting_asset::LightTemplate, lighting_compute::{cs, lt}};
 pub struct LightingSystem {
     pub(crate) light_templates: Arc<Mutex<_Storage<fs::lightTemplate>>>,
     // pub(crate) lights: Arc<Mutex<_Storage<fs::light>>>,
-    pub(crate) lights: Mutex<Subbuffer<[cs::light]>>,
+    pub(crate) lights: Mutex<Subbuffer<[lt::light]>>,
     pub(crate) lights_buffer: Arc<Mutex<SubbufferAllocator>>, //Subbuffer<[super::pipeline::fs::light]>,
     pub light_inits: SegQueue<cs::light_init>,
     pub light_deinits: SegQueue<cs::light_deinit>,

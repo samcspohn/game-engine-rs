@@ -51,7 +51,9 @@ game-engine:
     ✔ rotations @done(23-08-16 09:06)
     ✔ only update templates after change @done(23-08-16 09:06)
   lights:
-    ☐ lights
+    ✔ lights - tiled @done(24-01-18 11:39)
+    ☐ bvh tile query optimization
+    ☐ blh (bounding line hierarchy) for light list in tiles
     ☐ shadows
   animations:
     ☐ animations

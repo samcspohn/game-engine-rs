@@ -10,31 +10,22 @@ layout(location = 3) in vec3 _v;
 layout(location = 0) out vec4 f_color;
 
 layout(set = 0, binding = 1) uniform sampler2D tex;
-// layout(set = 0, binding = 3) buffer tr1 { transform transforms[]; };
 layout(set = 0, binding = 3) buffer lt { lightTemplate light_templates[]; };
-// layout(set = 0, binding = 5) uniform Data {
-//     vec3 cam_pos;
-//     uint num_lights;
-// };
 layout(set = 0, binding = 4) buffer l { light lights[]; };
-// layout(set = 0, binding = 7) buffer lid { uint light_ids[]; };
-// layout(set = 0, binding = 8) buffer b { uint buckets[]; };
-// layout(set = 0, binding = 9) buffer bc { uint buckets_count[]; };
-// const float bucket_size = 120.0;
-layout(set = 0, binding = 5) buffer c { cluster clusters[]; };
+layout(set = 0, binding = 5) buffer c { tile tiles[]; };
 layout(set = 0, binding = 6) uniform Data {
     vec2 screenDims;
 };
 
 vec4 CalcLightInternal(lightTemplate Light, vec3 LightDirection, vec3 Normal) {
-    vec4 AmbientColor = vec4(Light.Color, 1.0f);
+    vec4 AmbientColor = vec4(Light.color, 1.0f);
     float DiffuseFactor = dot(Normal, -LightDirection);
 
     vec4 DiffuseColor = vec4(0, 0, 0, 0);
     vec4 SpecularColor = vec4(0, 0, 0, 0);
 
     if (DiffuseFactor > 0) {
-        DiffuseColor = vec4(Light.Color * DiffuseFactor, 1.0f);
+        DiffuseColor = vec4(Light.color * DiffuseFactor, 1.0f);
         // vec3 VertexToEye = normalize(cam_pos - v_pos);
         // vec3 LightReflect = normalize(reflect(LightDirection, Normal));
         // float SpecularFactor = dot(VertexToEye, LightReflect);
@@ -53,7 +44,7 @@ vec4 CalcPointLight(uint Index, vec3 Normal) {
 #define _l    lights[Index]
 #define templ light_templates[_l.templ]
 
-    vec3 LightDirection = v_pos - _l.pos_radius.c;
+    vec3 LightDirection = v_pos - _l.pos;
     float Distance = length(LightDirection);
     LightDirection = normalize(LightDirection);
 
@@ -74,12 +65,12 @@ void main() {
     ivec2 ti = ivec2(gl_FragCoord.xy / BLOCK_SIZE);
     uint width = uint(ceil(abs(screenDims.x) / BLOCK_SIZE));
     uint tileIndex = uint(ti.x + (ti.y) * width);
-#define _cluster clusters[tileIndex]
+#define _cluster tiles[tileIndex]
     uint count = _cluster.count;
     for (int i = 0; i < count; ++i) {
         uint l_id = _cluster.lights[i];
-        vec3 l_pos = v_pos - lights[l_id].pos_radius.c;
-        float radius = lights[l_id].pos_radius.r;
+        vec3 l_pos = v_pos - lights[l_id].pos;
+        float radius = lights[l_id].radius;
         if (dot(l_pos, l_pos) < radius * radius) {
             total_light += CalcPointLight(l_id, v_normal);
         }

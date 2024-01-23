@@ -52,7 +52,7 @@ impl Default for LightTemplate {
 impl LightTemplate {
     fn gen_light(&self) -> fs::lightTemplate {
         fs::lightTemplate {
-            Color: self.color,
+            color: self.color,
             p1: 0,
             atten: fs::attenuation {
                 constant: self.atten.constant,

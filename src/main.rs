@@ -20,7 +20,7 @@ use crate::engine::rendering::texture::TextureManager;
 use crate::engine::rendering::vulkan_manager::VulkanManager;
 use crate::engine::transform_compute::{cs, TransformCompute};
 use crate::engine::world::World;
-use crate::engine::{particles, runtime_compilation, transform_compute};
+use crate::engine::{particles, runtime_compilation, transform_compute, Engine};
 
 use crossbeam::channel::{Receiver, Sender};
 use crossbeam::queue::SegQueue;
@@ -101,9 +101,11 @@ fn main() {
     if let Ok(_) = fs::remove_dir_all(path) {}
     fs::create_dir(path).unwrap();
 
-    let mut engine = engine::Engine::new(&engine_dir, &args[1], false);
+    let (mut engine, event_loop) = engine::Engine::new(&engine_dir, &args[1], false);
     engine.init();
 
-    while !engine.update_sim() {}
-    engine.end();
+    engine.run(event_loop);
+    // engine.run();
+    // while !engine.update_sim() {}
+    // engine.end();
 }

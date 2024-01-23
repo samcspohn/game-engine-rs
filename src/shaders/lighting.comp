@@ -6,15 +6,8 @@
 //     uint offset;
 // };
 layout(set = 0, binding = 0) uniform Data {
-    mat4 vp;
-    mat4 view;
-    mat4 proj;
     int num_jobs;
     int stage;   // dont need to update light if off screen
-    vec3 cam_pos;
-    // float fov;
-    // mat4 view;
-    // mat4 proj;
 };
 
 // layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
@@ -22,50 +15,7 @@ layout(set = 0, binding = 1) buffer l { light lights[]; };
 layout(set = 0, binding = 2) buffer ld { light_deinit deinits[]; };
 layout(set = 0, binding = 3) buffer li { light_init inits[]; };
 layout(set = 0, binding = 4) buffer tr { transform transforms[]; };
-layout(set = 0, binding = 5) buffer c { cluster clusters[]; };
-// layout(set = 0, binding = 5) buffer ll {uint visible_lights[]; };
-// layout(set = 0, binding = 6) buffer lll {uint visible_lights_index; };
-// layout(set = 0, binding = 7) buffer d {VkDrawIndirectCommand draw[]; };
-// layout(set = 0, binding = 5) buffer cc { uint cluster_count[]; };
-// layout(set = 0, binding = 6) buffer co { uint cluster_offset[]; };
-// layout(set = 0, binding = 7) buffer ps { uint prefix_sum_work[]; };
-// layout(set = 0, binding = 5) buffer cl { ClusterNode cluster[16][9][24]; };
-// layout(set = 0, binding = 5) buffer b { uint buckets[]; };
-// layout(set = 0, binding = 6) buffer bc { uint buckets_count[]; };
-// layout(set = 0, binding = 7) buffer b2 { uint buckets2[]; };
-// copy buckets to buckets 2 between steps 3 & 4
-// layout(set = 0, binding = 8) buffer lid { uint light_ids[]; };
-// layout(set = 0, binding = 9) buffer h { uint[8] hashes[]; };
-
-// layout(set = 0, binding = 3) buffer _t { int transform_ids[]; };
-
-// struct light {
-//  int templ;
-// 	int t_id;
-//  int enabled;
-// 	int hash;
-// };
-const uint num_buckets = 65536;
-const float skip_size = float(num_buckets) / 256.0;
-// shared uint[128] local_sums;   // TODO: increase local sums
-
-// bool hash_doesnt_exist(uint id, uint hash, uint curr_hash) {
-//     for (int a = 0; a < curr_hash; ++a) {
-//         if (hashes[id][a] == hash) {
-//             return false;
-//         };
-//     }
-//     return true;
-// }
-void swap_and_clamp(inout int a, inout int b, int _max) {
-    if (a < b) {
-        int t = a;
-        a = b;
-        b = t;
-    }
-    clamp(a, -1, _max + 1);
-    clamp(b, -1, _max + 1);
-}
+layout(set = 0, binding = 6) buffer lt { lightTemplate templates[]; };
 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 void main() {
@@ -83,20 +33,15 @@ void main() {
             lights[li.id].enabled = 1;
         } break;
         case 2: {
-            // uvec3 v = uvec3(id / 18, id % 18, 0);
-            clusters[id].count = 0;
-        } break;
-        case 3: {   // calc buckets
             if (lights[id].enabled == 0) break;
-
-            // uint hashes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-            // hashes[id] = {-1, -1, -1, -1, -1, -1, -1, -1};
-            // for (int i = 0; i < 8; ++i)
-            //     hashes[id][i] = -1;
             vec3 pos = transforms[lights[id].t_id].position;
-            // uint main_hash = hash_pos(pos);
-            float radius = 8;
-            lights[id].pos_radius = Sphere(pos, radius);
+            vec3 color = templates[lights[id].templ].color;
+            attenuation att = templates[lights[id].templ].atten;
+            float lightMax = max(max(color.r, color.g), color.b) * att.brightness;
+            float radius =
+                (-att.linear + sqrt(att.linear * att.linear - 4 * att.exponential * (att.constant - (256.0 / 5.0) * lightMax))) / (2 * att.exponential);
+            lights[id].pos = pos;
+            lights[id].radius = radius;
 
         } break;
         }

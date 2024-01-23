@@ -15,7 +15,7 @@ use crate::{
         rendering::{
             component::buffer_usage_all,
             texture::{Texture, TextureManager},
-            vulkan_manager::VulkanManager, lighting::lighting_compute::cs::cluster,
+            vulkan_manager::VulkanManager, lighting::lighting_compute::lt::{self, tile},
         },
         storage::_Storage,
         time::Time,
@@ -899,11 +899,11 @@ impl ParticlesSystem {
         cam_pos: [f32; 3],
         transform: Subbuffer<[transform]>,
 
-        lights: Subbuffer<[crate::engine::rendering::lighting::lighting_compute::cs::light]>,
+        lights: Subbuffer<[crate::engine::rendering::lighting::lighting_compute::lt::light]>,
         light_templates: Subbuffer<[crate::engine::rendering::pipeline::fs::lightTemplate]>,
         // light_buckets: Subbuffer<[u32]>,
         // light_buckets_count: Subbuffer<[u32]>,
-        clusters: Subbuffer<[cluster]>,
+        tiles: Subbuffer<[lt::tile]>,
     ) {
         // static mut RENDER_QUERY: Lazy<i32> = Lazy::new(|| -1);
         // unsafe {

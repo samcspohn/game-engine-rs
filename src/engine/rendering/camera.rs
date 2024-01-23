@@ -48,7 +48,7 @@ use super::{
     lighting::{
         // light_bounding::LightBounding,
         lighting::LightingSystem,
-        lighting_compute::cs::{self, cluster},
+        lighting_compute::lt::{self, tile},
     },
     model::{ModelManager, ModelRenderer},
     pipeline::{fs, RenderPipeline},
@@ -65,6 +65,8 @@ pub struct CameraData {
     framebuffer: Arc<Framebuffer>,
     pub render_textures_ids: Option<Vec<TextureId>>,
     pub image: Arc<dyn ImageAccess>,
+    pub(crate) tiles: Mutex<Subbuffer<[lt::tile]>>,
+
     samples: SampleCount,
     vk: Arc<VulkanManager>,
     pub camera_view_data: std::collections::VecDeque<CameraViewData>,
@@ -410,6 +412,7 @@ impl CameraData {
             image,
             camera_view_data: VecDeque::new(), // swapchain,
             samples,
+            tiles: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
             vk,
         }
     }
@@ -442,15 +445,9 @@ impl CameraData {
         >,
         transform_compute: &TransformCompute,
         // lights
-        clusters: Subbuffer<[cluster]>,
         light_len: u32,
-        lights: Subbuffer<[cs::light]>,
+        lights: Subbuffer<[lt::light]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
-        // light_buckets: Subbuffer<[u32]>,
-        // light_buckets_count: Subbuffer<[u32]>,
-        // light_ids: Subbuffer<[u32]>,
-        // light_bounding: &LightBounding,
-        // light_draw_indirect: Subbuffer<[DrawIndirectCommand]>,
         // end lights
         particles: Arc<ParticlesSystem>,
         transform_buf: TransformBuf,
@@ -548,7 +545,7 @@ impl CameraData {
         //     builder,
         //     light_ids.clone(),
         //     lights.clone(),
-        //     clusters.clone(),
+        //     tiles.clone(),
         //     light_draw_indirect.clone(),
         //     cvd.proj * cvd.view,
         // );
@@ -598,7 +595,7 @@ impl CameraData {
                                 light_len,
                                 lights.clone(),
                                 light_templates.clone(),
-                                clusters.clone(),
+                                self.tiles.lock().clone(),
                                 cvd.dimensions,
                                 // light_buckets.clone(),
                                 // light_buckets_count.clone(),
@@ -629,7 +626,7 @@ impl CameraData {
             // light_buckets: light_buckets.clone(),
             // light_buckets_count: light_buckets_count.clone(),
             // light_ids: light_ids.clone(),
-            clusters: clusters.clone(),
+            tiles: self.tiles.lock().clone(),
             screen_dims: cvd.dimensions,
             mvp: transform_compute.mvp.clone(),
             view: &cvd.view,
@@ -658,7 +655,7 @@ impl CameraData {
             light_templates.clone(),
             // light_buckets.clone(),
             // light_buckets_count.clone(),
-            clusters.clone(),
+            self.tiles.lock().clone(),
         );
         builder.end_render_pass().unwrap();
         // self.camera_view_data.pop_front();

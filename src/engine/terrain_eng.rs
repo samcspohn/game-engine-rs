@@ -481,7 +481,7 @@ impl Component for TerrainEng {
                     // light_buckets,
                     // light_buckets_count,
                     // light_ids,
-                    clusters,
+                    tiles,
                     screen_dims,
                 } = rd;
                 let instance_data = vec![t_id];

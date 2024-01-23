@@ -40,7 +40,7 @@ use self::fs::light;
 
 use super::{
     model::{Mesh, Normal, _Vertex, UV},
-    texture::TextureManager, lighting::lighting_compute::cs::{self, cluster},
+    texture::TextureManager, lighting::lighting_compute::lt::{self, tile},
 };
 
 pub mod vs {
@@ -238,13 +238,10 @@ impl RenderPipeline {
         mvp_buffer: Subbuffer<[MVP]>,
         ////
         light_len: u32,
-        lights: Subbuffer<[cs::light]>,
+        lights: Subbuffer<[lt::light]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
-        clusters: Subbuffer<[cluster]>,
+        tiles: Subbuffer<[tile]>,
         screen_dims: [f32;2],
-        // light_buckets: Subbuffer<[u32]>,
-        // light_buckets_count: Subbuffer<[u32]>,
-        // light_ids: Subbuffer<[u32]>,
         /////
         transforms: Subbuffer<[transform]>,
         mesh: &Mesh,
@@ -282,7 +279,7 @@ impl RenderPipeline {
             uni
         };
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
-        descriptors.push(WriteDescriptorSet::buffer(5, clusters));
+        descriptors.push(WriteDescriptorSet::buffer(5, tiles));
         descriptors.push(WriteDescriptorSet::buffer(6, uniform));
         // descriptors.push(WriteDescriptorSet::buffer(7, light_ids));
         // descriptors.push(WriteDescriptorSet::buffer(8, light_buckets));

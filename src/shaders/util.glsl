@@ -37,7 +37,7 @@ struct attenuation {
 };
 
 struct lightTemplate {
-    vec3 Color;
+    vec3 color;
     int p1;
     attenuation atten;
 };
@@ -45,9 +45,10 @@ struct light {
     int templ;
     int t_id;
     int enabled;
-    uint hash;
+	float radius;
     // 4
-    Sphere pos_radius;
+    vec3 pos;
+	int p;
     // 8
 };
 
@@ -60,12 +61,40 @@ struct light_init {
 struct light_deinit {
     int id;
 };
-struct cluster {
+struct tile {
     Frustum frustum;
     uint count;
     uint lights[256];
 };
+struct AABB {
+    vec3 _min;
+    vec3 _max;
+};
 
+float halfSpaceTest(vec4 plane, vec3 p) {
+    return dot( plane.xyz, p ) - plane.w;
+}
+bool frustumAABBIntersect(Frustum f, AABB a){
+    vec3 corners[8] = {
+        {a._min.x, a._min.y, a._min.z},
+        {a._min.x, a._min.y, a._max.z},
+        {a._min.x, a._max.y, a._min.z},
+        {a._min.x, a._max.y, a._max.z},
+
+        {a._max.x, a._min.y, a._min.z},
+        {a._max.x, a._min.y, a._max.z},
+        {a._max.x, a._max.y, a._min.z},
+        {a._max.x, a._max.y, a._max.z}
+    };
+    for(int i = 0; i < 6; ++i){
+        int incount = 8;
+        for(int c = 0; c < 8; ++c){
+            if(halfSpaceTest(f.planes[i],corners[c]) < 0.0f) incount -= 1;
+        }
+        if(incount <= 0) return false;
+    }
+    return true;
+}
 // Compute a plane from 3 noncollinear points that form a triangle.
 // This equation assumes a right-handed (counter-clockwise winding order) 
 // coordinate system to determine the direction of the plane normal.
@@ -158,7 +187,7 @@ struct cluster {
 // }
 
 float modify(float x, float m) { return (x * 0.5 + 2) * m; }
-vec3 get_cluster_idx(vec4 v) {
+vec3 get_tile_idx(vec4 v) {
     // vec3 _v = vec3(1, 1, 0);
     // if (v.x > 0.5) {
     // 	_v.x = 0.;
