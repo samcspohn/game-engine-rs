@@ -908,7 +908,7 @@ impl Engine {
         let (light_templates, light_deinits, light_inits) = self
             .lighting_system
             .get_light_buffer(light_len, &mut builder);
-        // let light_len = self.lighting_system.lights.lock().data.len() as u32;
+
         self.lighting_compute.write().update_lights_1(
             &mut builder,
             light_deinits,

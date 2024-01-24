@@ -152,4 +152,8 @@ void main() {
             }
         }
     }
+    barrier();
+    if (gl_GlobalInvocationID.z == 0) {
+        _cluster.count = min(_cluster.count, 256);
+    }
 }

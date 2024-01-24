@@ -66,7 +66,7 @@ void main() {
     uint width = uint(ceil(abs(screenDims.x) / BLOCK_SIZE));
     uint tileIndex = uint(ti.x + (ti.y) * width);
 #define _cluster tiles[tileIndex]
-    uint count = _cluster.count;
+    uint count = min(_cluster.count, 256);
     for (int i = 0; i < count; ++i) {
         uint l_id = _cluster.lights[i];
         vec3 l_pos = v_pos - lights[l_id].pos;
