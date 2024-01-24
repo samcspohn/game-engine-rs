@@ -168,7 +168,7 @@ impl VulkanManager {
             *self.swapchain.get() = swapchain;
         }
     }
-    pub(crate) fn new(event_loop: &EventLoop<()>) -> Arc<Self> {
+    pub(crate) fn new(event_loop: &EventLoop<EngineEvent>) -> Arc<Self> {
         // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
         let library = VulkanLibrary::new().unwrap();
         let required_extensions = vulkano_win::required_extensions(&library);

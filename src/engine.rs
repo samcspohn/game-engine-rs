@@ -252,7 +252,7 @@ pub struct Engine {
     pub(crate) fps_queue: VecDeque<f32>,
     pub(crate) frame_time: Instant,
     pub(crate) running: Arc<AtomicBool>,
-    // pub(crate) input_thread: Arc<JoinHandle<()>>,
+    pub(crate) input_thread: Arc<JoinHandle<()>>,
     pub(crate) physics_thread: Arc<JoinHandle<()>>,
     pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     pub(crate) file_watcher: FileWatcher,
@@ -262,7 +262,7 @@ pub struct Engine {
     engine_dir: String,
     game_mode: bool,
     update_editor_window: bool,
-    // event_loop_proxy: EventLoopProxy<EngineEvent>,
+    event_loop_proxy: EventLoopProxy<EngineEvent>,
     renderer: EngineRenderer,
 }
 pub struct EnginePtr {
@@ -272,8 +272,9 @@ unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
 
 impl Engine {
-    pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> (Self, EventLoop<()>) {
-        let event_loop = EventLoop::new();
+    pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
+        let event_loop: SendSync<EventLoop<EngineEvent>> =
+            unsafe { SendSync::new(EventLoopBuilder::with_user_event().build()) };
         let vk = VulkanManager::new(&event_loop);
         let render_pass = vulkano::single_pass_renderpass!(
             vk.device.clone(),
@@ -413,10 +414,10 @@ impl Engine {
         let (phys_snd2, phys_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd3, phys_rcv3) = crossbeam::channel::bounded(1);
         // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
-        // let input_thread = Arc::new({
-        //     let vk = vk.clone();
-        //     thread::spawn(move || input_thread::input_thread(event_loop, vk, input_snd))
-        // });
+        let input_thread = Arc::new({
+            let vk = vk.clone();
+            thread::spawn(move || input_thread::input_thread(event_loop, vk, input_snd))
+        });
         let rendering_thread = Arc::new({
             let vk = vk.clone();
             thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
@@ -431,7 +432,7 @@ impl Engine {
                 physics::physics_thread(world, phys, perf, phys_rcv, phys_snd2, phys_snd3);
             })
         });
-        // proxy.send_event(EngineEvent::Send);
+        proxy.send_event(EngineEvent::Send);
 
         let mut viewport = Viewport {
             origin: [0.0, 0.0],
@@ -448,59 +449,58 @@ impl Engine {
             "default quat: {}",
             glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()).coords
         );
-        (
-            Self {
-                world,
-                assets_manager,
-                project: Project::default(),
-                transform_compute: RwLock::new(transform_compute),
-                lighting_compute: RwLock::new(LightingCompute::new(vk.clone())),
-                // light_bounding: RwLock::new(LightBounding::new(vk.clone())),
-                playing_game: game_mode,
-                // coms,
-                perf,
-                shared_render_data: rm,
-                input: input_rcv,
-                rendering_data: rendering_snd,
-                rendering_complete: rendering_rcv2,
-                phys_upd_start: phys_snd,
-                phys_upd_compl: phys_rcv2,
-                phys_upd_compl2: phys_rcv3,
-                cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone(), 1))),
-                renderer: EngineRenderer {
-                    viewport,
-                    framebuffers,
-                    recreate_swapchain,
-                    editor_window_image,
-                    render_pass,
-                },
-                vk,
-                editor_cam: editor::editor_cam::EditorCam {
-                    rot: glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()),
-                    pos: Vec3::zeros(),
-                    speed: 30f32,
-                },
-                time: Time::default(),
-                particles_system,
-                lighting_system,
-                fps_queue,
-                frame_time,
-                running,
-                // event_loop,
-                // input_thread,
-                rendering_thread,
-                physics_thread,
-                file_watcher,
-                tex_id: None,
-                image_view: None,
-                game_mode,
-                gui: unsafe { SendSync::new(gui) },
-                update_editor_window: true,
-                // event_loop_proxy: proxy,
-                engine_dir: engine_dir.as_path().to_str().unwrap().to_string(),
+
+        Self {
+            world,
+            assets_manager,
+            project: Project::default(),
+            transform_compute: RwLock::new(transform_compute),
+            lighting_compute: RwLock::new(LightingCompute::new(vk.clone())),
+            // light_bounding: RwLock::new(LightBounding::new(vk.clone())),
+            playing_game: game_mode,
+            // coms,
+            perf,
+            shared_render_data: rm,
+            input: input_rcv,
+            rendering_data: rendering_snd,
+            rendering_complete: rendering_rcv2,
+            phys_upd_start: phys_snd,
+            phys_upd_compl: phys_rcv2,
+            phys_upd_compl2: phys_rcv3,
+            cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone(), 1))),
+            renderer: EngineRenderer {
+                viewport,
+                framebuffers,
+                recreate_swapchain,
+                editor_window_image,
+                render_pass,
             },
-            event_loop,
-        )
+            vk,
+            editor_cam: editor::editor_cam::EditorCam {
+                rot: glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()),
+                pos: Vec3::zeros(),
+                speed: 30f32,
+            },
+            time: Time::default(),
+            particles_system,
+            lighting_system,
+            fps_queue,
+            frame_time,
+            running,
+            input_thread,
+            rendering_thread,
+            physics_thread,
+            file_watcher,
+            tex_id: None,
+            image_view: None,
+            game_mode,
+            gui: unsafe { SendSync::new(gui) },
+            update_editor_window: true,
+            event_loop_proxy: proxy,
+            engine_dir: engine_dir.as_path().to_str().unwrap().to_string(),
+        }
+        //     event_loop,
+        // )
     }
     pub fn init(&mut self) {
         self.project = if let Ok(s) = std::fs::read_to_string("project.yaml") {
@@ -518,102 +518,102 @@ impl Engine {
         serialize::deserialize(&mut self.world.lock());
     }
 
-    pub fn run(mut self, event_loop: EventLoop<()>) {
-        let mut focused = true;
-        let mut input = Input::default();
-        let mut modifiers = ModifiersState::default();
-        // let mut recreate_swapchain = true;
-        let mut size = None;
-        let mut should_quit = false;
-        // let mut event_loop = std::mem::take(&mut self.event_loop);
-        event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Poll;
-            match event {
-                Event::DeviceEvent { event, .. } => input.process_device(event, focused),
-                Event::WindowEvent { event, .. } => {
-                    match event {
-                        WindowEvent::Focused(foc) => {
-                            focused = foc;
-                            if !focused {
-                                let _er = self
-                                    .vk
-                                    .window()
-                                    .set_cursor_grab(winit::window::CursorGrabMode::None);
-                                match _er {
-                                    Ok(_) => {}
-                                    Err(e) => {}
-                                }
-                            }
-                        }
-                        WindowEvent::CloseRequested => {
-                            should_quit = true;
-                            // *control_flow = ControlFlow::Exit;
-                            // engine.end();
-                        }
-                        WindowEvent::MouseInput {
-                            device_id,
-                            state,
-                            button,
-                            modifiers,
-                        } => input.process_mouse_input(device_id, state, button, modifiers),
-                        WindowEvent::MouseWheel {
-                            device_id,
-                            delta,
-                            phase,
-                            modifiers,
-                        } => input.process_mouse_wheel(device_id, delta, phase, modifiers),
+    // pub fn run(mut self, event_loop: EventLoop<()>) {
+    //     let mut focused = true;
+    //     let mut input = Input::default();
+    //     let mut modifiers = ModifiersState::default();
+    //     // let mut recreate_swapchain = true;
+    //     let mut size = None;
+    //     let mut should_quit = false;
+    //     // let mut event_loop = std::mem::take(&mut self.event_loop);
+    //     event_loop.run(move |event, _, control_flow| {
+    //         *control_flow = ControlFlow::Poll;
+    //         match event {
+    //             Event::DeviceEvent { event, .. } => input.process_device(event, focused),
+    //             Event::WindowEvent { event, .. } => {
+    //                 match event {
+    //                     WindowEvent::Focused(foc) => {
+    //                         focused = foc;
+    //                         if !focused {
+    //                             let _er = self
+    //                                 .vk
+    //                                 .window()
+    //                                 .set_cursor_grab(winit::window::CursorGrabMode::None);
+    //                             match _er {
+    //                                 Ok(_) => {}
+    //                                 Err(e) => {}
+    //                             }
+    //                         }
+    //                     }
+    //                     WindowEvent::CloseRequested => {
+    //                         should_quit = true;
+    //                         // *control_flow = ControlFlow::Exit;
+    //                         // engine.end();
+    //                     }
+    //                     WindowEvent::MouseInput {
+    //                         device_id,
+    //                         state,
+    //                         button,
+    //                         modifiers,
+    //                     } => input.process_mouse_input(device_id, state, button, modifiers),
+    //                     WindowEvent::MouseWheel {
+    //                         device_id,
+    //                         delta,
+    //                         phase,
+    //                         modifiers,
+    //                     } => input.process_mouse_wheel(device_id, delta, phase, modifiers),
 
-                        WindowEvent::KeyboardInput {
-                            input: ky_input,
-                            device_id,
-                            is_synthetic,
-                        } => input.process_keyboard(device_id, ky_input, is_synthetic),
-                        WindowEvent::ModifiersChanged(m) => modifiers = m,
-                        WindowEvent::Resized(_size) => {
-                            // recreate_swapchain = true;
-                            size = Some(_size);
-                        }
-                        _ => (),
-                    }
-                    self.gui.update(&event);
-                    // if let Some(event) = event.to_static() {
-                    //     events.push(event);
-                    // }
-                }
-                Event::RedrawEventsCleared => {
-                    self.update_sim(input.clone(), size, should_quit);
-                    size = None;
-                    input.reset();
-                }
-                // Event::UserEvent(e) => {
-                //     match e {
-                //         EngineEvent::Send => {
-                //             // let mut a = Vec::new();
-                //             // swap(&mut a, &mut events);
-                //             coms.send((events.clone(), input.clone(), size, should_quit));
-                //             // recreate_swapchain = false;
-                //             size = None;
-                //             events.clear();
-                //             input.reset();
-                //         }
-                //         EngineEvent::Quit => {
-                //             // todo!()
-                //             *control_flow = ControlFlow::Exit;
-                //             return;
-                //         }
-                //     }
-                // }
-                _ => {} // Event::RedrawEventsCleared => {}
-            }
-        });
-    }
+    //                     WindowEvent::KeyboardInput {
+    //                         input: ky_input,
+    //                         device_id,
+    //                         is_synthetic,
+    //                     } => input.process_keyboard(device_id, ky_input, is_synthetic),
+    //                     WindowEvent::ModifiersChanged(m) => modifiers = m,
+    //                     WindowEvent::Resized(_size) => {
+    //                         // recreate_swapchain = true;
+    //                         size = Some(_size);
+    //                     }
+    //                     _ => (),
+    //                 }
+    //                 self.gui.update(&event);
+    //                 // if let Some(event) = event.to_static() {
+    //                 //     events.push(event);
+    //                 // }
+    //             }
+    //             Event::RedrawEventsCleared => {
+    //                 self.update_sim(input.clone(), size, should_quit);
+    //                 size = None;
+    //                 input.reset();
+    //             }
+    //             // Event::UserEvent(e) => {
+    //             //     match e {
+    //             //         EngineEvent::Send => {
+    //             //             // let mut a = Vec::new();
+    //             //             // swap(&mut a, &mut events);
+    //             //             coms.send((events.clone(), input.clone(), size, should_quit));
+    //             //             // recreate_swapchain = false;
+    //             //             size = None;
+    //             //             events.clear();
+    //             //             input.reset();
+    //             //         }
+    //             //         EngineEvent::Quit => {
+    //             //             // todo!()
+    //             //             *control_flow = ControlFlow::Exit;
+    //             //             return;
+    //             //         }
+    //             //     }
+    //             // }
+    //             _ => {} // Event::RedrawEventsCleared => {}
+    //         }
+    //     });
+    // }
 
-    pub fn update_sim(
-        &mut self,
-        input: Input,
-        window_size: Option<PhysicalSize<u32>>,
-        should_exit: bool,
-    ) -> bool {
+    pub fn update_sim(&mut self) -> bool {
+        let full_frame_time = self.perf.node("full frame time");
+        let (events, input, window_size, should_exit) = self.input.recv().unwrap();
+        for event in events {
+            self.gui.update(&event);
+        }
         let EngineRenderer {
             viewport,
             framebuffers,
@@ -643,7 +643,7 @@ impl Engine {
                     max_supported,
                 }) => {
                     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
-                    // self.event_loop_proxy.send_event(EngineEvent::Send);
+                    self.event_loop_proxy.send_event(EngineEvent::Send);
                     self.rendering_data.send(None).unwrap();
 
                     return should_exit;
@@ -657,15 +657,12 @@ impl Engine {
                 window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
             viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
             *recreate_swapchain = false;
+            
+            self.event_loop_proxy.send_event(EngineEvent::Send);
             self.rendering_data.send(None).unwrap();
             return should_exit;
         }
 
-        let full_frame_time = self.perf.node("full frame time");
-        // let (events, input, window_size, should_exit) = self.input.recv().unwrap();
-        // for event in events {
-        //     self.gui.update(&event);
-        // }
         let mut world = self.world.lock();
         let gpu_work = SegQueue::new();
         // let world_sim = self.perf.node("world _update");
@@ -811,8 +808,6 @@ impl Engine {
         }
 
         self.frame_time = Instant::now();
-
-
 
         let vk = self.vk.clone();
         let full_render_time = self.perf.node("full render time");
@@ -1048,7 +1043,7 @@ impl Engine {
                 }) => {
                     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
                     self.rendering_data.send(None).unwrap();
-                    // self.event_loop_proxy.send_event(EngineEvent::Send);
+                    self.event_loop_proxy.send_event(EngineEvent::Send);
                     return should_exit;
                 }
                 Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
@@ -1122,7 +1117,7 @@ impl Engine {
         self.update_editor_window = window_size.is_some();
         self.playing_game = _playing_game;
         if !should_exit {
-            // self.event_loop_proxy.send_event(EngineEvent::Send);
+            self.event_loop_proxy.send_event(EngineEvent::Send);
         }
         should_exit
     }
@@ -1131,7 +1126,7 @@ impl Engine {
         // self.world.lock().sys.physics.lock().get_counters();
         self.perf.print();
         Arc::into_inner(self.rendering_thread).unwrap().join();
-        // self.event_loop_proxy.send_event(EngineEvent::Quit);
+        self.event_loop_proxy.send_event(EngineEvent::Quit);
         // Arc::into_inner(self.input_thread).unwrap().join();
     }
 }
