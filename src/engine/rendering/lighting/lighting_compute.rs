@@ -217,21 +217,21 @@ impl LightingCompute {
         screen_dims: [f32; 2],
         tiles: &Mutex<Subbuffer<[lt::tile]>>
     ) {
-        let tiles_curr_len = { tiles.lock().len() };
-        let tiles_should_be_len = (((screen_dims[0] / 16.).ceil() + 1.) * ((screen_dims[1].abs() / 16.).ceil() + 1.)).max(1.) as u64;
-        let tiles_should_be_len = tiles_should_be_len.min(14_651);
-        if tiles_curr_len != tiles_should_be_len {
-            let buf = self.vk.buffer_array(
-                tiles_should_be_len,
-                MemoryUsage::DeviceOnly,
-            );
-            *tiles.lock() = buf;
-        }
-        let num_threads = [(screen_dims[0] / 16.).ceil().min(160.0) as u32, (screen_dims[1].abs() / 16.).ceil().min(90.0) as u32];
+        // let tiles_curr_len = { tiles.lock().len() };
+        // let tiles_should_be_len = (((screen_dims[0] / 16.).ceil() + 1.) * ((screen_dims[1].abs() / 16.).ceil() + 1.)).max(1.) as u64;
+        // let tiles_should_be_len = tiles_should_be_len.min(14_651);
+        // if tiles_curr_len != tiles_should_be_len {
+        //     let buf = self.vk.buffer_array(
+        //         tiles_should_be_len,
+        //         MemoryUsage::DeviceOnly,
+        //     );
+        //     *tiles.lock() = buf;
+        // }
+        // let num_threads = [(screen_dims[0] / 16.).ceil().min(160.0) as u32, (screen_dims[1].abs() / 16.).ceil().min(90.0) as u32];
 
         let mut uni = lt::Data {
             // num_jobs: 0,
-            numThreads: num_threads,
+            numThreads: [32,32],
             vp: { proj * view }.into(),
             cam_pos: cam_pos.into(),
             num_lights: lights.len() as i32,
@@ -268,8 +268,8 @@ impl LightingCompute {
                 set,
             )
             .dispatch([
-                num_threads[0],
-                num_threads[1],
+                32,
+                32,
                 1,
             ])
             .unwrap();

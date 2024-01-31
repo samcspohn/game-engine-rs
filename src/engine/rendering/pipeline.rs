@@ -274,7 +274,7 @@ impl RenderPipeline {
         let uniform = {
             let uni = self.uniforms.allocate_sized().unwrap();
             *uni.write().unwrap() = fs::Data {
-                screenDims: screen_dims,
+                screen_dims,
             };
             uni
         };

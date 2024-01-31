@@ -39,7 +39,7 @@ void main() {
             attenuation att = templates[lights[id].templ].atten;
             float lightMax = max(max(color.r, color.g), color.b) * att.brightness;
             float radius =
-                (-att.linear + sqrt(att.linear * att.linear - 4 * att.exponential * (att.constant - (256.0 / 5.0) * lightMax))) / (2 * att.exponential);
+                (-att.linear + sqrt(att.linear * att.linear - 4 * att.exponential * (att.constant - 200 * lightMax))) / (2 * att.exponential);
             lights[id].pos = pos;
             lights[id].radius = radius;
 

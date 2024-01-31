@@ -412,7 +412,7 @@ impl CameraData {
             image,
             camera_view_data: VecDeque::new(), // swapchain,
             samples,
-            tiles: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
+            tiles: Mutex::new(vk.buffer_array(32*32, MemoryUsage::DeviceOnly)),
             vk,
         }
     }

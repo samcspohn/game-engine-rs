@@ -59,7 +59,7 @@ bool isCollided(light light, Frustum frustum) {
     return true;
 }
 
-#define BLOCK_SIZE 16
+// #define BLOCK_SIZE 16
 const vec2 ndc_upper_left = vec2(-1.0, -1.0);
 shared ivec2 tile_id;
 shared uint index;
@@ -73,7 +73,7 @@ void main() {
         tile_id = ivec2(gl_GlobalInvocationID.xy);
         mat4 inv_projview = inverse(vp);
 
-        vec2 ndc_size_per_tile = 2.0 * vec2(BLOCK_SIZE / screen_dims.x, BLOCK_SIZE / screen_dims.y);
+        vec2 ndc_size_per_tile = 2.0 * vec2(1.0 / 32.0, 1.0 / 32.0);
 
         vec2 ndc_pts[4];                                                       // corners of tile in ndc
         ndc_pts[0] = ndc_upper_left + tile_id * ndc_size_per_tile;             // upper left
@@ -144,7 +144,7 @@ void main() {
                 if (isCollided(_l, GroupFrustum)) {
 
                     uint cluster_list_id = atomicAdd(_cluster.count, 1);
-                    if (cluster_list_id >= 256) {
+                    if (cluster_list_id >= MAX_LIGHTS_PER_TILE) {
                         break;
                     }
                     _cluster.lights[cluster_list_id] = i;
@@ -154,6 +154,6 @@ void main() {
     }
     barrier();
     if (gl_GlobalInvocationID.z == 0) {
-        _cluster.count = min(_cluster.count, 256);
+        _cluster.count = min(_cluster.count, MAX_LIGHTS_PER_TILE);
     }
 }

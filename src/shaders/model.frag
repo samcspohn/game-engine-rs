@@ -14,7 +14,7 @@ layout(set = 0, binding = 3) buffer lt { lightTemplate light_templates[]; };
 layout(set = 0, binding = 4) buffer l { light lights[]; };
 layout(set = 0, binding = 5) buffer c { tile tiles[]; };
 layout(set = 0, binding = 6) uniform Data {
-    vec2 screenDims;
+    vec2 screen_dims;
 };
 
 vec4 CalcLightInternal(lightTemplate Light, vec3 LightDirection, vec3 Normal) {
@@ -62,11 +62,12 @@ void main() {
     float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
     total_light += vec4(vec3(brightness), 1.0f);
 
-    ivec2 ti = ivec2(gl_FragCoord.xy / BLOCK_SIZE);
-    uint width = uint(ceil(abs(screenDims.x) / BLOCK_SIZE));
-    uint tileIndex = uint(ti.x + (ti.y) * width);
+    ivec2 ti = ivec2(gl_FragCoord.xy / screen_dims * 32);
+    // uint width = uint(ceil(abs(screen_dims.x) / BLOCK_SIZE));
+    uint tileIndex = uint(ti.x + (ti.y) * -32);
+
 #define _cluster tiles[tileIndex]
-    uint count = min(_cluster.count, 256);
+    uint count = min(_cluster.count, MAX_LIGHTS_PER_TILE);
     for (int i = 0; i < count; ++i) {
         uint l_id = _cluster.lights[i];
         vec3 l_pos = v_pos - lights[l_id].pos;

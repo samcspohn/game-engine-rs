@@ -1,4 +1,5 @@
 
+#define MAX_LIGHTS_PER_TILE 1024
 // some credit to https://www.3dgep.com/forward-plus/#Forward Jeremiah van Oosten
 struct Plane
 {
@@ -64,7 +65,7 @@ struct light_deinit {
 struct tile {
     Frustum frustum;
     uint count;
-    uint lights[256];
+    uint lights[MAX_LIGHTS_PER_TILE];
 };
 struct AABB {
     vec3 _min;
