@@ -13,7 +13,10 @@ use vulkano::{
 };
 
 use crate::engine::{
-    prelude::utils, prelude::{utils::PrimaryCommandBuffer, VulkanManager}, rendering::pipeline::fs, transform_compute::cs::transform
+    prelude::utils,
+    prelude::{utils::PrimaryCommandBuffer, VulkanManager},
+    rendering::pipeline::fs,
+    transform_compute::cs::transform,
 };
 pub mod cs {
     vulkano_shaders::shader! {
@@ -78,7 +81,7 @@ impl LightingCompute {
             vk: vk,
         }
     }
-    fn get_descriptors<U, T>(
+    fn get_descriptors<V, U, T>(
         &self,
         num_jobs: i32,
         stage: i32,
@@ -87,12 +90,15 @@ impl LightingCompute {
         inits: Subbuffer<[T]>,
         transforms: Subbuffer<[transform]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
+        vp: Mat4,
+        tiles: Subbuffer<[V]>,
     ) -> Arc<PersistentDescriptorSet> {
         // let visble_lights = self.visible_lights.lock();
         let uniforms = {
             let uniform_data = cs::Data {
                 num_jobs: num_jobs as i32,
                 stage: stage.into(),
+                vp: vp.into(),
             };
             let ub = self.uniforms.lock().allocate_sized().unwrap();
             *ub.write().unwrap() = uniform_data;
@@ -114,6 +120,7 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(3, inits),
                 WriteDescriptorSet::buffer(4, transforms),
                 WriteDescriptorSet::buffer(6, light_templates.clone()),
+                WriteDescriptorSet::buffer(7, tiles.clone()),
             ],
         )
         .unwrap()
@@ -149,6 +156,8 @@ impl LightingCompute {
                         self.dummy_buffer.clone(),
                         transforms.clone(),
                         light_templates.clone(),
+                        Mat4::identity(),
+                        self.dummy_buffer.clone(),
                     )
                 } else if let Some(init) = inits {
                     self.get_descriptors(
@@ -159,6 +168,8 @@ impl LightingCompute {
                         init,
                         transforms.clone(),
                         light_templates.clone(),
+                        Mat4::identity(),
+                        self.dummy_buffer.clone(),
                     )
                 } else {
                     self.get_descriptors(
@@ -169,6 +180,8 @@ impl LightingCompute {
                         self.dummy_buffer.clone(),
                         transforms.clone(),
                         light_templates.clone(),
+                        Mat4::identity(),
+                        self.dummy_buffer.clone(),
                     )
                 };
                 builder
@@ -188,7 +201,7 @@ impl LightingCompute {
         if let Some(inits) = inits {
             build_stage(builder, inits.len() as i32, 1, Some(inits), None);
         }
-        build_stage(builder, lights.len() as i32, 2, None, None);
+        // build_stage(builder, lights.len() as i32, 2, None, None);
         // // prefix sum
         // builder
         //     .copy_buffer(CopyBufferInfo::buffers(
@@ -215,27 +228,15 @@ impl LightingCompute {
         proj: Mat4,
         cam_pos: Vec3,
         screen_dims: [f32; 2],
-        tiles: &Mutex<Subbuffer<[lt::tile]>>
+        tiles: &Mutex<Subbuffer<[lt::tile]>>,
+        transforms: Subbuffer<[transform]>,
+        light_templates: Subbuffer<[fs::lightTemplate]>,
     ) {
-        // let tiles_curr_len = { tiles.lock().len() };
-        // let tiles_should_be_len = (((screen_dims[0] / 16.).ceil() + 1.) * ((screen_dims[1].abs() / 16.).ceil() + 1.)).max(1.) as u64;
-        // let tiles_should_be_len = tiles_should_be_len.min(14_651);
-        // if tiles_curr_len != tiles_should_be_len {
-        //     let buf = self.vk.buffer_array(
-        //         tiles_should_be_len,
-        //         MemoryUsage::DeviceOnly,
-        //     );
-        //     *tiles.lock() = buf;
-        // }
-        // let num_threads = [(screen_dims[0] / 16.).ceil().min(160.0) as u32, (screen_dims[1].abs() / 16.).ceil().min(90.0) as u32];
-
         let mut uni = lt::Data {
             // num_jobs: 0,
-            numThreads: [32,32],
             vp: { proj * view }.into(),
             cam_pos: cam_pos.into(),
             num_lights: lights.len() as i32,
-            screen_dims,
         };
         builder.bind_pipeline_compute(self.pipeline2.clone());
         let uniforms = {
@@ -254,7 +255,7 @@ impl LightingCompute {
                 .clone(),
             [
                 WriteDescriptorSet::buffer(0, uniforms),
-                WriteDescriptorSet::buffer(1, lights.clone()),
+                // WriteDescriptorSet::buffer(1, lights.clone()),
                 // WriteDescriptorSet::buffer(4, transforms),
                 WriteDescriptorSet::buffer(2, tiles.lock().clone()),
             ],
@@ -267,13 +268,53 @@ impl LightingCompute {
                 0,
                 set,
             )
-            .dispatch([
-                32,
-                32,
-                1,
-            ])
+            .dispatch([1, 1, 1])
             .unwrap();
-                
+
+        builder.bind_pipeline_compute(self.pipeline.clone());
+
+        // let _builder = builder;
+        let tiles = tiles.lock();
+        let mut build_stage =
+            |builder: &mut utils::PrimaryCommandBuffer, num_jobs: i32, stage: i32| {
+                let descriptor_set = self.get_descriptors(
+                    num_jobs,
+                    stage,
+                    lights.clone(),
+                    self.dummy_buffer.clone(),
+                    self.dummy_buffer.clone(),
+                    transforms.clone(),
+                    light_templates.clone(),
+                    proj * view,
+                    tiles.clone(),
+                );
+                builder
+                    .bind_descriptor_sets(
+                        self.pipeline.bind_point(),
+                        self.pipeline.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    .dispatch([(num_jobs as u32).div_ceil(128), 1, 1])
+                    .unwrap();
+            };
+
+        // build_stage(builder, 32 * 32, 3);
+        build_stage(builder, lights.len() as i32, 2);
+        // build_stage(builder, 32 * 32, 5);
+
+        // let tiles_curr_len = { tiles.lock().len() };
+        // let tiles_should_be_len = (((screen_dims[0] / 16.).ceil() + 1.) * ((screen_dims[1].abs() / 16.).ceil() + 1.)).max(1.) as u64;
+        // let tiles_should_be_len = tiles_should_be_len.min(14_651);
+        // if tiles_curr_len != tiles_should_be_len {
+        //     let buf = self.vk.buffer_array(
+        //         tiles_should_be_len,
+        //         MemoryUsage::DeviceOnly,
+        //     );
+        //     *tiles.lock() = buf;
+        // }
+        // let num_threads = [(screen_dims[0] / 16.).ceil().min(160.0) as u32, (screen_dims[1].abs() / 16.).ceil().min(90.0) as u32];
+
         // // prefix sum
         // builder
         //     .copy_buffer(CopyBufferInfo::buffers(

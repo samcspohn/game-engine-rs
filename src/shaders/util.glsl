@@ -1,5 +1,11 @@
 
-#define MAX_LIGHTS_PER_TILE 1024
+#define MAX_LIGHTS_PER_TILE 512
+#define MAX_LEVEL 5
+
+const int offsets[6] = {0, 4, 20, 84, 340, 1364};
+const int widths[6] = {2, 4, 8, 16, 32, 64};
+// const int half_widths_r[5] = {16, 8, 4, 2, 1};
+
 // some credit to https://www.3dgep.com/forward-plus/#Forward Jeremiah van Oosten
 struct Plane
 {
@@ -96,6 +102,8 @@ bool frustumAABBIntersect(Frustum f, AABB a){
     }
     return true;
 }
+
+int get_tile(int x, int y, int level) { return offsets[level] + (x + (widths[level] - y - 1) * widths[level]); }
 // Compute a plane from 3 noncollinear points that form a triangle.
 // This equation assumes a right-handed (counter-clockwise winding order) 
 // coordinate system to determine the direction of the plane normal.

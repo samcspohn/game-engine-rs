@@ -929,6 +929,8 @@ impl Engine {
                     cvd.cam_pos,
                     cvd.dimensions,
                     &cam.lock().tiles,
+                    self.transform_compute.read().gpu_transforms.clone(),
+                    light_templates.clone(),
                 );
                 let lc = self.lighting_compute.read();
                 game_image = cam.lock().render(

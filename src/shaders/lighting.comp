@@ -8,6 +8,7 @@
 layout(set = 0, binding = 0) uniform Data {
     int num_jobs;
     int stage;   // dont need to update light if off screen
+    mat4 vp;
 };
 
 // layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
@@ -16,7 +17,56 @@ layout(set = 0, binding = 2) buffer ld { light_deinit deinits[]; };
 layout(set = 0, binding = 3) buffer li { light_init inits[]; };
 layout(set = 0, binding = 4) buffer tr { transform transforms[]; };
 layout(set = 0, binding = 6) buffer lt { lightTemplate templates[]; };
+layout(set = 0, binding = 7) buffer t { tile tiles[]; };
 
+bool isCollided(vec3 pos, float radius, Frustum frustum) {
+    bool result = true;
+
+    // Step1: sphere-plane test
+    for (int i = 0; i < 6; i++) {
+        if (dot(pos, frustum.planes[i].xyz) + frustum.planes[i].w < -radius) {
+            result = false;
+            break;
+        }
+    }
+
+    if (!result) {
+        return false;
+    }
+
+    // Step2: bbox corner test (to reduce false positive)
+    vec3 light_bbox_max = pos + vec3(radius);
+    vec3 light_bbox_min = pos - vec3(radius);
+    int probe;
+    probe = 0;
+    for (int i = 0; i < 8; i++)
+        probe += ((frustum.points[i].x > light_bbox_max.x) ? 1 : 0);
+    if (probe == 8) return false;
+    probe = 0;
+    for (int i = 0; i < 8; i++)
+        probe += ((frustum.points[i].x < light_bbox_min.x) ? 1 : 0);
+    if (probe == 8) return false;
+    probe = 0;
+    for (int i = 0; i < 8; i++)
+        probe += ((frustum.points[i].y > light_bbox_max.y) ? 1 : 0);
+    if (probe == 8) return false;
+    probe = 0;
+    for (int i = 0; i < 8; i++)
+        probe += ((frustum.points[i].y < light_bbox_min.y) ? 1 : 0);
+    if (probe == 8) return false;
+    probe = 0;
+    for (int i = 0; i < 8; i++)
+        probe += ((frustum.points[i].z > light_bbox_max.z) ? 1 : 0);
+    if (probe == 8) return false;
+    probe = 0;
+    for (int i = 0; i < 8; i++)
+        probe += ((frustum.points[i].z < light_bbox_min.z) ? 1 : 0);
+    if (probe == 8) return false;
+
+    return true;
+}
+
+const ivec2 index_offsets[4] = {ivec2(0), ivec2(0, 1), ivec2(1, 0), ivec2(1)};   // -1?
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 void main() {
     const uint id = gl_GlobalInvocationID.x;
@@ -38,11 +88,62 @@ void main() {
             vec3 color = templates[lights[id].templ].color;
             attenuation att = templates[lights[id].templ].atten;
             float lightMax = max(max(color.r, color.g), color.b) * att.brightness;
-            float radius =
-                (-att.linear + sqrt(att.linear * att.linear - 4 * att.exponential * (att.constant - 200 * lightMax))) / (2 * att.exponential);
+            float radius = (-att.linear + sqrt(att.linear * att.linear - 4 * att.exponential * (att.constant - 200 * lightMax))) / (2 * att.exponential);
             lights[id].pos = pos;
             lights[id].radius = radius;
 
+            ivec3 a[4];
+            int a_c = 0;
+            ivec3 b[4];
+            int b_c = 0;
+            for (int x = 0; x < 2; ++x) {   // entrance, first level
+                for (int y = 0; y < 2; ++y) {
+                    if (isCollided(pos, radius, tiles[get_tile(x, y, 0)].frustum)) {
+                        b[b_c] = ivec3(x, y, 0);
+                        ++b_c;
+                    }
+                }
+            }
+            a = b;
+            a_c = b_c;
+            if (a_c == 0) return;
+            for (int level = 1; level < MAX_LEVEL; ++level) {   // iterate through levels
+                b_c = 0;
+                for (int j = 0; j < a_c; ++j) {   // iterate through collided parents
+                    ivec2 tile_c = a[j].xy * 2;
+                    for (int k = 0; k < 4; ++k) {   // iterate through 4 quadtree children
+                        ivec2 _tile_c = tile_c + index_offsets[k];
+                        int index = get_tile(_tile_c.x, _tile_c.y, level);
+                        if (isCollided(pos, radius, tiles[index].frustum)) {
+                            if (b_c >= 4) {
+                                for (int i = 0; i < a_c; ++i) {
+                                    ivec3 _a = a[i];
+                                    int tile_idx = get_tile(_a.x, _a.y, _a.z);
+                                    uint idx = atomicAdd(tiles[tile_idx].count, 1);
+                                    if (idx < MAX_LIGHTS_PER_TILE) {
+                                        tiles[tile_idx].lights[idx] = id;
+                                    }
+                                    atomicMin(tiles[tile_idx].count, MAX_LIGHTS_PER_TILE);
+                                }
+                                return;
+                            }
+                            b[b_c] = ivec3(_tile_c, level);
+                            ++b_c;
+                        }
+                    }
+                }
+                a = b;
+                a_c = b_c;
+            }
+            for (int i = 0; i < a_c; ++i) {
+                ivec3 _a = a[i];
+                int tile_idx = get_tile(_a.x, _a.y, _a.z);
+                uint idx = atomicAdd(tiles[tile_idx].count, 1);
+                if (idx < MAX_LIGHTS_PER_TILE) {
+                    tiles[tile_idx].lights[idx] = id;
+                }
+                atomicMin(tiles[tile_idx].count, MAX_LIGHTS_PER_TILE);
+            }
         } break;
         }
     }
