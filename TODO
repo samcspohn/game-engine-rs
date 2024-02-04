@@ -52,7 +52,11 @@ game-engine:
     ✔ only update templates after change @done(23-08-16 09:06)
   lights:
     ✔ lights - tiled @done(24-01-18 11:39)
-    ☐ bvh tile query optimization
+    ✘ bvh tile query optimization @cancelled(24-02-02 22:02)
+    ✔ quadtree based tiling @done(24-02-02 22:02)
+    ☐ quadtree dynamin "unlimited" lights per quadrant
+    ☐ improve quadtree design/performance
+    ☐ morton encoded quadrants
     ☐ blh (bounding line hierarchy) for light list in tiles
     ☐ shadows
   animations:

@@ -63,11 +63,9 @@ void main() {
 
         ivec2 ti = ivec2(screen_ratio * widths[l]);
         uint tileIndex = offsets[l] + uint(ti.x + (ti.y) * -widths[l]);
-
-#define _cluster tiles[tileIndex]
-        uint count = min(_cluster.count, MAX_LIGHTS_PER_TILE);
+        uint count = min(tiles[tileIndex].count, MAX_LIGHTS_PER_TILE);
         for (int i = 0; i < count; ++i) {
-            uint l_id = _cluster.lights[i];
+            uint l_id = tiles[tileIndex].lights[i];
             vec3 l_pos = v_pos - lights[l_id].pos;
             float radius = lights[l_id].radius;
             if (dot(l_pos, l_pos) < radius * radius) {
