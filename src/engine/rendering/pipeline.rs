@@ -39,8 +39,9 @@ use crate::engine::{
 use self::fs::light;
 
 use super::{
+    lighting::lighting_compute::lt::{self, tile},
     model::{Mesh, Normal, _Vertex, UV},
-    texture::TextureManager, lighting::lighting_compute::lt::{self, tile},
+    texture::TextureManager,
 };
 
 pub mod vs {
@@ -183,36 +184,36 @@ impl RenderPipeline {
             uniforms: vk.sub_buffer_allocator(),
         }
     }
-    pub fn _regen(
-        &mut self,
-        device: Arc<Device>,
-        render_pass: Arc<RenderPass>,
-        _dimensions: [u32; 2],
-    ) {
-        self.pipeline = GraphicsPipeline::start()
-            .vertex_input_state(
-                BuffersDefinition::new()
-                    .vertex::<_Vertex>()
-                    .vertex::<Normal>()
-                    .vertex::<UV>(), // .instance::<Id>(),
-            )
-            .vertex_shader(self._vs.entry_point("main").unwrap(), ())
-            .input_assembly_state(InputAssemblyState::new())
-            // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-            //     Viewport {
-            //         origin: [0.0, 0.0],
-            //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-            //         depth_range: 0.0..1.0,
-            //     },
-            // ]))
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .fragment_shader(self._fs.entry_point("main").unwrap(), ())
-            .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .render_pass(Subpass::from(render_pass, 0).unwrap())
-            .build(device)
-            .unwrap();
-    }
+    // pub fn _regen(
+    //     &mut self,
+    //     device: Arc<Device>,
+    //     render_pass: Arc<RenderPass>,
+    //     _dimensions: [u32; 2],
+    // ) {
+    //     self.pipeline = GraphicsPipeline::start()
+    //         .vertex_input_state(
+    //             BuffersDefinition::new()
+    //                 .vertex::<_Vertex>()
+    //                 .vertex::<Normal>()
+    //                 .vertex::<UV>(), // .instance::<Id>(),
+    //         )
+    //         .vertex_shader(self._vs.entry_point("main").unwrap(), ())
+    //         .input_assembly_state(InputAssemblyState::new())
+    //         // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+    //         //     Viewport {
+    //         //         origin: [0.0, 0.0],
+    //         //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+    //         //         depth_range: 0.0..1.0,
+    //         //     },
+    //         // ]))
+    //         .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+    //         .fragment_shader(self._fs.entry_point("main").unwrap(), ())
+    //         .rasterization_state(RasterizationState::new().cull_mode(CullMode::Front))
+    //         .depth_stencil_state(DepthStencilState::simple_depth_test())
+    //         .render_pass(Subpass::from(render_pass, 0).unwrap())
+    //         .build(device)
+    //         .unwrap();
+    // }
 
     pub fn bind_pipeline(
         &self,
@@ -241,12 +242,15 @@ impl RenderPipeline {
         lights: Subbuffer<[lt::light]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
         tiles: Subbuffer<[tile]>,
-        screen_dims: [f32;2],
+        screen_dims: [f32; 2],
         /////
         transforms: Subbuffer<[transform]>,
         mesh: &Mesh,
         indirect_buffer: Subbuffer<[DrawIndexedIndirectCommand]>,
         cam_pos: Vec3,
+        light_list: Subbuffer<[u32]>,
+        visible_lights: Subbuffer<[u32]>,
+        visible_lights_count: Subbuffer<u32>,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
@@ -270,17 +274,18 @@ impl RenderPipeline {
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
         // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
-        descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
         let uniform = {
             let uni = self.uniforms.allocate_sized().unwrap();
-            *uni.write().unwrap() = fs::Data {
-                screen_dims,
-            };
+            *uni.write().unwrap() = fs::Data { screen_dims };
             uni
         };
+        descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
         descriptors.push(WriteDescriptorSet::buffer(5, tiles));
         descriptors.push(WriteDescriptorSet::buffer(6, uniform));
+        descriptors.push(WriteDescriptorSet::buffer(7, light_list));
+        // descriptors.push(WriteDescriptorSet::buffer(8, visible_lights));
+        // descriptors.push(WriteDescriptorSet::buffer(9, visible_lights_count));
         // descriptors.push(WriteDescriptorSet::buffer(7, light_ids));
         // descriptors.push(WriteDescriptorSet::buffer(8, light_buckets));
         // descriptors.push(WriteDescriptorSet::buffer(9, light_buckets_count));

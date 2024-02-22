@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{ops::Mul, sync::Arc};
 
+use glm::vec3;
 use nalgebra_glm::{Mat4, Vec3};
 use parking_lot::Mutex;
 use rapier3d::na::ComplexField;
@@ -9,13 +10,27 @@ use vulkano::{
     descriptor_set::{self, DescriptorSet, PersistentDescriptorSet, WriteDescriptorSet},
     memory::allocator::MemoryUsage,
     padded::Padded,
-    pipeline::{ComputePipeline, Pipeline},
+    pipeline::{
+        graphics::{
+            color_blend::ColorBlendState,
+            depth_stencil::{CompareOp, DepthState, DepthStencilState},
+            input_assembly::{InputAssemblyState, PrimitiveTopology},
+            rasterization::{CullMode, RasterizationState},
+            vertex_input::BuffersDefinition,
+            viewport::ViewportState,
+        },
+        ComputePipeline, GraphicsPipeline, Pipeline, StateMode,
+    },
+    render_pass::{RenderPass, Subpass},
 };
+use nalgebra_glm as glm;
 
 use crate::engine::{
-    prelude::utils,
-    prelude::{utils::PrimaryCommandBuffer, VulkanManager},
-    rendering::pipeline::fs,
+    prelude::{
+        utils::{self, PrimaryCommandBuffer},
+        VulkanManager,
+    },
+    rendering::{camera::CameraViewData, pipeline::fs},
     transform_compute::cs::transform,
 };
 pub mod cs {
@@ -31,19 +46,79 @@ pub mod lt {
     }
 }
 
+pub mod vs {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/shaders/light_debug.vert",
+    }
+}
+
+pub mod gs {
+    vulkano_shaders::shader! {
+        ty: "geometry",
+        path: "src/shaders/light_debug.geom",
+    }
+}
+
+pub mod lfs {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        path: "src/shaders/light_debug.frag",
+    }
+}
+
 pub struct LightingCompute {
     pipeline: Arc<ComputePipeline>,
     pipeline2: Arc<ComputePipeline>,
+    // pub(crate) debug: Arc<GraphicsPipeline>,
     uniforms: Mutex<SubbufferAllocator>,
     vk: Arc<VulkanManager>,
     dummy_buffer: Subbuffer<[u8]>,
+    pub(crate) tiles: Mutex<Subbuffer<[lt::tile]>>,
+    light_list: Mutex<Subbuffer<[[i32; 2]]>>,
+    pub(crate) light_list2: Mutex<Subbuffer<[u32]>>,
+    light_offsets: Subbuffer<[u32]>,
+    light_counter: Subbuffer<u32>,
     pub(crate) visible_lights: Mutex<Subbuffer<[u32]>>,
-    pub(crate) visible_lights_index: Subbuffer<u32>,
-    pub(crate) draw_indirect: Subbuffer<[DrawIndirectCommand]>,
+    pub(crate) visible_lights_c: Subbuffer<u32>,
 }
-const NUM_BUCKETS: u64 = 65536;
+pub const NUM_TILES: u64 =  64 * 64 + 32 * 32 + 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1;
 impl LightingCompute {
-    pub fn new(vk: Arc<VulkanManager>) -> LightingCompute {
+    pub fn new_pipeline(
+        vk: Arc<VulkanManager>,
+        render_pass: Arc<RenderPass>,
+    ) -> Arc<GraphicsPipeline> {
+        let vs = vs::load(vk.device.clone()).unwrap();
+        let fs = lfs::load(vk.device.clone()).unwrap();
+        let gs = gs::load(vk.device.clone()).unwrap();
+
+        let subpass = Subpass::from(render_pass, 0).unwrap();
+        let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
+        let mut depth_stencil_state = DepthStencilState::simple_depth_test();
+        depth_stencil_state.depth = Some(DepthState {
+            enable_dynamic: false,
+            write_enable: StateMode::Fixed(false),
+            compare_op: StateMode::Fixed(CompareOp::Less),
+        });
+
+        let render_pipeline = GraphicsPipeline::start()
+            .vertex_input_state(BuffersDefinition::new())
+            .vertex_shader(vs.entry_point("main").unwrap(), ())
+            // .input_assembly_state(InputAssemblyState::new())
+            .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            .geometry_shader(gs.entry_point("main").unwrap(), ())
+            // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
+            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+            .depth_stencil_state(depth_stencil_state)
+            .color_blend_state(blend_state)
+            .render_pass(subpass)
+            .build(vk.device.clone())
+            .unwrap();
+        render_pipeline
+    }
+    pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>) -> LightingCompute {
         Self {
             pipeline: vulkano::pipeline::ComputePipeline::new(
                 vk.device.clone(),
@@ -69,15 +144,13 @@ impl LightingCompute {
             .expect("Failed to create compute shader"),
             uniforms: Mutex::new(vk.sub_buffer_allocator()),
             dummy_buffer: vk.buffer_array(1, MemoryUsage::DeviceOnly),
+            light_list: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
+            light_list2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
+            light_offsets: vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly),
+            light_counter: vk.buffer(MemoryUsage::DeviceOnly),
             visible_lights: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
-            visible_lights_index: vk.buffer_from_data(0),
-            // tiles: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
-            draw_indirect: vk.buffer_from_iter([DrawIndirectCommand {
-                vertex_count: 6,
-                instance_count: 0,
-                first_instance: 0,
-                first_vertex: 0,
-            }]),
+            visible_lights_c: vk.buffer(MemoryUsage::DeviceOnly),
+            tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly)),
             vk: vk,
         }
     }
@@ -91,7 +164,9 @@ impl LightingCompute {
         transforms: Subbuffer<[transform]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
         vp: Mat4,
+        view: Mat4,
         tiles: Subbuffer<[V]>,
+        cam_pos: Vec3,
     ) -> Arc<PersistentDescriptorSet> {
         // let visble_lights = self.visible_lights.lock();
         let uniforms = {
@@ -99,6 +174,8 @@ impl LightingCompute {
                 num_jobs: num_jobs as i32,
                 stage: stage.into(),
                 vp: vp.into(),
+                view: view.into(),
+                cam_pos: cam_pos.into(),
             };
             let ub = self.uniforms.lock().allocate_sized().unwrap();
             *ub.write().unwrap() = uniform_data;
@@ -121,6 +198,12 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(4, transforms),
                 WriteDescriptorSet::buffer(6, light_templates.clone()),
                 WriteDescriptorSet::buffer(7, tiles.clone()),
+                WriteDescriptorSet::buffer(8, self.light_list.lock().clone()),
+                WriteDescriptorSet::buffer(9, self.light_list2.lock().clone()),
+                WriteDescriptorSet::buffer(10, self.light_offsets.clone()),
+                WriteDescriptorSet::buffer(11, self.light_counter.clone()),
+                WriteDescriptorSet::buffer(12, self.visible_lights.lock().clone()),
+                WriteDescriptorSet::buffer(13, self.visible_lights_c.clone()),
             ],
         )
         .unwrap()
@@ -139,7 +222,7 @@ impl LightingCompute {
         builder.bind_pipeline_compute(self.pipeline.clone());
         // builder.fill_buffer(self.buckets_count.clone(), 0).unwrap();
         // builder.fill_buffer(visible_lights.clone(), 0).unwrap();
-        builder.update_buffer(self.visible_lights_index.clone(), &0);
+        // builder.update_buffer(self.visible_lights_index.clone(), &0);
         // let _builder = builder;
         let mut build_stage =
             |builder: &mut utils::PrimaryCommandBuffer,
@@ -157,7 +240,9 @@ impl LightingCompute {
                         transforms.clone(),
                         light_templates.clone(),
                         Mat4::identity(),
+                        Mat4::identity(),
                         self.dummy_buffer.clone(),
+                        Vec3::zeros(),
                     )
                 } else if let Some(init) = inits {
                     self.get_descriptors(
@@ -169,7 +254,9 @@ impl LightingCompute {
                         transforms.clone(),
                         light_templates.clone(),
                         Mat4::identity(),
+                        Mat4::identity(),
                         self.dummy_buffer.clone(),
+                        Vec3::zeros(),
                     )
                 } else {
                     self.get_descriptors(
@@ -181,7 +268,9 @@ impl LightingCompute {
                         transforms.clone(),
                         light_templates.clone(),
                         Mat4::identity(),
+                        Mat4::identity(),
                         self.dummy_buffer.clone(),
+                        Vec3::zeros(),
                     )
                 };
                 builder
@@ -201,7 +290,7 @@ impl LightingCompute {
         if let Some(inits) = inits {
             build_stage(builder, inits.len() as i32, 1, Some(inits), None);
         }
-        // build_stage(builder, lights.len() as i32, 2, None, None);
+        build_stage(builder, lights.len() as i32, 2, None, None);
         // // prefix sum
         // builder
         //     .copy_buffer(CopyBufferInfo::buffers(
@@ -224,19 +313,44 @@ impl LightingCompute {
         &self,
         builder: &mut PrimaryCommandBuffer,
         lights: Subbuffer<[lt::light]>,
-        view: Mat4,
-        proj: Mat4,
-        cam_pos: Vec3,
-        screen_dims: [f32; 2],
-        tiles: &Mutex<Subbuffer<[lt::tile]>>,
+        cvd: &CameraViewData,
+        // tiles: &Mutex<Subbuffer<[lt::tile]>>,
         transforms: Subbuffer<[transform]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
+        num_lights: i32,
     ) {
+        {
+            let mut light_list = self.light_list.lock();
+            let mut light_list2 = self.light_list2.lock();
+            let mut visible_lights = self.visible_lights.lock();
+            if (num_lights > visible_lights.len() as i32) {
+                let buf = self.vk.buffer_array(
+                    (num_lights as u64).next_power_of_two() * 4,
+                    MemoryUsage::DeviceOnly,
+                );
+                *light_list = buf;
+
+
+                let buf = self.vk.buffer_array(
+                    (num_lights as u64).next_power_of_two() * 4,
+                    MemoryUsage::DeviceOnly,
+                );
+                *light_list2 = buf;
+
+                let buf = self
+                    .vk
+                    .buffer_array((num_lights as u64).next_power_of_two(), MemoryUsage::DeviceOnly);
+                *visible_lights = buf;
+            }
+        }
         let mut uni = lt::Data {
             // num_jobs: 0,
-            vp: { proj * view }.into(),
-            cam_pos: cam_pos.into(),
-            num_lights: lights.len() as i32,
+            vp: { cvd.proj * cvd.view }.into(),
+            proj: { cvd.proj }.into(),
+            cam_pos: Padded(cvd.cam_pos.into()),
+            cam_right: Padded(cvd.cam_right.into()),
+            cam_up: cvd.cam_up.into(),
+            num_lights: num_lights as i32,
         };
         builder.bind_pipeline_compute(self.pipeline2.clone());
         let uniforms = {
@@ -255,9 +369,7 @@ impl LightingCompute {
                 .clone(),
             [
                 WriteDescriptorSet::buffer(0, uniforms),
-                // WriteDescriptorSet::buffer(1, lights.clone()),
-                // WriteDescriptorSet::buffer(4, transforms),
-                WriteDescriptorSet::buffer(2, tiles.lock().clone()),
+                WriteDescriptorSet::buffer(2, self.tiles.lock().clone()),
             ],
         )
         .unwrap();
@@ -268,13 +380,14 @@ impl LightingCompute {
                 0,
                 set,
             )
-            .dispatch([1, 1, 1])
+            .dispatch([NUM_TILES.div_ceil(64) as u32, 1, 1])
             .unwrap();
 
         builder.bind_pipeline_compute(self.pipeline.clone());
 
+        // let view_mat = nalgebra_glm::quat_to_mat4(&nalgebra_glm::quat_inverse(&cvd.cam_rot)) * nalgebra_glm::Mat4::new_translation(&-cvd.cam_pos);
         // let _builder = builder;
-        let tiles = tiles.lock();
+        let tiles = self.tiles.lock();
         let mut build_stage =
             |builder: &mut utils::PrimaryCommandBuffer, num_jobs: i32, stage: i32| {
                 let descriptor_set = self.get_descriptors(
@@ -285,8 +398,11 @@ impl LightingCompute {
                     self.dummy_buffer.clone(),
                     transforms.clone(),
                     light_templates.clone(),
-                    proj * view,
+                    cvd.proj * cvd.view,
+                    // Mat4::identity(),
+                    cvd.view,
                     tiles.clone(),
+                    cvd.cam_pos,
                 );
                 builder
                     .bind_descriptor_sets(
@@ -300,7 +416,13 @@ impl LightingCompute {
             };
 
         // build_stage(builder, 32 * 32, 3);
-        build_stage(builder, lights.len() as i32, 2);
+        let light_jobs = (num_lights as u32).div_ceil(128).mul(128) as i32;
+        builder.update_buffer(self.visible_lights_c.clone(), &0);
+        build_stage(builder, num_lights, 6);
+        builder.update_buffer(self.light_counter.clone(), &0);
+        build_stage(builder, light_jobs, 3);
+        build_stage(builder, 128, 4);
+        build_stage(builder, light_jobs * 4, 5);
         // build_stage(builder, 32 * 32, 5);
 
         // let tiles_curr_len = { tiles.lock().len() };

@@ -28,7 +28,9 @@ game-engine:
   ✔ add antialiasing @done(23-09-23 11:28)
   ☐ compute shader triangle rasterization for pixel sized triangles (particles)
   ☐ implement storage as maybeunint
-  ✔ ranndom freeze comes from editor_update in main_loop. terrain update @done(23-10-27 20:27)
+  ✔ random freeze comes from editor_update in main_loop. terrain update @done(23-10-27 20:27)
+  ☐ implement actual parallel prefix sum
+  ☐ reduce mutex locks
   rendering:
     ☐ add materials
     ☐ use indirect to draw all geometry in one pass
@@ -54,11 +56,14 @@ game-engine:
     ✔ lights - tiled @done(24-01-18 11:39)
     ✘ bvh tile query optimization @cancelled(24-02-02 22:02)
     ✔ quadtree based tiling @done(24-02-02 22:02)
-    ☐ quadtree dynamin "unlimited" lights per quadrant
+    ✔ quadtree dynamic "unlimited" lights per quadrant @done(24-02-06 11:51)
     ☐ improve quadtree design/performance
-    ☐ morton encoded quadrants
     ☐ blh (bounding line hierarchy) for light list in tiles
+    ☐ morton encoded quadrants
     ☐ shadows
+    ☐ move light functions/structs to seperate file out of util
+    ☐ morton code sort lights before quadtree insertion?
+    ☐ performance regression when looking at origin?
   animations:
     ☐ animations
   camera:

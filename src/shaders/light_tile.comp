@@ -4,7 +4,10 @@
 
 layout(set = 0, binding = 0) uniform Data {
     mat4 vp;
+    mat4 proj;
     vec3 cam_pos;
+    vec3 cam_right;
+    vec3 cam_up;
     int num_lights;
 };
 
@@ -13,61 +16,102 @@ layout(set = 0, binding = 2) buffer t { tile tiles[]; };
 
 const vec2 ndc_upper_left = vec2(-1.0, -1.0);
 
-layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 void main() {
 
-    for (int level = 0; level < MAX_LEVEL; ++level) {
+    // for (int level = 0; level < MAX_LEVEL; ++level) {
 
-        // if (gl_LocalInvocationID.xy % half_widths_r[level] != ivec2(0)) continue;
+    // if (gl_LocalInvocationID.xy % half_widths_r[level] != ivec2(0)) continue;
 
-        ivec2 tile_id = ivec2(gl_GlobalInvocationID.xy);
-        mat4 inv_projview = inverse(vp);
-        // int start_level = START_LEVEL;   // 4 x 4
-
-        if (tile_id.x >= widths[level] || tile_id.y >= widths[level]) continue;
-        vec2 ndc_size_per_tile = 2.0 * vec2(1.0 / widths[level], 1.0 / widths[level]);
-
-        vec2 ndc_pts[4];                                                       // corners of tile in ndc
-        ndc_pts[0] = ndc_upper_left + tile_id * ndc_size_per_tile;             // upper left -- lower?
-        ndc_pts[1] = vec2(ndc_pts[0].x + ndc_size_per_tile.x, ndc_pts[0].y);   // upper right
-        ndc_pts[2] = ndc_pts[0] + ndc_size_per_tile;                           // lower right -- upper?
-        ndc_pts[3] = vec2(ndc_pts[0].x, ndc_pts[0].y + ndc_size_per_tile.y);   // lower left
-
-        Frustum frustum;
-        float min_depth = 0.0;
-        float max_depth = 1.0;
-        vec4 temp;
-        for (int i = 0; i < 4; i++) {
-            temp = inv_projview * vec4(ndc_pts[i], min_depth, 1.0);
-            frustum.points[i] = temp.xyz / temp.w;
-            temp = inv_projview * vec4(ndc_pts[i], max_depth, 1.0);
-            frustum.points[i + 4] = temp.xyz / temp.w;
+    // ivec2 tile_id = ivec2(gl_GlobalInvocationID.xy);
+    if (gl_GlobalInvocationID.x >= _light_quadtree_offsets[MAX_LEVEL]) return;
+    int level = 0;
+    for (int i = MAX_LEVEL - 1; i >= 0; --i) {
+        if (gl_GlobalInvocationID.x >= _light_quadtree_offsets[i]) {
+            level = i;
+            break;
         }
+    }
+    int linear_id = int(gl_GlobalInvocationID.x) - _light_quadtree_offsets[level];
+    ivec2 tile_id = ivec2(linear_id % _light_quadtree_widths[level], linear_id / _light_quadtree_widths[level]);
+    // int level = offset_id;
+    // mat4 inv_proj = inverse(proj);
+    mat4 inv_projview = inverse(vp);
+    // int start_level = START_LEVEL;   // 4 x 4
 
-        vec3 temp_normal;
-        for (int i = 0; i < 4; i++) {   // left, top, right, bottom
-            // Cax+Cby+Ccz+Cd = 0, planes[i] = (Ca, Cb, Cc, Cd)
-            //  temp_normal: normal without normalization
-            temp_normal = cross(frustum.points[i] - cam_pos, frustum.points[i + 1] - cam_pos);
-            temp_normal = normalize(temp_normal);
-            frustum.planes[i] = vec4(temp_normal, -dot(temp_normal, frustum.points[i]));
-        }
-        // near plane
-        {
-            temp_normal = cross(frustum.points[1] - frustum.points[0], frustum.points[3] - frustum.points[0]);
-            temp_normal = normalize(temp_normal);
-            frustum.planes[4] = vec4(temp_normal, -dot(temp_normal, frustum.points[0]));
-        }
-        // far plane
-        {
-            temp_normal = cross(frustum.points[7] - frustum.points[4], frustum.points[5] - frustum.points[4]);
-            temp_normal = normalize(temp_normal);
-            frustum.planes[5] = vec4(temp_normal, -dot(temp_normal, frustum.points[4]));
-        }
-        uint index = get_tile(tile_id.x, tile_id.y, level);
+    // if (tile_id.x >= _light_quadtree_widths[level] || tile_id.y >= _light_quadtree_widths[level]) continue;
+    vec2 ndc_size_per_tile = 2.0 * vec2(1.0 / _light_quadtree_widths[level]);
 
-        tiles[index].frustum = frustum;
-        tiles[index].count = 0;
+    vec2 ndc_pts[4];                                                       // corners of tile in ndc
+    ndc_pts[0] = ndc_upper_left + tile_id * ndc_size_per_tile;             // upper left -- lower?
+    ndc_pts[1] = vec2(ndc_pts[0].x + ndc_size_per_tile.x, ndc_pts[0].y);   // upper right
+    ndc_pts[2] = ndc_pts[0] + ndc_size_per_tile;                           // lower right -- upper?
+    ndc_pts[3] = vec2(ndc_pts[0].x, ndc_pts[0].y + ndc_size_per_tile.y);   // lower left
+
+    Frustum frustum;
+    float min_depth = 0.0;
+    float max_depth = 1.0;
+    vec4 temp;
+    for (int i = 0; i < 4; i++) {
+        temp = inv_projview * vec4(ndc_pts[i], min_depth, 1.0);
+        frustum.points[i] = temp.xyz / temp.w;
+        temp = inv_projview * vec4(ndc_pts[i], max_depth, 1.0);
+        frustum.points[i + 4] = temp.xyz / temp.w;
     }
 
+    vec3 temp_normal;
+    for (int i = 0; i < 4; i++) {   // left, top, right, bottom
+        // Cax+Cby+Ccz+Cd = 0, planes[i] = (Ca, Cb, Cc, Cd)
+        //  temp_normal: normal without normalization
+        temp_normal = cross(frustum.points[i] - cam_pos, frustum.points[i + 1] - cam_pos);
+        temp_normal = normalize(temp_normal);
+        frustum.planes[i] = vec4(temp_normal, dot(temp_normal, frustum.points[i]));
+    }
+    // near plane
+    {
+        temp_normal = cross(frustum.points[1] - frustum.points[0], frustum.points[3] - frustum.points[0]);
+        temp_normal = normalize(temp_normal);
+        frustum.planes[4] = vec4(temp_normal, dot(temp_normal, frustum.points[0]));
+    }
+    // far plane
+    {
+        temp_normal = cross(frustum.points[7] - frustum.points[4], frustum.points[5] - frustum.points[4]);
+        temp_normal = normalize(temp_normal);
+        frustum.planes[5] = vec4(temp_normal, dot(temp_normal, frustum.points[4]));
+    }
+    // if (level == MAX_LEVEL - 1 && isCollided(vec3(0), 0, frustum)) {
+    //     // for(int i = 0; i < 4; i++){
+    //     //     frustum.planes[i] = -frustum.planes[i];
+    //     // }
+    //     // vec4 temp = frustum.planes[0];
+    //     // frustum.planes[0] = frustum.planes[2];
+    //     // frustum.planes[2] = temp;
+    //     // temp = frustum.planes[1];
+    //     // frustum.planes[1] = frustum.planes[3];
+    //     // frustum.planes[3] = temp;
+    // } else
+
+    uint index = get_tile(tile_id.x, tile_id.y, level);
+    tile t = tiles[index];
+    t.frustum = frustum;
+    t.contains_origin = 0;
+    tiles[index].contains_origin = uint(isCollided(vec3(0), 0, t));
+    // if (tiles[index].contains_origin == 1) {
+    //     uint o_tile = index + 1;
+    //     // if(index == 0) o_tile = index + 1;
+    //     // for (int i = 0; i < 4; ++i) {
+    //     //     float dif = abs(dot(tiles[o_tile].frustum.planes[i], frustum.planes[i]));
+    //     //     if (dif > 0.5) {
+    //     //         frustum.planes[i].xyz = -frustum.planes[i].xyz;
+    //     //     }
+    //     // }
+    // if(tile_id.x % 2 == 0) {
+    //     frustum.planes[0] = -frustum.planes[0];
+    // }
+    //     // frustum.planes[1] = -frustum.planes[1];
+    // }
+    tiles[index].frustum = frustum;
+    tiles[index].count = 0;
+    tiles[index].travel_through = 0;
+    // }
 }

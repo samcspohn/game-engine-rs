@@ -112,7 +112,7 @@ pub(super) fn render_thread(
                     SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
                 )
                 .then_signal_fence()
-                .flush();
+                .flush(); // FREEZE HERE
 
             match future {
                 Ok(future) => {

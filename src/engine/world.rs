@@ -185,8 +185,8 @@ impl World {
         EntityBuilder::new(parent, &self)
     }
 
-    pub fn instantiate_many(&self, count: i32, chunk: i32, parent: i32) -> EntityParBuilder {
-        EntityParBuilder::new(parent, count, chunk, &self)
+    pub fn instantiate_many(&self, count: i32, parent: i32) -> EntityParBuilder {
+        EntityParBuilder::new(parent, count, 0, &self)
     }
     pub fn create(&mut self) -> i32 {
         self.create_with_transform(_Transform::default())
@@ -771,7 +771,6 @@ impl World {
     }
     pub fn _update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork, perf: &Perf) {
         {
-            let world_update = perf.node("get sys in update");
             let sys = &self.sys;
             let sys = System {
                 physics: &sys.physics2.lock(),
@@ -785,7 +784,6 @@ impl World {
                 particle_system: &sys.particles_system,
                 new_rigid_bodies: &sys.new_rigid_bodies,
             };
-            drop(world_update);
             {
                 let world_update = perf.node("world update");
                 self.components.iter().for_each(|(_, stor)| {

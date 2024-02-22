@@ -161,6 +161,9 @@ pub struct RenderJobData<'a> {
     pub light_len: u32,
     pub lights: Subbuffer<[lt::light]>,
     pub light_templates: Subbuffer<[lightTemplate]>,
+    pub light_list: Subbuffer<[u32]>,
+    pub visible_lights: Subbuffer<[u32]>,
+    pub visible_lights_count: Subbuffer<u32>,
     // pub light_buckets: Subbuffer<[u32]>,
     // pub light_buckets_count: Subbuffer<[u32]>,
     // pub light_ids: Subbuffer<[u32]>,
@@ -455,7 +458,7 @@ impl Engine {
             assets_manager,
             project: Project::default(),
             transform_compute: RwLock::new(transform_compute),
-            lighting_compute: RwLock::new(LightingCompute::new(vk.clone())),
+            lighting_compute: RwLock::new(LightingCompute::new(vk.clone(), render_pass.clone())),
             // light_bounding: RwLock::new(LightBounding::new(vk.clone())),
             playing_game: game_mode,
             // coms,
@@ -657,7 +660,7 @@ impl Engine {
                 window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
             viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
             *recreate_swapchain = false;
-            
+
             self.event_loop_proxy.send_event(EngineEvent::Send);
             self.rendering_data.send(None).unwrap();
             return should_exit;
@@ -900,6 +903,7 @@ impl Engine {
             .1
             .read()
             .len();
+        
         let (light_templates, light_deinits, light_inits) = self
             .lighting_system
             .get_light_buffer(light_len, &mut builder);
@@ -924,13 +928,10 @@ impl Engine {
                 self.lighting_compute.write().update_lights_2(
                     &mut builder,
                     self.lighting_system.lights.lock().clone(),
-                    cvd.view,
-                    cvd.proj,
-                    cvd.cam_pos,
-                    cvd.dimensions,
-                    &cam.lock().tiles,
+                    &cvd,
                     self.transform_compute.read().gpu_transforms.clone(),
                     light_templates.clone(),
+                    light_len as i32,
                 );
                 let lc = self.lighting_compute.read();
                 game_image = cam.lock().render(
@@ -939,6 +940,8 @@ impl Engine {
                     &self.transform_compute.read(),
                     light_len as u32,
                     self.lighting_system.lights.lock().clone(),
+                    lc.visible_lights.lock().clone(),
+                    lc.visible_lights_c.clone(),
                     light_templates.clone(),
                     self.particles_system.clone(),
                     transforms_buf.clone(),
@@ -950,6 +953,8 @@ impl Engine {
                     &render_jobs,
                     cvd,
                     &self.perf,
+                    lc.light_list2.lock().clone(),
+                    lc.tiles.lock().clone(),
                 );
             }
         }

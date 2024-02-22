@@ -20,3 +20,5 @@ SpacesBeforeTrailingComments: 3
 AlignConsecutiveMacros: Consecutive
 # use \n instead of \r\n
 UseCRLF: true
+BinPackArguments: true
+AlignArrayOfStructures: Left

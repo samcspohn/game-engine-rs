@@ -24,7 +24,7 @@ layout(set = 0, binding = 3) buffer a {
     VkDrawIndexedIndirectCommand indirect[];
 };
 layout(set = 0, binding = 4) buffer t { transform transforms[]; };
-layout(set = 0, binding = 5) buffer o { int _offsets[]; };
+layout(set = 0, binding = 5) buffer o { int offsets[]; };
 layout(set = 0, binding = 6) uniform Data {
     int num_jobs;
     int stage;
@@ -55,7 +55,7 @@ void main() {
             if (t_id != -1 &&
                 (view * vec4(transforms[t_id].position, 1)).z < 0.f) {
                 uint r_id = atomicAdd(indirect[ind_id].instanceCount, 1);
-                renderers[_offsets[ind_id] + r_id] = t_id;
+                renderers[offsets[ind_id] + r_id] = t_id;
             }
             break;
         }

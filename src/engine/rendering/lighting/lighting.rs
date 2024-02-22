@@ -119,6 +119,7 @@ impl LightingSystem {
 #[derive(ComponentID, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct Light {
+    #[serde(skip_serializing, skip_deserializing)]
     l_id: i32,
     l_t: AssetInstance<LightTemplate>,
 }

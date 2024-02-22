@@ -483,6 +483,9 @@ impl Component for TerrainEng {
                     // light_ids,
                     tiles,
                     screen_dims,
+                    light_list,
+                    visible_lights,
+                    visible_lights_count,
                 } = rd;
                 let instance_data = vec![t_id];
                 // let mvp_data = vec![MVP {

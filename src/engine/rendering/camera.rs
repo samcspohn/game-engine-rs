@@ -21,7 +21,10 @@ use vulkano::{
         StorageImage,
     },
     memory::allocator::MemoryUsage,
-    pipeline::{graphics::viewport::Viewport, ComputePipeline, Pipeline, PipelineBindPoint},
+    pipeline::{
+        graphics::viewport::Viewport, ComputePipeline, GraphicsPipeline, Pipeline,
+        PipelineBindPoint,
+    },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
@@ -48,7 +51,10 @@ use super::{
     lighting::{
         // light_bounding::LightBounding,
         lighting::LightingSystem,
-        lighting_compute::lt::{self, tile},
+        lighting_compute::{
+            lt::{self, tile},
+            LightingCompute, NUM_TILES,
+        },
     },
     model::{ModelManager, ModelRenderer},
     pipeline::{fs, RenderPipeline},
@@ -60,12 +66,12 @@ use super::{
 pub struct CameraData {
     rend: RenderPipeline,
     particle_render_pipeline: ParticleRenderPipeline,
+    light_debug: Arc<GraphicsPipeline>,
     _render_pass: Arc<RenderPass>,
     viewport: Viewport,
     framebuffer: Arc<Framebuffer>,
     pub render_textures_ids: Option<Vec<TextureId>>,
     pub image: Arc<dyn ImageAccess>,
-    pub(crate) tiles: Mutex<Subbuffer<[lt::tile]>>,
 
     samples: SampleCount,
     vk: Arc<VulkanManager>,
@@ -135,10 +141,10 @@ pub struct CameraViewData {
     pub cam_up: Vec3,
     pub cam_forw: Vec3,
     pub cam_right: Vec3,
-    cam_rot: Quat,
+    pub cam_rot: Quat,
     pub(crate) view: Mat4,
     pub(crate) proj: Mat4,
-    inv_rot: Mat4,
+    pub inv_rot: Mat4,
     frustum: Frustum,
     pub(crate) dimensions: [f32; 2],
     pub near: f32,
@@ -264,19 +270,20 @@ impl CameraData {
         let mut cvd = CameraViewData::default();
         cvd.cam_pos = pos;
         cvd.cam_rot = rot;
-        let rot = glm::quat_to_mat3(&cvd.cam_rot);
-        let target = cvd.cam_pos + rot * Vec3::z();
-        let up = rot * Vec3::y();
+        // let rot = glm::quat_to_mat3(&cvd.cam_rot);
+        let target = cvd.cam_pos + glm::quat_rotate_vec3(&rot, &Vec3::z());
+        let up = glm::quat_rotate_vec3(&rot, &Vec3::y());
         // cvd.inv_rot = glm::inverse(&glm::quat_to_mat4(&rot));
-        cvd.inv_rot = glm::look_at_rh(&glm::vec3(0., 0., 0.), &(rot * Vec3::z()), &up);
+        cvd.inv_rot = glm::look_at_rh(&glm::Vec3::zeros(), &(glm::quat_rotate_vec3(&rot, &Vec3::z())), &up);
         // cvd.view = glm::quat_to_mat4(&glm::quat_conjugate(&rot)) * glm::translate(&glm::identity(), &-pos);
         cvd.view = glm::look_at_rh(&cvd.cam_pos, &target, &up);
         // cvd.view = set_view_direction(pos, rot * -Vec3::z(), Vec3::y());
         let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
-        cvd.proj = glm::perspective(aspect_ratio, radians(&vec1(fov)).x, near, far);
+        // let x = glm::pers
+        cvd.proj = glm::perspective_zo(aspect_ratio, fov.to_radians(), near, far);
         cvd.cam_up = up;
-        cvd.cam_forw = glm::quat_cross_vec(&cvd.cam_rot, &Vec3::z());
-        cvd.cam_right = glm::quat_cross_vec(&cvd.cam_rot, &Vec3::x());
+        cvd.cam_forw = glm::quat_rotate_vec3(&cvd.cam_rot, &Vec3::z());
+        cvd.cam_right = glm::quat_rotate_vec3(&cvd.cam_rot, &Vec3::x());
         cvd.dimensions = self.viewport.dimensions;
         cvd.near = near;
         cvd.far = far;
@@ -405,6 +412,7 @@ impl CameraData {
                 render_pass.clone(),
                 // use_msaa,
             ),
+            light_debug: LightingCompute::new_pipeline(vk.clone(), render_pass.clone()),
             _render_pass: render_pass,
             viewport,
             framebuffer,
@@ -412,10 +420,7 @@ impl CameraData {
             image,
             camera_view_data: VecDeque::new(), // swapchain,
             samples,
-            tiles: Mutex::new(vk.buffer_array(
-                32 * 32 + 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2,
-                MemoryUsage::DeviceOnly,
-            )),
+            // tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly)),
             vk,
         }
     }
@@ -450,6 +455,8 @@ impl CameraData {
         // lights
         light_len: u32,
         lights: Subbuffer<[lt::light]>,
+        visible_lights: Subbuffer<[u32]>,
+        visible_lights_count: Subbuffer<u32>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
         // end lights
         particles: Arc<ParticlesSystem>,
@@ -462,6 +469,8 @@ impl CameraData {
         render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
         cvd: CameraViewData,
         perf: &Perf,
+        light_list: Subbuffer<[u32]>,
+        tiles: Subbuffer<[tile]>
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
@@ -598,16 +607,16 @@ impl CameraData {
                                 light_len,
                                 lights.clone(),
                                 light_templates.clone(),
-                                self.tiles.lock().clone(),
+                                tiles.clone(),
                                 cvd.dimensions,
-                                // light_buckets.clone(),
-                                // light_buckets_count.clone(),
-                                // light_ids.clone(),
                                 // end lights
                                 transform_compute.gpu_transforms.clone(),
                                 &mr.meshes[i],
                                 indirect_buffer.clone(),
                                 cvd.cam_pos.clone(),
+                                light_list.clone(),
+                                visible_lights.clone(),
+                                visible_lights_count.clone(),
                             );
                         }
                         offset += indr.count as u64;
@@ -626,10 +635,10 @@ impl CameraData {
             light_len,
             lights: lights.clone(),
             light_templates: light_templates.clone(),
-            // light_buckets: light_buckets.clone(),
-            // light_buckets_count: light_buckets_count.clone(),
-            // light_ids: light_ids.clone(),
-            tiles: self.tiles.lock().clone(),
+            light_list: light_list.clone(),
+            visible_lights: visible_lights.clone(),
+            visible_lights_count: visible_lights_count.clone(),
+            tiles: tiles.clone(),
             screen_dims: cvd.dimensions,
             mvp: transform_compute.mvp.clone(),
             view: &cvd.view,
@@ -656,10 +665,31 @@ impl CameraData {
             //
             lights.clone(),
             light_templates.clone(),
-            // light_buckets.clone(),
-            // light_buckets_count.clone(),
-            self.tiles.lock().clone(),
+            tiles.clone(),
         );
+
+        let set = PersistentDescriptorSet::new(
+            &self.vk.desc_alloc,
+            self.light_debug
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap()
+                .clone(),
+            [WriteDescriptorSet::buffer(0, tiles.clone())],
+        )
+        .unwrap();
+        builder
+            .bind_pipeline_graphics(self.light_debug.clone())
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.light_debug.layout().clone(),
+                0,
+                set,
+            )
+            .draw(NUM_TILES as u32, 1, 0, 0)
+            .unwrap();
+
         builder.end_render_pass().unwrap();
         // self.camera_view_data.pop_front();
         Some(self.image.clone())

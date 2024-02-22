@@ -25,6 +25,7 @@ use vulkano::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned,
         Features, Queue, QueueCreateInfo, QueueFlags,
     },
+    format::Format,
     image::{ImageUsage, SwapchainImage},
     instance::{Instance, InstanceCreateInfo},
     memory::allocator::{
@@ -33,7 +34,7 @@ use vulkano::{
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
     sync::Sharing,
-    NonZeroDeviceSize, VulkanLibrary, format::Format,
+    NonZeroDeviceSize, VulkanLibrary,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
@@ -64,19 +65,27 @@ pub struct VulkanManager {
 }
 
 impl VulkanManager {
+    pub fn buffer<T>(&self, usage: MemoryUsage) -> Subbuffer<T>
+    where
+        T: BufferContents + Sized,
+    {
+        let buf = Buffer::new_sized(
+            &self.mem_alloc,
+            BufferCreateInfo {
+                usage: buffer_usage_all(),
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage,
+                ..Default::default()
+            },
+        ).unwrap();
+        buf
+    }
     pub fn buffer_array<T>(&self, size: u64, usage: MemoryUsage) -> Subbuffer<T>
     where
         T: BufferContents + ?Sized,
     {
-        // println!(
-        //     "element size of {}: {}",
-        //     std::any::type_name::<T>(),
-        //     T::LAYOUT.element_size().unwrap()
-        // );
-
-        // let len = NonZeroDeviceSize::new(size).expect("empty slices are not valid buffer contents");
-        // let layout = T::LAYOUT.layout_for_len(len).unwrap();
-        // println!("layout: {:?}", layout);
         let buf = Buffer::new_unsized(
             &self.mem_alloc,
             BufferCreateInfo {

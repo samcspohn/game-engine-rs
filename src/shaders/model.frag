@@ -14,6 +14,9 @@ layout(set = 0, binding = 3) buffer lt { lightTemplate light_templates[]; };
 layout(set = 0, binding = 4) buffer l { light lights[]; };
 layout(set = 0, binding = 5) buffer c { tile tiles[]; };
 layout(set = 0, binding = 6) uniform Data { vec2 screen_dims; };
+layout(set = 0, binding = 7) buffer ll { uint light_list[]; };
+layout(set = 0, binding = 8) buffer vl { uint visible_lights[]; };
+layout(set = 0, binding = 9) buffer vlc { uint visible_lights_count; };
 
 vec4 CalcLightInternal(lightTemplate Light, vec3 LightDirection, vec3 Normal) {
     vec4 AmbientColor = vec4(Light.color, 1.0f);
@@ -53,26 +56,55 @@ vec4 CalcPointLight(uint Index, vec3 Normal) {
 }
 
 const vec3 LIGHT = vec3(1.0, 1.0, -0.7);
+const uint MAX_LIT = 256;
+const uint MAX_ITER = 1024;
 
 void main() {
+    if (v_pos == vec3(0)) return;
     vec4 total_light = vec4(vec3(0.05), 1.0f);
     float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
     total_light += vec4(vec3(brightness), 1.0f);
-    vec2 screen_ratio = gl_FragCoord.xy / screen_dims;
-    for (int l = 0; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
+    vec2 coord = gl_FragCoord.xy;
+    coord.y = abs(screen_dims.y) - coord.y - 1;
+    vec2 screen_ratio = coord.xy / screen_dims;
+    // uint lit_times = 0;
+    // uint iters = 0;
+    for (int l = 1; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
 
-        ivec2 ti = ivec2(screen_ratio * widths[l]);
-        uint tileIndex = offsets[l] + uint(ti.x + (ti.y) * -widths[l]);
-        uint count = min(tiles[tileIndex].count, MAX_LIGHTS_PER_TILE);
+        ivec2 ti = ivec2(screen_ratio * _light_quadtree_widths[l]);
+        uint tileIndex = _light_quadtree_offsets[l] + uint(ti.x + (-ti.y) * _light_quadtree_widths[l]);
+        uint count = tiles[tileIndex].count;
+        uint offset = tiles[tileIndex].offset;
         for (int i = 0; i < count; ++i) {
-            uint l_id = tiles[tileIndex].lights[i];
+            uint l_id = light_list[offset + i];
             vec3 l_pos = v_pos - lights[l_id].pos;
             float radius = lights[l_id].radius;
             if (dot(l_pos, l_pos) < radius * radius) {
                 total_light += CalcPointLight(l_id, v_normal);
+            // lit_times++;
             }
+            // iters++;
+            // if (iters > MAX_ITER || lit_times > MAX_LIT) {
+            //     break;
+            // }
         }
+        // if (iters > MAX_ITER || lit_times > MAX_LIT) {
+        //     break;
+        // }
     }
+    // for (uint i = 0; i < visible_lights_count; ++i) {
+    //         uint l_id = visible_lights[i];
+    //         // vec3 l_pos = v_pos - lights[l_id].pos;
+    //         // float radius = lights[l_id].radius;
+    //         // if (dot(l_pos, l_pos) < radius * radius) {
+    //             total_light += CalcPointLight(l_id, v_normal);
+    //         // lit_times++;
+    //         // }
+    //         // iters++;
+    //         // if (iters > MAX_ITER || lit_times > MAX_LIT) {
+    //         //     break;
+    //         // }
+    //     }
 
     total_light.a = 1.0f;
     f_color = texture(tex, coords) * total_light;   // min(brightness + 0.8, 1.0);
