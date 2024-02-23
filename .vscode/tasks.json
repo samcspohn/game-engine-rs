@@ -1,5 +1,10 @@
 {
 	"version": "2.0.0",
+	"options": {
+		"env": {
+		  "RUSTFLAGS": "-Z threads=16"
+		}
+	 },
 	"tasks": [
 		{
 			"type": "cargo",
@@ -21,7 +26,7 @@
 				"$rustc"
 			],
 			"group": "build",
-			"label": "rust: cargo build --release"
+			"label": "rust: cargo build -r --bin game_engine_rs"
 		},
 	]
 }

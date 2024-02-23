@@ -20,7 +20,7 @@
             "program": "${workspaceFolder}/target/release/game-engine-rs",
             "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "rust: cargo build --release",
+            "preLaunchTask": "rust: cargo build -r --bin game_engine_rs",
         }
     ]
 }

@@ -17,7 +17,7 @@ void main() {
     // if (id >= _light_quadtree_offsets[MAX_LEVEL]) return;
     int _id = id;
     ivec3 tile_idx;
-    for (int i = MAX_LEVEL - 2; i >= 0; --i) {
+    for (int i = MAX_LEVEL - 1; i >= 0; --i) {
         if (id >= _light_quadtree_offsets[i]) {
             id -= _light_quadtree_offsets[i];
             tile_idx = ivec3(id % _light_quadtree_widths[i], id / _light_quadtree_widths[i], i);
