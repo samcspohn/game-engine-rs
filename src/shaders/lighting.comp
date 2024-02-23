@@ -7,10 +7,7 @@
 // };
 layout(set = 0, binding = 0) uniform Data {
     int num_jobs;
-    int stage;   // dont need to update light if off screen
-    mat4 vp;
-    mat4 view;
-    vec3 cam_pos;
+    int stage;
 };
 
 // layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
@@ -27,6 +24,7 @@ layout(set = 0, binding = 10) buffer lo { uint light_offsets[]; };
 layout(set = 0, binding = 11) buffer lc { uint light_list_counter; };
 layout(set = 0, binding = 12) buffer vl { uint visible_lights[]; };
 layout(set = 0, binding = 13) buffer vlc { uint visible_lights_c; };
+layout(set = 0, binding = 14) buffer i { DispatchIndirectCommand indirect[]; };
 
 shared uint local_offsets[128 * 2];
 shared ivec2 local_indeces[128 * 4];
@@ -96,28 +94,12 @@ void main() {
                 local_counter = 0;
             }
             barrier();
-            // mat4 inv_view = inverse(view);
             vec3 pos = lights[id].pos;
             float radius = lights[id].radius;
-            // bool is_in_frustum = false;
-            if (lights[id].enabled == 1) {
-                // for (int x = 0; x < 4; ++x) {   // entrance, first level
-                //     ivec2 a = index_offsets[x];
-                if (isCollided(pos, radius, tiles[get_tile(0, 0, 0)])) {   // full camera frustum
-                    // is_in_frustum = true;
-                    // break;
-                    // atomicAdd(visible_lights_c, 1);
-                    // return;
-                    uint idx = atomicAdd(local_counter, 1);
-                    local_offsets[idx] = id;
-                    // break;
-                }
-                // }
+            if (lights[id].enabled == 1 && isCollided(pos, radius, tiles[get_tile(0, 0, 0)])) {   // full camera frustum
+                uint idx = atomicAdd(local_counter, 1);
+                local_offsets[idx] = id;
             }
-            // if (is_in_frustum) {
-            //     uint idx = atomicAdd(visible_lights_c, 1);
-            //     visible_lights[idx] = id;
-            // }
             barrier();
             if (gl_LocalInvocationID.x == 0) {
                 global_idx = atomicAdd(visible_lights_c, local_counter);
@@ -126,26 +108,19 @@ void main() {
             if (gl_LocalInvocationID.x < local_counter) {
                 visible_lights[global_idx + gl_LocalInvocationID.x] = local_offsets[gl_LocalInvocationID.x];
             }
+            atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
         } break;
         case 3: {
             if (gl_WorkGroupID.x > visible_lights_c / gl_WorkGroupSize.x + 1) {   // dispatch indirect
                 return;
             }
-            // const float num_tiles = _light_quadtree_offsets[MAX_LEVEL];
-            // const float num_threads = gl_WorkGroupSize.x;
             uint local_id = gl_LocalInvocationID.x;
-            // int start = int(local_id * (num_tiles / num_threads));
-            // int end = int((local_id + 1) * (num_tiles / num_threads));
-            // for (int i = start; i < end; ++i) {
-            //     local_counts[i] = 0;
-            // }
             if (local_id == 0) {
                 local_counter = 0;
             }
             barrier();
             if (id < visible_lights_c) {
                 uint light_id = visible_lights[id];
-                // if (lights[light_id].enabled == 1) {
 
                 vec3 pos = lights[light_id].pos;
                 float radius = lights[light_id].radius;
@@ -164,29 +139,12 @@ void main() {
                 for (int i = 0; i < a_c; ++i) {
                     ivec3 _a = a[i];
                     int tile_idx = get_tile(_a.x, _a.y, _a.z);
-                    // if (tiles[tile_idx].contains_origin == 0) {
-                    // continue;
-                    // light_list[atomicAdd(light_list_counter, 1)] = ivec2(tile_idx, id);
-                    // atomicAdd(tiles[tile_idx].count, 1);
-                    // }
-                    // uint local_idx = atomicAdd(local_counter, 1);
-                    // local_indeces[local_idx] = ivec2(tile_idx, light_id);
-
                     local_indeces[local_idx + i] = ivec2(tile_idx, light_id);
-                    // atomicAdd(local_counts[tile_idx], 1);
-                    // light_list[atomicAdd(light_list_counter, 1)] = ivec2(tile_idx, id);
                     atomicAdd(tiles[tile_idx].count, 1);
                 }
-                // }
             }
 
             barrier();
-            // for (int i = start; i < end; ++i) {
-            //     if (local_counts[i] > 0) {
-            //         atomicAdd(tiles[i].count, local_counts[i]);
-            //         // atomicMin(tiles[i].count, 512);
-            //     }
-            // }
             if (local_id == 0) {
                 global_idx = atomicAdd(light_list_counter, local_counter);
             }
@@ -197,6 +155,7 @@ void main() {
                     light_list[global_idx + local_id + i] = local_indeces[local_id + i];
                 }
             }
+            atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
         } break;
         case 4: {   // prefix sum
             const float num_tiles = _light_quadtree_offsets[MAX_LEVEL];
@@ -219,9 +178,7 @@ void main() {
             uint local_id = gl_LocalInvocationID.x;
             int start = int(local_id * (num_tiles / num_threads));
             int end = int((local_id + 1) * (num_tiles / num_threads));
-            // if (gl_LocalInvocationID.x == 127) {
-            //     end = 1364;
-            // }
+
             uint temp = tiles[start].count;
             tiles[start].offset = 0;
             for (int i = start + 1; i < end; ++i) {
@@ -229,7 +186,6 @@ void main() {
                 temp += tiles[i].count;
             }
             local_offsets[id] = temp;
-            // local_offsets[gl_WorkGroupSize.x + id] = 0;
             barrier();
             if (local_id == 0) {
                 uint temp = local_offsets[0];
