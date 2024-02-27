@@ -31,6 +31,7 @@ game-engine:
   ✔ random freeze comes from editor_update in main_loop. terrain update @done(23-10-27 20:27)
   ☐ implement actual parallel prefix sum
   ☐ reduce mutex locks
+  ☐ implement shader abstraction
   rendering:
     ☐ add materials
     ☐ use indirect to draw all geometry in one pass
@@ -63,7 +64,7 @@ game-engine:
     ☐ shadows
     ☐ move light functions/structs to seperate file out of util
     ☐ morton code sort lights before quadtree insertion?
-    ☐ performance regression when looking at origin?
+    ✔ performance regression when looking at origin? @done(24-02-23 19:35) # incorrectly calculated uninitialized/inactive lights that existed at origin
   animations:
     ☐ animations
   camera:

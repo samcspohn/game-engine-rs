@@ -925,14 +925,14 @@ impl Engine {
                     *EDITOR_WINDOW_DIM.lock()
                 };
                 cam.lock().resize(dims, vk.clone());
-                self.lighting_compute.write().update_lights_2(
-                    &mut builder,
-                    self.lighting_system.lights.lock().clone(),
-                    &cvd,
-                    self.transform_compute.read().gpu_transforms.clone(),
-                    light_templates.clone(),
-                    light_len as i32,
-                );
+                // self.lighting_compute.write().update_lights_2(
+                //     &mut builder,
+                //     self.lighting_system.lights.lock().clone(),
+                //     &cvd,
+                //     self.transform_compute.read().gpu_transforms.clone(),
+                //     light_templates.clone(),
+                //     light_len as i32,
+                // );
                 let lc = self.lighting_compute.read();
                 game_image = cam.lock().render(
                     vk.clone(),
@@ -959,6 +959,7 @@ impl Engine {
             }
         }
         drop(render_cameras);
+        // resize editor window
         if editor_window_image.is_none()
             || editor_size
                 != [
@@ -999,13 +1000,7 @@ impl Engine {
 
             self.image_view = Some(img_view);
         }
-        // if self.game_mode {
-        //     if let Some(game_image) = game_image {
-        //         builder
-        //             .copy_image(CopyImageInfo::images(game_image, .clone()))
-        //             .unwrap();
-        //     }
-        // }
+        // copy editor image
         if !self.game_mode {
             if let Some(image) = &editor_window_image {
                 if let Some(game_image) = &game_image {
@@ -1109,9 +1104,10 @@ impl Engine {
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();
         drop(_build_command_buffer);
-        unsafe {
-            *self.particles_system.cycle.get() = (*self.particles_system.cycle.get() + 1) % 3;
-        }
+        vk.finalize();
+        // unsafe {
+        //     *self.particles_system.cycle.get() = (*self.particles_system.cycle.get() + 1) % 2;
+        // }
         let _execute = self.perf.node("_ execute");
         self.rendering_data.send(Some((
             should_exit,

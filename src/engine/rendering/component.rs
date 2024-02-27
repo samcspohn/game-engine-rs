@@ -206,7 +206,7 @@ pub struct SharedRendererData {
     pub vk: Arc<VulkanManager>,
     pub shader: Arc<ShaderModule>,
     pub pipeline: Arc<ComputePipeline>,
-    pub uniform: Mutex<SubbufferAllocator>,
+    // pub uniform: Mutex<SubbufferAllocator>,
 }
 
 impl SharedRendererData {
@@ -271,14 +271,15 @@ impl SharedRendererData {
                     self.updates_gpu = vk.buffer_from_iter(rd_updates);
                 }
                 // stage 0
-                let uniforms = self.uniform.lock().allocate_sized().unwrap();
+                // let uniforms = self.uniform.lock().allocate_sized().unwrap();
                 let data = ur::Data {
                     num_jobs: update_num as i32,
                     stage: 0.into(),
                     view: Default::default(),
                     // _dummy0: Default::default(),
                 };
-                *uniforms.write().unwrap() = data;
+                // *uniforms.write().unwrap() = data;
+                let uniforms = self.vk.allocate(data);
 
                 let update_renderers_set = PersistentDescriptorSet::new(
                     &vk.desc_alloc,
@@ -390,7 +391,7 @@ impl RendererManager {
                 shader,
                 pipeline,
                 vk: vk.clone(),
-                uniform: Mutex::new(vk.sub_buffer_allocator()),
+                // uniform: Mutex::new(vk.sub_buffer_allocator()),
             })),
         }
     }

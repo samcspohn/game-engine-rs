@@ -8,6 +8,7 @@ use std::{
     },
 };
 
+use force_send_sync::SendSync;
 use nohash_hasher::NoHashHasher;
 use parking_lot::Mutex;
 use thincollections::thin_map::ThinMap;
@@ -60,11 +61,41 @@ pub struct VulkanManager {
     pub desc_alloc: Arc<StandardDescriptorSetAllocator>,
     pub comm_alloc: Arc<StandardCommandBufferAllocator>,
     pub query_pool: Mutex<HashMap<i32, Arc<QueryPool>, nohash_hasher::BuildNoHashHasher<i32>>>,
+    sub_alloc: Vec<SendSync<SubbufferAllocator>>,
+    sub_alloc_unsized: Vec<SendSync<SubbufferAllocator>>,
+    c: Mutex<u8>,
     query_counter: AtomicI32,
     // a: ThinMap<std::ptr::>
 }
 
 impl VulkanManager {
+    pub(crate) fn finalize(&self) {
+        let mut c = self.c.lock();
+        *c = (*c + 1) % 2;
+    }
+    pub fn allocate<T>(&self, d: T) -> Subbuffer<T>
+    where
+        T: BufferContents + Sized,
+    {
+        let ub = self.sub_alloc[*self.c.lock() as usize]
+            .allocate_sized()
+            .unwrap();
+        *ub.write().unwrap() = d;
+        ub
+    }
+    pub fn allocate_unsized<T>(&self, len: u64) -> Subbuffer<T>
+    where
+        T: BufferContents + ?Sized,
+    {
+        self.sub_alloc_unsized[*self.c.lock() as usize]
+            .allocate_unsized(len)
+            .unwrap()
+        // let ub = self.sub_alloc[*self.c.lock() as usize]
+        //     .allocate_sized()
+        //     .unwrap();
+        // *ub.write().unwrap() = d;
+        // ub
+    }
     pub fn buffer<T>(&self, usage: MemoryUsage) -> Subbuffer<T>
     where
         T: BufferContents + Sized,
@@ -79,7 +110,8 @@ impl VulkanManager {
                 usage,
                 ..Default::default()
             },
-        ).unwrap();
+        )
+        .unwrap();
         buf
     }
     pub fn buffer_array<T>(&self, size: u64, usage: MemoryUsage) -> Subbuffer<T>
@@ -346,11 +378,38 @@ impl VulkanManager {
             surface,
             swapchain: SyncUnsafeCell::new(swapchain),
             images,
-            mem_alloc,
+            mem_alloc: mem_alloc.clone(),
             desc_alloc,
             comm_alloc,
             query_pool: Mutex::new(HashMap::default()),
             query_counter: AtomicI32::new(0),
+            sub_alloc: unsafe {
+                (0..2)
+                    .map(|_| {
+                        SendSync::new(SubbufferAllocator::new(
+                            mem_alloc.clone(),
+                            SubbufferAllocatorCreateInfo {
+                                buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                                ..Default::default()
+                            },
+                        ))
+                    })
+                    .collect()
+            },
+            sub_alloc_unsized: unsafe {
+                (0..2)
+                    .map(|_| {
+                        SendSync::new(SubbufferAllocator::new(
+                            mem_alloc.clone(),
+                            SubbufferAllocatorCreateInfo {
+                                buffer_usage: BufferUsage::STORAGE_BUFFER,
+                                ..Default::default()
+                            },
+                        ))
+                    })
+                    .collect()
+            },
+            c: Mutex::new(0),
         })
     }
     pub fn new_query(&self) -> i32 {

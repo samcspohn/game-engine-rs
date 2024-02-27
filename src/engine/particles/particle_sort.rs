@@ -30,18 +30,19 @@ use super::{
 };
 
 pub struct ParticleSort {
+    vk: Arc<VulkanManager>,
     pub a1: Subbuffer<[scs::_a]>,
     pub a2: Subbuffer<[u32]>,
     pub buckets: Subbuffer<[u32]>,
     pub avail_count: Subbuffer<u32>,
     pub indirect: Vec<Subbuffer<[DispatchIndirectCommand]>>,
     pub draw: Subbuffer<[DrawIndirectCommand]>,
-    pub uniforms: Mutex<SubbufferAllocator>,
+    // pub uniforms: Mutex<SubbufferAllocator>,
     pub compute_pipeline: Arc<ComputePipeline>,
 }
 
 impl ParticleSort {
-    pub fn new(vk: &VulkanManager) -> ParticleSort {
+    pub fn new(vk: Arc<VulkanManager>) -> ParticleSort {
         let mut builder = AutoCommandBufferBuilder::primary(
             &vk.comm_alloc,
             vk.queue.queue_family_index(),
@@ -85,7 +86,7 @@ impl ParticleSort {
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, draw.clone()))
             .unwrap();
 
-        let uniforms = Mutex::new(vk.sub_buffer_allocator());
+        // let uniforms = Mutex::new(vk.sub_buffer_allocator());
 
         // build buffer
         let command_buffer = builder.build().unwrap();
@@ -126,8 +127,9 @@ impl ParticleSort {
             avail_count,
             indirect,
             draw,
-            uniforms,
+            // uniforms,
             compute_pipeline,
+            vk,
         }
     }
     // fn barrier(builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,){
@@ -191,8 +193,8 @@ impl ParticleSort {
 
             uniform_data.num_jobs = num_jobs;
             uniform_data.stage = stage.into();
-            let uniform_sub_buffer = self.uniforms.lock().allocate_sized().unwrap();
-            *uniform_sub_buffer.write().unwrap() = uniform_data;
+            let uniform_sub_buffer = self.vk.allocate(uniform_data); //self.uniforms.lock().allocate_sized().unwrap();
+            // *uniform_sub_buffer.write().unwrap() = uniform_data;
             // write_descriptors[6] = (6, uniform_sub_buffer.clone());
             let descriptor_set = PersistentDescriptorSet::new(
                 desc_allocator,

@@ -24,12 +24,15 @@ use crate::{
 };
 use component_derive::ComponentID;
 
-use super::{lighting_asset::LightTemplate, lighting_compute::{cs, lt}};
+use super::{
+    lighting_asset::LightTemplate,
+    lighting_compute::{cs, lt},
+};
 pub struct LightingSystem {
     pub(crate) light_templates: Arc<Mutex<_Storage<fs::lightTemplate>>>,
     // pub(crate) lights: Arc<Mutex<_Storage<fs::light>>>,
     pub(crate) lights: Mutex<Subbuffer<[lt::light]>>,
-    pub(crate) lights_buffer: Arc<Mutex<SubbufferAllocator>>, //Subbuffer<[super::pipeline::fs::light]>,
+    // pub(crate) lights_buffer: Arc<Mutex<SubbufferAllocator>>, //Subbuffer<[super::pipeline::fs::light]>,
     pub light_inits: SegQueue<cs::light_init>,
     pub light_deinits: SegQueue<cs::light_deinit>,
     vk: Arc<VulkanManager>,
@@ -39,9 +42,9 @@ impl LightingSystem {
         Self {
             light_templates: Arc::new(Mutex::new(_Storage::new())),
             lights: Mutex::new(vk.buffer_array(1, MemoryUsage::Download)),
-            lights_buffer: Arc::new(Mutex::new(
-                vk.sub_buffer_allocator_with_usage(BufferUsage::STORAGE_BUFFER),
-            )),
+            // lights_buffer: Arc::new(Mutex::new(
+            //     vk.sub_buffer_allocator_with_usage(BufferUsage::STORAGE_BUFFER),
+            // )),
             light_deinits: SegQueue::new(),
             light_inits: SegQueue::new(),
             vk,
@@ -62,14 +65,18 @@ impl LightingSystem {
                 light_len.next_power_of_two() as DeviceSize,
                 MemoryUsage::Download,
             );
-            builder.copy_buffer(CopyBufferInfo::buffers(lights.clone(), buf.clone())).unwrap();
+            builder
+                .copy_buffer(CopyBufferInfo::buffers(lights.clone(), buf.clone()))
+                .unwrap();
             *lights = buf;
         }
         let buf: Subbuffer<[fs::lightTemplate]> = self
-            .lights_buffer
-            .lock()
-            .allocate_unsized(self.light_templates.lock().data.len().max(1) as DeviceSize)
-            .unwrap();
+            .vk
+            .allocate_unsized(self.light_templates.lock().data.len().max(1) as u64);
+        // .lights_buffer
+        // .lock()
+        // .allocate_unsized(self.light_templates.lock().data.len().max(1) as DeviceSize)
+        // .unwrap();
         {
             let mut b = buf.write().unwrap();
             if self.light_templates.lock().data.len() > 0 {
@@ -83,11 +90,12 @@ impl LightingSystem {
                 v.push(i);
             }
             // let v = self.light_deinits.into_iter().collect::<Vec<cs::light_deinit>>();
-            let buf2: Subbuffer<[cs::light_deinit]> = self
-                .lights_buffer
-                .lock()
-                .allocate_unsized(v.len() as DeviceSize)
-                .unwrap();
+            let buf2: Subbuffer<[cs::light_deinit]> = self.vk.allocate_unsized(v.len() as u64);
+            //  self
+            //     .lights_buffer
+            //     .lock()
+            //     .allocate_unsized(v.len() as DeviceSize)
+            //     .unwrap();
             {
                 let mut b = buf2.write().unwrap();
                 b[..].copy_from_slice(v.as_slice());
@@ -101,11 +109,12 @@ impl LightingSystem {
                 v.push(i);
             }
             // let v = self.light_inits.into_iter().collect::<Vec<cs::light_init>>();
-            let buf2: Subbuffer<[cs::light_init]> = self
-                .lights_buffer
-                .lock()
-                .allocate_unsized(v.len() as DeviceSize)
-                .unwrap();
+            let buf2: Subbuffer<[cs::light_init]> = self.vk.allocate_unsized(v.len() as u64);
+            // self
+            //     .lights_buffer
+            //     .lock()
+            //     .allocate_unsized(v.len() as DeviceSize)
+            //     .unwrap();
             {
                 let mut b = buf2.write().unwrap();
                 b[..].copy_from_slice(v.as_slice());

@@ -72,7 +72,7 @@ pub struct LightingCompute {
     pipeline: Arc<ComputePipeline>,
     pipeline2: Arc<ComputePipeline>,
     // pub(crate) debug: Arc<GraphicsPipeline>,
-    uniforms: Mutex<SubbufferAllocator>,
+    // uniforms: Mutex<SubbufferAllocator>,
     vk: Arc<VulkanManager>,
     dummy_buffer: Subbuffer<[u8]>,
     pub(crate) tiles: Mutex<Subbuffer<[lt::tile]>>,
@@ -143,7 +143,7 @@ impl LightingCompute {
                 |_| {},
             )
             .expect("Failed to create compute shader"),
-            uniforms: Mutex::new(vk.sub_buffer_allocator()),
+            // uniforms: Mutex::new(vk.sub_buffer_allocator()),
             dummy_buffer: vk.buffer_array(1, MemoryUsage::DeviceOnly),
             light_list: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
             light_list2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
@@ -168,16 +168,20 @@ impl LightingCompute {
         indirect: Subbuffer<[W]>,
     ) -> Arc<PersistentDescriptorSet> {
         // let visble_lights = self.visible_lights.lock();
-        let uniforms = {
-            let uniform_data = cs::Data {
-                num_jobs: num_jobs as i32,
-                stage: stage.into(),
-            };
-            let ub = self.uniforms.lock().allocate_sized().unwrap();
-            *ub.write().unwrap() = uniform_data;
-            ub
-            // self.uniforms.from_data(uniform_data).unwrap()
-        };
+        let uniforms = self.vk.allocate(cs::Data {
+            num_jobs: num_jobs as i32,
+            stage: stage.into(),
+        });
+        // {
+        //     let uniform_data = cs::Data {
+        //         num_jobs: num_jobs as i32,
+        //         stage: stage.into(),
+        //     };
+        //     let ub = self.uniforms.lock().allocate_sized().unwrap();
+        //     *ub.write().unwrap() = uniform_data;
+        //     ub
+        //     // self.uniforms.from_data(uniform_data).unwrap()
+        // };
         PersistentDescriptorSet::new(
             &self.vk.desc_alloc,
             self.pipeline
@@ -324,12 +328,13 @@ impl LightingCompute {
             num_lights: num_lights as i32,
         };
         builder.bind_pipeline_compute(self.pipeline2.clone());
-        let uniforms = {
-            let ub = self.uniforms.lock().allocate_sized().unwrap();
-            *ub.write().unwrap() = uni;
-            ub
-            // self.uniforms.from_data(uniform_data).unwrap()
-        };
+        let uniforms = self.vk.allocate(uni);
+        //  {
+        //     let ub = self.uniforms.lock().allocate_sized().unwrap();
+        //     *ub.write().unwrap() = uni;
+        //     ub
+        //     // self.uniforms.from_data(uniform_data).unwrap()
+        // };
         let set = PersistentDescriptorSet::new(
             &self.vk.desc_alloc,
             self.pipeline2
@@ -412,7 +417,13 @@ impl LightingCompute {
         builder.update_buffer(self.visible_lights_c.clone(), &0);
         builder.update_buffer(self.light_counter.clone(), &0);
 
-        build_stage(builder, num_lights, None, Some(indirect.clone().slice(0..1)), 6);
+        build_stage(
+            builder,
+            num_lights,
+            None,
+            Some(indirect.clone().slice(0..1)),
+            6,
+        );
         build_stage(
             builder,
             -1,

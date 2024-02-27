@@ -274,7 +274,11 @@ impl CameraData {
         let target = cvd.cam_pos + glm::quat_rotate_vec3(&rot, &Vec3::z());
         let up = glm::quat_rotate_vec3(&rot, &Vec3::y());
         // cvd.inv_rot = glm::inverse(&glm::quat_to_mat4(&rot));
-        cvd.inv_rot = glm::look_at_rh(&glm::Vec3::zeros(), &(glm::quat_rotate_vec3(&rot, &Vec3::z())), &up);
+        cvd.inv_rot = glm::look_at_rh(
+            &glm::Vec3::zeros(),
+            &(glm::quat_rotate_vec3(&rot, &Vec3::z())),
+            &up,
+        );
         // cvd.view = glm::quat_to_mat4(&glm::quat_conjugate(&rot)) * glm::translate(&glm::identity(), &-pos);
         cvd.view = glm::look_at_rh(&cvd.cam_pos, &target, &up);
         // cvd.view = set_view_direction(pos, rot * -Vec3::z(), Vec3::y());
@@ -470,7 +474,7 @@ impl CameraData {
         cvd: CameraViewData,
         perf: &Perf,
         light_list: Subbuffer<[u32]>,
-        tiles: Subbuffer<[tile]>
+        tiles: Subbuffer<[tile]>,
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
@@ -489,18 +493,24 @@ impl CameraData {
                 // per camera
                 puffin::profile_scope!("update renderers: stage 1");
                 // stage 1
-                let uniforms = {
-                    puffin::profile_scope!("update renderers: stage 1: uniform data");
-                    let data = ur::Data {
-                        num_jobs: rd.transforms_len,
-                        stage: 1.into(),
-                        view: cvd.view.into(),
-                        // _dummy0: Default::default(),
-                    };
-                    let u = rm.uniform.lock().allocate_sized().unwrap();
-                    *u.write().unwrap() = data;
-                    u
-                };
+                let uniforms = self.vk.allocate(ur::Data {
+                    num_jobs: rd.transforms_len,
+                    stage: 1.into(),
+                    view: cvd.view.into(),
+                    // _dummy0: Default::default(),
+                });
+                // {
+                //     puffin::profile_scope!("update renderers: stage 1: uniform data");
+                //     let data = ur::Data {
+                //         num_jobs: rd.transforms_len,
+                //         stage: 1.into(),
+                //         view: cvd.view.into(),
+                //         // _dummy0: Default::default(),
+                //     };
+                //     let u = rm.uniform.lock().allocate_sized().unwrap();
+                //     *u.write().unwrap() = data;
+                //     u
+                // };
                 let update_renderers_set = {
                     puffin::profile_scope!("update renderers: stage 1: descriptor set");
                     PersistentDescriptorSet::new(

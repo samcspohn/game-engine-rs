@@ -84,9 +84,10 @@ pub struct RenderPipeline {
     _vs: Arc<ShaderModule>,
     _fs: Arc<ShaderModule>,
     pub pipeline: Arc<GraphicsPipeline>,
-    pub uniforms: SubbufferAllocator,
+    // pub uniforms: SubbufferAllocator,
     pub def_texture: Arc<ImageView<ImmutableImage>>,
     pub def_sampler: Arc<Sampler>,
+    vk: Arc<VulkanManager>,
 }
 
 impl RenderPipeline {
@@ -181,7 +182,8 @@ impl RenderPipeline {
             pipeline,
             def_texture,
             def_sampler,
-            uniforms: vk.sub_buffer_allocator(),
+            // uniforms: vk.sub_buffer_allocator(),
+            vk,
         }
     }
     // pub fn _regen(
@@ -274,11 +276,12 @@ impl RenderPipeline {
         }
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
         // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
-        let uniform = {
-            let uni = self.uniforms.allocate_sized().unwrap();
-            *uni.write().unwrap() = fs::Data { screen_dims };
-            uni
-        };
+        let uniform = self.vk.allocate(fs::Data { screen_dims });
+        //  {
+        //     let uni = self.uniforms.allocate_sized().unwrap();
+        //     *uni.write().unwrap() = fs::Data { screen_dims };
+        //     uni
+        // };
         descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
         descriptors.push(WriteDescriptorSet::buffer(5, tiles));
