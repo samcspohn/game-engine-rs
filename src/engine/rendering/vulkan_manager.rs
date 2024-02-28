@@ -48,6 +48,7 @@ use crate::engine::EngineEvent;
 
 use super::component::buffer_usage_all;
 
+const NUM_SUBALLOC: usize = 2;
 #[repr(C)]
 pub struct VulkanManager {
     pub device: Arc<Device>,
@@ -63,21 +64,23 @@ pub struct VulkanManager {
     pub query_pool: Mutex<HashMap<i32, Arc<QueryPool>, nohash_hasher::BuildNoHashHasher<i32>>>,
     sub_alloc: Vec<SendSync<SubbufferAllocator>>,
     sub_alloc_unsized: Vec<SendSync<SubbufferAllocator>>,
-    c: Mutex<u8>,
+    c: SyncUnsafeCell<usize>,
     query_counter: AtomicI32,
     // a: ThinMap<std::ptr::>
 }
 
 impl VulkanManager {
     pub(crate) fn finalize(&self) {
-        let mut c = self.c.lock();
-        *c = (*c + 1) % 2;
+        unsafe {
+            let c = self.c.get();
+            *c = (*c + 1) % NUM_SUBALLOC;
+        }
     }
     pub fn allocate<T>(&self, d: T) -> Subbuffer<T>
     where
         T: BufferContents + Sized,
     {
-        let ub = self.sub_alloc[*self.c.lock() as usize]
+        let ub = self.sub_alloc[unsafe { *self.c.get() }]
             .allocate_sized()
             .unwrap();
         *ub.write().unwrap() = d;
@@ -87,7 +90,7 @@ impl VulkanManager {
     where
         T: BufferContents + ?Sized,
     {
-        self.sub_alloc_unsized[*self.c.lock() as usize]
+        self.sub_alloc_unsized[unsafe { *self.c.get() }]
             .allocate_unsized(len)
             .unwrap()
         // let ub = self.sub_alloc[*self.c.lock() as usize]
@@ -384,7 +387,7 @@ impl VulkanManager {
             query_pool: Mutex::new(HashMap::default()),
             query_counter: AtomicI32::new(0),
             sub_alloc: unsafe {
-                (0..2)
+                (0..NUM_SUBALLOC)
                     .map(|_| {
                         SendSync::new(SubbufferAllocator::new(
                             mem_alloc.clone(),
@@ -397,7 +400,7 @@ impl VulkanManager {
                     .collect()
             },
             sub_alloc_unsized: unsafe {
-                (0..2)
+                (0..NUM_SUBALLOC)
                     .map(|_| {
                         SendSync::new(SubbufferAllocator::new(
                             mem_alloc.clone(),
@@ -409,7 +412,7 @@ impl VulkanManager {
                     })
                     .collect()
             },
-            c: Mutex::new(0),
+            c: unsafe { SyncUnsafeCell::new(0) },
         })
     }
     pub fn new_query(&self) -> i32 {

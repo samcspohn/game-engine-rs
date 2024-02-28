@@ -220,6 +220,7 @@ struct EngineRenderer {
     recreate_swapchain: bool,
     editor_window_image: Option<Arc<dyn ImageAccess>>,
     render_pass: Arc<RenderPass>,
+    previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
 pub struct Engine {
     pub world: Arc<Mutex<World>>,
@@ -239,13 +240,13 @@ pub struct Engine {
         Option<PhysicalSize<u32>>,
         bool,
     )>,
-    pub(crate) rendering_data:
-        Sender<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+    // pub(crate) rendering_data:
+    // Sender<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
     phys_upd_start: Sender<()>,
     phys_upd_compl: Receiver<()>,
     phys_upd_compl2: Receiver<()>,
     // end of channels
-    pub(crate) rendering_complete: Receiver<bool>,
+    // pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
     pub time: Time,
@@ -257,7 +258,7 @@ pub struct Engine {
     pub(crate) running: Arc<AtomicBool>,
     pub(crate) input_thread: Arc<JoinHandle<()>>,
     pub(crate) physics_thread: Arc<JoinHandle<()>>,
-    pub(crate) rendering_thread: Arc<JoinHandle<()>>,
+    // pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     pub(crate) file_watcher: FileWatcher,
     pub(crate) gui: SendSync<Gui>,
     pub(crate) tex_id: Option<TextureId>,
@@ -411,8 +412,8 @@ impl Engine {
             },
         );
         let proxy = event_loop.create_proxy();
-        let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
-        let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
+        // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
+        // let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd, phys_rcv) = crossbeam::channel::bounded(1);
         let (phys_snd2, phys_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd3, phys_rcv3) = crossbeam::channel::bounded(1);
@@ -421,10 +422,10 @@ impl Engine {
             let vk = vk.clone();
             thread::spawn(move || input_thread::input_thread(event_loop, vk, input_snd))
         });
-        let rendering_thread = Arc::new({
-            let vk = vk.clone();
-            thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
-        });
+        // let rendering_thread = Arc::new({
+        //     let vk = vk.clone();
+        //     thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
+        // });
         let perf = Arc::new(perf);
         let mut phys = world.lock().sys.physics.clone();
         let physics_thread = Arc::new({
@@ -465,8 +466,8 @@ impl Engine {
             perf,
             shared_render_data: rm,
             input: input_rcv,
-            rendering_data: rendering_snd,
-            rendering_complete: rendering_rcv2,
+            // rendering_data: rendering_snd,
+            // rendering_complete: rendering_rcv2,
             phys_upd_start: phys_snd,
             phys_upd_compl: phys_rcv2,
             phys_upd_compl2: phys_rcv3,
@@ -477,6 +478,7 @@ impl Engine {
                 recreate_swapchain,
                 editor_window_image,
                 render_pass,
+                previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
             },
             vk,
             editor_cam: editor::editor_cam::EditorCam {
@@ -491,7 +493,7 @@ impl Engine {
             frame_time,
             running,
             input_thread,
-            rendering_thread,
+            // rendering_thread,
             physics_thread,
             file_watcher,
             tex_id: None,
@@ -623,13 +625,14 @@ impl Engine {
             recreate_swapchain,
             editor_window_image,
             render_pass,
+            previous_frame_end,
         } = &mut self.renderer;
 
         if let Some(window_size) = window_size {
             let vk = self.vk.clone();
-            let wait_for_render = self.perf.node("wait for render");
-            let out_of_date = self.rendering_complete.recv().unwrap();
-            drop(wait_for_render);
+            // let wait_for_render = self.perf.node("wait for render");
+            // let out_of_date = self.rendering_complete.recv().unwrap();
+            // drop(wait_for_render);
             let dimensions: [u32; 2] = vk.window().inner_size().into();
             println!("dimensions: {dimensions:?}");
 
@@ -647,7 +650,7 @@ impl Engine {
                 }) => {
                     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
                     self.event_loop_proxy.send_event(EngineEvent::Send);
-                    self.rendering_data.send(None).unwrap();
+                    // self.rendering_data.send(None).unwrap();
 
                     return should_exit;
                 }
@@ -662,7 +665,7 @@ impl Engine {
             *recreate_swapchain = false;
 
             self.event_loop_proxy.send_event(EngineEvent::Send);
-            self.rendering_data.send(None).unwrap();
+            // self.rendering_data.send(None).unwrap();
             return should_exit;
         }
 
@@ -817,7 +820,9 @@ impl Engine {
         // let render_jobs = engine.world.lock().render();
 
         let mut rm = self.shared_render_data.write();
+        // let clean_up = self.perf.node("previous frame end clean up finished");
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
+        // drop(clean_up);
         // rayon::scope(|s| {
         //     let mut a = 0;
         //     s.spawn(|s| {
@@ -826,7 +831,6 @@ impl Engine {
         // });
         let transforms_buf = {
             let allocate_transform_buf = self.perf.node("allocate transforms_buf");
-            // let world = self.world.lock();
             self.transform_compute
                 .write()
                 .alloc_buffers(transform_extent as DeviceSize)
@@ -903,7 +907,7 @@ impl Engine {
             .1
             .read()
             .len();
-        
+
         let (light_templates, light_deinits, light_inits) = self
             .lighting_system
             .get_light_buffer(light_len, &mut builder);
@@ -925,14 +929,14 @@ impl Engine {
                     *EDITOR_WINDOW_DIM.lock()
                 };
                 cam.lock().resize(dims, vk.clone());
-                // self.lighting_compute.write().update_lights_2(
-                //     &mut builder,
-                //     self.lighting_system.lights.lock().clone(),
-                //     &cvd,
-                //     self.transform_compute.read().gpu_transforms.clone(),
-                //     light_templates.clone(),
-                //     light_len as i32,
-                // );
+                self.lighting_compute.write().update_lights_2(
+                    &mut builder,
+                    self.lighting_system.lights.lock().clone(),
+                    &cvd,
+                    self.transform_compute.read().gpu_transforms.clone(),
+                    light_templates.clone(),
+                    light_len as i32,
+                );
                 let lc = self.lighting_compute.read();
                 game_image = cam.lock().render(
                     vk.clone(),
@@ -1022,11 +1026,13 @@ impl Engine {
         //     return should_exit;
         //     // return;
         // }
-        // previous_frame_end.as_mut().unwrap().cleanup_finished();
+        let clean_up = self.perf.node("previous frame end clean up finished");
+        previous_frame_end.as_mut().unwrap().cleanup_finished();
+        drop(clean_up);
         let wait_for_render = self.perf.node("wait for render");
-        let out_of_date = self.rendering_complete.recv().unwrap();
+        // let out_of_date = self.rendering_complete.recv().unwrap();
         drop(wait_for_render);
-        *recreate_swapchain |= _recreate_swapchain | out_of_date;
+        // *recreate_swapchain |= _recreate_swapchain | out_of_date;
         if *recreate_swapchain {
             let dimensions: [u32; 2] = vk.window().inner_size().into();
             println!("dimensions: {dimensions:?}");
@@ -1044,7 +1050,7 @@ impl Engine {
                     max_supported,
                 }) => {
                     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
-                    self.rendering_data.send(None).unwrap();
+                    // self.rendering_data.send(None).unwrap();
                     self.event_loop_proxy.send_event(EngineEvent::Send);
                     return should_exit;
                 }
@@ -1065,7 +1071,7 @@ impl Engine {
                 Err(AcquireError::OutOfDate) => {
                     *recreate_swapchain = true;
                     println!("falied to aquire next image");
-                    self.rendering_data.send(None).unwrap();
+                    // self.rendering_data.send(None).unwrap();
                     return true;
                 }
                 Err(e) => panic!("Failed to acquire next image: {:?}", e),
@@ -1109,12 +1115,53 @@ impl Engine {
         //     *self.particles_system.cycle.get() = (*self.particles_system.cycle.get() + 1) % 2;
         // }
         let _execute = self.perf.node("_ execute");
-        self.rendering_data.send(Some((
-            should_exit,
-            image_num,
-            acquire_future,
-            command_buffer,
-        )));
+
+        // let future = acquire_future
+        //     .then_execute(vk.queue.clone(), command_buffer)
+        //     .unwrap()
+        //     // .then_execute(vk.queue.clone(), command_buffer)
+        //     // .unwrap()
+        //     .then_swapchain_present(
+        //         vk.queue.clone(),
+        //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+        //     )
+        //     .then_signal_fence()
+        //     .flush(); // FREEZE HERE
+        previous_frame_end.take().unwrap().flush().unwrap();
+        // let future = previous_frame_end
+        //     .take()
+        //     .unwrap()
+        //     .join(acquire_future)
+        let future = acquire_future
+            .then_execute(vk.queue.clone(), command_buffer)
+            .unwrap()
+            .then_swapchain_present(
+                vk.queue.clone(),
+                SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+            )
+            .then_signal_fence_and_flush();
+
+        match future {
+            Ok(future) => {
+                *previous_frame_end = Some(future.boxed());
+            }
+            Err(FlushError::OutOfDate) => {
+                *recreate_swapchain = true;
+                *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+            }
+            Err(e) => {
+                println!("failed to flush future: {e}");
+                *recreate_swapchain = true;
+                *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+            }
+        }
+
+        // self.rendering_data.send(Some((
+        //     should_exit,
+        //     image_num,
+        //     acquire_future,
+        //     command_buffer,
+        // )));
         drop(_execute);
 
         self.update_editor_window = window_size.is_some();
@@ -1128,7 +1175,7 @@ impl Engine {
         println!("end");
         // self.world.lock().sys.physics.lock().get_counters();
         self.perf.print();
-        Arc::into_inner(self.rendering_thread).unwrap().join();
+        // Arc::into_inner(self.rendering_thread).unwrap().join();
         self.event_loop_proxy.send_event(EngineEvent::Quit);
         // Arc::into_inner(self.input_thread).unwrap().join();
     }
