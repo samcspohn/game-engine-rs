@@ -32,6 +32,7 @@ game-engine:
   ☐ implement actual parallel prefix sum
   ☐ reduce mutex locks
   ☐ implement shader abstraction
+  ☐ fix recreate swapchain early exit
   rendering:
     ☐ add materials
     ☐ use indirect to draw all geometry in one pass
