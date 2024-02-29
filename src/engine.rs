@@ -628,46 +628,46 @@ impl Engine {
             previous_frame_end,
         } = &mut self.renderer;
 
-        if let Some(window_size) = window_size {
-            let vk = self.vk.clone();
-            // let wait_for_render = self.perf.node("wait for render");
-            // let out_of_date = self.rendering_complete.recv().unwrap();
-            // drop(wait_for_render);
-            let dimensions: [u32; 2] = vk.window().inner_size().into();
-            println!("dimensions: {dimensions:?}");
+        // if let Some(window_size) = window_size {
+        //     let vk = self.vk.clone();
+        //     // let wait_for_render = self.perf.node("wait for render");
+        //     // let out_of_date = self.rendering_complete.recv().unwrap();
+        //     // drop(wait_for_render);
+        //     let dimensions: [u32; 2] = vk.window().inner_size().into();
+        //     println!("dimensions: {dimensions:?}");
 
-            let mut swapchain = vk.swapchain();
-            let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
-                .recreate(SwapchainCreateInfo {
-                    image_extent: dimensions,
-                    ..swapchain.create_info()
-                }) {
-                Ok(r) => r,
-                Err(SwapchainCreationError::ImageExtentNotSupported {
-                    provided,
-                    min_supported,
-                    max_supported,
-                }) => {
-                    println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
-                    self.event_loop_proxy.send_event(EngineEvent::Send);
-                    // self.rendering_data.send(None).unwrap();
+        //     let mut swapchain = vk.swapchain();
+        //     let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
+        //         .recreate(SwapchainCreateInfo {
+        //             image_extent: dimensions,
+        //             ..swapchain.create_info()
+        //         }) {
+        //         Ok(r) => r,
+        //         Err(SwapchainCreationError::ImageExtentNotSupported {
+        //             provided,
+        //             min_supported,
+        //             max_supported,
+        //         }) => {
+        //             println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
+        //             self.event_loop_proxy.send_event(EngineEvent::Send);
+        //             // self.rendering_data.send(None).unwrap();
 
-                    return should_exit;
-                }
-                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-            };
+        //             return should_exit;
+        //         }
+        //         Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+        //     };
 
-            vk.update_swapchain(new_swapchain);
+        //     vk.update_swapchain(new_swapchain);
 
-            *framebuffers =
-                window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
-            viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-            *recreate_swapchain = false;
+        //     *framebuffers =
+        //         window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
+        //     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+        //     *recreate_swapchain = false;
 
-            self.event_loop_proxy.send_event(EngineEvent::Send);
-            // self.rendering_data.send(None).unwrap();
-            return should_exit;
-        }
+        //     self.event_loop_proxy.send_event(EngineEvent::Send);
+        //     // self.rendering_data.send(None).unwrap();
+        //     return should_exit;
+        // }
 
         let mut world = self.world.lock();
         let gpu_work = SegQueue::new();
@@ -817,6 +817,60 @@ impl Engine {
 
         let vk = self.vk.clone();
         let full_render_time = self.perf.node("full render time");
+
+        // begin rendering
+        let clean_up = self.perf.node("previous frame end clean up finished");
+        previous_frame_end.as_mut().unwrap().cleanup_finished();
+        drop(clean_up);
+
+        if *recreate_swapchain {
+            let dimensions: [u32; 2] = vk.window().inner_size().into();
+            println!("dimensions: {dimensions:?}");
+
+            let mut swapchain = vk.swapchain();
+            let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
+                .recreate(SwapchainCreateInfo {
+                    image_extent: dimensions,
+                    ..swapchain.create_info()
+                }) {
+                Ok(r) => r,
+                Err(SwapchainCreationError::ImageExtentNotSupported {
+                    provided,
+                    min_supported,
+                    max_supported,
+                }) => {
+                    println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
+                    // self.rendering_data.send(None).unwrap();
+                    self.event_loop_proxy.send_event(EngineEvent::Send);
+                    return should_exit;
+                }
+                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+            };
+
+            vk.update_swapchain(new_swapchain);
+
+            *framebuffers =
+                window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
+            viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+            *recreate_swapchain = false;
+        }
+
+        let (image_num, suboptimal, acquire_future) =
+            match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(30))) {
+                Ok(r) => r,
+                Err(AcquireError::OutOfDate) => {
+                    *recreate_swapchain = true;
+                    println!("falied to aquire next image");
+                    // self.rendering_data.send(None).unwrap();
+                    return true;
+                }
+                Err(e) => panic!("Failed to acquire next image: {:?}", e),
+            };
+        if suboptimal {
+            *recreate_swapchain = true;
+        }
+
+
         // let render_jobs = engine.world.lock().render();
 
         let mut rm = self.shared_render_data.write();
@@ -1026,59 +1080,59 @@ impl Engine {
         //     return should_exit;
         //     // return;
         // }
-        let clean_up = self.perf.node("previous frame end clean up finished");
-        previous_frame_end.as_mut().unwrap().cleanup_finished();
-        drop(clean_up);
-        let wait_for_render = self.perf.node("wait for render");
-        // let out_of_date = self.rendering_complete.recv().unwrap();
-        drop(wait_for_render);
-        // *recreate_swapchain |= _recreate_swapchain | out_of_date;
-        if *recreate_swapchain {
-            let dimensions: [u32; 2] = vk.window().inner_size().into();
-            println!("dimensions: {dimensions:?}");
+        // let clean_up = self.perf.node("previous frame end clean up finished");
+        // previous_frame_end.as_mut().unwrap().cleanup_finished();
+        // drop(clean_up);
+        // // let wait_for_render = self.perf.node("wait for render");
+        // // let out_of_date = self.rendering_complete.recv().unwrap();
+        // // drop(wait_for_render);
+        // // *recreate_swapchain |= _recreate_swapchain | out_of_date;
+        // if *recreate_swapchain {
+        //     let dimensions: [u32; 2] = vk.window().inner_size().into();
+        //     println!("dimensions: {dimensions:?}");
 
-            let mut swapchain = vk.swapchain();
-            let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
-                .recreate(SwapchainCreateInfo {
-                    image_extent: dimensions,
-                    ..swapchain.create_info()
-                }) {
-                Ok(r) => r,
-                Err(SwapchainCreationError::ImageExtentNotSupported {
-                    provided,
-                    min_supported,
-                    max_supported,
-                }) => {
-                    println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
-                    // self.rendering_data.send(None).unwrap();
-                    self.event_loop_proxy.send_event(EngineEvent::Send);
-                    return should_exit;
-                }
-                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-            };
+        //     let mut swapchain = vk.swapchain();
+        //     let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
+        //         .recreate(SwapchainCreateInfo {
+        //             image_extent: dimensions,
+        //             ..swapchain.create_info()
+        //         }) {
+        //         Ok(r) => r,
+        //         Err(SwapchainCreationError::ImageExtentNotSupported {
+        //             provided,
+        //             min_supported,
+        //             max_supported,
+        //         }) => {
+        //             println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
+        //             // self.rendering_data.send(None).unwrap();
+        //             self.event_loop_proxy.send_event(EngineEvent::Send);
+        //             return should_exit;
+        //         }
+        //         Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+        //     };
 
-            vk.update_swapchain(new_swapchain);
+        //     vk.update_swapchain(new_swapchain);
 
-            *framebuffers =
-                window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
-            viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-            *recreate_swapchain = false;
-        }
+        //     *framebuffers =
+        //         window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
+        //     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+        //     *recreate_swapchain = false;
+        // }
 
-        let (image_num, suboptimal, acquire_future) =
-            match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(30))) {
-                Ok(r) => r,
-                Err(AcquireError::OutOfDate) => {
-                    *recreate_swapchain = true;
-                    println!("falied to aquire next image");
-                    // self.rendering_data.send(None).unwrap();
-                    return true;
-                }
-                Err(e) => panic!("Failed to acquire next image: {:?}", e),
-            };
-        if suboptimal {
-            *recreate_swapchain = true;
-        }
+        // let (image_num, suboptimal, acquire_future) =
+        //     match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(30))) {
+        //         Ok(r) => r,
+        //         Err(AcquireError::OutOfDate) => {
+        //             *recreate_swapchain = true;
+        //             println!("falied to aquire next image");
+        //             // self.rendering_data.send(None).unwrap();
+        //             return true;
+        //         }
+        //         Err(e) => panic!("Failed to acquire next image: {:?}", e),
+        //     };
+        // if suboptimal {
+        //     *recreate_swapchain = true;
+        // }
 
         // engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
         let gui_commands = gui_commands.unwrap();
@@ -1110,7 +1164,7 @@ impl Engine {
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();
         drop(_build_command_buffer);
-        vk.finalize();
+        // vk.finalize();
         // unsafe {
         //     *self.particles_system.cycle.get() = (*self.particles_system.cycle.get() + 1) % 2;
         // }
