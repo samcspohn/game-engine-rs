@@ -475,6 +475,7 @@ impl CameraData {
         perf: &Perf,
         light_list: Subbuffer<[u32]>,
         tiles: Subbuffer<[tile]>,
+        light_debug: bool,
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
@@ -677,29 +678,30 @@ impl CameraData {
             light_templates.clone(),
             tiles.clone(),
         );
-
-        let set = PersistentDescriptorSet::new(
-            &self.vk.desc_alloc,
-            self.light_debug
-                .layout()
-                .set_layouts()
-                .get(0)
-                .unwrap()
-                .clone(),
-            [WriteDescriptorSet::buffer(0, tiles.clone())],
-        )
-        .unwrap();
-        builder
-            .bind_pipeline_graphics(self.light_debug.clone())
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                self.light_debug.layout().clone(),
-                0,
-                set,
+        
+        if (light_debug) {
+            let set = PersistentDescriptorSet::new(
+                &self.vk.desc_alloc,
+                self.light_debug
+                    .layout()
+                    .set_layouts()
+                    .get(0)
+                    .unwrap()
+                    .clone(),
+                [WriteDescriptorSet::buffer(0, tiles.clone())],
             )
-            .draw(NUM_TILES as u32, 1, 0, 0)
             .unwrap();
-
+            builder
+                .bind_pipeline_graphics(self.light_debug.clone())
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Graphics,
+                    self.light_debug.layout().clone(),
+                    0,
+                    set,
+                )
+                .draw(NUM_TILES as u32, 1, 0, 0)
+                .unwrap();
+        }
         builder.end_render_pass().unwrap();
         // self.camera_view_data.pop_front();
         Some(self.image.clone())

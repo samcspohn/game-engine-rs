@@ -818,6 +818,16 @@ impl Engine {
         let vk = self.vk.clone();
         let full_render_time = self.perf.node("full render time");
 
+        static mut LIGHT_DEBUG: bool = false;
+
+        if (input.get_key(&VirtualKeyCode::LControl)
+            && input.get_key(&VirtualKeyCode::LAlt)
+            && input.get_key_press(&VirtualKeyCode::L))
+        {
+            unsafe {
+                LIGHT_DEBUG = !LIGHT_DEBUG;
+            }
+        }
         // begin rendering
         let clean_up = self.perf.node("previous frame end clean up finished");
         previous_frame_end.as_mut().unwrap().cleanup_finished();
@@ -869,7 +879,6 @@ impl Engine {
         if suboptimal {
             *recreate_swapchain = true;
         }
-
 
         // let render_jobs = engine.world.lock().render();
 
@@ -1013,6 +1022,7 @@ impl Engine {
                     &self.perf,
                     lc.light_list2.lock().clone(),
                     lc.tiles.lock().clone(),
+                    unsafe { LIGHT_DEBUG },
                 );
             }
         }
