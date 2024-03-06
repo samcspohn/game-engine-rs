@@ -641,7 +641,7 @@ impl CameraData {
         let render_jobs_perf = perf.node("render jobs");
         let mut rjd = RenderJobData {
             builder,
-            uniforms: Arc::new(Mutex::new(vk.sub_buffer_allocator())),
+            // uniforms: Arc::new(Mutex::new(vk.sub_buffer_allocator())),
             gpu_transforms: transform_compute.gpu_transforms.clone(),
             light_len,
             lights: lights.clone(),

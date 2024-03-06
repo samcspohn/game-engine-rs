@@ -92,7 +92,7 @@ lazy_static! {
 use crate::engine::project::asset_manager::_AssetID;
 
 use super::{
-    particle_asset::{ParticleTemplateManager, TEMPLATE_UPDATE},
+    asset::{ParticleTemplateManager, TEMPLATE_UPDATE},
     particle_sort::ParticleSort,
     particle_textures::ParticleTextures,
     shaders::{
@@ -320,7 +320,7 @@ impl ParticlesSystem {
             .unwrap();
 
         unsafe {
-            *super::particle_asset::DEFAULT_TEXTURE.get() =
+            *super::asset::DEFAULT_TEXTURE.get() =
                 AssetInstance::<Texture>::new(tex_man.lock().from_file("default/particle.png"));
         }
         let particle_textures = Arc::new(Mutex::new(ParticleTextures::new(

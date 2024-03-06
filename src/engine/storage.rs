@@ -208,17 +208,6 @@ impl<
         }
         id
     }
-    pub fn insert_exact<D>(&self, id: i32, t: i32, transforms: &Transforms, sys: &Sys, f: &D)
-    where
-        D: Fn() -> T + Send + Sync,
-    {
-        self.write_t(id, t, f());
-        if let Some(trans) = transforms.get(t) {
-            self.init(&trans, id, sys);
-            // self.on_start(&trans, id, syst);
-            trans.entity().insert(T::ID, id);
-        }
-    }
     pub(crate) fn _allocate(&mut self, count: usize) -> CacheVec<i32> {
         let mut r = self.new_ids_cache.get_vec(count);
         let c = self.avail.len().min(count as usize);
@@ -240,11 +229,31 @@ impl<
         self.extent = self.extent.max(self.last + 1);
         r
     }
+    pub fn insert_exact<D>(
+        &self,
+        id: i32,
+        t: i32,
+        transforms: &Transforms,
+        sys: &Sys,
+        syst: &System,
+        f: &D,
+    ) where
+        D: Fn() -> T + Send + Sync,
+    {
+        self.write_t(id, t, f());
+        if let Some(trans) = transforms.get(t) {
+            self.init(&trans, id, sys);
+            // self.on_start(&trans, id, syst);
+            trans.entity().insert(T::ID, id);
+            self.on_start(&trans, id, syst);
+        }
+    }
     pub(crate) fn insert_multi<D>(
         &self,
         count: usize,
         transforms: &Transforms,
         sys: &Sys,
+        syst: &System,
         t_: &[i32],
         t_offset: usize,
         perf: &Perf,
@@ -262,6 +271,7 @@ impl<
             if let Some(trans) = transforms.get(t) {
                 self.init(&trans, id, sys);
                 trans.entity().insert(T::ID, id);
+                self.on_start(&trans, id, syst);
             }
         });
     }

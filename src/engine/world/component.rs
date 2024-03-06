@@ -2,19 +2,21 @@ use std::{cell::SyncUnsafeCell, sync::Arc};
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
+use kira::manager::AudioManager;
 use nalgebra_glm::{Quat, Vec3};
 use parking_lot::{Mutex, RwLock};
-use rapier3d::prelude::{RigidBodyHandle, QueryPipeline};
+use rapier3d::prelude::{QueryPipeline, RigidBodyHandle};
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
     SecondaryAutoCommandBuffer,
 };
 
 use crate::engine::{
+    audio::{self, asset::AudioAsset},
     input::Input,
-    particles::{particle_asset::ParticleTemplate, particles::ParticlesSystem},
+    particles::{asset::ParticleTemplate, particles::ParticlesSystem},
     physics::{collider::_ColliderType, Physics, PhysicsData},
-    project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
+    project::asset_manager::{AssetInstance, AssetManager, AssetManagerBase, AssetsManager},
     rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
     time::Time,
     utils::{GPUWork, PrimaryCommandBuffer},
@@ -25,6 +27,7 @@ use crate::engine::{
 use super::NewRigidBody;
 
 pub struct System<'a> {
+    pub audio: &'a Mutex<AudioManager>,
     pub physics: &'a PhysicsData,
     pub defer: &'a Defer,
     pub input: &'a Input,
@@ -34,8 +37,7 @@ pub struct System<'a> {
     pub vk: Arc<VulkanManager>,
     pub gpu_work: &'a GPUWork,
     pub(crate) particle_system: &'a ParticlesSystem,
-    pub(crate) new_rigid_bodies:
-        &'a SegQueue<NewRigidBody>,
+    pub(crate) new_rigid_bodies: &'a SegQueue<NewRigidBody>,
 }
 impl<'a> System<'a> {
     pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
@@ -66,6 +68,25 @@ impl<'a> System<'a> {
         };
 
         self.particle_system.particle_burts.push(burst);
+    }
+    pub fn play_sound(&self, template: &AssetInstance<AudioAsset>) {
+        let b = &self.assets;
+        let a = b.get_manager::<AudioAsset>().clone();
+        unsafe {
+            let c = a.lock();
+            let d = c
+                .as_any()
+                .downcast_ref_unchecked::<AssetManager<audio::asset::Param, AudioAsset>>();
+            self.audio.lock().play(
+                d.assets_id
+                    .get(&template.id)
+                    .unwrap()
+                    .lock()
+                    .d
+                    .assume_init_ref()
+                    .clone(),
+            );
+        }
     }
 }
 

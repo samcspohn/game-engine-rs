@@ -4,6 +4,7 @@ pub mod transform;
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
+use kira::manager::{backend::DefaultBackend, AudioManager, AudioManagerSettings};
 use nalgebra_glm::{quat_euler_angles, Quat, Vec3};
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rapier3d::prelude::vector;
@@ -75,6 +76,7 @@ pub struct NewCollider {
 }
 pub struct Sys {
     // pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
+    pub audio_manager: Arc<Mutex<AudioManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub assets_manager: Arc<AssetsManager>,
     pub physics: Arc<Mutex<Physics>>,
@@ -123,6 +125,9 @@ pub struct World {
     pub(crate) to_instantiate: AtomicVec<_EntityBuilder>,
     pub(crate) to_instantiate_count_trans: AtomicI32,
     v: VecCache<i32>,
+    pub(crate) gpu_work: GPUWork,
+    input: Input,
+    time: Time,
 }
 
 //  T_ = 'static
@@ -142,11 +147,8 @@ impl World {
         lighting: Arc<LightingSystem>,
         vk: Arc<VulkanManager>,
         assets_manager: Arc<AssetsManager>,
-        // trans: &'static mut Transforms,
     ) -> World {
         let mut trans = Transforms::new();
-        // let mesh_map = HashMap::new();
-        // let root = TRANSFORMS.new_root();
         let root = trans.new_root();
         World {
             phys_time: 0f32,
@@ -155,11 +157,13 @@ impl World {
             mesh_map: HashMap::new(),
             proc_mesh_id: -1,
             transform_map: HashMap::new(),
-            // dragged_transform: -1,
             components: HashMap::default(),
             components_names: HashMap::new(),
             root,
             sys: Sys {
+                audio_manager: Arc::new(Mutex::new(
+                    AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()).unwrap(),
+                )),
                 renderer_manager: Arc::new(RwLock::new(RendererManager::new(vk.clone()))),
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
@@ -179,6 +183,9 @@ impl World {
             to_instantiate: AtomicVec::new(),
             to_instantiate_count_trans: AtomicI32::new(0),
             v: VecCache::new(),
+            gpu_work: SegQueue::new(),
+            input: Input::default(),
+            time: Time::default(),
         }
     }
     pub fn instantiate(&self, parent: i32) -> EntityBuilder {
@@ -449,28 +456,23 @@ impl World {
             }
         }
     }
-    pub fn defer_instantiate(
-        &mut self,
-        input: &Input,
-        time: &Time,
-        gpu_work: &GPUWork,
-        perf: &Perf,
-    ) {
+    pub fn defer_instantiate(&mut self, perf: &Perf) {
         let world_alloc_transforms = perf.node("world allocate transforms");
 
         let sys = &self.sys;
-        // let syst = System {
-        //     physics: &sys.physics.lock(),
-        //     defer: &sys.defer,
-        //     input,
-        //     time,
-        //     rendering: &sys.renderer_manager,
-        //     assets: &sys.assets_manager,
-        //     vk: sys.vk.clone(),
-        //     gpu_work,
-        //     particle_system: &sys.particles_system,
-        //     new_rigid_bodies: &sys.new_rigid_bodies,
-        // };
+        let syst = System {
+            audio: &sys.audio_manager,
+            physics: &sys.physics2.lock(),
+            defer: &sys.defer,
+            input: &self.input,
+            time: &self.time,
+            rendering: &sys.renderer_manager,
+            assets: &sys.assets_manager,
+            vk: sys.vk.clone(),
+            gpu_work: &self.gpu_work,
+            particle_system: &sys.particles_system,
+            new_rigid_bodies: &sys.new_rigid_bodies,
+        };
 
         let mut trans_count = self.to_instantiate_count_trans.as_ptr();
         let t = self
@@ -502,8 +504,9 @@ impl World {
         self.components.iter().for_each(|(id, c)| {
             unlocked.insert(*id, (AtomicI32::new(0), c.1.read()));
         });
-        self._defer_instantiate_single(perf, &t, &comp_ids, &unlocked);
-        self._defer_instantiate_multi(perf, &t, &comp_ids, &unlocked);
+
+        self._defer_instantiate_single(perf, &t, &comp_ids, &unlocked, &syst);
+        self._defer_instantiate_multi(perf, &t, &comp_ids, &unlocked, &syst);
         self.to_instantiate_count_trans.store(0, Ordering::Relaxed);
         self.to_instantiate.clear();
         self.to_instantiate_multi.clear();
@@ -529,6 +532,7 @@ impl World {
                 ),
             >,
         >,
+        sys: &System,
     ) {
         if self.to_instantiate.len() == 0 {
             return;
@@ -551,7 +555,7 @@ impl World {
                     let c_id = comp.0.fetch_add(1, Ordering::Relaxed);
                     b.1(
                         &self,
-                        // syst,
+                        sys,
                         comp.1.as_ref(),
                         (unsafe { &*comp_ids.get(&b.0).unwrap().get() }).get()[c_id as usize],
                         t,
@@ -581,6 +585,7 @@ impl World {
                 ),
             >,
         >,
+        sys: &System,
     ) {
         if self.to_instantiate_multi.len() == 0 {
             return;
@@ -614,26 +619,30 @@ impl World {
                 // (a.instantiate_func)(a, _trans, comp_ids, &self, &unlocked);
                 let t_func = a.t_func.1.as_ref().unwrap_or(&t_default);
                 let t_id = unsafe { *a.t_func.0.get() };
-                // match a.count < 16 {
-                //     true => {
-                // (0..a.count).into_iter().for_each(|i| {
-                //     let t = _trans[(t_id + i) as usize];
-                //     self.transforms.write_transform(t, t_func());
-                // });
-                // a.comp_funcs.iter().for_each(|b| {
-                //     let comp = &unlocked.get(&b.0).unwrap();
-                //     let c_id = unsafe { *b.1.get() };
-                //     let stor = comp.1.as_ref();
-                //     let cto = unsafe {
-                //         (*comp_ids.get(&b.0).unwrap().get()).get()
-                //     };
-                //     (0..a.count).into_iter().for_each(|i| {
-                //         let t = _trans[(t_id + i) as usize];
-                //         b.2(&self, stor, cto[(c_id + i) as usize], t);
-                //     });
-                // });
-                //     }
-                //     false => {
+                {
+
+                    // match a.count < 16 {
+                    //     true => {
+                    // (0..a.count).into_iter().for_each(|i| {
+                    //     let t = _trans[(t_id + i) as usize];
+                    //     self.transforms.write_transform(t, t_func());
+                    // });
+                    // a.comp_funcs.iter().for_each(|b| {
+                    //     let comp = &unlocked.get(&b.0).unwrap();
+                    //     let c_id = unsafe { *b.1.get() };
+                    //     let stor = comp.1.as_ref();
+                    //     let cto = unsafe {
+                    //         (*comp_ids.get(&b.0).unwrap().get()).get()
+                    //     };
+                    //     (0..a.count).into_iter().for_each(|i| {
+                    //         let t = _trans[(t_id + i) as usize];
+                    //         b.2(&self, stor, cto[(c_id + i) as usize], t);
+                    //     });
+                    // });
+                    //     }
+                    //     false => {
+                }
+
                 (0..a.count).into_par_iter().for_each(|i| {
                     let t = _trans[(t_id + i) as usize];
                     self.transforms.write_transform(t, t_func());
@@ -645,7 +654,7 @@ impl World {
                     let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
                     (0..a.count).into_par_iter().for_each(|i| {
                         let t = _trans[(t_id + i) as usize];
-                        b.2(&self, stor, cto[(c_id + i) as usize], t);
+                        b.2(&self, sys, stor, cto[(c_id + i) as usize], t);
                     });
                 });
                 //     }
@@ -666,38 +675,38 @@ impl World {
         sys: &Sys,
         _t: i32,
     ) {
-        let g = _t;
-        {
-            let children: Vec<i32> = transforms
-                .get(_t)
-                .unwrap()
-                .get_children()
-                .map(|t| t.id)
-                .collect();
-            for t in children {
-                Self::__destroy(transforms, components, sys, t);
+        if let Some(trans) = transforms.get(_t) {
+            // should always be valid unless destroy is called twice
+            {
+                let children: Vec<i32> = trans.get_children().map(|t| t.id).collect();
+                for t in children {
+                    Self::__destroy(transforms, components, sys, t);
+                }
             }
-        }
-        {
-            let trans = transforms.get(_t).unwrap();
-            for (t, c) in trans.entity().components.iter() {
-                let stor = &mut components.get(t).unwrap();
-                match c {
-                    entity::Components::Id(id) => {
-                        stor.deinit(&trans, *id, &sys);
-                        stor.remove(*id);
-                    }
-                    entity::Components::V(v) => {
-                        for id in v {
+            {
+                // let trans = transforms.get(_t).unwrap();
+                for (t, c) in trans.entity().components.iter() {
+                    let stor = &mut components.get(t).unwrap();
+                    match c {
+                        entity::Components::Id(id) => {
                             stor.deinit(&trans, *id, &sys);
                             stor.remove(*id);
                         }
+                        entity::Components::V(v) => {
+                            for id in v {
+                                stor.deinit(&trans, *id, &sys);
+                                stor.remove(*id);
+                            }
+                        }
                     }
                 }
+                // remove entity
+                // *ent = None;
             }
-            // remove entity
-            // *ent = None;
+        } else {
+            println!("failed to get transform {} for deallocation", _t);
         }
+
         // }
 
         // remove transform
@@ -769,18 +778,24 @@ impl World {
             w(self);
         }
     }
-    pub fn _update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork, perf: &Perf) {
+    pub(crate) fn begin_frame(&mut self, input: Input, time: Time) {
+        self.gpu_work = SegQueue::new();
+        self.input = input;
+        self.time = time;
+    }
+    pub fn _update(&mut self, perf: &Perf) {
         {
             let sys = &self.sys;
             let sys = System {
+                audio: &sys.audio_manager,
                 physics: &sys.physics2.lock(),
                 defer: &sys.defer,
-                input,
-                time,
+                input: &self.input,
+                time: &self.time,
                 rendering: &sys.renderer_manager,
                 assets: &sys.assets_manager,
                 vk: sys.vk.clone(),
-                gpu_work,
+                gpu_work: &self.gpu_work,
                 particle_system: &sys.particles_system,
                 new_rigid_bodies: &sys.new_rigid_bodies,
             };
@@ -828,22 +843,25 @@ impl World {
             });
         ret
     }
-    pub(crate) fn editor_update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork) {
+    pub(crate) fn editor_update(&mut self) {
         let sys = &self.sys;
         let sys = System {
+            audio: &sys.audio_manager,
             physics: &sys.physics2.lock(),
             defer: &sys.defer,
-            input,
-            time,
+            input: &self.input,
+            time: &self.time,
             rendering: &sys.renderer_manager,
             assets: &sys.assets_manager,
             vk: sys.vk.clone(),
-            gpu_work,
+            gpu_work: &self.gpu_work,
             particle_system: &sys.particles_system,
             new_rigid_bodies: &sys.new_rigid_bodies,
         };
         for (_, stor) in self.components.iter() {
-            stor.1.write().editor_update(&self.transforms, &sys, input);
+            stor.1
+                .write()
+                .editor_update(&self.transforms, &sys, &self.input);
         }
     }
     pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>> {
@@ -936,5 +954,58 @@ impl World {
         self.transforms.clean();
         self.root = self.transforms.new_root();
         // self.entities.write().push(Mutex::new(None));
+    }
+
+    pub(crate) fn begin_play(&self) {
+        let sys = &self.sys;
+        let sys = System {
+            audio: &sys.audio_manager,
+            physics: &sys.physics2.lock(),
+            defer: &sys.defer,
+            input: &self.input,
+            time: &self.time,
+            rendering: &sys.renderer_manager,
+            assets: &sys.assets_manager,
+            vk: sys.vk.clone(),
+            gpu_work: &self.gpu_work,
+            particle_system: &sys.particles_system,
+            new_rigid_bodies: &sys.new_rigid_bodies,
+        };
+
+        let mut unlocked: HashMap<
+            u64,
+            RwLockReadGuard<Box<dyn StorageBase + 'static + Sync + Send>>,
+            nohash_hasher::BuildNoHashHasher<i32>,
+        > = HashMap::default();
+        self.components.iter().for_each(|c| {
+            unlocked.insert(*c.0, c.1 .1.read());
+        });
+        // destroy entities not part of hierarchy
+        (0..self.transforms.valid.len())
+            .into_par_iter()
+            .for_each(|i| {
+                if let Some(trans) = self.transforms.get(i as i32) {
+                    let ent = trans.entity();
+
+                    for (t, c) in ent.components.iter() {
+                        let stor = &mut unlocked.get(t).unwrap();
+                        match c {
+                            entity::Components::Id(id) => {
+                                stor.on_start(&trans, *id, &sys);
+                                // stor.deinit(&trans, *id, &self.sys);
+                                // stor.remove(*id);
+                            }
+                            entity::Components::V(v) => {
+                                for id in v {
+                                    stor.on_start(&trans, *id, &sys);
+                                    // stor.deinit(&trans, *id, &self.sys);
+                                    // stor.remove(*id);
+                                }
+                            }
+                        }
+                    }
+                    // self.transforms.remove(i as i32);
+                }
+            });
     }
 }

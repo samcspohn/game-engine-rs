@@ -465,7 +465,7 @@ impl Component for TerrainEng {
             Box::new(move |rd: &mut RenderJobData| {
                 let RenderJobData {
                     builder,
-                    uniforms,
+                    // uniforms,
                     gpu_transforms: _,
                     lights: lighting,
                     light_templates,

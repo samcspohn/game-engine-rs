@@ -211,12 +211,12 @@ impl Inspectable_ for ParticleTemplate {
     }
 }
 
-type param = (
+type Param = (
     Arc<Mutex<_Storage<cs::particle_template>>>,
     Arc<Mutex<ParticleTextures>>,
 );
-impl Asset<ParticleTemplate, param> for ParticleTemplate {
-    fn from_file(file: &str, params: &param) -> ParticleTemplate {
+impl Asset<ParticleTemplate, Param> for ParticleTemplate {
+    fn from_file(file: &str, params: &Param) -> ParticleTemplate {
         let mut t = ParticleTemplate::default();
         if let Ok(s) = std::fs::read_to_string(file) {
             t = serde_yaml::from_str(s.as_str()).unwrap();
@@ -226,12 +226,12 @@ impl Asset<ParticleTemplate, param> for ParticleTemplate {
         t
     }
 
-    fn reload(&mut self, file: &str, _params: &param) {
+    fn reload(&mut self, file: &str, _params: &Param) {
         if let Ok(s) = std::fs::read_to_string(file) {
             *self = serde_yaml::from_str(s.as_str()).unwrap();
         }
     }
-    fn save(&mut self, file: &str, _params: &param) {
+    fn save(&mut self, file: &str, _params: &Param) {
         if let Ok(s) = serde_yaml::to_string(self) {
             match std::fs::write(file, s.as_bytes()) {
                 Ok(_) => (),
@@ -241,7 +241,7 @@ impl Asset<ParticleTemplate, param> for ParticleTemplate {
             }
         }
     }
-    fn new(_file: &str, params: &param) -> Option<ParticleTemplate> {
+    fn new(_file: &str, params: &Param) -> Option<ParticleTemplate> {
         let t = ParticleTemplate::default();
         let p_t = t.gen_particle_template(&mut params.1.lock());
         params.0.lock().emplace(p_t);
@@ -249,4 +249,4 @@ impl Asset<ParticleTemplate, param> for ParticleTemplate {
     }
 }
 
-pub type ParticleTemplateManager = AssetManager<param, ParticleTemplate>;
+pub type ParticleTemplateManager = AssetManager<Param, ParticleTemplate>;

@@ -101,6 +101,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                     unsafe {
                         PLAYING_GAME = true;
                     }
+                    self.world.begin_play();
                     // {
                     //     // let mut world = self.world;
                     //     self.world.clear();
