@@ -37,26 +37,16 @@ use self::{
 };
 
 use super::{
-    atomic_vec::{self, AtomicVec},
-    input::Input,
-    particles::{component::ParticleEmitter, particles::ParticlesSystem},
-    perf::Perf,
-    physics::{
+    atomic_vec::{self, AtomicVec}, audio::system::AudioSystem, input::Input, particles::{component::ParticleEmitter, particles::ParticlesSystem}, perf::Perf, physics::{
         collider::{PhysMesh, _ColliderType, MESH_MAP, PROC_MESH_ID},
         Physics, PhysicsData,
-    },
-    project::asset_manager::{AssetManagerBase, AssetsManager},
-    rendering::{
+    }, project::asset_manager::{AssetManagerBase, AssetsManager}, rendering::{
         camera::{Camera, CameraData, CameraViewData},
         component::RendererManager,
         lighting::lighting::LightingSystem,
         model::ModelRenderer,
         vulkan_manager::VulkanManager,
-    },
-    storage::{Storage, StorageBase},
-    time::Time,
-    utils::GPUWork,
-    Defer, RenderJobData,
+    }, storage::{Storage, StorageBase}, time::Time, utils::GPUWork, Defer, RenderJobData
 };
 
 pub(crate) struct NewRigidBody {
@@ -74,9 +64,10 @@ pub struct NewCollider {
     pub tid: i32,
     pub rb: SendSync<*mut ColliderHandle>,
 }
+
 pub struct Sys {
     // pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
-    pub audio_manager: Arc<Mutex<AudioManager>>,
+    pub audio_manager: AudioSystem,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub assets_manager: Arc<AssetsManager>,
     pub physics: Arc<Mutex<Physics>>,
@@ -161,9 +152,7 @@ impl World {
             components_names: HashMap::new(),
             root,
             sys: Sys {
-                audio_manager: Arc::new(Mutex::new(
-                    AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()).unwrap(),
-                )),
+                audio_manager: AudioSystem::new(),
                 renderer_manager: Arc::new(RwLock::new(RendererManager::new(vk.clone()))),
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
@@ -401,61 +390,61 @@ impl World {
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
-    pub fn init_colls_rbs(&self) {
-        while let Some(new_rb) = self.sys.new_rigid_bodies.pop() {
-            let NewRigidBody {
-                mut ct,
-                pos,
-                rot,
-                vel,
-                tid,
-                mut rb,
-            } = new_rb;
-            if unsafe { **rb != RigidBodyHandle::invalid() } {
-                unsafe {
-                    self.sys.physics.lock().remove_rigid_body(unsafe { **rb });
-                }
-            }
-            let _rb = RigidBodyBuilder::dynamic()
-                .translation(pos.into())
-                .rotation(quat_euler_angles(&rot))
-                .user_data(tid as u128)
-                .build();
-            unsafe {
-                **rb = self.sys.physics.lock().add_rigid_body(_rb);
-                let col = (**ct)
-                    .get_collider(&self.sys)
-                    .user_data(tid as u128)
-                    .build();
-                self.sys
-                    .physics
-                    .lock()
-                    .add_collider_to_rigid_body(col, unsafe { **rb });
-            }
-        }
-        while let Some(new_col) = self.sys.new_colliders.pop() {
-            let NewCollider {
-                mut ct,
-                pos,
-                rot,
-                tid,
-                mut rb,
-            } = new_col;
-            if unsafe { **rb != ColliderHandle::invalid() } {
-                unsafe {
-                    self.sys.physics.lock().remove_collider(**rb);
-                }
-            }
-            unsafe {
-                let col = (**ct)
-                    .get_collider(&self.sys)
-                    .position(pos.into())
-                    .rotation(quat_euler_angles(&rot))
-                    .build();
-                **rb = self.sys.physics.lock().add_collider(col);
-            }
-        }
-    }
+    // pub fn init_colls_rbs(&self) {
+    //     while let Some(new_rb) = self.sys.new_rigid_bodies.pop() {
+    //         let NewRigidBody {
+    //             mut ct,
+    //             pos,
+    //             rot,
+    //             vel,
+    //             tid,
+    //             mut rb,
+    //         } = new_rb;
+    //         if unsafe { **rb != RigidBodyHandle::invalid() } {
+    //             unsafe {
+    //                 self.sys.physics.lock().remove_rigid_body(unsafe { **rb });
+    //             }
+    //         }
+    //         let _rb = RigidBodyBuilder::dynamic()
+    //             .translation(pos.into())
+    //             .rotation(quat_euler_angles(&rot))
+    //             .user_data(tid as u128)
+    //             .build();
+    //         unsafe {
+    //             **rb = self.sys.physics.lock().add_rigid_body(_rb);
+    //             let col = (**ct)
+    //                 .get_collider(&self.sys)
+    //                 .user_data(tid as u128)
+    //                 .build();
+    //             self.sys
+    //                 .physics
+    //                 .lock()
+    //                 .add_collider_to_rigid_body(col, unsafe { **rb });
+    //         }
+    //     }
+    //     while let Some(new_col) = self.sys.new_colliders.pop() {
+    //         let NewCollider {
+    //             mut ct,
+    //             pos,
+    //             rot,
+    //             tid,
+    //             mut rb,
+    //         } = new_col;
+    //         if unsafe { **rb != ColliderHandle::invalid() } {
+    //             unsafe {
+    //                 self.sys.physics.lock().remove_collider(**rb);
+    //             }
+    //         }
+    //         unsafe {
+    //             let col = (**ct)
+    //                 .get_collider(&self.sys)
+    //                 .position(pos.into())
+    //                 .rotation(quat_euler_angles(&rot))
+    //                 .build();
+    //             **rb = self.sys.physics.lock().add_collider(col);
+    //         }
+    //     }
+    // }
     pub fn defer_instantiate(&mut self, perf: &Perf) {
         let world_alloc_transforms = perf.node("world allocate transforms");
 
@@ -953,6 +942,9 @@ impl World {
 
         self.transforms.clean();
         self.root = self.transforms.new_root();
+        unsafe { self.mesh_map.clear();
+            self.proc_mesh_id = -1;
+         }
         // self.entities.write().push(Mutex::new(None));
     }
 

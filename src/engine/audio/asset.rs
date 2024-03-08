@@ -20,25 +20,27 @@ pub type Param = Arc<Mutex<kira::manager::AudioManager>>;
 #[derive(AssetID, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AudioAsset {
+    file: String,
     #[serde(skip_serializing, skip_deserializing)]
     pub(crate) d: MaybeUninit<StaticSoundData>,
     #[serde(skip_serializing, skip_deserializing)]
     m: MaybeUninit<Arc<Mutex<kira::manager::AudioManager>>>,
 }
-impl Clone for AudioAsset {
-    fn clone(&self) -> Self {
-        unsafe {
-            Self {
-                d: MaybeUninit::new(self.d.assume_init_ref().clone()),
-                m: MaybeUninit::new(self.m.assume_init_ref().clone()),
-            }
-        }
-    }
-}
+// impl Clone for AudioAsset {
+//     fn clone(&self) -> Self {
+//         unsafe {
+//             Self {
+//                 d: MaybeUninit::new(self.d.assume_init_ref().clone()),
+//                 m: MaybeUninit::new(self.m.assume_init_ref().clone()),
+//             }
+//         }
+//     }
+// }
 
 impl Default for AudioAsset {
     fn default() -> Self {
         Self {
+            file: "".into(),
             d: MaybeUninit::uninit(),
             m: MaybeUninit::uninit(),
         }
@@ -48,6 +50,7 @@ impl Default for AudioAsset {
 impl Asset<AudioAsset, Param> for AudioAsset {
     fn from_file(file: &str, params: &Param) -> AudioAsset {
         AudioAsset {
+            file: file.into(),
             d: MaybeUninit::new(
                 StaticSoundData::from_file(file, StaticSoundSettings::default()).unwrap(),
             ),
@@ -70,8 +73,29 @@ impl AudioAsset {
                 .unwrap()
         }
     }
+    pub fn get_sound_data(&self) -> &StaticSoundData {
+        unsafe { self.d.assume_init_ref() }
+    }
 }
 impl Inspectable_ for AudioAsset {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::World) {}
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::World) {
+        ui.horizontal(|ui| {
+            ui.label(&self.file);
+            if ui.button("play").clicked() {
+                self.play();
+            }
+        });
+        // unsafe {
+        //     let dur = self.d.assume_init_ref().duration().as_secs_f64();
+        //     let settings = &mut self.d.assume_init_mut().settings;
+        //     let mut looping: bool = settings.loop_region.is_some();
+        //     ui.checkbox(&mut looping, "loop");
+        //     if looping {
+        //         *settings = settings.loop_region(0.0..dur);
+        //     } else {
+        //         settings.loop_region = None;
+        //     }
+        // }
+    }
 }
 pub type AudioManager = AssetManager<Param, AudioAsset>;

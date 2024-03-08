@@ -69,7 +69,10 @@ use winit::{
 use crate::{
     editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
     engine::{
-        audio::{asset::AudioManager, component::AudioSource},
+        audio::{
+            asset::AudioManager,
+            component::{AudioListener, AudioSource},
+        },
         particles::{component::ParticleEmitter, shaders::scs::l},
         physics::{
             collider::{_Collider, MESH_MAP, PROC_MESH_ID},
@@ -342,8 +345,8 @@ impl Engine {
             &dylib_ext,
         )));
         let audio_manager = Arc::new(Mutex::new(AudioManager::new(
-            world.lock().sys.audio_manager.clone(),
-            &["mp3", "wav", "ogg"],
+            world.lock().sys.audio_manager.m.clone(),
+            &["mp3", "wav", "ogg", "flac"],
         )));
 
         unsafe {
@@ -391,7 +394,8 @@ impl Engine {
             world.register::<_Collider>(false, false, false);
             world.register::<_RigidBody>(false, false, false);
             world.register::<Light>(false, false, false);
-            world.register::<AudioSource>(false, false, false);
+            world.register::<AudioSource>(true, false, false);
+            world.register::<AudioListener>(true, false, false);
             //
             world.register::<terrain_eng::TerrainEng>(true, false, true);
         };

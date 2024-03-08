@@ -12,7 +12,7 @@ use vulkano::command_buffer::{
 };
 
 use crate::engine::{
-    audio::{self, asset::AudioAsset},
+    audio::{self, asset::AudioAsset, system::AudioSystem},
     input::Input,
     particles::{asset::ParticleTemplate, particles::ParticlesSystem},
     physics::{collider::_ColliderType, Physics, PhysicsData},
@@ -27,7 +27,7 @@ use crate::engine::{
 use super::NewRigidBody;
 
 pub struct System<'a> {
-    pub audio: &'a Mutex<AudioManager>,
+    pub audio: &'a AudioSystem,
     pub physics: &'a PhysicsData,
     pub defer: &'a Defer,
     pub input: &'a Input,
@@ -77,7 +77,7 @@ impl<'a> System<'a> {
             let d = c
                 .as_any()
                 .downcast_ref_unchecked::<AssetManager<audio::asset::Param, AudioAsset>>();
-            self.audio.lock().play(
+            self.audio.m.lock().play(
                 d.assets_id
                     .get(&template.id)
                     .unwrap()

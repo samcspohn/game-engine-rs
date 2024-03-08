@@ -79,6 +79,7 @@ impl _ColliderType {
                 // ColliderBuilder::trimesh(mesh.verts.clone(), mesh.indices.clone())
             }
             _ColliderType::TriMeshUnint((v, i)) => unsafe {
+                println!("{}",v.len());
                 let id = *PROC_MESH_ID;
                 *PROC_MESH_ID -= 1;
                 (*MESH_MAP).insert(id, ColliderBuilder::trimesh(v.clone(), i.clone()));
