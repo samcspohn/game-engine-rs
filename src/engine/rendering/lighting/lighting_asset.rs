@@ -81,9 +81,9 @@ impl Inspectable_ for LightTemplate {
         *(world.sys.lighting_system.light_templates.lock().get_mut(&self.id)) = self.gen_light();
     }
 }
-pub type param = (Arc<Mutex<_Storage<fs::lightTemplate>>>);
-impl Asset<LightTemplate, param> for LightTemplate {
-    fn from_file(file: &str, params: &param) -> LightTemplate {
+pub type Param = (Arc<Mutex<_Storage<fs::lightTemplate>>>);
+impl Asset<LightTemplate, Param> for LightTemplate {
+    fn from_file(file: &str, params: &Param) -> LightTemplate {
         let mut l = LightTemplate::default();
         if let Ok(s) = std::fs::read_to_string(file) {
             l = serde_yaml::from_str(s.as_str()).unwrap();
@@ -93,12 +93,12 @@ impl Asset<LightTemplate, param> for LightTemplate {
         l
     }
 
-    fn reload(&mut self, file: &str, params: &param) {
+    fn reload(&mut self, file: &str, params: &Param) {
         if let Ok(s) = std::fs::read_to_string(file) {
             *self = serde_yaml::from_str(s.as_str()).unwrap();
         }
     }
-    fn save(&mut self, file: &str, _params: &param) {
+    fn save(&mut self, file: &str, _params: &Param) {
         if let Ok(s) = serde_yaml::to_string(self) {
             match std::fs::write(file, s.as_bytes()) {
                 Ok(_) => (),
@@ -108,7 +108,7 @@ impl Asset<LightTemplate, param> for LightTemplate {
             }
         }
     }
-    fn new(_file: &str, params: &param) -> Option<LightTemplate> {
+    fn new(_file: &str, params: &Param) -> Option<LightTemplate> {
         let mut l = LightTemplate::default();
         let l_t = l.gen_light();
         l.id = params.lock().emplace(l_t);
@@ -116,4 +116,4 @@ impl Asset<LightTemplate, param> for LightTemplate {
     }
 }
 
-pub type LightTemplateManager = AssetManager<param, LightTemplate>;
+pub type LightTemplateManager = AssetManager<Param, LightTemplate>;

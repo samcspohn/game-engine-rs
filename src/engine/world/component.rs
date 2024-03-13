@@ -6,10 +6,13 @@ use std::{
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
+use kira::manager::AudioManager;
 use nalgebra_glm::{Quat, Vec3};
 use parking_lot::{Mutex, RwLock};
 use rapier3d::{
-    geometry::ColliderHandle, na::Point3, prelude::{QueryPipeline, RigidBodyHandle}
+    geometry::ColliderHandle,
+    na::Point3,
+    prelude::{QueryPipeline, RigidBodyHandle},
 };
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
@@ -17,13 +20,14 @@ use vulkano::command_buffer::{
 };
 
 use crate::engine::{
+    audio::{self, asset::AudioAsset, system::AudioSystem},
     input::Input,
-    particles::{particle_asset::ParticleTemplate, particles::ParticlesSystem},
+    particles::{asset::ParticleTemplate, particles::ParticlesSystem},
     physics::{
         collider::{_Collider, _ColliderType},
         Physics, PhysicsData,
     },
-    project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
+    project::asset_manager::{AssetInstance, AssetManager, AssetManagerBase, AssetsManager},
     rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
     time::Time,
     utils::{GPUWork, PrimaryCommandBuffer},
@@ -34,6 +38,7 @@ use crate::engine::{
 use super::{NewCollider, NewRigidBody};
 
 pub struct System<'a> {
+    pub audio: &'a AudioSystem,
     pub proc_collider: &'a Mutex<HashMap<i32, Arc<Mutex<_Collider>>>>,
     pub proc_mesh_id: &'a AtomicI32,
     pub physics: &'a PhysicsData,
@@ -77,6 +82,25 @@ impl<'a> System<'a> {
 
         self.particle_system.particle_burts.push(burst);
     }
+    pub fn play_sound(&self, template: &AssetInstance<AudioAsset>) {
+        let b = &self.assets;
+        let a = b.get_manager::<AudioAsset>().clone();
+        unsafe {
+            let c = a.lock();
+            let d = c
+                .as_any()
+                .downcast_ref_unchecked::<AssetManager<audio::asset::Param, AudioAsset>>();
+            self.audio.m.lock().play(
+                d.assets_id
+                    .get(&template.id)
+                    .unwrap()
+                    .lock()
+                    .d
+                    .assume_init_ref()
+                    .clone(),
+            );
+        }
+    }
     pub fn procedural_mesh(
         &self,
         points: Vec<Point3<f32>>,
@@ -98,16 +122,16 @@ impl<'a> System<'a> {
         let col = self.proc_collider.lock().get(&id).unwrap().clone();
 
         self.defer.append(move |world| {
-
             world.sys.new_colliders.push({
                 let mut c = col.lock();
                 NewCollider {
-                ct: unsafe { SendSync::new(&mut c._type) },
-                pos: Vec3::zeros(),
-                rot,
-                tid,
-                rb: unsafe { SendSync::new(&mut c.handle) },
-            }});
+                    ct: unsafe { SendSync::new(&mut c._type) },
+                    pos: Vec3::zeros(),
+                    rot,
+                    tid,
+                    rb: unsafe { SendSync::new(&mut c.handle) },
+                }
+            });
         });
         id
     }

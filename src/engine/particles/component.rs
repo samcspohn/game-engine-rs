@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::engine::{prelude, project::asset_manager::AssetInstance};
 use prelude::*;
 
-use super::{particle_asset::ParticleTemplate, shaders::cs};
+use super::{asset::ParticleTemplate, shaders::cs};
 
 #[derive(ComponentID, Clone, Deserialize, Serialize)]
 #[serde(default)]

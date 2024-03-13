@@ -69,6 +69,10 @@ use winit::{
 use crate::{
     editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
     engine::{
+        audio::{
+            asset::AudioManager,
+            component::{AudioListener, AudioSource},
+        },
         particles::{component::ParticleEmitter, shaders::scs::l},
         physics::{collider::_Collider, rigid_body::_RigidBody, Physics},
         // utils::look_at,
@@ -126,6 +130,7 @@ use self::{
 };
 
 pub mod atomic_vec;
+pub mod audio;
 pub mod input;
 pub mod linked_list;
 pub mod perf;
@@ -152,7 +157,7 @@ pub struct RenderJobData<'a> {
         PrimaryAutoCommandBuffer,
         Arc<StandardCommandBufferAllocator>,
     >,
-    pub uniforms: Arc<Mutex<SubbufferAllocator>>,
+    // pub uniforms: Arc<Mutex<SubbufferAllocator>>,
     pub gpu_transforms: Subbuffer<[transform]>,
     pub light_len: u32,
     pub lights: Subbuffer<[lt::light]>,
@@ -334,6 +339,10 @@ impl Engine {
             world.clone(),
             &dylib_ext,
         )));
+        let audio_manager = Arc::new(Mutex::new(AudioManager::new(
+            world.lock().sys.audio_manager.m.clone(),
+            &["mp3", "wav", "ogg", "flac"],
+        )));
 
         unsafe {
             if !game_mode {
@@ -347,6 +356,7 @@ impl Engine {
                 particles_system.particle_template_manager.clone(),
             );
             assets_manager.add_asset_manager("light", light_manager.clone());
+            assets_manager.add_asset_manager("audio", audio_manager.clone())
         }
 
         let mut viewport = Viewport {
@@ -379,6 +389,8 @@ impl Engine {
             world.register::<_Collider>(false, false, false);
             world.register::<_RigidBody>(false, false, false);
             world.register::<Light>(false, false, false);
+            world.register::<AudioSource>(true, false, false);
+            world.register::<AudioListener>(true, false, false);
             //
             world.register::<terrain_eng::TerrainEng>(true, false, true);
         };
@@ -622,49 +634,8 @@ impl Engine {
             previous_frame_end,
         } = &mut self.renderer;
 
-        // if let Some(window_size) = window_size {
-        //     let vk = self.vk.clone();
-        //     // let wait_for_render = self.perf.node("wait for render");
-        //     // let out_of_date = self.rendering_complete.recv().unwrap();
-        //     // drop(wait_for_render);
-        //     let dimensions: [u32; 2] = vk.window().inner_size().into();
-        //     println!("dimensions: {dimensions:?}");
-
-        //     let mut swapchain = vk.swapchain();
-        //     let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
-        //         .recreate(SwapchainCreateInfo {
-        //             image_extent: dimensions,
-        //             ..swapchain.create_info()
-        //         }) {
-        //         Ok(r) => r,
-        //         Err(SwapchainCreationError::ImageExtentNotSupported {
-        //             provided,
-        //             min_supported,
-        //             max_supported,
-        //         }) => {
-        //             println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
-        //             self.event_loop_proxy.send_event(EngineEvent::Send);
-        //             // self.rendering_data.send(None).unwrap();
-
-        //             return should_exit;
-        //         }
-        //         Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-        //     };
-
-        //     vk.update_swapchain(new_swapchain);
-
-        //     *framebuffers =
-        //         window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
-        //     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-        //     *recreate_swapchain = false;
-
-        //     self.event_loop_proxy.send_event(EngineEvent::Send);
-        //     // self.rendering_data.send(None).unwrap();
-        //     return should_exit;
-        // }
-
         let mut world = self.world.lock();
-        let gpu_work = SegQueue::new();
+        world.begin_frame(input.clone(), self.time.clone());
         // let world_sim = self.perf.node("world _update");
         let cvd = if (self.game_mode | self.playing_game) {
             puffin::profile_scope!("game loop");
@@ -684,7 +655,7 @@ impl Engine {
                 }
                 world.phys_time += self.time.dt;
                 let world_update = self.perf.node("world _update");
-                world._update(&input, &self.time, &gpu_work, &self.perf);
+                world._update(&self.perf);
                 drop(world_update);
             }
             {
@@ -699,7 +670,7 @@ impl Engine {
                 }
                 {
                     let world_update = self.perf.node("world instantiate");
-                    world.defer_instantiate(&input, &self.time, &gpu_work, &self.perf);
+                    world.defer_instantiate(&self.perf);
                     // world.init_colls_rbs();
                 }
             }
@@ -710,7 +681,7 @@ impl Engine {
 
             world._destroy(&self.perf);
             // world.init_colls_rbs();
-            world.editor_update(&input, &self.time, &gpu_work); // TODO: terrain update still breaking
+            world.editor_update(); // TODO: terrain update still breaking
 
             world.do_defered();
             self.phys_upd_start
@@ -966,8 +937,11 @@ impl Engine {
         drop(update_renderers);
         let render_cameras = self.perf.node("render camera(s)");
 
-        while let Some(job) = gpu_work.pop() {
-            job.unwrap()(&mut builder, vk.clone());
+        {
+            let world = self.world.lock();
+            while let Some(job) = world.gpu_work.pop() {
+                job.unwrap()(&mut builder, vk.clone());
+            }
         }
         let light_len = self
             .world
