@@ -22,8 +22,8 @@ pub struct PhysMesh {
     pub indices: Vec<[u32; 3]>,
 }
 // lazy_static! {
-pub static mut MESH_MAP: *mut HashMap<i32, ColliderBuilder> = std::ptr::null_mut();
-pub static mut PROC_MESH_ID: *mut i32 = std::ptr::null_mut();
+// pub static mut MESH_MAP: *mut HashMap<i32, ColliderBuilder> = std::ptr::null_mut();
+// pub static mut PROC_MESH_ID: *mut i32 = std::ptr::null_mut();
 // }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -31,7 +31,7 @@ pub enum _ColliderType {
     Cuboid(Vec3),
     Ball(f32),
     TriMesh(i32),
-    TriMeshUnint((Vec<Point3<f32>>, Vec<[u32; 3]>)),
+    TriMeshUnint((Arc<[Point3<f32>]>, Arc<[[u32; 3]]>, i32)),
 }
 impl Default for _ColliderType {
     fn default() -> Self {
@@ -44,8 +44,9 @@ impl _ColliderType {
             _ColliderType::Cuboid(v) => ColliderBuilder::cuboid(v.x, v.y, v.z),
             _ColliderType::Ball(r) => ColliderBuilder::ball(*r),
             _ColliderType::TriMesh(id) => {
+                let mut mesh_map = sys.mesh_map.lock();
                 unsafe {
-                    if !(*MESH_MAP).contains_key(&id) {
+                    if !mesh_map.contains_key(&id) {
                         let model_manager_mutex = sys.get_model_manager();
                         let model_manager_lock = model_manager_mutex.lock();
                         let model_manager = model_manager_lock
@@ -54,10 +55,6 @@ impl _ColliderType {
                             .unwrap();
                         if let Some(_id) = model_manager.assets_id.get(&id) {
                             unsafe {
-                                #[cold]
-                                if MESH_MAP == std::ptr::null_mut() {
-                                    panic!("uninitialized MESH_MAP")
-                                }
                                 let model = model_manager.assets_id.get(id).unwrap().lock();
                                 let verts = model.meshes[0]
                                     .vertices
@@ -69,22 +66,29 @@ impl _ColliderType {
                                     .chunks(3)
                                     .map(|f| [f[0], f[1], f[2]])
                                     .collect::<Vec<[u32; 3]>>();
-                                (*MESH_MAP).insert(*id, ColliderBuilder::trimesh(verts, indices));
+                                mesh_map.insert(*id, ColliderBuilder::trimesh(verts, indices));
                             }
                         }
                     }
                 }
-                let mesh = unsafe { (*MESH_MAP).get(id).unwrap() };
+                let mesh = mesh_map.get(id).unwrap();
                 mesh.clone()
                 // ColliderBuilder::trimesh(mesh.verts.clone(), mesh.indices.clone())
             }
-            _ColliderType::TriMeshUnint((v, i)) => unsafe {
-                println!("{}",v.len());
-                let id = *PROC_MESH_ID;
-                *PROC_MESH_ID -= 1;
-                (*MESH_MAP).insert(id, ColliderBuilder::trimesh(v.clone(), i.clone()));
+            _ColliderType::TriMeshUnint((v, i, id)) => unsafe {
+                // println!("{}", v.len());
+                // let id = sys.proc_mesh_id.fetch_add(-1, std::sync::atomic::Ordering::Relaxed);
+                let id: i32 = *id;
+                let mut mesh_map = sys.mesh_map.lock();
+                mesh_map.insert(
+                    id,
+                    ColliderBuilder::trimesh(
+                        v.iter().cloned().collect(),
+                        i.iter().cloned().collect(),
+                    ),
+                );
                 *self = _ColliderType::TriMesh(id);
-                (*MESH_MAP).get(&id).unwrap().clone()
+                mesh_map.get(&id).unwrap().clone()
             },
         }
     }
@@ -159,10 +163,8 @@ impl Component for _Collider {
                                 *id = *_id;
                                 ret = true;
                                 unsafe {
-                                    if MESH_MAP == std::ptr::null_mut() {
-                                        panic!("uninitialized MESH_MAP")
-                                    }
-                                    if !(*MESH_MAP).contains_key(_id) {
+                                    let mut mesh_map = sys.mesh_map.lock();
+                                    if !mesh_map.contains_key(_id) {
                                         let model =
                                             model_manager.assets_id.get(_id).unwrap().lock();
                                         let verts = model.meshes[0]
@@ -177,7 +179,7 @@ impl Component for _Collider {
                                             .chunks(3)
                                             .map(|f| [f[0], f[1], f[2]])
                                             .collect::<Vec<[u32; 3]>>();
-                                        (*MESH_MAP)
+                                        mesh_map
                                             .insert(*id, ColliderBuilder::trimesh(verts, indices));
                                     }
                                 }

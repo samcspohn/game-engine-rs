@@ -37,16 +37,27 @@ use self::{
 };
 
 use super::{
-    atomic_vec::{self, AtomicVec}, audio::system::AudioSystem, input::Input, particles::{component::ParticleEmitter, particles::ParticlesSystem}, perf::Perf, physics::{
-        collider::{PhysMesh, _ColliderType, MESH_MAP, PROC_MESH_ID},
+    atomic_vec::{self, AtomicVec},
+    audio::system::AudioSystem,
+    input::Input,
+    particles::{component::ParticleEmitter, particles::ParticlesSystem},
+    perf::Perf,
+    physics::{
+        collider::{PhysMesh, _Collider, _ColliderType},
         Physics, PhysicsData,
-    }, project::asset_manager::{AssetManagerBase, AssetsManager}, rendering::{
+    },
+    project::asset_manager::{AssetManagerBase, AssetsManager},
+    rendering::{
         camera::{Camera, CameraData, CameraViewData},
         component::RendererManager,
         lighting::lighting::LightingSystem,
         model::ModelRenderer,
         vulkan_manager::VulkanManager,
-    }, storage::{Storage, StorageBase}, time::Time, utils::GPUWork, Defer, RenderJobData
+    },
+    storage::{Storage, StorageBase},
+    time::Time,
+    utils::GPUWork,
+    Defer, RenderJobData,
 };
 
 pub(crate) struct NewRigidBody {
@@ -70,8 +81,13 @@ pub struct Sys {
     pub audio_manager: AudioSystem,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub assets_manager: Arc<AssetsManager>,
+    // physics
     pub physics: Arc<Mutex<Physics>>,
     pub physics2: Arc<Mutex<PhysicsData>>,
+    pub mesh_map: Arc<Mutex<HashMap<i32, ColliderBuilder>>>,
+    pub proc_mesh_id: AtomicI32,
+    pub proc_colliders: Arc<Mutex<HashMap<i32, Arc<Mutex<_Collider>>>>>,
+    //
     pub particles_system: Arc<ParticlesSystem>,
     pub lighting_system: Arc<LightingSystem>,
     pub vk: Arc<VulkanManager>,
@@ -157,6 +173,9 @@ impl World {
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
                 physics2: Arc::new(Mutex::new(PhysicsData::new())),
+                mesh_map: Default::default(),
+                proc_mesh_id: AtomicI32::new(-1),
+                proc_colliders: Default::default(),
                 particles_system: particles,
                 lighting_system: lighting,
                 vk: vk,
@@ -366,8 +385,6 @@ impl World {
         unsafe {
             TRANSFORMS = &mut self.transforms;
             TRANSFORM_MAP = &mut self.transform_map;
-            MESH_MAP = &mut self.mesh_map;
-            PROC_MESH_ID = &mut self.proc_mesh_id;
         }
         self.sys.physics = Arc::new(Mutex::new(Physics::new()));
     }
@@ -451,6 +468,8 @@ impl World {
         let sys = &self.sys;
         let syst = System {
             audio: &sys.audio_manager,
+            proc_collider: &sys.proc_colliders,
+            proc_mesh_id: &sys.proc_mesh_id,
             physics: &sys.physics2.lock(),
             defer: &sys.defer,
             input: &self.input,
@@ -777,6 +796,8 @@ impl World {
             let sys = &self.sys;
             let sys = System {
                 audio: &sys.audio_manager,
+                proc_collider: &sys.proc_colliders,
+                proc_mesh_id: &sys.proc_mesh_id,
                 physics: &sys.physics2.lock(),
                 defer: &sys.defer,
                 input: &self.input,
@@ -836,6 +857,8 @@ impl World {
         let sys = &self.sys;
         let sys = System {
             audio: &sys.audio_manager,
+            proc_collider: &sys.proc_colliders,
+            proc_mesh_id: &sys.proc_mesh_id,
             physics: &sys.physics2.lock(),
             defer: &sys.defer,
             input: &self.input,
@@ -938,13 +961,21 @@ impl World {
         }
 
         self.sys.renderer_manager.write().clear();
-        self.sys.physics.lock().clear();
+        *self.sys.physics.lock() = Physics::new();
+        *self.sys.physics2.lock() = PhysicsData::new();
+        self.sys.to_remove_colliders = SegQueue::new();
+        self.sys.to_remove_rigid_bodies = SegQueue::new();
+        self.sys.new_colliders = SegQueue::new();
+        self.sys.new_rigid_bodies = SegQueue::new();
+        *self.sys.proc_mesh_id.get_mut() = -1;
+        self.sys.proc_colliders.lock().clear();
 
         self.transforms.clean();
         self.root = self.transforms.new_root();
-        unsafe { self.mesh_map.clear();
+        unsafe {
+            self.mesh_map.clear();
             self.proc_mesh_id = -1;
-         }
+        }
         // self.entities.write().push(Mutex::new(None));
     }
 
@@ -952,6 +983,8 @@ impl World {
         let sys = &self.sys;
         let sys = System {
             audio: &sys.audio_manager,
+            proc_collider: &sys.proc_colliders,
+            proc_mesh_id: &sys.proc_mesh_id,
             physics: &sys.physics2.lock(),
             defer: &sys.defer,
             input: &self.input,
