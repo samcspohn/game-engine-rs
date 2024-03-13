@@ -1,10 +1,16 @@
-use std::{cell::SyncUnsafeCell, sync::Arc};
+use std::{
+    cell::SyncUnsafeCell,
+    collections::HashMap,
+    sync::{atomic::AtomicI32, Arc},
+};
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
 use nalgebra_glm::{Quat, Vec3};
 use parking_lot::{Mutex, RwLock};
-use rapier3d::prelude::{RigidBodyHandle, QueryPipeline};
+use rapier3d::{
+    geometry::ColliderHandle, na::Point3, prelude::{QueryPipeline, RigidBodyHandle}
+};
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
     SecondaryAutoCommandBuffer,
@@ -13,7 +19,10 @@ use vulkano::command_buffer::{
 use crate::engine::{
     input::Input,
     particles::{particle_asset::ParticleTemplate, particles::ParticlesSystem},
-    physics::{collider::_ColliderType, Physics, PhysicsData},
+    physics::{
+        collider::{_Collider, _ColliderType},
+        Physics, PhysicsData,
+    },
     project::asset_manager::{AssetInstance, AssetManagerBase, AssetsManager},
     rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
     time::Time,
@@ -22,9 +31,11 @@ use crate::engine::{
     Defer, RenderJobData,
 };
 
-use super::NewRigidBody;
+use super::{NewCollider, NewRigidBody};
 
 pub struct System<'a> {
+    pub proc_collider: &'a Mutex<HashMap<i32, Arc<Mutex<_Collider>>>>,
+    pub proc_mesh_id: &'a AtomicI32,
     pub physics: &'a PhysicsData,
     pub defer: &'a Defer,
     pub input: &'a Input,
@@ -34,8 +45,7 @@ pub struct System<'a> {
     pub vk: Arc<VulkanManager>,
     pub gpu_work: &'a GPUWork,
     pub(crate) particle_system: &'a ParticlesSystem,
-    pub(crate) new_rigid_bodies:
-        &'a SegQueue<NewRigidBody>,
+    pub(crate) new_rigid_bodies: &'a SegQueue<NewRigidBody>,
 }
 impl<'a> System<'a> {
     pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
@@ -66,6 +76,40 @@ impl<'a> System<'a> {
         };
 
         self.particle_system.particle_burts.push(burst);
+    }
+    pub fn procedural_mesh(
+        &self,
+        points: Vec<Point3<f32>>,
+        indeces: Vec<[u32; 3]>,
+        pos: Vec3,
+        rot: Quat,
+        tid: i32,
+    ) -> i32 {
+        let id = self
+            .proc_mesh_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.proc_collider.lock().insert(
+            id,
+            Arc::new(Mutex::new(_Collider {
+                _type: _ColliderType::TriMeshUnint((points.into(), indeces.into(), id)),
+                handle: ColliderHandle::invalid(),
+            })),
+        );
+        let col = self.proc_collider.lock().get(&id).unwrap().clone();
+
+        self.defer.append(move |world| {
+
+            world.sys.new_colliders.push({
+                let mut c = col.lock();
+                NewCollider {
+                ct: unsafe { SendSync::new(&mut c._type) },
+                pos: Vec3::zeros(),
+                rot,
+                tid,
+                rb: unsafe { SendSync::new(&mut c.handle) },
+            }});
+        });
+        id
     }
 }
 

@@ -70,11 +70,7 @@ use crate::{
     editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
     engine::{
         particles::{component::ParticleEmitter, shaders::scs::l},
-        physics::{
-            collider::{_Collider, MESH_MAP, PROC_MESH_ID},
-            rigid_body::_RigidBody,
-            Physics,
-        },
+        physics::{collider::_Collider, rigid_body::_RigidBody, Physics},
         // utils::look_at,
         prelude::{TransformRef, _Transform},
         project::asset_manager::AssetManagerBase,
@@ -242,7 +238,7 @@ pub struct Engine {
     )>,
     // pub(crate) rendering_data:
     // Sender<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
-    phys_upd_start: Sender<()>,
+    phys_upd_start: Sender<(bool, Arc<Mutex<Physics>>)>,
     phys_upd_compl: Receiver<()>,
     phys_upd_compl2: Receiver<()>,
     // end of channels
@@ -327,8 +323,6 @@ impl Engine {
         unsafe {
             TRANSFORMS = &mut world.lock().transforms;
             TRANSFORM_MAP = &mut world.lock().transform_map;
-            MESH_MAP = &mut world.lock().mesh_map;
-            PROC_MESH_ID = &mut world.lock().proc_mesh_id;
         }
 
         #[cfg(target_os = "windows")]
@@ -427,13 +421,13 @@ impl Engine {
         //     thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
         // });
         let perf = Arc::new(perf);
-        let mut phys = world.lock().sys.physics.clone();
+        // let mut phys = world.lock().sys.physics.clone();
         let physics_thread = Arc::new({
             // let vk = vk.clone();
             let perf = perf.clone();
             let world: SendSync<*const World> = unsafe { SendSync::new(&mut *world.lock()) };
             thread::spawn(move || {
-                physics::physics_thread(world, phys, perf, phys_rcv, phys_snd2, phys_snd3);
+                physics::physics_thread(world, perf, phys_rcv, phys_snd2, phys_snd3);
             })
         });
         proxy.send_event(EngineEvent::Send);
@@ -681,7 +675,9 @@ impl Engine {
                         // skip if physics sim not complete
 
                         let phys_sim = self.perf.node("wait for phyiscs");
-                        self.phys_upd_start.send(()).unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
+                        self.phys_upd_start
+                            .send((true, world.sys.physics.clone()))
+                            .unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
                         self.phys_upd_compl.recv().unwrap();
                         world.phys_time = 0f32;
                     }
@@ -715,6 +711,13 @@ impl Engine {
             world._destroy(&self.perf);
             // world.init_colls_rbs();
             world.editor_update(&input, &self.time, &gpu_work); // TODO: terrain update still breaking
+
+            world.do_defered();
+            self.phys_upd_start
+                .send((false, world.sys.physics.clone()))
+                .unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
+            self.phys_upd_compl.recv().unwrap();
+
             self.editor_cam.update(&input, &self.time);
             let cvd = self.cam_data.lock().update(
                 self.editor_cam.pos,
@@ -761,13 +764,17 @@ impl Engine {
                 self.tex_id.unwrap_or_default(),
                 self.assets_manager.clone(),
                 &self.file_watcher,
-                if self.game_mode {
-                    true
-                } else {
-                    self.playing_game
-                },
+                self.game_mode | self.playing_game,
             );
         });
+        if !_playing_game && _playing_game != self.playing_game {
+            // just clicked stop
+            while self.phys_upd_compl2.is_empty() {
+                thread::sleep(Duration::from_millis(10));
+            }
+            world.clear();
+            serialize::deserialize(&mut world);
+        }
         // if _playing_game && self.playing_game != _playing_game {
         //     Command::new("cargo")
         //         .args(["run", "-r", "--bin", "game", "--", &self.engine_dir])

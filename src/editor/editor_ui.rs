@@ -90,11 +90,11 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                         unsafe {
                             PLAYING_GAME = false;
                         }
-                        {
-                            // let mut world = self.world;
-                            self.world.clear();
-                            serialize::deserialize(&mut self.world);
-                        }
+                        // {
+                        //     // let mut world = self.world;
+                        //     self.world.clear();
+                        //     serialize::deserialize(&mut self.world);
+                        // }
                     }
                 } else if ui.button("Play").clicked() {
                     println!("play game");

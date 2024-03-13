@@ -41,7 +41,7 @@ use super::{
     particles::{component::ParticleEmitter, particles::ParticlesSystem},
     perf::Perf,
     physics::{
-        collider::{PhysMesh, _ColliderType, MESH_MAP, PROC_MESH_ID},
+        collider::{PhysMesh, _Collider, _ColliderType},
         Physics, PhysicsData,
     },
     project::asset_manager::{AssetManagerBase, AssetsManager},
@@ -77,8 +77,13 @@ pub struct Sys {
     // pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
     pub assets_manager: Arc<AssetsManager>,
+    // physics
     pub physics: Arc<Mutex<Physics>>,
     pub physics2: Arc<Mutex<PhysicsData>>,
+    pub mesh_map: Arc<Mutex<HashMap<i32, ColliderBuilder>>>,
+    pub proc_mesh_id: AtomicI32,
+    pub proc_colliders: Arc<Mutex<HashMap<i32, Arc<Mutex<_Collider>>>>>,
+    //
     pub particles_system: Arc<ParticlesSystem>,
     pub lighting_system: Arc<LightingSystem>,
     pub vk: Arc<VulkanManager>,
@@ -164,6 +169,9 @@ impl World {
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
                 physics2: Arc::new(Mutex::new(PhysicsData::new())),
+                mesh_map: Default::default(),
+                proc_mesh_id: AtomicI32::new(-1),
+                proc_colliders: Default::default(),
                 particles_system: particles,
                 lighting_system: lighting,
                 vk: vk,
@@ -370,8 +378,6 @@ impl World {
         unsafe {
             TRANSFORMS = &mut self.transforms;
             TRANSFORM_MAP = &mut self.transform_map;
-            MESH_MAP = &mut self.mesh_map;
-            PROC_MESH_ID = &mut self.proc_mesh_id;
         }
         self.sys.physics = Arc::new(Mutex::new(Physics::new()));
     }
@@ -773,6 +779,8 @@ impl World {
         {
             let sys = &self.sys;
             let sys = System {
+                proc_collider: &sys.proc_colliders,
+                proc_mesh_id: &sys.proc_mesh_id,
                 physics: &sys.physics2.lock(),
                 defer: &sys.defer,
                 input,
@@ -831,6 +839,8 @@ impl World {
     pub(crate) fn editor_update(&mut self, input: &Input, time: &Time, gpu_work: &GPUWork) {
         let sys = &self.sys;
         let sys = System {
+            proc_collider: &sys.proc_colliders,
+            proc_mesh_id: &sys.proc_mesh_id,
             physics: &sys.physics2.lock(),
             defer: &sys.defer,
             input,
@@ -931,7 +941,14 @@ impl World {
         }
 
         self.sys.renderer_manager.write().clear();
-        self.sys.physics.lock().clear();
+        *self.sys.physics.lock() = Physics::new();
+        *self.sys.physics2.lock() = PhysicsData::new();
+        self.sys.to_remove_colliders = SegQueue::new();
+        self.sys.to_remove_rigid_bodies = SegQueue::new();
+        self.sys.new_colliders = SegQueue::new();
+        self.sys.new_rigid_bodies = SegQueue::new();
+        *self.sys.proc_mesh_id.get_mut() = -1;
+        self.sys.proc_colliders.lock().clear();
 
         self.transforms.clean();
         self.root = self.transforms.new_root();

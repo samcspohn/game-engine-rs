@@ -219,19 +219,19 @@ impl Physics {
 
 pub(crate) fn physics_thread(
     world: SendSync<*const World>,
-    phys: Arc<Mutex<Physics>>,
+    // phys: Arc<Mutex<Physics>>,
     perf: Arc<Perf>,
-    phys_rcv: Receiver<()>,
+    phys_rcv: Receiver<(bool, Arc<Mutex<Physics>>)>,
     phys_snd2: Sender<()>,
     phys_snd3: Sender<()>,
 ) {
     let world: &World = unsafe { &**world };
     phys_snd3.send(()).unwrap();
     loop {
+        let a = phys_rcv.recv().unwrap();
         {
             // {
-            let a: () = phys_rcv.recv().unwrap();
-            let mut phys = phys.lock();
+            let mut phys = a.1.lock();
             // let mut phys = phys.lock();
             // let world = world.lock();
             while let Some(col) = world.sys.to_remove_colliders.pop() {
@@ -293,18 +293,11 @@ pub(crate) fn physics_thread(
                 }
             }
 
-            // }
-
             // drop(phys);
 
             phys.dup_query_pipeline(&perf, &mut world.sys.physics2.lock());
 
-            // world.init_colls_rbs();
-
-            // only update if moved
-            // let a = &world.get_components::<_Collider>().as_ref().unwrap().1;
-            // let b = a.write();
-            // let c = b.as_any().downcast_ref::<Storage<_Collider>>().unwrap();
+            // TODO: only update if moved
             let update_colliders_rbs = perf.node("update colliders and rbs");
             // update collider positions
             let mut colliders: Vec<&mut Collider> = phys
@@ -315,13 +308,10 @@ pub(crate) fn physics_thread(
                 .collect();
             colliders.iter_mut().for_each(|col| {
                 let i = col.user_data as i32;
-                // if unsafe { *c.valid[i].get() } {
-                //     let d = c.data[i].1.lock();
                 if let Some(t) = world.transforms.get(i) {
                     col.set_translation(t.get_position());
                     col.set_rotation(UnitQuaternion::from_quaternion(t.get_rotation()));
                 }
-                // }
             });
             // update kinematic bodies
             let mut kin_rb: Vec<&mut RigidBody> = phys
@@ -332,13 +322,10 @@ pub(crate) fn physics_thread(
                 .collect();
             kin_rb.iter_mut().for_each(|rb| {
                 let i = rb.user_data as i32;
-                // if unsafe { *c.valid[i].get() } {
-                //     let d = c.data[i].1.lock();
                 if let Some(t) = world.transforms.get(i) {
                     rb.set_translation(t.get_position(), true);
                     rb.set_rotation(UnitQuaternion::from_quaternion(t.get_rotation()), true);
                 }
-                // }
             });
             // update positions of rigidbodies
             phys.island_manager
@@ -347,13 +334,16 @@ pub(crate) fn physics_thread(
                 .chain(phys.island_manager.active_kinematic_bodies().par_iter())
                 .for_each(|a| {
                     let rb = unsafe { phys.get_rigid_body(*a).unwrap() };
-                    let t = world.transforms.get(rb.user_data as i32).unwrap();
-                    t.set_position(rb.translation());
-                    t.set_rotation(rb.rotation());
+                    if let Some(t) = world.transforms.get(rb.user_data as i32) {
+                        t.set_position(rb.translation());
+                        t.set_rotation(rb.rotation());
+                    }
                 });
             phys_snd2.send(()).unwrap();
         }
-        phys.lock().step(&perf);
-        phys_snd3.send(()).unwrap();
+        if a.0 {
+            a.1.lock().step(&perf);
+            phys_snd3.send(()).unwrap();
+        }
     }
 }

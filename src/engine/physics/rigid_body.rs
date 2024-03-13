@@ -51,7 +51,7 @@ impl Component for _RigidBody {
             _ColliderType::Cuboid(v) => Ins(v).inspect("Dimensions", ui, sys),
             _ColliderType::Ball(f) => Ins(f).inspect("radius", ui, sys),
             _ColliderType::TriMesh(_) => false,
-            _ColliderType::TriMeshUnint((_, _)) => false,
+            _ColliderType::TriMeshUnint(_) => false,
         } {
             // let phys = sys.physics.lock();
             // phys.get_collider(self.handle).unwrap().set_shape(shape)
