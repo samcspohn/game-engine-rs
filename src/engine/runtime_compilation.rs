@@ -18,6 +18,8 @@ use crate::{
     },
 };
 
+use super::project::serialize::serialize;
+
 #[derive(AssetID)]
 pub struct RSFile {
     path: String,
@@ -65,11 +67,13 @@ pub struct Lib {}
 
 impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
     fn from_file(file: &str, params: &(Arc<Mutex<World>>)) -> Lib {
+        let mut world = params.lock();
+        serialize(&world, "temp_scene");
+
         if let Some(lib) = &*LIB.lock() {
             let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> =
                 unsafe { lib.get(b"unregister").unwrap() };
 
-            let mut world = params.lock();
             world.clear();
             unsafe {
                 func(&mut world);
@@ -99,12 +103,13 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
             let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> =
                 unsafe { lib.get(b"register").unwrap() };
 
-            let mut world = params.lock();
+            // let mut world = params.lock();
             world.clear();
             unsafe {
                 func(&mut world);
             }
-            serialize::deserialize(&mut world);
+            serialize::deserialize(&mut world, "temp_scene");
+            fs::remove_file("temp_scene");
             *LIB.lock() = Some(lib);
         }
 

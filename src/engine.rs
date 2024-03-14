@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
-    env,
+    env, fs,
     mem::size_of,
     ops::Add,
     path::{Path, PathBuf},
@@ -77,7 +77,7 @@ use crate::{
         physics::{collider::_Collider, rigid_body::_RigidBody, Physics},
         // utils::look_at,
         prelude::{TransformRef, _Transform},
-        project::asset_manager::AssetManagerBase,
+        project::{asset_manager::AssetManagerBase, serialize::serialize},
         rendering::{
             lighting::{
                 lighting::{Light, LightingSystem},
@@ -261,6 +261,7 @@ pub struct Engine {
     pub(crate) input_thread: Arc<JoinHandle<()>>,
     pub(crate) physics_thread: Arc<JoinHandle<()>>,
     pub(crate) compiler_process: Option<std::process::Child>,
+    pub(crate) working_scene: String,
     // pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     pub(crate) file_watcher: FileWatcher,
     pub(crate) gui: SendSync<Gui>,
@@ -509,6 +510,7 @@ impl Engine {
             // rendering_thread,
             physics_thread,
             compiler_process: None,
+            working_scene: "test.yaml".into(),
             file_watcher,
             tex_id: None,
             image_view: None,
@@ -534,7 +536,7 @@ impl Engine {
         } else {
             Project::default()
         };
-        serialize::deserialize(&mut self.world.lock());
+        serialize::deserialize(&mut self.world.lock(), &self.working_scene);
     }
 
     // pub fn run(mut self, event_loop: EventLoop<()>) {
@@ -746,20 +748,20 @@ impl Engine {
                 self.game_mode | self.playing_game,
             );
         });
+        if _playing_game && _playing_game != self.playing_game {
+            // save current state of scene before play
+            serialize(&world, "temp_scene");
+        }
         if !_playing_game && _playing_game != self.playing_game {
             // just clicked stop
             while self.phys_upd_compl2.is_empty() {
                 thread::sleep(Duration::from_millis(10));
             }
             world.clear();
-            serialize::deserialize(&mut world);
+            serialize::deserialize(&mut world, "temp_scene");
+            fs::remove_file("temp_scene");
         }
-        // if _playing_game && self.playing_game != _playing_game {
-        //     Command::new("cargo")
-        //         .args(["run", "-r", "--bin", "game", "--", &self.engine_dir])
-        //         .status()
-        //         .unwrap();
-        // }
+
         if !(self.game_mode | self.playing_game) {
             cam_datas = vec![cd.clone()];
             // let cd = self.cam_data.clone();

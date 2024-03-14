@@ -53,6 +53,6 @@ pub fn load_project(
             file_watcher.files = project.files;
             assets_manager.deserialize(&project.assets);
         }
-        serialize::deserialize(&mut world.lock());
+        serialize::deserialize(&mut world.lock(), "test.yaml");
     }
 }

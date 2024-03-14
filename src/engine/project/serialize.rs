@@ -59,7 +59,7 @@ fn serialize_c(t: i32, world: &World, transforms: &Transforms) -> SerGameObject 
     g_o
 }
 
-pub fn serialize(world: &World) {
+pub fn serialize(world: &World, scene_file: &str) {
     let root = world.root;
     let transforms = &world.transforms;
     // let t_r = Transform {
@@ -76,7 +76,7 @@ pub fn serialize(world: &World) {
     for c in t_r.get_meta().children.iter() {
         root.t_c.push(serialize_c(*c, world, &transforms));
     }
-    std::fs::write("test.yaml", serde_yaml::to_string(&root).unwrap()).unwrap();
+    std::fs::write(scene_file, serde_yaml::to_string(&root).unwrap()).unwrap();
 }
 
 fn deserialize_c<'a>(
@@ -86,7 +86,7 @@ fn deserialize_c<'a>(
     defer: &mut SegVec<Box<dyn Fn(&mut World)>>,
 ) {
     let g = world.create_with_transform_with_parent(parent, sgo.t.1);
-    unsafe { &mut *TRANSFORM_MAP}.insert(sgo.t.0, g);
+    unsafe { &mut *TRANSFORM_MAP }.insert(sgo.t.0, g);
     // let c = sgo.c.clone();
     defer.push(Box::new(move |world: &mut World| {
         for (typ, val) in &sgo.c {
@@ -99,10 +99,9 @@ fn deserialize_c<'a>(
     }
 }
 
-pub fn deserialize(world: &mut World) {
-    if let Ok(s) = std::fs::read_to_string("test.yaml") {
+pub fn deserialize(world: &mut World, scene_file: &str) {
+    if let Ok(s) = std::fs::read_to_string(scene_file) {
         unsafe {
-
             (*TRANSFORM_MAP).clear();
             (*TRANSFORM_MAP).insert(-1, -1);
             (*TRANSFORM_MAP).insert(0, 0);
