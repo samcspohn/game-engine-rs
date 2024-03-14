@@ -123,3 +123,17 @@ impl Inspectable_ for Lib {
     }
 }
 pub type LibManager = AssetManager<(Arc<Mutex<World>>), Lib>;
+
+// pub(crate) fn compile_thread() {
+//     let mut args = vec!["build"];
+//     #[cfg(not(debug_assertions))]
+//     {
+//         println!("compiling for release");
+//         args.push("-r");
+//     }
+//     // args.push("-r");
+//     Command::new("cargo")
+//         .args(args.as_slice())
+//         .status()
+//         .unwrap();
+// }

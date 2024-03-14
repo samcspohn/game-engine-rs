@@ -260,6 +260,7 @@ pub struct Engine {
     pub(crate) running: Arc<AtomicBool>,
     pub(crate) input_thread: Arc<JoinHandle<()>>,
     pub(crate) physics_thread: Arc<JoinHandle<()>>,
+    pub(crate) compiler_process: Option<std::process::Child>,
     // pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     pub(crate) file_watcher: FileWatcher,
     pub(crate) gui: SendSync<Gui>,
@@ -507,6 +508,7 @@ impl Engine {
             input_thread,
             // rendering_thread,
             physics_thread,
+            compiler_process: None,
             file_watcher,
             tex_id: None,
             image_view: None,
@@ -770,6 +772,10 @@ impl Engine {
         self.file_watcher.get_updates(self.assets_manager.clone());
 
         if self.recompile.load(Ordering::Relaxed) {
+            if let Some(compiling) = &mut self.compiler_process {
+                compiling.kill();
+            }
+            // self.compiler_thread
             let mut args = vec!["build"];
             #[cfg(not(debug_assertions))]
             {
@@ -777,10 +783,12 @@ impl Engine {
                 args.push("-r");
             }
             // args.push("-r");
-            Command::new("cargo")
+            let com = Command::new("cargo")
                 .args(args.as_slice())
-                .status()
+                .env("RUSTFLAGS", "-Z threads=16")
+                .spawn()
                 .unwrap();
+            self.compiler_process = Some(com);
             self.recompile.store(false, Ordering::Relaxed);
         }
 
@@ -1243,6 +1251,9 @@ impl Engine {
         self.perf.print();
         // Arc::into_inner(self.rendering_thread).unwrap().join();
         self.event_loop_proxy.send_event(EngineEvent::Quit);
+        if let Some(compiling) = &mut self.compiler_process {
+            compiling.kill();
+        }
         // Arc::into_inner(self.input_thread).unwrap().join();
     }
 }
