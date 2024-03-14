@@ -353,6 +353,28 @@ impl World {
             ent.remove(key, c_id);
         }
     }
+    pub fn remove_component2(&mut self, g: i32, key: u64) {
+        if let Some(stor) = self.components.get(&key) {
+            let trans = self.transforms.get(g).unwrap();
+            let ent = trans.entity();
+            if let Some(c) = ent.components.get(&key) {
+                match c {
+                    entity::Components::Id(c_id) => {
+                        stor.1.write().deinit(&trans, *c_id, &self.sys);
+                        stor.1.write().remove(*c_id);
+                        ent.remove(key,*c_id);
+                    }
+                    entity::Components::V(v) => {
+                        for c_id in v.clone() {
+                            stor.1.write().deinit(&trans, c_id, &self.sys);
+                            stor.1.write().remove(c_id);
+                            ent.remove(key, c_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
     pub fn register<
         T: 'static
             + Send

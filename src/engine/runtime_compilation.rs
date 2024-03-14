@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicBool;
 use std::{fs, process::Command, sync::Arc, time::Duration};
 
 use component_derive::AssetID;
@@ -27,23 +28,28 @@ lazy_static! {
     static ref ID: Mutex<usize> = Mutex::new(0);
 }
 impl RSFile {}
-impl Asset<RSFile, ()> for RSFile {
-    fn from_file(file: &str, params: &()) -> RSFile {
-        let mut args = vec!["build"];
+impl Asset<RSFile, (Arc<AtomicBool>)> for RSFile {
+    fn from_file(file: &str, params: &(Arc<AtomicBool>)) -> RSFile {
+        params.store(true, std::sync::atomic::Ordering::Relaxed);
+        // let mut args = vec!["build"];
         #[cfg(not(debug_assertions))]
         {
             println!("compiling {} for release", file);
-            args.push("-r");
+            //     args.push("-r");
         }
-        Command::new("cargo")
-            .args(args.as_slice())
-            .status()
-            .unwrap();
+        #[cfg(debug_assertions)]
+        {
+            println!("compiling {} for debug", file);
+        }
+        // Command::new("cargo")
+        //     .args(args.as_slice())
+        //     .status()
+        //     .unwrap();
 
         RSFile { path: file.into() }
     }
 
-    fn reload(&mut self, file: &str, params: &()) {
+    fn reload(&mut self, file: &str, params: &(Arc<AtomicBool>)) {
         *self = Self::from_file(file, params);
     }
 }
@@ -52,7 +58,7 @@ impl Inspectable_ for RSFile {
         ui.add(egui::Label::new(self.path.as_str()));
     }
 }
-pub type RSManager = AssetManager<(), RSFile>;
+pub type RSManager = AssetManager<(Arc<AtomicBool>), RSFile>;
 
 #[derive(AssetID)]
 pub struct Lib {}

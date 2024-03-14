@@ -226,6 +226,7 @@ struct EngineRenderer {
 pub struct Engine {
     pub world: Arc<Mutex<World>>,
     pub(crate) assets_manager: Arc<AssetsManager>,
+    pub(crate) recompile: Arc<AtomicBool>,
     pub(crate) project: Project,
     pub(crate) transform_compute: RwLock<TransformCompute>,
     pub(crate) lighting_compute: RwLock<LightingCompute>,
@@ -305,7 +306,11 @@ impl Engine {
             (texture_manager.clone(), vk.clone()),
             &["obj"],
         )));
-        let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new((), &["rs"])));
+        let recompiled = Arc::new(AtomicBool::new(false));
+        let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new(
+            (recompiled.clone()),
+            &["rs"],
+        )));
 
         assert!(env::set_current_dir(&Path::new(engine_dir)).is_ok()); // procedurally generate cube/move cube to built in assets
         model_manager.lock().from_file("default/cube/cube.obj");
@@ -464,6 +469,7 @@ impl Engine {
             world,
             assets_manager,
             project: Project::default(),
+            recompile: recompiled,
             transform_compute: RwLock::new(transform_compute),
             lighting_compute: RwLock::new(LightingCompute::new(vk.clone(), render_pass.clone())),
             // light_bounding: RwLock::new(LightBounding::new(vk.clone())),
@@ -762,6 +768,21 @@ impl Engine {
         drop(world);
         drop(_gui);
         self.file_watcher.get_updates(self.assets_manager.clone());
+
+        if self.recompile.load(Ordering::Relaxed) {
+            let mut args = vec!["build"];
+            #[cfg(not(debug_assertions))]
+            {
+                println!("compiling for release");
+                args.push("-r");
+            }
+            // args.push("-r");
+            Command::new("cargo")
+                .args(args.as_slice())
+                .status()
+                .unwrap();
+            self.recompile.store(false, Ordering::Relaxed);
+        }
 
         let _get_gui_commands = self.perf.node("_ get gui commands");
         let _window_size = if let Some(size) = &window_size {

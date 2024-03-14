@@ -60,14 +60,13 @@ const uint MAX_LIT = 256;
 const uint MAX_ITER = 1024;
 
 void main() {
-    if (v_pos == vec3(0)) return;
     vec4 total_light = vec4(vec3(0.05), 1.0f);
     float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
     total_light += vec4(vec3(brightness), 1.0f);
     vec2 coord = gl_FragCoord.xy;
     coord.y = abs(screen_dims.y) - coord.y - 1;
     vec2 screen_ratio = coord.xy / screen_dims;
-    // uint lit_times = 0;
+    uint lit_times = 0;
     // uint iters = 0;
     for (int l = 1; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
 
@@ -81,16 +80,16 @@ void main() {
             float radius = lights[l_id].radius;
             if (dot(l_pos, l_pos) < radius * radius) {
                 total_light += CalcPointLight(l_id, v_normal);
-            // lit_times++;
+                lit_times++;
             }
             // iters++;
-            // if (iters > MAX_ITER || lit_times > MAX_LIT) {
-            //     break;
-            // }
+            if (lit_times > MAX_LIT) {
+                break;
+            }
         }
-        // if (iters > MAX_ITER || lit_times > MAX_LIT) {
-        //     break;
-        // }
+        if (lit_times > MAX_LIT) {
+            break;
+        }
     }
     // for (uint i = 0; i < visible_lights_count; ++i) {
     //         uint l_id = visible_lights[i];

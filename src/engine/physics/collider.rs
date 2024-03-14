@@ -148,7 +148,7 @@ impl Component for _Collider {
                     Some(file) => file.clone(),
                     None => "".into(),
                 };
-                let can_accept_drop_data = match drop_data.rfind(".ptem") {
+                let can_accept_drop_data = match drop_data.rfind(".obj") {
                     Some(_) => true,
                     None => false,
                 };
