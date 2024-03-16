@@ -221,17 +221,17 @@ pub(crate) fn physics_thread(
     world: SendSync<*const World>,
     // phys: Arc<Mutex<Physics>>,
     perf: Arc<Perf>,
-    phys_rcv: Receiver<(bool, Arc<Mutex<Physics>>)>,
-    phys_snd2: Sender<()>,
-    phys_snd3: Sender<()>,
+    phys_start: Receiver<(bool, Arc<Mutex<Physics>>)>,
+    phys_upd_cmpl: Sender<()>,
+    phys_step_cmpl: Sender<()>,
 ) {
     let world: &World = unsafe { &**world };
-    phys_snd3.send(()).unwrap();
+    phys_step_cmpl.send(()).unwrap();
     loop {
-        let a = phys_rcv.recv().unwrap();
+        let (a, phys) = phys_start.recv().unwrap();
         {
             // {
-            let mut phys = a.1.lock();
+            let mut phys = phys.lock();
             // let mut phys = phys.lock();
             // let world = world.lock();
             while let Some(col) = world.sys.to_remove_colliders.pop() {
@@ -339,11 +339,11 @@ pub(crate) fn physics_thread(
                         t.set_rotation(rb.rotation());
                     }
                 });
-            phys_snd2.send(()).unwrap();
+            phys_upd_cmpl.send(()).unwrap();
         }
-        if a.0 {
-            a.1.lock().step(&perf);
-            phys_snd3.send(()).unwrap();
+        if a {
+            phys.lock().step(&perf);
+            phys_step_cmpl.send(()).unwrap();
         }
     }
 }

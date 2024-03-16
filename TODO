@@ -33,6 +33,7 @@ game-engine:
   ☐ reduce mutex locks
   ☐ implement shader abstraction
   ☐ fix recreate swapchain early exit
+  ☐ add temp component for invalid/no type key components
   rendering:
     ☐ add materials
     ☐ use indirect to draw all geometry in one pass

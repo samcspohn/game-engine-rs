@@ -12,11 +12,11 @@ pub mod serialize;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Project {
-    pub files: BTreeMap<String, u64>,
-    pub assets: BTreeMap<String, serde_yaml::Value>,
+    pub(crate) files: BTreeMap<String, u64>,
+    pub(crate) assets: BTreeMap<String, serde_yaml::Value>,
     // model_manager: serde_yaml::Value,
     // texture_manager: serde_yaml::Value,
-    working_file: String,
+    pub(crate) working_scene: String,
 }
 
 pub fn save_project(file_watcher: &FileWatcher, world: &World, assets_manager: Arc<AssetsManager>) {
@@ -28,7 +28,7 @@ pub fn save_project(file_watcher: &FileWatcher, world: &World, assets_manager: A
     //     .model_manager
     //     .lock()
     //     .const_params.1.lock()).unwrap();
-    let working_file = "test.yaml".into();
+    let working_file = "test.scene".into();
     let assets = {
         let a = &assets_manager;
         a.save_assets();
@@ -37,7 +37,7 @@ pub fn save_project(file_watcher: &FileWatcher, world: &World, assets_manager: A
     let project = Project {
         files,
         assets,
-        working_file,
+        working_scene: working_file,
     };
     std::fs::write("project.yaml", serde_yaml::to_string(&project).unwrap()).unwrap();
 }
@@ -53,6 +53,6 @@ pub fn load_project(
             file_watcher.files = project.files;
             assets_manager.deserialize(&project.assets);
         }
-        serialize::deserialize(&mut world.lock(), "test.yaml");
+        serialize::deserialize(&mut world.lock(), "test.scene");
     }
 }
