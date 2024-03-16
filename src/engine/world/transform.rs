@@ -37,7 +37,8 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
         Arc,
-    }, thread::ThreadId,
+    },
+    thread::ThreadId,
 };
 
 pub struct TransformMeta {
@@ -75,10 +76,15 @@ impl Default for _Transform {
 }
 
 pub struct Transform<'a> {
-    // thr_id: ThreadId,
-    _lock: MutexGuard<'a, ()>,
+    thr_id: u64,
+    _lock: Option<MutexGuard<'a, ()>>,
     pub id: i32,
     // pub transforms: &'a Transforms,
+}
+impl Drop for Transform<'_> {
+    fn drop(&mut self) {
+        unsafe { (*((*TRANSFORMS).mutex[self.id as usize].get())).0 = u64::MAX };
+    }
 }
 
 #[allow(dead_code)]
@@ -332,7 +338,7 @@ impl<'a> Inpsect for Ins<'a, TransformRef> {
 }
 pub struct Transforms {
     self_lock: Mutex<()>,
-    mutex: SegVec<SyncUnsafeCell<Mutex<()>>>,
+    mutex: SegVec<SyncUnsafeCell<(u64, Mutex<()>)>>,
     positions: SegVec<SyncUnsafeCell<glm::Vec3>>,
     pub(crate) rotations: SegVec<SyncUnsafeCell<glm::Quat>>,
     scales: SegVec<SyncUnsafeCell<glm::Vec3>>,
@@ -364,11 +370,30 @@ impl Transforms {
         self.last + 1
     }
     pub fn get<'a>(&self, t: i32) -> Option<Transform> {
-        // TODO: make option
         if unsafe { *self.valid[t as usize].get() } {
+            let thr_id: u64 = std::thread::current().id().as_u64().into();
+            let _lock = unsafe {
+                if let Some(a) = (*self.mutex[t as usize].get()).1.try_lock() {
+                    // lock successful
+                    Some(a)
+                } else if (*self.mutex[t as usize].get()).0 == thr_id {
+                    // lock is held by same thread
+                    None
+
+                } else {
+                    // mutex is not held by same thread. wait for lock
+                    let a = (*self.mutex[t as usize].get()).1.lock();
+                    Some(a)
+                }
+            };
+
+            // let _lock = unsafe { (*self.mutex[t as usize].get()).1.lock() };
+            unsafe {
+                (*self.mutex[t as usize].get()).0 = thr_id;
+            }
             Some(Transform {
-                // thr_id: std::thread::current().id(),
-                _lock: unsafe { (*self.mutex[t as usize].get()).lock() },
+                thr_id,
+                _lock,
                 id: t,
             })
         } else {
@@ -411,7 +436,7 @@ impl Transforms {
 
     pub(super) fn write_transform(&self, i: i32, t: _Transform) {
         unsafe {
-            *self.mutex[i as usize].get() = Mutex::new(());
+            *self.mutex[i as usize].get() = (u64::MAX, Mutex::new(()));
             *self.positions[i as usize].get() = t.position;
             *self.rotations[i as usize].get() = t.rotation;
             *self.scales[i as usize].get() = t.scale;
@@ -430,7 +455,8 @@ impl Transforms {
         }
     }
     fn push_transform(&mut self, t: _Transform) {
-        self.mutex.push(SyncUnsafeCell::new(Mutex::new(())));
+        self.mutex
+            .push(SyncUnsafeCell::new((u64::MAX, Mutex::new(()))));
         self.positions.push(SyncUnsafeCell::new(t.position));
         self.rotations.push(SyncUnsafeCell::new(t.rotation));
         self.scales.push(SyncUnsafeCell::new(t.scale));
@@ -498,7 +524,7 @@ impl Transforms {
         if c > 0 {
             let c = c + self.len();
             self.mutex
-                .resize_with(c, || SyncUnsafeCell::new(Mutex::new(())));
+                .resize_with(c, || SyncUnsafeCell::new((u64::MAX, Mutex::new(()))));
             self.positions
                 .resize_with(c, || SyncUnsafeCell::new([0., 0., 0.].into()));
             self.rotations.resize_with(c, || {
@@ -586,14 +612,28 @@ impl Transforms {
         r
     }
     pub fn remove(&self, t: i32) {
+        let thr_id: u64 = std::thread::current().id().as_u64().into();
         self.avail.push(t);
         unsafe {
             let meta = &*self.meta[t as usize].get();
             if meta.parent >= 0 {
-                let _ = (*self.mutex[meta.parent as usize].get()).try_lock().unwrap_unchecked(); // if parent is locked it is already being destroyed
-                (&mut *self.meta[meta.parent as usize].get())
-                    .children
-                    .pop_node(&meta.child_id);
+                if let Some(_) = (*self.mutex[meta.parent as usize].get()).1.try_lock() {
+                    // lock successful go ahead and remove child
+                    (&mut *self.meta[meta.parent as usize].get())
+                        .children
+                        .pop_node(&meta.child_id);
+                } else if (*self.mutex[meta.parent as usize].get()).0 == thr_id {
+                    // lock is held by same thread, remove child
+                    (&mut *self.meta[meta.parent as usize].get())
+                        .children
+                        .pop_node(&meta.child_id);
+                } else {
+                    // mutex is not held by same thread. wait for lock
+                    let _ = (*self.mutex[meta.parent as usize].get()).1.lock();
+                    (&mut *self.meta[meta.parent as usize].get())
+                        .children
+                        .pop_node(&meta.child_id);
+                }
             }
             // *self.meta[t as usize].get() = TransformMeta::new();
             let meta = &mut (*self.meta[t as usize].get());

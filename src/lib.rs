@@ -5,6 +5,7 @@
 #![feature(ptr_from_ref)]
 #![feature(closure_lifetime_binder)]
 #![feature(non_lifetime_binders)]
+#![feature(thread_id_value)]
 pub mod editor;
 pub mod engine;
 pub use component_derive;
