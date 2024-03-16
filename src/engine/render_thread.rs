@@ -97,9 +97,7 @@ pub(super) fn render_thread(
 ) {
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-    rendering_complete
-        .send(false)
-        .unwrap();
+    rendering_complete.send(false).unwrap();
     loop {
         if let Some((should_exit, image_num, acquire_future, command_buffer)) =
             rendering_data.recv().unwrap()
