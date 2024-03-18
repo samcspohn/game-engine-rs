@@ -854,7 +854,7 @@ impl Engine {
         // begin rendering
         let clean_up = self.perf.node("previous frame end clean up finished");
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
-        self.rendering_complete.recv().unwrap();
+        *recreate_swapchain |= self.rendering_complete.recv().unwrap();
         drop(clean_up);
 
         if *recreate_swapchain {
