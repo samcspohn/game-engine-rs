@@ -9,7 +9,9 @@ use force_send_sync::SendSync;
 use glm::{quat_cross_vec, quat_rotate_vec3, vec3, Quat, Vec3};
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
+use parking_lot::lock_api::RawMutex;
 use parking_lot::{Mutex, MutexGuard};
+
 use rayon::prelude::*;
 use vulkano::buffer::Subbuffer;
 // use spin::{Mutex,RwLock};
@@ -75,20 +77,27 @@ impl Default for _Transform {
     }
 }
 
-pub struct Transform<'a> {
+pub struct Transform {
     // thr_id: u64,
-    _lock: Option<MutexGuard<'a, ()>>,
+    // _lock: Option<MutexGuard<'a, ()>>,
     pub id: i32,
     // pub transforms: &'a Transforms,
 }
-impl Drop for Transform<'_> {
+impl Drop for Transform {
     fn drop(&mut self) {
-        unsafe { (*((*TRANSFORMS).mutex[self.id as usize].get())).0 = 0 };
+        unsafe {
+            let a = &mut (*((*TRANSFORMS).mutex[self.id as usize].get()));
+            *(*TRANSFORMS).counter[self.id as usize].get() -= 1;
+            if *(*TRANSFORMS).counter[self.id as usize].get() == 0 {
+                *(*TRANSFORMS).thread_ids[self.id as usize].get() = 0;
+                a.raw().unlock();
+            }
+        };
     }
 }
 
 #[allow(dead_code)]
-impl<'a> Transform<'a> {
+impl<'a> Transform {
     pub fn forward(&self) -> glm::Vec3 {
         unsafe { &*TRANSFORMS }.forward(self.id)
     }
@@ -178,7 +187,7 @@ pub struct TransformIter<'a> {
 }
 
 impl<'a> Iterator for TransformIter<'a> {
-    type Item = Transform<'a>;
+    type Item = Transform;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(it) = self.iter.next() {
             Some(unsafe { &*TRANSFORMS }.get(*it).unwrap())
@@ -338,7 +347,9 @@ impl<'a> Inpsect for Ins<'a, TransformRef> {
 }
 pub struct Transforms {
     self_lock: Mutex<()>,
-    mutex: SegVec<SyncUnsafeCell<(u32, Mutex<()>)>>,
+    mutex: SegVec<SyncUnsafeCell<Mutex<()>>>,
+    thread_ids: SegVec<SyncUnsafeCell<u32>>,
+    counter: SegVec<SyncUnsafeCell<i32>>,
     positions: SegVec<SyncUnsafeCell<glm::Vec3>>,
     pub(crate) rotations: SegVec<SyncUnsafeCell<glm::Quat>>,
     scales: SegVec<SyncUnsafeCell<glm::Vec3>>,
@@ -373,29 +384,19 @@ impl Transforms {
         if unsafe { *self.valid[t as usize].get() } {
             let thr_id: u64 = std::thread::current().id().as_u64().into();
             let thr_id: u32 = thr_id as u32;
-            let _lock = unsafe {
-                if let Some(a) = (*self.mutex[t as usize].get()).1.try_lock() {
-                    // lock successful
-                    Some(a)
-                } else if (*self.mutex[t as usize].get()).0 == thr_id {
-                    // lock is held by same thread
-                    #[cold]
-                    None
-                } else {
-                    // mutex is not held by same thread. wait for lock
-                    #[cold]
-                    let a = (*self.mutex[t as usize].get()).1.lock();
-                    Some(a)
-                }
-            };
-
-            // let _lock = unsafe { (*self.mutex[t as usize].get()).1.lock() };
             unsafe {
-                (*self.mutex[t as usize].get()).0 = thr_id;
+                if !((*self.mutex[t as usize].get()).raw().try_lock()
+                    || (*self.thread_ids[t as usize].get()) == thr_id)
+                {
+                    // mutex is not held by same thread. wait for lock
+                    (*self.mutex[t as usize].get()).raw().lock();
+                }
+                (*self.thread_ids[t as usize].get()) = thr_id;
+                (*self.counter[t as usize].get()) += 1;
             }
             Some(Transform {
                 // thr_id,
-                _lock,
+                // _lock,
                 id: t,
             })
         } else {
@@ -433,12 +434,16 @@ impl Transforms {
             rot_cache: VecCache::new(),
             scl_cache: VecCache::new(),
             new_trans_cache: VecCache::new(),
+            thread_ids: SegVec::new(),
+            counter: SegVec::new(),
         }
     }
 
     pub(super) fn write_transform(&self, i: i32, t: _Transform) {
         unsafe {
-            *self.mutex[i as usize].get() = (0, Mutex::new(()));
+            *self.mutex[i as usize].get() = Mutex::new(());
+            *self.counter[i as usize].get() = 0;
+            *self.thread_ids[i as usize].get() = 0;
             *self.positions[i as usize].get() = t.position;
             *self.rotations[i as usize].get() = t.rotation;
             *self.scales[i as usize].get() = t.scale;
@@ -457,7 +462,9 @@ impl Transforms {
         }
     }
     fn push_transform(&mut self, t: _Transform) {
-        self.mutex.push(SyncUnsafeCell::new((0, Mutex::new(()))));
+        self.mutex.push(SyncUnsafeCell::new(Mutex::new(())));
+        self.counter.push(SyncUnsafeCell::new(0));
+        self.thread_ids.push(SyncUnsafeCell::new(0));
         self.positions.push(SyncUnsafeCell::new(t.position));
         self.rotations.push(SyncUnsafeCell::new(t.rotation));
         self.scales.push(SyncUnsafeCell::new(t.scale));
@@ -525,7 +532,9 @@ impl Transforms {
         if c > 0 {
             let c = c + self.len();
             self.mutex
-                .resize_with(c, || SyncUnsafeCell::new((0, Mutex::new(()))));
+                .resize_with(c, || SyncUnsafeCell::new(Mutex::new(())));
+            self.thread_ids.resize_with(c, || SyncUnsafeCell::new(0));
+            self.counter.resize_with(c, || SyncUnsafeCell::new(0));
             self.positions
                 .resize_with(c, || SyncUnsafeCell::new([0., 0., 0.].into()));
             self.rotations.resize_with(c, || {
@@ -619,23 +628,37 @@ impl Transforms {
         unsafe {
             let meta = &*self.meta[t as usize].get();
             if meta.parent >= 0 {
-                if let Some(_) = (*self.mutex[meta.parent as usize].get()).1.try_lock() {
-                    // lock successful go ahead and remove child
-                    (&mut *self.meta[meta.parent as usize].get())
-                        .children
-                        .pop_node(&meta.child_id);
-                } else if (*self.mutex[meta.parent as usize].get()).0 == thr_id {
-                    // lock is held by same thread, remove child
-                    (&mut *self.meta[meta.parent as usize].get())
-                        .children
-                        .pop_node(&meta.child_id);
-                } else {
-                    // mutex is not held by same thread. wait for lock
-                    let _ = (*self.mutex[meta.parent as usize].get()).1.lock();
-                    (&mut *self.meta[meta.parent as usize].get())
-                        .children
-                        .pop_node(&meta.child_id);
+                // if (*self.mutex[t as usize].get()).1.raw().try_lock()
+                //     || (*self.mutex[t as usize].get()).0 == thr_id
+                // {
+                //     // lock successful
+                //     // Some(a)
+                // } else {
+                //     // mutex is not held by same thread. wait for lock
+                //     (*self.mutex[t as usize].get()).1.raw().lock();
+                //     // Some(a)
+                // }
+                if let Some(parent) = self.get(meta.parent) {
+                    parent.get_meta().children.pop_node(&meta.child_id);
                 }
+
+                // if let Some(_) = (*self.mutex[meta.parent as usize].get()).1.try_lock() {
+                //     // lock successful go ahead and remove child
+                //     (&mut *self.meta[meta.parent as usize].get())
+                //         .children
+                //         .pop_node(&meta.child_id);
+                // } else if (*self.mutex[meta.parent as usize].get()).0 == thr_id {
+                //     // lock is held by same thread, remove child
+                //     (&mut *self.meta[meta.parent as usize].get())
+                //         .children
+                //         .pop_node(&meta.child_id);
+                // } else {
+                //     // mutex is not held by same thread. wait for lock
+                //     let _ = (*self.mutex[meta.parent as usize].get()).1.lock();
+                //     (&mut *self.meta[meta.parent as usize].get())
+                //         .children
+                //         .pop_node(&meta.child_id);
+                // }
             }
             // *self.meta[t as usize].get() = TransformMeta::new();
             let meta = &mut (*self.meta[t as usize].get());
