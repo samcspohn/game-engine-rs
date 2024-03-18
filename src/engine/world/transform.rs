@@ -87,6 +87,7 @@ impl Drop for Transform {
     fn drop(&mut self) {
         unsafe {
             let a = &mut (*((*TRANSFORMS).mutex[self.id as usize].get()));
+            // non-atomic safe because this thread owns the mutex
             *(*TRANSFORMS).counter[self.id as usize].get() -= 1;
             if *(*TRANSFORMS).counter[self.id as usize].get() == 0 {
                 *(*TRANSFORMS).thread_ids[self.id as usize].get() = 0;
