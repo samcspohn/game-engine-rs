@@ -83,7 +83,7 @@ impl Entity {
 
 type CompFunc = (
     u64,
-    Box<dyn Fn(&World, &System, &(dyn StorageBase + Send + Sync), i32, i32) + Send + Sync>,
+    Box<dyn Fn(&World, &(dyn StorageBase + Send + Sync), i32, i32) + Send + Sync>,
 );
 
 pub(crate) struct _EntityBuilder {
@@ -153,12 +153,12 @@ impl<'a> EntityBuilder<'a> {
             T::ID,
             Box::new(
                 move |world: &World,
-                      syst: &System,
+                    //   syst: &System,
                       stor: &(dyn StorageBase + Send + Sync),
                       id: i32,
                       t: i32| {
                     let stor: &Storage<T> = unsafe { stor.as_any().downcast_ref_unchecked() };
-                    stor.insert_exact(id, t, &world.transforms, &world.sys, syst, &f);
+                    stor.insert_exact(id, t, &world.transforms, &world.sys, &f);
                 },
             ),
         ));
@@ -175,7 +175,7 @@ pub type Unlocked<'a> = force_send_sync::SendSync<
 type CompFuncMulti = (
     u64,
     SyncUnsafeCell<i32>,
-    Box<dyn Fn(&World, &System, &(dyn StorageBase + Send + Sync), i32, i32) + Send + Sync>,
+    Box<dyn Fn(&World, &(dyn StorageBase + Send + Sync), i32, i32) + Send + Sync>,
 );
 
 pub(crate) struct _EntityParBuilder {
@@ -351,12 +351,12 @@ impl<'a> EntityParBuilder<'a> {
             SyncUnsafeCell::new(-1),
             Box::new(
                 move |world: &World,
-                      syst: &System,
+                    //   syst: &System,
                       stor: &(dyn StorageBase + Send + Sync),
                       id: i32,
                       t: i32| {
                     let stor: &Storage<T> = unsafe { stor.as_any().downcast_ref_unchecked() };
-                    stor.insert_exact(id, t, &world.transforms, &world.sys, &syst, &f);
+                    stor.insert_exact(id, t, &world.transforms, &world.sys, &f);
                 },
             ),
         ));

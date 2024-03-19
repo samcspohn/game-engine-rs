@@ -235,7 +235,7 @@ impl<
         t: i32,
         transforms: &Transforms,
         sys: &Sys,
-        syst: &System,
+        // syst: &System,
         f: &D,
     ) where
         D: Fn() -> T + Send + Sync,
@@ -245,8 +245,27 @@ impl<
             self.init(&trans, id, sys);
             // self.on_start(&trans, id, syst);
             trans.entity().insert(T::ID, id);
-            self.on_start(&trans, id, syst);
+            // self.on_start(&trans, id, syst);
         }
+    }
+    pub fn on_start_<D>(
+        &self,
+        id: i32,
+        // t: i32,
+        trans: Transform<'_>,
+        // sys: &Sys,
+        syst: &System,
+        // f: &D,
+    ) where
+        D: Fn() -> T + Send + Sync,
+    {
+        // self.write_t(id, t, f());
+        // if let Some(trans) = transforms.get(t) {
+        // self.init(&trans, id, sys);
+        // self.on_start(&trans, id, syst);
+        // trans.entity().insert(T::ID, id);
+        self.on_start(&trans, id, syst);
+        // }
     }
     pub(crate) fn insert_multi<D>(
         &self,

@@ -362,7 +362,7 @@ impl World {
                     entity::Components::Id(c_id) => {
                         stor.1.write().deinit(&trans, *c_id, &self.sys);
                         stor.1.write().remove(*c_id);
-                        ent.remove(key,*c_id);
+                        ent.remove(key, *c_id);
                     }
                     entity::Components::V(v) => {
                         for c_id in v.clone() {
@@ -585,11 +585,27 @@ impl World {
                     let c_id = comp.0.fetch_add(1, Ordering::Relaxed);
                     b.1(
                         &self,
-                        sys,
+                        // sys,
                         comp.1.as_ref(),
                         (unsafe { &*comp_ids.get(&b.0).unwrap().get() }).get()[c_id as usize],
                         t,
                     );
+                }
+                if let Some(trans) = self.transforms.get(t) {
+                    let ent = trans.entity();
+                    for c in ent.components.iter_mut() {
+                        let comp = &unlocked.get_mut(c.0).unwrap();
+                        match c.1 {
+                            entity::Components::Id(id) => {
+                                comp.1.on_start(&trans, *id, sys);
+                            }
+                            entity::Components::V(v) => {
+                                for id in v {
+                                    comp.1.on_start(&trans, *id, sys);
+                                }
+                            }
+                        }
+                    }
                 }
             });
         self.to_instantiate_count_trans
@@ -684,8 +700,27 @@ impl World {
                     let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
                     (0..a.count).into_par_iter().for_each(|i| {
                         let t = _trans[(t_id + i) as usize];
-                        b.2(&self, sys, stor, cto[(c_id + i) as usize], t);
+                        b.2(&self, stor, cto[(c_id + i) as usize], t);
                     });
+                });
+                (0..a.count).into_par_iter().for_each(|i| {
+                    let t = _trans[(t_id + i) as usize];
+                    if let Some(trans) = self.transforms.get(t) {
+                        let ent = trans.entity();
+                        for c in ent.components.iter_mut() {
+                            let comp = &unlocked.get_mut(c.0).unwrap();
+                            match c.1 {
+                                entity::Components::Id(id) => {
+                                    comp.1.on_start(&trans, *id, sys);
+                                }
+                                entity::Components::V(v) => {
+                                    for id in v {
+                                        comp.1.on_start(&trans, *id, sys);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 });
                 //     }
                 // }
