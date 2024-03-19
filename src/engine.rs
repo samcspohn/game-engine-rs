@@ -1269,10 +1269,10 @@ impl Engine {
         self.perf.print();
         // Arc::into_inner(self.rendering_thread).unwrap().join();
         self.event_loop_proxy.send_event(EngineEvent::Quit);
+        Arc::into_inner(self.input_thread).unwrap().join();
         if let Some(compiling) = &mut self.compiler_process {
             compiling.kill();
         }
-        // Arc::into_inner(self.input_thread).unwrap().join();
     }
 }
 
