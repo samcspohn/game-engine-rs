@@ -243,8 +243,10 @@ pub struct Engine {
         bool,
     )>,
     pub(crate) rendering_complete: Receiver<bool>,
-    pub(crate) rendering_data:
-        Sender<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+    pub(crate) rendering_data: Sender<(
+        bool,
+        Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
+    )>,
     pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     phys_upd_start: Sender<(bool, Arc<Mutex<Physics>>)>,
     phys_upd_compl: Receiver<()>,
@@ -874,7 +876,7 @@ impl Engine {
                     max_supported,
                 }) => {
                     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
-                    self.rendering_data.send(None).unwrap();
+                    self.rendering_data.send((false, None)).unwrap();
                     self.event_loop_proxy.send_event(EngineEvent::Send);
                     return should_exit;
                 }
@@ -895,7 +897,7 @@ impl Engine {
                 Err(AcquireError::OutOfDate) => {
                     *recreate_swapchain = true;
                     println!("falied to aquire next image");
-                    self.rendering_data.send(None).unwrap();
+                    self.rendering_data.send((false, None)).unwrap();
                     return true;
                 }
                 Err(e) => panic!("Failed to acquire next image: {:?}", e),
@@ -1246,14 +1248,19 @@ impl Engine {
         //         *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
         //     }
         // }
-
-        self.rendering_data.send(Some((
+        self.rendering_data.send((
             should_exit,
-            image_num,
-            acquire_future,
-            command_buffer,
-            // previous_frame_end,
-        )));
+            Some((image_num, acquire_future, command_buffer)),
+        ));
+        // self.rendering_data.send((
+        //     should_exit,
+        //     Some((
+        //         image_num,
+        //         acquire_future,
+        //         command_buffer,
+        //         // previous_frame_end,
+        //     ),
+        // ));
         drop(_execute);
 
         self.update_editor_window = window_size.is_some();
@@ -1267,7 +1274,12 @@ impl Engine {
         println!("end");
         // self.world.lock().sys.physics.lock().get_counters();
         self.perf.print();
-        // Arc::into_inner(self.rendering_thread).unwrap().join();
+
+        // join render thread
+        self.rendering_data.send((true, None));
+        Arc::into_inner(self.rendering_thread).unwrap().join();
+
+        // join input thread
         self.event_loop_proxy.send_event(EngineEvent::Quit);
         Arc::into_inner(self.input_thread).unwrap().join();
         if let Some(compiling) = &mut self.compiler_process {
