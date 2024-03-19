@@ -530,13 +530,19 @@ impl World {
             }
         });
         drop(alloc_components);
-        let mut unlocked = unsafe { SendSync::new(ThinMap::new()) };
+        let mut unlocked_ = unsafe { SendSync::new(ThinMap::new()) };
         self.components.iter().for_each(|(id, c)| {
-            unlocked.insert(*id, (AtomicI32::new(0), c.1.read()));
+            unlocked_.insert(*id, (AtomicI32::new(0), c.1.read()));
         });
+        {
+            let mut unlocked = unsafe { SendSync::new(ThinMap::new()) };
+            for u in unlocked_.iter() {
+                unlocked.insert(u.0.clone(), (&u.1 .0, u.1 .1.as_ref()));
+            }
 
-        self._defer_instantiate_single(perf, &t, &comp_ids, &unlocked, &syst);
-        self._defer_instantiate_multi(perf, &t, &comp_ids, &unlocked, &syst);
+            self._defer_instantiate_single(perf, &t, &comp_ids, &unlocked, &syst);
+            self._defer_instantiate_multi(perf, &t, &comp_ids, &unlocked, &syst);
+        }
         self.to_instantiate_count_trans.store(0, Ordering::Relaxed);
         self.to_instantiate.clear();
         self.to_instantiate_multi.clear();
@@ -553,15 +559,7 @@ impl World {
             SyncUnsafeCell<CacheVec<i32>>,
             nohash_hasher::BuildNoHashHasher<u64>,
         >,
-        unlocked: &SendSync<
-            ThinMap<
-                u64,
-                (
-                    AtomicI32,
-                    RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
-                ),
-            >,
-        >,
+        unlocked: &SendSync<ThinMap<u64, (&AtomicI32, &(dyn StorageBase + Send + Sync))>>,
         sys: &System,
     ) {
         if self.to_instantiate.len() == 0 {
@@ -585,8 +583,7 @@ impl World {
                     let c_id = comp.0.fetch_add(1, Ordering::Relaxed);
                     b.1(
                         &self,
-                        // sys,
-                        comp.1.as_ref(),
+                        comp.1,
                         (unsafe { &*comp_ids.get(&b.0).unwrap().get() }).get()[c_id as usize],
                         t,
                     );
@@ -622,15 +619,7 @@ impl World {
             SyncUnsafeCell<CacheVec<i32>>,
             nohash_hasher::BuildNoHashHasher<u64>,
         >,
-        unlocked: &SendSync<
-            ThinMap<
-                u64,
-                (
-                    AtomicI32,
-                    RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
-                ),
-            >,
-        >,
+        unlocked: &SendSync<ThinMap<u64, (&AtomicI32, &(dyn StorageBase + Send + Sync))>>,
         sys: &System,
     ) {
         if self.to_instantiate_multi.len() == 0 {
@@ -692,36 +681,62 @@ impl World {
                 (0..a.count).into_par_iter().for_each(|i| {
                     let t = _trans[(t_id + i) as usize];
                     self.transforms.write_transform(t, t_func());
-                });
-                a.comp_funcs.par_iter().for_each(|b| {
-                    let comp = &unlocked.get(&b.0).unwrap();
-                    let c_id = unsafe { *b.1.get() };
-                    let stor = comp.1.as_ref();
-                    let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
-                    (0..a.count).into_par_iter().for_each(|i| {
-                        let t = _trans[(t_id + i) as usize];
+                    for b in a.comp_funcs.iter() {
+                        let comp = &unlocked.get(&b.0).unwrap();
+                        let c_id = unsafe { *b.1.get() };
+                        let stor = comp.1;
+                        let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
+                        // (0..a.count).into_par_iter().for_each(|i| {
+                        //     let t = _trans[(t_id + i) as usize];
                         b.2(&self, stor, cto[(c_id + i) as usize], t);
-                    });
-                });
-                (0..a.count).into_par_iter().for_each(|i| {
-                    let t = _trans[(t_id + i) as usize];
-                    if let Some(trans) = self.transforms.get(t) {
-                        let ent = trans.entity();
-                        for c in ent.components.iter_mut() {
-                            let comp = &unlocked.get_mut(c.0).unwrap();
-                            match c.1 {
-                                entity::Components::Id(id) => {
-                                    comp.1.on_start(&trans, *id, sys);
-                                }
-                                entity::Components::V(v) => {
-                                    for id in v {
-                                        comp.1.on_start(&trans, *id, sys);
-                                    }
+                        // });
+                    }
+                    let t = self.transforms.get(t).unwrap();
+                    let ent = t.entity();
+                    for c in ent.components.iter_mut() {
+                        let comp = &unlocked.get_mut(c.0).unwrap();
+                        match c.1 {
+                            entity::Components::Id(id) => {
+                                comp.1.on_start(&t, *id, sys);
+                            }
+                            entity::Components::V(v) => {
+                                for id in v {
+                                    comp.1.on_start(&t, *id, sys);
                                 }
                             }
                         }
                     }
                 });
+                // a.comp_funcs.par_iter().for_each(|b| {
+                //     let comp = &unlocked.get(&b.0).unwrap();
+                //     let c_id = unsafe { *b.1.get() };
+                //     let stor = comp.1.as_ref();
+                //     let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
+                //     (0..a.count).into_par_iter().for_each(|i| {
+                //         let t = _trans[(t_id + i) as usize];
+                //         b.2(&self, stor, cto[(c_id + i) as usize], t);
+                //     });
+                // });
+                // (0..a.count).into_par_iter().for_each(|i| {
+                //     let t = _trans[(t_id + i) as usize];
+                //     if let Some(trans) = self.transforms.get(t) {
+                //         let ent = trans.entity();
+                //         for c in ent.components.iter_mut() {
+                //             let comp = &unlocked.get_mut(c.0).unwrap();
+                //             match c.1 {
+                //                 entity::Components::Id(id) => {
+                //                     comp.1.on_start(&trans, *id, sys);
+                //                 }
+                //                 entity::Components::V(v) => {
+                //                     for id in v {
+                //                         comp.1.on_start(&trans, *id, sys);
+                //                     }
+                //                 }
+                //             }
+                //         }
+                //     }
+                // });
+
                 //     }
                 // }
             });
