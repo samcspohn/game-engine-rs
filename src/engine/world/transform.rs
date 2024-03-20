@@ -409,7 +409,7 @@ impl Transforms {
         }
     }
 
-    pub(super) fn write_transform(&self, i: i32, t: _Transform) {
+    pub(super) fn write_transform(&self, i: i32, t: _Transform) -> Transform<'_> {
         unsafe {
             *self.mutex[i as usize].get() = Mutex::new(());
             *self.positions[i as usize].get() = t.position;
@@ -428,6 +428,7 @@ impl Transforms {
             u[ROT_U] = true;
             u[SCL_U] = true;
         }
+        self.get(i).unwrap()
     }
     fn push_transform(&mut self, t: _Transform) {
         self.mutex.push(SyncUnsafeCell::new(Mutex::new(())));

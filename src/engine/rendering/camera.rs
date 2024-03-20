@@ -311,7 +311,7 @@ impl CameraData {
                     intermediary: {
                         load: Clear,
                         store: DontCare,
-                        format: Format::E5B9G9R9_UFLOAT_PACK32,
+                        format: Format::R8G8B8A8_UNORM,
                         samples: num_samples,
                     },
                     depth: {
@@ -323,7 +323,7 @@ impl CameraData {
                     color: {
                         load: DontCare,
                         store: Store,
-                        format: Format::E5B9G9R9_UFLOAT_PACK32,
+                        format: Format::R8G8B8A8_UNORM,
                         // Same here, this has to match.
                         samples: 1,
                     },
@@ -368,7 +368,7 @@ impl CameraData {
                     color: {
                         load: Clear,
                         store: Store,
-                        format: Format::E5B9G9R9_UFLOAT_PACK32,
+                        format: Format::R8G8B8A8_UNORM,
                         samples: 1,
                     },
                     depth: {
@@ -732,7 +732,7 @@ fn window_size_dependent_setup_msaa(
         &vk.mem_alloc,
         dimensions,
         samples,
-        Format::E5B9G9R9_UFLOAT_PACK32,
+        Format::R8G8B8A8_UNORM,
     )
     .unwrap();
     let intermediary = ImageView::new_default(intermediary.clone()).unwrap();
@@ -744,7 +744,7 @@ fn window_size_dependent_setup_msaa(
             height: dimensions[1],
             array_layers: 1,
         },
-        Format::E5B9G9R9_UFLOAT_PACK32,
+        Format::R8G8B8A8_UNORM,
         Some(vk.queue.queue_family_index()),
     )
     .unwrap();
@@ -794,7 +794,7 @@ fn window_size_dependent_setup(
     let image = AttachmentImage::with_usage(
         &vk.mem_alloc,
         dimensions,
-        Format::E5B9G9R9_UFLOAT_PACK32,
+        Format::R8G8B8A8_UNORM,
         ImageUsage::SAMPLED
             | ImageUsage::STORAGE
             | ImageUsage::COLOR_ATTACHMENT

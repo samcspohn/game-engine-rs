@@ -92,42 +92,75 @@ pub(super) fn render_fn(rd: RendererData) {}
 pub(super) fn render_thread(
     vk: Arc<VulkanManager>,
     // render_pass: Arc<RenderPass>,
-    rendering_data: Receiver<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+    rendering_data: Receiver<(
+        bool,
+        Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
+    )>,
     rendering_complete: Sender<bool>,
 ) {
     let mut recreate_swapchain = false;
+    let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
     rendering_complete.send(false).unwrap();
-    // let mut previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
     loop {
-        if let Some((should_exit, image_num, acquire_future, command_buffer)) =
-            rendering_data.recv().unwrap()
-        {
+        let (should_exit, rd) = rendering_data.recv().unwrap();
+        if let Some((image_num, acquire_future, command_buffer)) = rd {
+            previous_frame_end.take().unwrap().flush().unwrap();
+            // let future = previous_frame_end
+            //     .take()
+            //     .unwrap()
+            //     .join(acquire_future)
             let future = acquire_future
                 .then_execute(vk.queue.clone(), command_buffer)
                 .unwrap()
-                // .then_execute(vk.queue.clone(), command_buffer)
-                // .unwrap()
                 .then_swapchain_present(
                     vk.queue.clone(),
                     SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
                 )
-                .then_signal_fence()
-                .flush(); // FREEZE HERE
+                .then_signal_fence_and_flush();
 
             match future {
                 Ok(future) => {
-                    // *previous_frame_end = Some(future.boxed());
+                    previous_frame_end = Some(future.boxed());
                 }
                 Err(FlushError::OutOfDate) => {
                     recreate_swapchain = true;
-                    // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+                    previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                 }
                 Err(e) => {
                     println!("failed to flush future: {e}");
                     recreate_swapchain = true;
-                    // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+                    previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                 }
             }
+            previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+            // let future = acquire_future
+            //     .then_execute(vk.queue.clone(), command_buffer)
+            //     .unwrap()
+            //     // .then_execute(vk.queue.clone(), command_buffer)
+            //     // .unwrap()
+            //     .then_swapchain_present(
+            //         vk.queue.clone(),
+            //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+            //     )
+            //     .then_signal_fence()
+            //     .flush(); // FREEZE HERE
+
+            // match future {
+            //     Ok(future) => {
+            //         // *previous_frame_end = Some(future.boxed());
+            //     }
+            //     Err(FlushError::OutOfDate) => {
+            //         recreate_swapchain = true;
+            //         // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+            //     }
+            //     Err(e) => {
+            //         println!("failed to flush future: {e}");
+            //         recreate_swapchain = true;
+            //         // *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+            //     }
+            // }
+
             // let future = previous_frame_end
             //     .take()
             //     .unwrap()
@@ -155,9 +188,12 @@ pub(super) fn render_thread(
             // }
             // previous_frame_end.as_mut().unwrap().cleanup_finished();
 
-            if should_exit {
-                return;
-            }
+            // if should_exit {
+            //     return;
+            // }
+        }
+        if should_exit {
+            return;
         }
         rendering_complete.send(recreate_swapchain).unwrap();
         recreate_swapchain = false;

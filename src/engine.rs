@@ -221,7 +221,7 @@ struct EngineRenderer {
     recreate_swapchain: bool,
     editor_window_image: Option<Arc<dyn ImageAccess>>,
     render_pass: Arc<RenderPass>,
-    previous_frame_end: Option<Box<dyn GpuFuture>>,
+    // previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
 pub struct Engine {
     pub world: Arc<Mutex<World>>,
@@ -242,13 +242,16 @@ pub struct Engine {
         Option<PhysicalSize<u32>>,
         bool,
     )>,
-    // pub(crate) rendering_data:
-    // Sender<Option<(bool, u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>>,
+    pub(crate) rendering_complete: Receiver<bool>,
+    pub(crate) rendering_data: Sender<(
+        bool,
+        Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
+    )>,
+    pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     phys_upd_start: Sender<(bool, Arc<Mutex<Physics>>)>,
     phys_upd_compl: Receiver<()>,
-    phys_upd_compl2: Receiver<()>,
+    phys_step_compl: Receiver<()>,
     // end of channels
-    // pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
     pub(crate) editor_cam: EditorCam,
     pub time: Time,
@@ -261,8 +264,7 @@ pub struct Engine {
     pub(crate) input_thread: Arc<JoinHandle<()>>,
     pub(crate) physics_thread: Arc<JoinHandle<()>>,
     pub(crate) compiler_process: Option<std::process::Child>,
-    pub(crate) working_scene: String,
-    // pub(crate) rendering_thread: Arc<JoinHandle<()>>,
+    // pub(crate) working_scene: String,
     pub(crate) file_watcher: FileWatcher,
     pub(crate) gui: SendSync<Gui>,
     pub(crate) tex_id: Option<TextureId>,
@@ -425,8 +427,8 @@ impl Engine {
             },
         );
         let proxy = event_loop.create_proxy();
-        // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
-        // let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
+        let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
+        let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd, phys_rcv) = crossbeam::channel::bounded(1);
         let (phys_snd2, phys_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd3, phys_rcv3) = crossbeam::channel::bounded(1);
@@ -435,10 +437,10 @@ impl Engine {
             let vk = vk.clone();
             thread::spawn(move || input_thread::input_thread(event_loop, vk, input_snd))
         });
-        // let rendering_thread = Arc::new({
-        //     let vk = vk.clone();
-        //     thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
-        // });
+        let rendering_thread = Arc::new({
+            let vk = vk.clone();
+            thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
+        });
         let perf = Arc::new(perf);
         // let mut phys = world.lock().sys.physics.clone();
         let physics_thread = Arc::new({
@@ -480,11 +482,11 @@ impl Engine {
             perf,
             shared_render_data: rm,
             input: input_rcv,
-            // rendering_data: rendering_snd,
-            // rendering_complete: rendering_rcv2,
+            rendering_data: rendering_snd,
+            rendering_complete: rendering_rcv2,
             phys_upd_start: phys_snd,
             phys_upd_compl: phys_rcv2,
-            phys_upd_compl2: phys_rcv3,
+            phys_step_compl: phys_rcv3,
             cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone(), 1))),
             renderer: EngineRenderer {
                 viewport,
@@ -492,7 +494,7 @@ impl Engine {
                 recreate_swapchain,
                 editor_window_image,
                 render_pass,
-                previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
+                // previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
             },
             vk,
             editor_cam: editor::editor_cam::EditorCam {
@@ -507,10 +509,10 @@ impl Engine {
             frame_time,
             running,
             input_thread,
-            // rendering_thread,
+            rendering_thread,
             physics_thread,
             compiler_process: None,
-            working_scene: "test.yaml".into(),
+            // working_scene: "test.scene".into(),
             file_watcher,
             tex_id: None,
             image_view: None,
@@ -536,7 +538,21 @@ impl Engine {
         } else {
             Project::default()
         };
-        serialize::deserialize(&mut self.world.lock(), &self.working_scene);
+        // TODO: remove in favor of placeholder component
+        let mut args = vec!["build"];
+        #[cfg(not(debug_assertions))]
+        {
+            println!("compiling for release");
+            args.push("-r");
+        }
+        // args.push("-r");
+        let com = Command::new("cargo")
+            .args(args.as_slice())
+            .env("RUSTFLAGS", "-Z threads=16")
+            .status()
+            .unwrap();
+        self.file_watcher.get_updates(self.assets_manager.clone());
+        serialize::deserialize(&mut self.world.lock(), &self.project.working_scene);
     }
 
     // pub fn run(mut self, event_loop: EventLoop<()>) {
@@ -641,7 +657,7 @@ impl Engine {
             recreate_swapchain,
             editor_window_image,
             render_pass,
-            previous_frame_end,
+            // previous_frame_end,
         } = &mut self.renderer;
 
         let mut world = self.world.lock();
@@ -652,7 +668,7 @@ impl Engine {
             {
                 puffin::profile_scope!("world update");
                 if world.phys_time >= world.phys_step {
-                    if let Ok(_) = self.phys_upd_compl2.try_recv() {
+                    if let Ok(_) = self.phys_step_compl.try_recv() {
                         // skip if physics sim not complete
 
                         let phys_sim = self.perf.node("wait for phyiscs");
@@ -754,7 +770,7 @@ impl Engine {
         }
         if !_playing_game && _playing_game != self.playing_game {
             // just clicked stop
-            while self.phys_upd_compl2.is_empty() {
+            while self.phys_step_compl.is_empty() {
                 thread::sleep(Duration::from_millis(10));
             }
             world.clear();
@@ -839,7 +855,8 @@ impl Engine {
         }
         // begin rendering
         let clean_up = self.perf.node("previous frame end clean up finished");
-        previous_frame_end.as_mut().unwrap().cleanup_finished();
+        // previous_frame_end.as_mut().unwrap().cleanup_finished();
+        *recreate_swapchain |= self.rendering_complete.recv().unwrap();
         drop(clean_up);
 
         if *recreate_swapchain {
@@ -859,7 +876,7 @@ impl Engine {
                     max_supported,
                 }) => {
                     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
-                    // self.rendering_data.send(None).unwrap();
+                    self.rendering_data.send((false, None)).unwrap();
                     self.event_loop_proxy.send_event(EngineEvent::Send);
                     return should_exit;
                 }
@@ -880,7 +897,7 @@ impl Engine {
                 Err(AcquireError::OutOfDate) => {
                     *recreate_swapchain = true;
                     println!("falied to aquire next image");
-                    // self.rendering_data.send(None).unwrap();
+                    self.rendering_data.send((false, None)).unwrap();
                     return true;
                 }
                 Err(e) => panic!("Failed to acquire next image: {:?}", e),
@@ -934,7 +951,7 @@ impl Engine {
             transforms_buf.clone(),
             &self.perf,
         );
-        // rendering_complete.send(()).unwrap();
+        // self.rendering_complete.recv().unwrap();
 
         let particle_update = self.perf.node("particle update");
         self.particles_system.update(
@@ -1056,7 +1073,7 @@ impl Engine {
                     array_layers: 1,
                 },
                 MipmapsCount::Log2,
-                Format::E5B9G9R9_UFLOAT_PACK32,
+                Format::R8G8B8A8_UNORM,
                 &mut builder,
             )
             .unwrap();
@@ -1186,7 +1203,7 @@ impl Engine {
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();
         drop(_build_command_buffer);
-        // vk.finalize();
+        vk.finalize();
         // unsafe {
         //     *self.particles_system.cycle.get() = (*self.particles_system.cycle.get() + 1) % 2;
         // }
@@ -1203,41 +1220,47 @@ impl Engine {
         //     )
         //     .then_signal_fence()
         //     .flush(); // FREEZE HERE
-        previous_frame_end.take().unwrap().flush().unwrap();
-        // let future = previous_frame_end
-        //     .take()
+        // previous_frame_end.take().unwrap().flush().unwrap();
+        // // let future = previous_frame_end
+        // //     .take()
+        // //     .unwrap()
+        // //     .join(acquire_future)
+        // let future = acquire_future
+        //     .then_execute(vk.queue.clone(), command_buffer)
         //     .unwrap()
-        //     .join(acquire_future)
-        let future = acquire_future
-            .then_execute(vk.queue.clone(), command_buffer)
-            .unwrap()
-            .then_swapchain_present(
-                vk.queue.clone(),
-                SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
-            )
-            .then_signal_fence_and_flush();
+        //     .then_swapchain_present(
+        //         vk.queue.clone(),
+        //         SwapchainPresentInfo::swapchain_image_index(vk.swapchain().clone(), image_num),
+        //     )
+        //     .then_signal_fence_and_flush();
 
-        match future {
-            Ok(future) => {
-                *previous_frame_end = Some(future.boxed());
-            }
-            Err(FlushError::OutOfDate) => {
-                *recreate_swapchain = true;
-                *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-            }
-            Err(e) => {
-                println!("failed to flush future: {e}");
-                *recreate_swapchain = true;
-                *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
-            }
-        }
-
-        // self.rendering_data.send(Some((
+        // match future {
+        //     Ok(future) => {
+        //         *previous_frame_end = Some(future.boxed());
+        //     }
+        //     Err(FlushError::OutOfDate) => {
+        //         *recreate_swapchain = true;
+        //         *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+        //     }
+        //     Err(e) => {
+        //         println!("failed to flush future: {e}");
+        //         *recreate_swapchain = true;
+        //         *previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
+        //     }
+        // }
+        self.rendering_data.send((
+            should_exit,
+            Some((image_num, acquire_future, command_buffer)),
+        ));
+        // self.rendering_data.send((
         //     should_exit,
-        //     image_num,
-        //     acquire_future,
-        //     command_buffer,
-        // )));
+        //     Some((
+        //         image_num,
+        //         acquire_future,
+        //         command_buffer,
+        //         // previous_frame_end,
+        //     ),
+        // ));
         drop(_execute);
 
         self.update_editor_window = window_size.is_some();
@@ -1251,12 +1274,17 @@ impl Engine {
         println!("end");
         // self.world.lock().sys.physics.lock().get_counters();
         self.perf.print();
-        // Arc::into_inner(self.rendering_thread).unwrap().join();
+
+        // join render thread
+        self.rendering_data.send((true, None));
+        Arc::into_inner(self.rendering_thread).unwrap().join();
+
+        // join input thread
         self.event_loop_proxy.send_event(EngineEvent::Quit);
+        Arc::into_inner(self.input_thread).unwrap().join();
         if let Some(compiling) = &mut self.compiler_process {
             compiling.kill();
         }
-        // Arc::into_inner(self.input_thread).unwrap().join();
     }
 }
 

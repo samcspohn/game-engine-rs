@@ -191,13 +191,13 @@ pub fn editor_ui(
                                             ui.close_menu();
                                         }
                                         if ui.button("Save").clicked() {
-                                            serialize::serialize(world,"test.yaml");
+                                            serialize::serialize(world,"test.scene");
                                             save_project(file_watcher, world, assets_manager);
                                             // assets_manager.serialize();
                                             ui.close_menu();
                                         }
                                         if ui.button("Load").clicked() {
-                                            serialize::deserialize(world, "test.yaml");
+                                            serialize::deserialize(world, "test.scene");
                                             ui.close_menu();
                                         }
                                     });
