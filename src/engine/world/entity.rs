@@ -20,8 +20,8 @@ use crate::engine::{
 
 use super::{
     component::{Component, _ComponentID},
-    transform::{CacheVec, Transforms},
-    {transform::_Transform, World},
+    transform::{CacheVec, Transform, Transforms, _Transform},
+    World,
 };
 
 pub enum Components {
@@ -81,10 +81,11 @@ impl Entity {
     }
 }
 
-type CompFunc = (
-    u64,
-    Box<dyn Fn(&World, &(dyn StorageBase + Send + Sync), i32, i32) + Send + Sync>,
-);
+pub(crate) struct CompFunc {
+    pub key: u64,
+    pub comp_func:
+        Box<dyn Fn(&World, &(dyn StorageBase + Send + Sync), i32, &Transform<'_>) + Send + Sync>,
+}
 
 pub(crate) struct _EntityBuilder {
     pub(crate) parent: i32,
@@ -149,19 +150,19 @@ impl<'a> EntityBuilder<'a> {
             .unwrap()
             .0
             .fetch_add(1, Ordering::Relaxed);
-        self.comp_funcs.push((
-            T::ID,
-            Box::new(
+        self.comp_funcs.push(CompFunc {
+            key: T::ID,
+            comp_func: Box::new(
                 move |world: &World,
-                    //   syst: &System,
+                      //   syst: &System,
                       stor: &(dyn StorageBase + Send + Sync),
                       id: i32,
-                      t: i32| {
+                      t: &Transform<'_>| {
                     let stor: &Storage<T> = unsafe { stor.as_any().downcast_ref_unchecked() };
-                    stor.insert_exact(id, t, &world.transforms, &world.sys, &f);
+                    stor.insert_exact(id, t, &world.sys, &f);
                 },
             ),
-        ));
+        });
         self
     }
     pub fn build(mut self) {
@@ -172,11 +173,12 @@ impl<'a> EntityBuilder<'a> {
 pub type Unlocked<'a> = force_send_sync::SendSync<
     ThinMap<u64, RwLockReadGuard<'a, Box<dyn StorageBase + Send + Sync>>>,
 >;
-type CompFuncMulti = (
-    u64,
-    SyncUnsafeCell<i32>,
-    Box<dyn Fn(&World, &(dyn StorageBase + Send + Sync), i32, i32) + Send + Sync>,
-);
+pub(crate) struct CompFuncMulti {
+    pub key: u64,
+    pub offset: SyncUnsafeCell<i32>,
+    pub comp_func:
+        Box<dyn Fn(&World, &(dyn StorageBase + Send + Sync), i32, &Transform<'_>) + Send + Sync>,
+}
 
 pub(crate) struct _EntityParBuilder {
     pub(crate) count: i32,
@@ -187,22 +189,6 @@ pub(crate) struct _EntityParBuilder {
         Option<Box<dyn Fn() -> _Transform + Send + Sync>>,
     ),
     pub(crate) comp_funcs: Vec<CompFuncMulti>,
-    // pub(crate) instantiate_func: &'static (dyn Fn(
-    //     &_EntityParBuilder,
-    //     &Vec<i32>,
-    //     &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
-    //     &World,
-    //     &SendSync<
-    //         ThinMap<
-    //             u64,
-    //             (
-    //                 AtomicI32,
-    //                 RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
-    //             ),
-    //         >,
-    //     >,
-    // ) + Send
-    //               + Sync), // pub(crate) c_offsets: ThinMap<u64, i32>,
 }
 
 unsafe impl Send for _EntityParBuilder {}
@@ -227,71 +213,6 @@ impl _EntityParBuilder {
 // static T_DEFAULT: Box<dyn Fn() -> _Transform + Send + Sync> = Box::new(|| _Transform::default());
 static T_DEFAULT: Lazy<Box<dyn Fn() -> _Transform + Send + Sync>> =
     Lazy::new(|| Box::new(|| _Transform::default()));
-
-// fn low_count(
-//     a: &_EntityParBuilder,
-//     _trans: &Vec<i32>,
-//     comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
-//     world: &World,
-//     unlocked: &SendSync<
-//         ThinMap<
-//             u64,
-//             (
-//                 AtomicI32,
-//                 RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
-//             ),
-//         >,
-//     >,
-// ) {
-//     let t_func = a.t_func.1.as_ref().unwrap_or(&T_DEFAULT);
-//     let t_id = unsafe { *a.t_func.0.get() };
-//     (0..a.count).into_iter().for_each(|i| {
-//         let t = _trans[(t_id + i) as usize];
-//         world.transforms.write_transform(t, t_func());
-//     });
-//     a.comp_funcs.iter().for_each(|b| {
-//         let comp = &unlocked.get(&b.0).unwrap();
-//         let c_id = unsafe { *b.1.get() };
-//         let stor = comp.1.as_ref();
-//         let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
-//         (0..a.count).into_iter().for_each(|i| {
-//             let t = _trans[(t_id + i) as usize];
-//             b.2(&world, stor, cto[(c_id + i) as usize], t);
-//         });
-//     });
-// }
-// fn high_count(
-//     a: &_EntityParBuilder,
-//     _trans: &Vec<i32>,
-//     comp_ids: &HashMap<u64, SyncUnsafeCell<CacheVec<i32>>, nohash_hasher::BuildNoHashHasher<u64>>,
-//     world: &World,
-//     unlocked: &SendSync<
-//         ThinMap<
-//             u64,
-//             (
-//                 AtomicI32,
-//                 RwLockReadGuard<'_, Box<dyn StorageBase + Send + Sync>>,
-//             ),
-//         >,
-//     >,
-// ) {
-//     let t_func = a.t_func.1.as_ref().unwrap_or(&T_DEFAULT);
-//     let t_id = unsafe { *a.t_func.0.get() };
-//     (0..a.count).into_par_iter().for_each(|i| {
-//         let t = _trans[(t_id + i) as usize];
-//         world.transforms.write_transform(t, t_func());
-//     });
-//     a.comp_funcs.par_iter().for_each(|b| {
-//         let comp = &unlocked.get(&b.0).unwrap();
-//         let c_id = unsafe { *b.1.get() };
-//         let stor = comp.1.as_ref();
-//         let cto = unsafe { (*comp_ids.get(&b.0).unwrap().get()).get() };
-//         (0..a.count).into_par_iter().for_each(|i| {
-//             let t = _trans[(t_id + i) as usize];
-//             b.2(world, stor, cto[(c_id + i) as usize], t);
-//         });
-//     });
-// }
 
 pub struct EntityParBuilder<'a> {
     world: &'a World,
@@ -346,20 +267,20 @@ impl<'a> EntityParBuilder<'a> {
             .unwrap()
             .0
             .fetch_add(self.count, Ordering::Relaxed);
-        self.comp_funcs.push((
-            T::ID,
-            SyncUnsafeCell::new(-1),
-            Box::new(
+        self.comp_funcs.push(CompFuncMulti {
+            key: T::ID,
+            offset: SyncUnsafeCell::new(-1),
+            comp_func: Box::new(
                 move |world: &World,
-                    //   syst: &System,
+                      //   syst: &System,
                       stor: &(dyn StorageBase + Send + Sync),
                       id: i32,
-                      t: i32| {
+                      trans: &Transform<'_>| {
                     let stor: &Storage<T> = unsafe { stor.as_any().downcast_ref_unchecked() };
-                    stor.insert_exact(id, t, &world.transforms, &world.sys, &f);
+                    stor.insert_exact(id, trans, &world.sys, &f);
                 },
             ),
-        ));
+        });
         // self.comp_funcs.push((
         //     T::ID,
         //     Box::new(

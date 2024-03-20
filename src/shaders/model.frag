@@ -19,7 +19,7 @@ layout(set = 0, binding = 8) buffer vl { uint visible_lights[]; };
 layout(set = 0, binding = 9) buffer vlc { uint visible_lights_count; };
 
 vec4 CalcLightInternal(lightTemplate Light, vec3 LightDirection, vec3 Normal) {
-    vec4 AmbientColor = vec4(Light.color, 1.0f);
+    // vec4 AmbientColor = vec4(Light.color, 1.0f);
     float DiffuseFactor = dot(Normal, -LightDirection);
 
     vec4 DiffuseColor = vec4(0, 0, 0, 0);
@@ -37,7 +37,7 @@ vec4 CalcLightInternal(lightTemplate Light, vec3 LightDirection, vec3 Normal) {
         // }
     }
 
-    return (AmbientColor + DiffuseColor + SpecularColor);
+    return (DiffuseColor + SpecularColor);
 }
 
 vec4 CalcPointLight(uint Index, vec3 Normal) {

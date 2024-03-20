@@ -30,27 +30,36 @@ void main() {
     vec2 pos = 2 * (tile_idx.xy + 0.5) / _light_quadtree_widths[tile_idx.z] - 1;
     uint count = tiles[_id].count;
     // color = vec4(min(1, count / 512), min(1, max(0, (512 - count) / 512)), min(1, max(0, (512 - count) / 512)), 0.2);
-    color = count == 0 ? vec4(0, 0, 0, 0) : mix(colors[0], colors[1], min(1, float(count) / 512.0));
+    vec4 Color = count == 0 ? vec4(0, 0, 0, 0) : mix(colors[0], colors[1], min(1, float(count) / 512.0));
 
+    color = Color;
     gl_Position = vec4(pos + size * ivec2(-1, -1), 0, 1);
     EmitVertex();
+    color = Color;
     gl_Position = vec4(pos + size * ivec2(1, -1), 0, 1);
     EmitVertex();
+    color = Color;
     gl_Position = vec4(pos + size * ivec2(-1, 1), 0, 1);
     EmitVertex();
+    color = Color;
     gl_Position = vec4(pos + size * ivec2(1, 1), 0, 1);
     EmitVertex();
     EndPrimitive();
 
     size = vec2(0.01);
     count = tiles[_id].travel_through;
-    color = count == 0 ? vec4(0, 0, 0, 0) : mix(colors2[0], colors2[1], min(1, float(count) / 5000.0));
+    Color = count == 0 ? vec4(0, 0, 0, 0) : mix(colors2[0], colors2[1], min(1, float(count) / 5000.0));
+
+    color = Color;
     gl_Position = vec4(pos + size * ivec2(-1, -1), 0, 1);
     EmitVertex();
+    color = Color;
     gl_Position = vec4(pos + size * ivec2(1, -1), 0, 1);
     EmitVertex();
+    color = Color;
     gl_Position = vec4(pos + size * ivec2(-1, 1), 0, 1);
     EmitVertex();
+    color = Color;
     gl_Position = vec4(pos + size * ivec2(1, 1), 0, 1);
     EmitVertex();
 }
