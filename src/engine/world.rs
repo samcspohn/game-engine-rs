@@ -429,61 +429,127 @@ impl World {
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
     }
-    // pub fn init_colls_rbs(&self) {
-    //     while let Some(new_rb) = self.sys.new_rigid_bodies.pop() {
-    //         let NewRigidBody {
-    //             mut ct,
-    //             pos,
-    //             rot,
-    //             vel,
-    //             tid,
-    //             mut rb,
-    //         } = new_rb;
-    //         if unsafe { **rb != RigidBodyHandle::invalid() } {
-    //             unsafe {
-    //                 self.sys.physics.lock().remove_rigid_body(unsafe { **rb });
-    //             }
-    //         }
-    //         let _rb = RigidBodyBuilder::dynamic()
-    //             .translation(pos.into())
-    //             .rotation(quat_euler_angles(&rot))
-    //             .user_data(tid as u128)
-    //             .build();
-    //         unsafe {
-    //             **rb = self.sys.physics.lock().add_rigid_body(_rb);
-    //             let col = (**ct)
-    //                 .get_collider(&self.sys)
-    //                 .user_data(tid as u128)
-    //                 .build();
-    //             self.sys
-    //                 .physics
-    //                 .lock()
-    //                 .add_collider_to_rigid_body(col, unsafe { **rb });
-    //         }
-    //     }
-    //     while let Some(new_col) = self.sys.new_colliders.pop() {
-    //         let NewCollider {
-    //             mut ct,
-    //             pos,
-    //             rot,
-    //             tid,
-    //             mut rb,
-    //         } = new_col;
-    //         if unsafe { **rb != ColliderHandle::invalid() } {
-    //             unsafe {
-    //                 self.sys.physics.lock().remove_collider(**rb);
-    //             }
-    //         }
-    //         unsafe {
-    //             let col = (**ct)
-    //                 .get_collider(&self.sys)
-    //                 .position(pos.into())
-    //                 .rotation(quat_euler_angles(&rot))
-    //                 .build();
-    //             **rb = self.sys.physics.lock().add_collider(col);
-    //         }
-    //     }
-    // }
+    pub fn init_colls_rbs(&self, perf: &Perf) {
+        let mut phys = self.sys.physics.lock();
+        while let Some(col) = self.sys.to_remove_colliders.pop() {
+            phys.remove_collider(col);
+        }
+        while let Some(rb) = self.sys.to_remove_rigid_bodies.pop() {
+            phys.remove_rigid_body(rb);
+        }
+        while let Some(new_rb) = self.sys.new_rigid_bodies.pop() {
+            let NewRigidBody {
+                mut ct,
+                pos,
+                rot,
+                vel,
+                tid,
+                mut rb,
+            } = new_rb;
+            if unsafe { **rb != RigidBodyHandle::invalid() } {
+                unsafe {
+                    phys.remove_rigid_body(unsafe { **rb });
+                }
+            }
+            let _rb = RigidBodyBuilder::dynamic()
+                .ccd_enabled(true)
+                .translation(pos.into())
+                .rotation(quat_euler_angles(&rot))
+                .user_data(tid as u128)
+                .build();
+            unsafe {
+                **rb = phys.add_rigid_body(_rb);
+                let col = (**ct)
+                    .get_collider(&self.sys)
+                    .user_data(tid as u128)
+                    .build();
+                phys.add_collider_to_rigid_body(col, unsafe { **rb });
+            }
+        }
+        while let Some(new_col) = self.sys.new_colliders.pop() {
+            let NewCollider {
+                mut ct,
+                pos,
+                rot,
+                tid,
+                mut rb,
+            } = new_col;
+            if unsafe { **rb != ColliderHandle::invalid() } {
+                unsafe {
+                    phys.remove_collider(**rb);
+                }
+            }
+            unsafe {
+                let col = (**ct)
+                    .get_collider(&self.sys)
+                    .user_data(tid as u128)
+                    .position(pos.into())
+                    .rotation(quat_euler_angles(&rot))
+                    .build();
+                **rb = phys.add_collider(col);
+            }
+        }
+
+        // drop(phys);
+
+        phys.dup_query_pipeline(&perf, &mut self.sys.physics2.lock());
+
+        rayon::scope(|s| {
+            // TODO: only update if moved
+            let update_colliders_rbs = perf.node("update colliders and rbs");
+            // update collider positions
+            let mut colliders: Vec<&mut Collider> = phys
+                .collider_set
+                .iter_mut()
+                .filter(|a| a.1.parent().is_none())
+                .map(|a| a.1)
+                .collect();
+            colliders.iter_mut().for_each(|col| {
+                let i = col.user_data as i32;
+                if let Some(t) = self.transforms.get(i) {
+                    col.set_translation(t.get_position());
+                    col.set_rotation(nalgebra::UnitQuaternion::from_quaternion(t.get_rotation()));
+                }
+            });
+            // update kinematic bodies
+            let mut rb: Vec<&mut RigidBody> = phys
+                .rigid_body_set
+                .iter_mut()
+                // .filter(|a| a.1.is_kinematic())
+                .map(|a| a.1)
+                .collect();
+            rb.par_iter_mut().for_each(|rb| {
+                let i = rb.user_data as i32;
+                if let Some(t) = self.transforms.get(i) {
+                    if rb.is_kinematic() {
+                        rb.set_translation(t.get_position(), true);
+                        rb.set_rotation(
+                            nalgebra::UnitQuaternion::from_quaternion(t.get_rotation()),
+                            true,
+                        );
+                    }
+                    if rb.is_moving() {
+                        // if let Some(t) = self.transforms.get(rb.user_data as i32) {
+                        t.set_position(rb.translation());
+                        t.set_rotation(rb.rotation());
+                        // }
+                    }
+                }
+            });
+            // // update positions of rigidbodies
+            // phys.island_manager
+            //     .active_dynamic_bodies()
+            //     .par_iter()
+            //     .chain(phys.island_manager.active_kinematic_bodies().par_iter())
+            //     .for_each(|a| {
+            //         let rb = unsafe { phys.get_rigid_body(*a).unwrap() };
+            //         if let Some(t) = self.transforms.get(rb.user_data as i32) {
+            //             t.set_position(rb.translation());
+            //             t.set_rotation(rb.rotation());
+            //         }
+            //     });
+        });
+    }
     pub fn defer_instantiate(&mut self, perf: &Perf) {
         let world_alloc_transforms = perf.node("world allocate transforms");
 

@@ -222,125 +222,13 @@ pub(crate) fn physics_thread(
     // phys: Arc<Mutex<Physics>>,
     perf: Arc<Perf>,
     phys_start: Receiver<(bool, Arc<Mutex<Physics>>)>,
-    phys_upd_cmpl: Sender<()>,
+    // phys_upd_cmpl: Sender<()>,
     phys_step_cmpl: Sender<()>,
 ) {
     let world: &World = unsafe { &**world };
     phys_step_cmpl.send(()).unwrap();
     loop {
         let (a, phys) = phys_start.recv().unwrap();
-        {
-            // {
-            let mut phys = phys.lock();
-            // let mut phys = phys.lock();
-            // let world = world.lock();
-            while let Some(col) = world.sys.to_remove_colliders.pop() {
-                phys.remove_collider(col);
-            }
-            while let Some(rb) = world.sys.to_remove_rigid_bodies.pop() {
-                phys.remove_rigid_body(rb);
-            }
-            while let Some(new_rb) = world.sys.new_rigid_bodies.pop() {
-                let NewRigidBody {
-                    mut ct,
-                    pos,
-                    rot,
-                    vel,
-                    tid,
-                    mut rb,
-                } = new_rb;
-                if unsafe { **rb != RigidBodyHandle::invalid() } {
-                    unsafe {
-                        phys.remove_rigid_body(unsafe { **rb });
-                    }
-                }
-                let _rb = RigidBodyBuilder::dynamic()
-                    .ccd_enabled(true)
-                    .translation(pos.into())
-                    .rotation(quat_euler_angles(&rot))
-                    .user_data(tid as u128)
-                    .build();
-                unsafe {
-                    **rb = phys.add_rigid_body(_rb);
-                    let col = (**ct)
-                        .get_collider(&world.sys)
-                        .user_data(tid as u128)
-                        .build();
-                    phys.add_collider_to_rigid_body(col, unsafe { **rb });
-                }
-            }
-            while let Some(new_col) = world.sys.new_colliders.pop() {
-                let NewCollider {
-                    mut ct,
-                    pos,
-                    rot,
-                    tid,
-                    mut rb,
-                } = new_col;
-                if unsafe { **rb != ColliderHandle::invalid() } {
-                    unsafe {
-                        phys.remove_collider(**rb);
-                    }
-                }
-                unsafe {
-                    let col = (**ct)
-                        .get_collider(&world.sys)
-                        .user_data(tid as u128)
-                        .position(pos.into())
-                        .rotation(quat_euler_angles(&rot))
-                        .build();
-                    **rb = phys.add_collider(col);
-                }
-            }
-
-            // drop(phys);
-
-            phys.dup_query_pipeline(&perf, &mut world.sys.physics2.lock());
-
-            // TODO: only update if moved
-            let update_colliders_rbs = perf.node("update colliders and rbs");
-            // update collider positions
-            let mut colliders: Vec<&mut Collider> = phys
-                .collider_set
-                .iter_mut()
-                .filter(|a| a.1.parent().is_none())
-                .map(|a| a.1)
-                .collect();
-            colliders.iter_mut().for_each(|col| {
-                let i = col.user_data as i32;
-                if let Some(t) = world.transforms.get(i) {
-                    col.set_translation(t.get_position());
-                    col.set_rotation(UnitQuaternion::from_quaternion(t.get_rotation()));
-                }
-            });
-            // update kinematic bodies
-            let mut kin_rb: Vec<&mut RigidBody> = phys
-                .rigid_body_set
-                .iter_mut()
-                .filter(|a| a.1.is_kinematic())
-                .map(|a| a.1)
-                .collect();
-            kin_rb.iter_mut().for_each(|rb| {
-                let i = rb.user_data as i32;
-                if let Some(t) = world.transforms.get(i) {
-                    rb.set_translation(t.get_position(), true);
-                    rb.set_rotation(UnitQuaternion::from_quaternion(t.get_rotation()), true);
-                }
-            });
-            // update positions of rigidbodies
-            phys.island_manager
-                .active_dynamic_bodies()
-                .par_iter()
-                .chain(phys.island_manager.active_kinematic_bodies().par_iter())
-                .for_each(|a| {
-                    let rb = unsafe { phys.get_rigid_body(*a).unwrap() };
-                    if let Some(t) = world.transforms.get(rb.user_data as i32) {
-                        t.set_position(rb.translation());
-                        t.set_rotation(rb.rotation());
-                    }
-                });
-            phys_upd_cmpl.send(()).unwrap();
-        }
         if a {
             phys.lock().step(&perf);
             phys_step_cmpl.send(()).unwrap();

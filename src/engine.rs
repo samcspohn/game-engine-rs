@@ -249,7 +249,6 @@ pub struct Engine {
     )>,
     pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     phys_upd_start: Sender<(bool, Arc<Mutex<Physics>>)>,
-    phys_upd_compl: Receiver<()>,
     phys_step_compl: Receiver<()>,
     // end of channels
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
@@ -430,7 +429,7 @@ impl Engine {
         let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
         let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd, phys_rcv) = crossbeam::channel::bounded(1);
-        let (phys_snd2, phys_rcv2) = crossbeam::channel::bounded(1);
+        // let (phys_snd2, phys_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd3, phys_rcv3) = crossbeam::channel::bounded(1);
         // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
         let input_thread = Arc::new({
@@ -448,7 +447,7 @@ impl Engine {
             let perf = perf.clone();
             let world: SendSync<*const World> = unsafe { SendSync::new(&mut *world.lock()) };
             thread::spawn(move || {
-                physics::physics_thread(world, perf, phys_rcv, phys_snd2, phys_snd3);
+                physics::physics_thread(world, perf, phys_rcv, phys_snd3);
             })
         });
         proxy.send_event(EngineEvent::Send);
@@ -485,7 +484,6 @@ impl Engine {
             rendering_data: rendering_snd,
             rendering_complete: rendering_rcv2,
             phys_upd_start: phys_snd,
-            phys_upd_compl: phys_rcv2,
             phys_step_compl: phys_rcv3,
             cam_data: Arc::new(Mutex::new(CameraData::new(vk.clone(), 1))),
             renderer: EngineRenderer {
@@ -512,7 +510,6 @@ impl Engine {
             rendering_thread,
             physics_thread,
             compiler_process: None,
-            // working_scene: "test.scene".into(),
             file_watcher,
             tex_id: None,
             image_view: None,
@@ -668,14 +665,13 @@ impl Engine {
             {
                 puffin::profile_scope!("world update");
                 if world.phys_time >= world.phys_step {
+                    // skip if physics sim not complete
                     if let Ok(_) = self.phys_step_compl.try_recv() {
-                        // skip if physics sim not complete
-
-                        let phys_sim = self.perf.node("wait for phyiscs");
+                        // update physics transforms/ add/remove colliders/rigid bodies
+                        world.init_colls_rbs(&self.perf);
                         self.phys_upd_start
                             .send((true, world.sys.physics.clone()))
-                            .unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
-                        self.phys_upd_compl.recv().unwrap();
+                            .unwrap();
                         world.phys_time = 0f32;
                     }
                 }
@@ -710,10 +706,11 @@ impl Engine {
             world.editor_update(); // TODO: terrain update still breaking
 
             world.do_defered();
-            self.phys_upd_start
-                .send((false, world.sys.physics.clone()))
-                .unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
-            self.phys_upd_compl.recv().unwrap();
+            world.init_colls_rbs(&self.perf);
+            // self.phys_upd_start
+            //     .send((false, world.sys.physics.clone()))
+            //     .unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
+            // self.phys_upd_compl.recv().unwrap();
 
             self.editor_cam.update(&input, &self.time);
             let cvd = self.cam_data.lock().update(
@@ -1274,7 +1271,9 @@ impl Engine {
         println!("end");
         // self.world.lock().sys.physics.lock().get_counters();
         self.perf.print();
-
+        if std::path::Path::exists(&Path::new("temp_scene")) {
+            fs::remove_file("temp_scene");
+        }
         // join render thread
         self.rendering_data.send((true, None));
         Arc::into_inner(self.rendering_thread).unwrap().join();
