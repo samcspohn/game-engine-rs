@@ -73,7 +73,7 @@ pub struct NewCollider {
     pub pos: Vec3,
     pub rot: Quat,
     pub tid: i32,
-    pub rb: SendSync<*mut ColliderHandle>,
+    pub ch: SendSync<*mut ColliderHandle>,
 }
 
 pub struct Sys {
@@ -472,11 +472,11 @@ impl World {
                 pos,
                 rot,
                 tid,
-                mut rb,
+                mut ch,
             } = new_col;
-            if unsafe { **rb != ColliderHandle::invalid() } {
+            if unsafe { **ch != ColliderHandle::invalid() } {
                 unsafe {
-                    phys.remove_collider(**rb);
+                    phys.remove_collider(**ch);
                 }
             }
             unsafe {
@@ -486,7 +486,7 @@ impl World {
                     .position(pos.into())
                     .rotation(quat_euler_angles(&rot))
                     .build();
-                **rb = phys.add_collider(col);
+                **ch = phys.add_collider(col);
             }
         }
 
@@ -556,6 +556,7 @@ impl World {
         let sys = &self.sys;
         let syst = System {
             audio: &sys.audio_manager,
+            mesh_map: sys.mesh_map.clone(),
             proc_collider: &sys.proc_colliders,
             proc_mesh_id: &sys.proc_mesh_id,
             physics: &sys.physics2.lock(),
@@ -871,6 +872,7 @@ impl World {
             let sys = &self.sys;
             let sys = System {
                 audio: &sys.audio_manager,
+                mesh_map: sys.mesh_map.clone(),
                 proc_collider: &sys.proc_colliders,
                 proc_mesh_id: &sys.proc_mesh_id,
                 physics: &sys.physics2.lock(),
@@ -932,6 +934,7 @@ impl World {
         let sys = &self.sys;
         let sys = System {
             audio: &sys.audio_manager,
+            mesh_map: sys.mesh_map.clone(),
             proc_collider: &sys.proc_colliders,
             proc_mesh_id: &sys.proc_mesh_id,
             physics: &sys.physics2.lock(),
@@ -1058,6 +1061,7 @@ impl World {
         let sys = &self.sys;
         let sys = System {
             audio: &sys.audio_manager,
+            mesh_map: sys.mesh_map.clone(),
             proc_collider: &sys.proc_colliders,
             proc_mesh_id: &sys.proc_mesh_id,
             physics: &sys.physics2.lock(),

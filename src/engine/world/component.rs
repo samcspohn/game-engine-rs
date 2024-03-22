@@ -10,7 +10,7 @@ use kira::manager::AudioManager;
 use nalgebra_glm::{Quat, Vec3};
 use parking_lot::{Mutex, RwLock};
 use rapier3d::{
-    geometry::ColliderHandle,
+    geometry::{ColliderBuilder, ColliderHandle},
     na::Point3,
     prelude::{QueryPipeline, RigidBodyHandle},
 };
@@ -39,6 +39,7 @@ use super::{NewCollider, NewRigidBody};
 
 pub struct System<'a> {
     pub audio: &'a AudioSystem,
+    pub mesh_map: Arc<Mutex<HashMap<i32, ColliderBuilder>>>,
     pub proc_collider: &'a Mutex<HashMap<i32, Arc<Mutex<_Collider>>>>,
     pub proc_mesh_id: &'a AtomicI32,
     pub physics: &'a PhysicsData,
@@ -111,7 +112,10 @@ impl<'a> System<'a> {
     ) -> i32 {
         let id = self
             .proc_mesh_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            .fetch_add(-1, std::sync::atomic::Ordering::Relaxed);
+        // self.mesh_map
+        //     .lock()
+        //     .insert(id, ColliderBuilder::trimesh(points, indeces));
         self.proc_collider.lock().insert(
             id,
             Arc::new(Mutex::new(_Collider {
@@ -129,7 +133,7 @@ impl<'a> System<'a> {
                     pos: Vec3::zeros(),
                     rot,
                     tid,
-                    rb: unsafe { SendSync::new(&mut c.handle) },
+                    ch: unsafe { SendSync::new(&mut c.handle) },
                 }
             });
         });
@@ -141,7 +145,7 @@ pub trait Component {
     // fn assign_transform(&mut self, t: Transform);
     fn init(&mut self, transform: &Transform, id: i32, sys: &Sys) {}
     fn deinit(&mut self, transform: &Transform, _id: i32, sys: &Sys) {}
-    fn on_start(&mut self, transform: &Transform, sys: &System) {} // TODO implement call
+    fn on_start(&mut self, transform: &Transform, sys: &System) {}
     fn on_destroy(&mut self, transform: &Transform, sys: &System) {} // TODO implement call
     fn update(&mut self, transform: &Transform, sys: &System, world: &World) {}
     fn late_update(&mut self, transform: &Transform, sys: &System) {}

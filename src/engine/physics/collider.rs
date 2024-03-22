@@ -108,7 +108,7 @@ impl Component for _Collider {
             pos: _transform.get_position(),
             rot: _transform.get_rotation(),
             tid: _transform.id,
-            rb: unsafe { SendSync::new(&mut self.handle) },
+            ch: unsafe { SendSync::new(&mut self.handle) },
         });
     }
     fn deinit(&mut self, _transform: &Transform, _id: i32, _sys: &Sys) {
