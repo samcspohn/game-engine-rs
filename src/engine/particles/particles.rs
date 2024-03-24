@@ -113,7 +113,7 @@ pub struct PerformanceCounters {
 pub struct ParticleBuffers {
     pub particles: Subbuffer<[cs::particle]>,
     pub particle_positions_lifes: Subbuffer<[cs::pos_lif]>,
-    pub pos_life_compressed: Subbuffer<[scs::pos_life_comp]>,
+    // pub pos_life_compressed: Subbuffer<[scs::pos_life_comp]>,
     pub particle_next: Subbuffer<[i32]>,
     pub particle_template_ids: Subbuffer<[i32]>,
     pub alive: Subbuffer<[u32]>,
@@ -424,7 +424,7 @@ impl ParticlesSystem {
                 particles,
                 particle_next,
                 particle_positions_lifes,
-                pos_life_compressed: vk.buffer_array(max_particles as u64, MemoryUsage::DeviceOnly),
+                // pos_life_compressed: vk.buffer_array(max_particles as u64, MemoryUsage::DeviceOnly),
                 particle_template_ids,
                 emitter_init_dummy,
                 particle_burst_dummy,
@@ -983,7 +983,8 @@ impl ParticlesSystem {
                 .clone(),
             pt.samplers.len() as u32,
             [
-                WriteDescriptorSet::buffer(0, pb.pos_life_compressed.clone()),
+                // WriteDescriptorSet::buffer(0, pb.pos_life_compressed.clone()),
+                WriteDescriptorSet::buffer(0, pb.particle_positions_lifes.clone()),
                 WriteDescriptorSet::buffer(3, pb.particle_templates.lock().clone()),
                 WriteDescriptorSet::buffer(4, uniform_sub_buffer),
                 WriteDescriptorSet::buffer(5, self.sort.a2.clone()),

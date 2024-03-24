@@ -591,7 +591,7 @@ impl Transforms {
         unsafe {
             let meta = &*self.meta[t as usize].get();
             if meta.parent >= 0 {
-                let _ = (*self.mutex[meta.parent as usize].get()).try_lock().unwrap_unchecked(); // if parent is locked it is already being destroyed
+                let _ = (*self.mutex[meta.parent as usize].get()).lock();
                 (&mut *self.meta[meta.parent as usize].get())
                     .children
                     .pop_node(&meta.child_id);

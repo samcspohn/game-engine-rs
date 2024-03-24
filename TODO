@@ -34,6 +34,7 @@ game-engine:
   ☐ implement shader abstraction
   ☐ fix recreate swapchain early exit
   ☐ add temp component for invalid/no type key components
+  ☐ pass transform ref (t_ref: &TRef) to component functions, make transform.get_parent() consume Self, unlocking transform
   rendering:
     ☐ add materials
     ☐ use indirect to draw all geometry in one pass

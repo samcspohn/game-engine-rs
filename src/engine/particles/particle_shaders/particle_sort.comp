@@ -15,6 +15,7 @@ layout(set = 0, binding = 6) uniform Data {
     mat4 view;
     mat4 proj;
     vec3 cam_pos;
+    Frustum frustum;
 };
 layout(set = 0, binding = 7) buffer b { uint buckets[]; };
 layout(set = 0, binding = 8) buffer d { VkDrawIndirectCommand draw[]; };
@@ -25,7 +26,7 @@ layout(set = 0, binding = 11) buffer e { emitter emitters[]; };
 layout(set = 0, binding = 12) buffer t { transform transforms[]; };
 layout(set = 0, binding = 13) buffer al { uint alive[]; };
 layout(set = 0, binding = 14) buffer al_c { uint alive_count; };
-layout(set = 0, binding = 15) buffer _pl_c { pos_life_comp p_lc[]; };
+// layout(set = 0, binding = 15) buffer _pl_c { pos_life_comp p_lc[]; };
 // shared uint[512] local_buckets;
 const uint skip_size = 65536 / 256;
 shared uint[256] local_sums;   // TODO: increase local sums
@@ -45,131 +46,119 @@ vec2 get_radius(in vec3 pos1, in vec3 pos2) {
 }
 void main() {
     uint id = gl_GlobalInvocationID.x;
-    int jobs = num_jobs >= 0 ? num_jobs : avail_count;
-    if (stage == 1) {
-        jobs = int(alive_count);
-    }
+    // int jobs = num_jobs >= 0 ? num_jobs : avail_count;
+    // if (stage == 1) {
+    //     jobs = int(alive_count);
+    // }
 
-    if (id < jobs) {
-        switch (stage) {
-        case 1:
-            // add particles to sort buffer / update particle keys
-            // float z = (view * vec4(p_l[id].pos, 1.0)).z;
-            // int i = particles[id].sorted;
-            // if (p_l[id].life > 0.f)
-            {   // add to sort or update
-                id = alive[id];
-                if (id == -1) {
-                    return;
+    // if (id < jobs) {
+    switch (stage) {
+    case 1:
+        // add particles to sort buffer / update particle keys
+        {
+            if (id >= int(alive_count)) {
+                return;
+            }
+            id = alive[id];
+            // set_life(p_lc[id], p_l[id].life);
+            // set_pos(p_lc[id], p_l[id].pos - cam_pos);
+
+            if (id == -1) {   // particle expired during current update
+                return;
+            }
+            int templ_id = emitters[particles[id].emitter_id].template_id;
+            bool templ_trail = templates[templ_id].trail == 1;
+            float radius = length(templates[templ_id].scale);
+
+            vec3 next_pos = p_l[id].pos;
+            if (templ_trail) {
+                if (next[id] >= 0) {
+                    next_pos = p_l[next[id]].pos;
+                } else if (next[id] < -1) {
+                    next_pos = transforms[-next[id] - 2].position;
                 }
+            }
+            AABB aabb;
+            aabb._min = min(p_l[id].pos, next_pos) - radius;
+            aabb._max = max(p_l[id].pos, next_pos) + radius;
+            vec3 pos = p_l[id].pos;
+            // aabb._min.x = min(pos.x, next_pos.x);
+            // aabb._min.y = min(pos.y, next_pos.y);
+            // aabb._min.z = min(pos.z, next_pos.z);
+
+            // aabb._max.x = max(pos.x, next_pos.x);
+            // aabb._max.y = max(pos.y, next_pos.y);
+            // aabb._max.z = max(pos.z, next_pos.z);
+
+            vec3 center = (pos + next_pos) / 2.0;
+            radius = length(next_pos - center) + radius;
+
+            if (frustumAABBIntersect(frustum, aabb)) {
+            // if (sphere_frustum(next_pos, radius, frustum)) {
+                int i = atomicAdd(avail_count, 1);   // elements to sort
+
                 float z = (view * vec4(p_l[id].pos, 1.0)).z;
-                vec4 _vp_pos = (proj * view * vec4(p_l[id].pos, 1.0));
-                vec3 vp_pos = _vp_pos.xyz / _vp_pos.w;
-                int templ_id = emitters[particles[id].emitter_id].template_id;
-                bool templ_trail = templates[templ_id].trail == 1;
-                float z2 = z;
-                vec3 next_pos = p_l[id].pos;
-                set_life(p_lc[id], p_l[id].life);
-                set_pos(p_lc[id], p_l[id].pos - cam_pos);
+                float z2 = (view * vec4(next_pos, 1.0)).z;
 
-                if (templ_trail) {
-                    vec3 next_pos;
-                    if (next[id] >= 0) {
-                        next_pos = p_l[next[id]].pos;
-                        set_life(p_lc[id], p_l[next[id]].life);
-                        set_pos(p_lc[id], next_pos - cam_pos);
-                    } else if (next[id] < -1) {
-                        next_pos = transforms[-next[id] - 2].position;
-                    } else {
-                        next_pos = p_l[id].pos;
-                    }
-                    z2 = (view * vec4(next_pos, 1.0)).z;
-                }
-                vec4 _vp_pos2 = (proj * view * vec4(next_pos, 1.0));
-                vec3 vp_pos2 = _vp_pos2.xyz / _vp_pos2.w;
-
-                vec2 r = vp_pos2.xy - vp_pos.xy;
-                vec2 center = (vp_pos2.xy + vp_pos.xy) / 2.f;
-                float radius = dot(r, r) * 5.f;
-
-                vec2 test = center;
-                if (center.x < -1.f) {
-                    test.x = -1.f;
-                } else if (center.x > 1.f) {
-                    test.x = 1.f;
-                }
-                if (center.y < -1.f) {
-                    test.y = -1.f;
-                } else if (center.y > 1.f) {
-                    test.y = 1.f;
-                }
-                vec2 dist = center.xy - test;
-                float _dist = dot(dist, dist);
-                radius = 0.2;
-                // if ((z < 0.f || z2 < 0.f) && _dist <= radius) {
-                if (z < 0.1f) {
-                    int i = atomicAdd(avail_count, 1);   // elements to sort
-                    z = -sqrt(-(z + z2) / 2.f);
-                    z = min(z, 0);
-                    a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
-                    a1[i].p_id = id;
-                    // a2[i] = id;
-                }
+                z = -sqrt(-(z + z2) / 2.f);
+                z = min(z, 0);
+                a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
+                a1[i].p_id = id;
+                // atomicAdd(buckets[a1[i].key >> 16], 1);
             }
-            break;
-        case 2:
-            if (id == 0) {
-                indirect[0].x = avail_count / 1024 + 1;   // for 3
-                indirect[0].y = 1;
-                indirect[0].z = 1;
-            }
-            // buckets[id] = 0;
-            break;
-        case 3:
-            if (id < avail_count) {
-                atomicAdd(buckets[a1[id].key >> 16], 1);
-            }
-            break;
-        case 4:
-            uint start = id * skip_size;
-            uint end = start + skip_size;
-            uint temp = buckets[start];
-            buckets[start] = 0;
-            for (uint i = start + 1; i < end; i++) {
-                uint temp2 = buckets[i];
-                buckets[i] = temp;
-                temp += temp2;
-            }
-            local_sums[id] = temp;
-            barrier();
-
-            if (id == 0) {
-                temp = local_sums[0];
-                for (uint i = 1; i < 256; i++) {
-                    uint temp2 = local_sums[i];
-                    local_sums[i] = temp;
-                    temp += temp2;
-                }
-            }
-            barrier();
-            for (uint i = start; i < end; i++) {
-                buckets[i] += local_sums[id];
-            }
-            break;
-        case 5:
-            if (id < avail_count) {
-                a2[atomicAdd(buckets[a1[id].key >> 16], 1) - 1] = a1[id].p_id;
-            }
-            break;
-
-        case 6:
-            // avail_count -= avail_count[1];
-            // avail_count[1] = 0;
-            indirect[0].x = avail_count / 128 + 1;   // for 0
+        }
+        break;
+    case 2:
+        if (id == 0) {
+            indirect[0].x = avail_count / 1024 + 1;   // for 3
             indirect[0].y = 1;
             indirect[0].z = 1;
-            draw[0].vertexCount = avail_count;   // avail_count;
-            break;
         }
+        // buckets[id] = 0;
+        break;
+    case 3:
+        if (id < avail_count) {
+            atomicAdd(buckets[a1[id].key >> 16], 1);
+        }
+        break;
+    case 4:
+        if (id >= 256) {
+            return;
+        }
+        uint start = id * skip_size;
+        uint end = start + skip_size;
+        uint temp = buckets[start];
+        buckets[start] = 0;
+        for (uint i = start + 1; i < end; i++) {
+            uint temp2 = buckets[i];
+            buckets[i] = temp;
+            temp += temp2;
+        }
+        local_sums[id] = temp;
+        barrier();
+
+        if (id == 0) {
+            temp = local_sums[0];
+            for (uint i = 1; i < 256; i++) {
+                uint temp2 = local_sums[i];
+                local_sums[i] = temp;
+                temp += temp2;
+            }
+        }
+        barrier();
+        for (uint i = start; i < end; i++) {
+            buckets[i] += local_sums[id];
+        }
+        break;
+    case 5:
+        if (id < avail_count) {
+            a2[atomicAdd(buckets[a1[id].key >> 16], 1)] = a1[id].p_id;
+        }
+        break;
+
+    case 6:
+        draw[0].vertexCount = avail_count;   // avail_count;
+        break;
     }
+    // }
 }

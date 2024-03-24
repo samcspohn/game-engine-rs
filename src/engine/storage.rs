@@ -320,8 +320,11 @@ impl<
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { *self.valid[i].get() } {
                 let mut d = self.data[i].1.lock();
-                let trans = transforms.get(unsafe { *self.data[i].0.get() }).unwrap();
-                d.update(&trans, &sys, world);
+                if let Some(trans) = transforms.get(unsafe { *self.data[i].0.get() }) {
+                    d.update(&trans, &sys, world);
+                } else {
+                    panic!("transform {} is invalid", unsafe { *self.data[i].0.get() });
+                }
             }
         });
     }

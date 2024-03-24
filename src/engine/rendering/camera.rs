@@ -1,8 +1,8 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, default, sync::Arc};
 
 use component_derive::ComponentID;
 use egui::TextureId;
-use glm::{radians, vec1, Mat4, Quat, Vec3};
+use glm::{cross, dot, normalize, radians, vec1, vec2, vec4, Mat4, Quat, Vec2, Vec3, Vec4};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
@@ -21,6 +21,7 @@ use vulkano::{
         StorageImage,
     },
     memory::allocator::MemoryUsage,
+    padded::Padded,
     pipeline::{
         graphics::viewport::Viewport, ComputePipeline, GraphicsPipeline, Pipeline,
         PipelineBindPoint,
@@ -32,7 +33,10 @@ use vulkano::{
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        particles::particles::{ParticleRenderPipeline, ParticlesSystem},
+        particles::{
+            particles::{ParticleRenderPipeline, ParticlesSystem},
+            shaders::scs,
+        },
         perf::Perf,
         project::asset_manager::AssetsManager,
         rendering::component::ur,
@@ -43,6 +47,7 @@ use crate::{
             Sys,
         },
         RenderJobData,
+        input::Input,
     },
 };
 
@@ -83,44 +88,102 @@ struct Plane {
     dist: f32,
 }
 #[derive(Clone, Default)]
-struct Frustum {
-    top: Plane,
-    bottom: Plane,
-    right: Plane,
-    left: Plane,
-    far: Plane,
-    near: Plane,
+pub struct _Frustum {
+    points: [Vec3; 8],
+    planes: [Vec4; 6],
+    // top: Plane,
+    // bottom: Plane,
+    // right: Plane,
+    // left: Plane,
+    // far: Plane,
+    // near: Plane,
 }
-impl Frustum {
-    fn create(
-        cam: &mut CameraViewData,
-        far_dist: f32,
-        fovY: f32,
-        aspect: f32,
-        near_dist: f32,
-    ) -> Self {
-        let frustum = Frustum::default();
-        let rot = glm::quat_to_mat3(&cam.cam_rot);
-        let h_far = far_dist * (fovY).tan();
-        let w_far = h_far * aspect;
-        let h_near = near_dist * (fovY).tan();
-        let w_near = h_near * aspect;
-        let p = cam.cam_pos;
-        let d = rot * glm::Vec3::z();
-        let right = rot * glm::Vec3::x();
-        let up = rot * glm::Vec3::y();
-        let fc = p + d * far_dist;
-        let ftl = fc + (up * h_far / 2.) - (right * w_far / 2.);
-        let ftr = fc + (up * h_far / 2.) + (right * w_far / 2.);
-        let fbl = fc - (up * h_far / 2.) - (right * w_far / 2.);
-        let fbr = fc - (up * h_far / 2.) + (right * w_far / 2.);
+impl _Frustum {
+    fn create(cam: &CameraViewData) -> Self {
+        let mut frustum = _Frustum::default();
+        let mut ndc_pts: [Vec2; 4] = Default::default(); // corners of tile in ndc
+        ndc_pts[0] = vec2(-1., -1.); // upper left -- lower?
+        ndc_pts[1] = vec2(1., -1.); // upper right
+        ndc_pts[2] = vec2(1., 1.); // lower right -- upper?
+        ndc_pts[3] = vec2(-1., 1.); // lower left
 
-        let nc = p + d * near_dist;
+        let min_depth = 0.0;
+        let max_depth = 1.0;
+        let mut temp: Vec4;
+        let inv_projview = glm::inverse(&(cam.proj * cam.view));
+        for i in 0..4 {
+            temp = inv_projview * vec4(ndc_pts[i].x, ndc_pts[i].y, min_depth, 1.0);
+            frustum.points[i] = temp.xyz() / temp.w;
+            temp = inv_projview * vec4(ndc_pts[i].x, ndc_pts[i].y, max_depth, 1.0);
+            frustum.points[i + 4] = temp.xyz() / temp.w;
+        }
 
-        let ntl = nc + (up * h_near / 2.) - (right * w_near / 2.);
-        let ntr = nc + (up * h_near / 2.) + (right * w_near / 2.);
-        let nbl = nc - (up * h_near / 2.) - (right * w_near / 2.);
-        let nbr = nc - (up * h_near / 2.) + (right * w_near / 2.);
+        let mut temp_normal: Vec3;
+        for i in 0..4 {
+            // left, top, right, bottom
+            // Cax+Cby+Ccz+Cd = 0, planes[i] = (Ca, Cb, Cc, Cd)
+            //  temp_normal: normal without normalization
+            temp_normal = cross(
+                &(frustum.points[i] - &cam.cam_pos),
+                &(frustum.points[i + 1] - cam.cam_pos),
+            );
+            temp_normal = normalize(&temp_normal);
+            frustum.planes[i] = vec4(
+                temp_normal.x,
+                temp_normal.y,
+                temp_normal.z,
+                dot(&temp_normal, &frustum.points[i]),
+            );
+        }
+        // near plane
+        {
+            temp_normal = cross(
+                &(frustum.points[1] - frustum.points[0]),
+                &(frustum.points[3] - frustum.points[0]),
+            );
+            temp_normal = normalize(&temp_normal);
+            frustum.planes[4] = vec4(
+                temp_normal.x,
+                temp_normal.y,
+                temp_normal.z,
+                dot(&temp_normal, &frustum.points[0]),
+            );
+        }
+        // far plane
+        {
+            temp_normal = cross(
+                &(frustum.points[7] - frustum.points[4]),
+                &(frustum.points[5] - frustum.points[4]),
+            );
+            temp_normal = normalize(&temp_normal);
+            frustum.planes[5] = vec4(
+                temp_normal.x,
+                temp_normal.y,
+                temp_normal.z,
+                dot(&temp_normal, &frustum.points[4]),
+            );
+        }
+        // let rot = glm::quat_to_mat3(&cam.cam_rot);
+        // let h_far = far_dist * (fovY).tan();
+        // let w_far = h_far * aspect;
+        // let h_near = near_dist * (fovY).tan();
+        // let w_near = h_near * aspect;
+        // let p = cam.cam_pos;
+        // let d = rot * glm::Vec3::z();
+        // let right = rot * glm::Vec3::x();
+        // let up = rot * glm::Vec3::y();
+        // let fc = p + d * far_dist;
+        // let ftl = fc + (up * h_far / 2.) - (right * w_far / 2.);
+        // let ftr = fc + (up * h_far / 2.) + (right * w_far / 2.);
+        // let fbl = fc - (up * h_far / 2.) - (right * w_far / 2.);
+        // let fbr = fc - (up * h_far / 2.) + (right * w_far / 2.);
+
+        // let nc = p + d * near_dist;
+
+        // let ntl = nc + (up * h_near / 2.) - (right * w_near / 2.);
+        // let ntr = nc + (up * h_near / 2.) + (right * w_near / 2.);
+        // let nbl = nc - (up * h_near / 2.) - (right * w_near / 2.);
+        // let nbr = nc - (up * h_near / 2.) + (right * w_near / 2.);
         frustum
         //     let halfVSide = zFar * (fovY * 0.5).tan();
         //     let halfHSide = halfVSide * aspect;
@@ -134,6 +197,31 @@ impl Frustum {
         // let frontMultFar = zFar * front;
     }
 }
+
+impl Into<crate::engine::particles::shaders::scs::Frustum> for _Frustum {
+    fn into(self) -> crate::engine::particles::shaders::scs::Frustum {
+        // let mut planes: [[f32; 4]; 6] = {
+
+        // }
+        scs::Frustum {
+            planes: self
+                .planes
+                .into_iter()
+                .map(|p| p.into())
+                .collect::<Vec<[f32; 4]>>()
+                .try_into()
+                .unwrap(),
+            points: self
+                .points
+                .into_iter()
+                .map(|p| Padded(p.into()))
+                .collect::<Vec<Padded<[f32; 3], 4>>>()
+                .try_into()
+                .unwrap(),
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 #[repr(C)]
 pub struct CameraViewData {
@@ -145,7 +233,7 @@ pub struct CameraViewData {
     pub(crate) view: Mat4,
     pub(crate) proj: Mat4,
     pub inv_rot: Mat4,
-    frustum: Frustum,
+    pub frustum: _Frustum,
     pub(crate) dimensions: [f32; 2],
     pub near: f32,
     pub far: f32,
@@ -284,13 +372,14 @@ impl CameraData {
         // cvd.view = set_view_direction(pos, rot * -Vec3::z(), Vec3::y());
         let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
         // let x = glm::pers
-        cvd.proj = glm::perspective_zo(aspect_ratio, fov.to_radians(), near, far);
+        cvd.proj = glm::perspective(aspect_ratio, fov.to_radians(), near, far);
         cvd.cam_up = up;
         cvd.cam_forw = glm::quat_rotate_vec3(&cvd.cam_rot, &Vec3::z());
         cvd.cam_right = glm::quat_rotate_vec3(&cvd.cam_rot, &Vec3::x());
         cvd.dimensions = self.viewport.dimensions;
         cvd.near = near;
         cvd.far = far;
+        cvd.frustum = _Frustum::create(&cvd);
         // cvd.proj.column_mut(1)[1] *= -1.;
         cvd
         // self.camera_view_data.push_back(cvd);
@@ -476,6 +565,7 @@ impl CameraData {
         light_list: Subbuffer<[u32]>,
         tiles: Subbuffer<[tile]>,
         light_debug: bool,
+        input: &Input,
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
@@ -552,9 +642,7 @@ impl CameraData {
         let particle_sort = perf.node("particle sort");
         particles.sort.sort(
             // per camera
-            cvd.view.into(),
-            cvd.proj.into(),
-            cvd.cam_pos.into(),
+            &cvd,
             transform_compute.gpu_transforms.clone(),
             &particles.particle_buffers,
             vk.device.clone(),
@@ -562,6 +650,7 @@ impl CameraData {
             builder,
             &vk.desc_alloc,
             &perf,
+            &input,
         );
         drop(particle_sort);
         // light_bounding.render(
@@ -678,7 +767,7 @@ impl CameraData {
             light_templates.clone(),
             tiles.clone(),
         );
-        
+
         if (light_debug) {
             let set = PersistentDescriptorSet::new(
                 &self.vk.desc_alloc,

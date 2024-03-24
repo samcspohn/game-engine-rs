@@ -1049,6 +1049,7 @@ impl Engine {
                     lc.light_list2.lock().clone(),
                     lc.tiles.lock().clone(),
                     unsafe { LIGHT_DEBUG },
+                    &input,
                 );
             }
         }
