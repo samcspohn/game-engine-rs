@@ -2,31 +2,36 @@
 	"version": "2.0.0",
 	"options": {
 		"env": {
-		  "RUSTFLAGS": "-Z threads=16"
+			"RUSTFLAGS": "-Z threads=16"
 		}
-	 },
+	},
 	"tasks": [
 		{
 			"type": "cargo",
 			"command": "build",
+			"args": [
+				"--bin",
+				"game-engine-rs",
+			],
 			"problemMatcher": [
 				"$rustc"
 			],
 			"group": "build",
-			"label": "rust: cargo build --bin game_engine_rs"
+			"label": "rust: cargo build --bin game-engine-rs"
 		},
 		{
 			"type": "cargo",
 			"command": "build",
 			"args": [
-				"--bin", "game-engine-rs",
+				"--bin",
+				"game-engine-rs",
 				"-r"
 			],
 			"problemMatcher": [
 				"$rustc"
 			],
 			"group": "build",
-			"label": "rust: cargo build -r --bin game_engine_rs"
-		},
+			"label": "rust: cargo build -r --bin game-engine-rs"
+		}
 	]
 }

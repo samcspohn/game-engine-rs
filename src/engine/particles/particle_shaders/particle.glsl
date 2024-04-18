@@ -26,6 +26,7 @@ struct particle {
     int emitter_id;
     vec4 rot;
     float l;
+    AABB aabb;
     uint padding;
     uint padding2;
     uint padding3;

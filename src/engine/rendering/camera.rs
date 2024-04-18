@@ -1,8 +1,9 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, default, sync::Arc};
 
 use component_derive::ComponentID;
 use egui::TextureId;
-use glm::{radians, vec1, Mat4, Quat, Vec3};
+use glium::buffer::Content;
+use glm::{cross, dot, normalize, radians, vec1, vec2, vec4, Mat4, Quat, Vec2, Vec3, Vec4};
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
@@ -21,6 +22,7 @@ use vulkano::{
         StorageImage,
     },
     memory::allocator::MemoryUsage,
+    padded::Padded,
     pipeline::{
         graphics::viewport::Viewport, ComputePipeline, GraphicsPipeline, Pipeline,
         PipelineBindPoint,
@@ -28,14 +30,19 @@ use vulkano::{
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
+use winit::event::VirtualKeyCode;
 
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        particles::particles::{ParticleRenderPipeline, ParticlesSystem},
+        input::Input,
+        particles::{
+            particles::{ParticleDebugPipeline, ParticleRenderPipeline, ParticlesSystem},
+            shaders::scs,
+        },
         perf::Perf,
         project::asset_manager::AssetsManager,
-        rendering::component::ur,
+        rendering::{component::ur, debug},
         transform_compute::{cs::Data, TransformCompute},
         world::{
             component::{Component, _ComponentID},
@@ -48,6 +55,7 @@ use crate::{
 
 use super::{
     component::{RendererData, SharedRendererData},
+    debug::DebugSystem,
     lighting::{
         // light_bounding::LightBounding,
         lighting::LightingSystem,
@@ -66,6 +74,8 @@ use super::{
 pub struct CameraData {
     rend: RenderPipeline,
     particle_render_pipeline: ParticleRenderPipeline,
+    particle_debug_pipeline: ParticleDebugPipeline,
+    debug: DebugSystem,
     light_debug: Arc<GraphicsPipeline>,
     _render_pass: Arc<RenderPass>,
     viewport: Viewport,
@@ -83,44 +93,103 @@ struct Plane {
     dist: f32,
 }
 #[derive(Clone, Default)]
-struct Frustum {
-    top: Plane,
-    bottom: Plane,
-    right: Plane,
-    left: Plane,
-    far: Plane,
-    near: Plane,
+pub struct _Frustum {
+    points: [Vec3; 8],
+    planes: [Vec4; 6],
 }
-impl Frustum {
-    fn create(
-        cam: &mut CameraViewData,
-        far_dist: f32,
-        fovY: f32,
-        aspect: f32,
-        near_dist: f32,
-    ) -> Self {
-        let frustum = Frustum::default();
-        let rot = glm::quat_to_mat3(&cam.cam_rot);
-        let h_far = far_dist * (fovY).tan();
-        let w_far = h_far * aspect;
-        let h_near = near_dist * (fovY).tan();
-        let w_near = h_near * aspect;
-        let p = cam.cam_pos;
-        let d = rot * glm::Vec3::z();
-        let right = rot * glm::Vec3::x();
-        let up = rot * glm::Vec3::y();
-        let fc = p + d * far_dist;
-        let ftl = fc + (up * h_far / 2.) - (right * w_far / 2.);
-        let ftr = fc + (up * h_far / 2.) + (right * w_far / 2.);
-        let fbl = fc - (up * h_far / 2.) - (right * w_far / 2.);
-        let fbr = fc - (up * h_far / 2.) + (right * w_far / 2.);
+impl _Frustum {
+    fn create(cam: &CameraViewData) -> Self {
+        let target = cam.cam_pos + glm::quat_rotate_vec3(&cam.cam_rot, &-Vec3::z());
+        let up = glm::quat_rotate_vec3(&cam.cam_rot, &Vec3::y());
+        // cvd.inv_rot = glm::inverse(&glm::quat_to_mat4(&rot));
+        // cvd.view = glm::quat_to_mat4(&glm::quat_conjugate(&rot)) * glm::translate(&glm::identity(), &-pos);
+        let view = glm::look_at_rh(&cam.cam_pos, &target, &up);
 
-        let nc = p + d * near_dist;
+        let mut frustum = _Frustum::default();
+        let mut ndc_pts: [Vec2; 4] = Default::default(); // corners of tile in ndc
+        ndc_pts[0] = vec2(-1., -1.); // lower left
+        ndc_pts[1] = vec2(1., -1.); // lower right
+        ndc_pts[2] = vec2(1., 1.); // upper right
+        ndc_pts[3] = vec2(-1., 1.); // upper left
 
-        let ntl = nc + (up * h_near / 2.) - (right * w_near / 2.);
-        let ntr = nc + (up * h_near / 2.) + (right * w_near / 2.);
-        let nbl = nc - (up * h_near / 2.) - (right * w_near / 2.);
-        let nbr = nc - (up * h_near / 2.) + (right * w_near / 2.);
+        let min_depth = 0.0;
+        let max_depth = 1.0;
+        let mut temp: Vec4;
+        let inv_projview = glm::inverse(&(cam.proj * cam.view));
+        for i in 0..4 {
+            temp = inv_projview * vec4(ndc_pts[i].x, ndc_pts[i].y, min_depth, 1.0);
+            frustum.points[i] = temp.xyz() / temp.w;
+            temp = inv_projview * vec4(ndc_pts[i].x, ndc_pts[i].y, max_depth, 1.0);
+            frustum.points[i + 4] = temp.xyz() / temp.w;
+        }
+
+        let mut temp_normal: Vec3;
+        for i in 0..4 {
+            // bottom...
+            // left, top, right, bottom
+            // Cax+Cby+Ccz+Cd = 0, planes[i] = (Ca, Cb, Cc, Cd)
+            //  temp_normal: normal without normalization
+            temp_normal = cross(
+                &(frustum.points[i] - &cam.cam_pos),
+                &(frustum.points[i + 1] - cam.cam_pos),
+            );
+            temp_normal = normalize(&temp_normal);
+            frustum.planes[i] = vec4(
+                temp_normal.x,
+                temp_normal.y,
+                temp_normal.z,
+                dot(&temp_normal, &frustum.points[i]),
+            );
+        }
+        // near plane
+        {
+            temp_normal = cross(
+                &(frustum.points[1] - frustum.points[0]),
+                &(frustum.points[3] - frustum.points[0]),
+            );
+            temp_normal = normalize(&temp_normal);
+            frustum.planes[4] = vec4(
+                temp_normal.x,
+                temp_normal.y,
+                temp_normal.z,
+                dot(&temp_normal, &frustum.points[0]),
+            );
+        }
+        // far plane
+        {
+            temp_normal = cross(
+                &(frustum.points[7] - frustum.points[4]),
+                &(frustum.points[5] - frustum.points[4]),
+            );
+            temp_normal = normalize(&temp_normal);
+            frustum.planes[5] = vec4(
+                temp_normal.x,
+                temp_normal.y,
+                temp_normal.z,
+                dot(&temp_normal, &frustum.points[4]),
+            );
+        }
+        // let rot = glm::quat_to_mat3(&cam.cam_rot);
+        // let h_far = far_dist * (fovY).tan();
+        // let w_far = h_far * aspect;
+        // let h_near = near_dist * (fovY).tan();
+        // let w_near = h_near * aspect;
+        // let p = cam.cam_pos;
+        // let d = rot * glm::Vec3::z();
+        // let right = rot * glm::Vec3::x();
+        // let up = rot * glm::Vec3::y();
+        // let fc = p + d * far_dist;
+        // let ftl = fc + (up * h_far / 2.) - (right * w_far / 2.);
+        // let ftr = fc + (up * h_far / 2.) + (right * w_far / 2.);
+        // let fbl = fc - (up * h_far / 2.) - (right * w_far / 2.);
+        // let fbr = fc - (up * h_far / 2.) + (right * w_far / 2.);
+
+        // let nc = p + d * near_dist;
+
+        // let ntl = nc + (up * h_near / 2.) - (right * w_near / 2.);
+        // let ntr = nc + (up * h_near / 2.) + (right * w_near / 2.);
+        // let nbl = nc - (up * h_near / 2.) - (right * w_near / 2.);
+        // let nbr = nc - (up * h_near / 2.) + (right * w_near / 2.);
         frustum
         //     let halfVSide = zFar * (fovY * 0.5).tan();
         //     let halfHSide = halfVSide * aspect;
@@ -134,6 +203,56 @@ impl Frustum {
         // let frontMultFar = zFar * front;
     }
 }
+
+impl Into<crate::engine::particles::shaders::scs::Frustum> for _Frustum {
+    fn into(self) -> crate::engine::particles::shaders::scs::Frustum {
+        // let mut planes: [[f32; 4]; 6] = {
+
+        // }
+        scs::Frustum {
+            planes: self
+                .planes
+                .into_iter()
+                .map(|p| p.into())
+                .collect::<Vec<[f32; 4]>>()
+                .try_into()
+                .unwrap(),
+            points: self
+                .points
+                .into_iter()
+                .map(|p| Padded(p.into()))
+                .collect::<Vec<Padded<[f32; 3], 4>>>()
+                .try_into()
+                .unwrap(),
+        }
+    }
+}
+impl Into<debug::gs1::Frustum> for _Frustum {
+    fn into(self) -> debug::gs1::Frustum {
+        // let mut planes: [[f32; 4]; 6] = {
+
+        // }
+        let f: scs::Frustum = self.into();
+        unsafe { *(f.to_void_ptr() as *const debug::gs1::Frustum) }
+        // scs::Frustum {
+        //     planes: self
+        //         .planes
+        //         .into_iter()
+        //         .map(|p| p.into())
+        //         .collect::<Vec<[f32; 4]>>()
+        //         .try_into()
+        //         .unwrap(),
+        //     points: self
+        //         .points
+        //         .into_iter()
+        //         .map(|p| Padded(p.into()))
+        //         .collect::<Vec<Padded<[f32; 3], 4>>>()
+        //         .try_into()
+        //         .unwrap(),
+        // }
+    }
+}
+
 #[derive(Clone, Default)]
 #[repr(C)]
 pub struct CameraViewData {
@@ -145,7 +264,7 @@ pub struct CameraViewData {
     pub(crate) view: Mat4,
     pub(crate) proj: Mat4,
     pub inv_rot: Mat4,
-    frustum: Frustum,
+    pub frustum: _Frustum,
     pub(crate) dimensions: [f32; 2],
     pub near: f32,
     pub far: f32,
@@ -291,6 +410,7 @@ impl CameraData {
         cvd.dimensions = self.viewport.dimensions;
         cvd.near = near;
         cvd.far = far;
+        cvd.frustum = _Frustum::create(&cvd);
         // cvd.proj.column_mut(1)[1] *= -1.;
         cvd
         // self.camera_view_data.push_back(cvd);
@@ -411,12 +531,10 @@ impl CameraData {
         let rend = RenderPipeline::new(render_pass.clone(), [1920, 1080], 0, vk.clone());
         Self {
             rend,
-            particle_render_pipeline: ParticleRenderPipeline::new(
-                vk.clone(),
-                render_pass.clone(),
-                // use_msaa,
-            ),
+            particle_render_pipeline: ParticleRenderPipeline::new(vk.clone(), render_pass.clone()),
+            particle_debug_pipeline: ParticleDebugPipeline::new(vk.clone(), render_pass.clone()),
             light_debug: LightingCompute::new_pipeline(vk.clone(), render_pass.clone()),
+            debug: DebugSystem::new(vk.clone(), render_pass.clone()),
             _render_pass: render_pass,
             viewport,
             framebuffer,
@@ -476,6 +594,9 @@ impl CameraData {
         light_list: Subbuffer<[u32]>,
         tiles: Subbuffer<[tile]>,
         light_debug: bool,
+        particle_debug: bool,
+        input: &Input,
+        // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
         let __model_manager = _model_manager.lock();
@@ -552,9 +673,7 @@ impl CameraData {
         let particle_sort = perf.node("particle sort");
         particles.sort.sort(
             // per camera
-            cvd.view.into(),
-            cvd.proj.into(),
-            cvd.cam_pos.into(),
+            &cvd,
             transform_compute.gpu_transforms.clone(),
             &particles.particle_buffers,
             vk.device.clone(),
@@ -562,6 +681,7 @@ impl CameraData {
             builder,
             &vk.desc_alloc,
             &perf,
+            &input,
         );
         drop(particle_sort);
         // light_bounding.render(
@@ -664,6 +784,67 @@ impl CameraData {
             job(&mut rjd);
         }
         drop(render_jobs_perf);
+
+        static mut CAM_POS: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+        static mut CAM_FORW: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+        static mut FRUSTUM: debug::gs1::Frustum = debug::gs1::Frustum {
+            planes: [[0., 0., 0., 0.]; 6],
+            points: [Padded([0., 0., 0.]); 8],
+        };
+        static mut LOCK_FRUSTUM: bool = false;
+
+        if input.get_key_up(&VirtualKeyCode::C) {
+            unsafe {
+                LOCK_FRUSTUM = !LOCK_FRUSTUM;
+            }
+        }
+        if unsafe { !LOCK_FRUSTUM } {
+            unsafe {
+                FRUSTUM = cvd.frustum.clone().into();
+                CAM_FORW = cvd.cam_forw;
+                CAM_POS = cvd.cam_pos;
+            }
+        }
+        // self.debug.append_arrow(
+        //     glm::vec3(0.0, 1.0, 0.0),
+        //     glm::vec3(0.0, 0.0, 3.0),
+        //     8.0,
+        //     vec4(1.0, 0.0, 0.0, 1.0),
+        // );
+        // self.debug.append_arrow(
+        //     glm::vec3(0.0, 1.0, 0.0),
+        //     glm::vec3(5.0, 0.0, 8.0),
+        //     12.0,
+        //     vec4(1.0, 1.0, 0.0, 1.0),
+        // );
+        // self.debug
+        //     .append_frustum(unsafe { FRUSTUM.clone() }, vec4(0., 1.0, 1.0, 1.0));
+        let point = unsafe { CAM_POS + CAM_FORW * 30.0 };
+        for p in unsafe { &FRUSTUM.planes } {
+            let dir = normalize(&glm::vec3(p[0], p[1], p[2]));
+            let orig = dir * -p[3];
+            let v = point - orig;
+            let dist = v.x * dir.x + v.y * dir.y + v.z * dir.z;
+            let point = point - dist * dir;
+            let point = point - (glm::dot(&dir, &point) - p[3]) * dir;
+            self.debug
+                .append_arrow(dir, point, 8.0, vec4(1.0, 1.0, 0.0, 1.0));
+        }
+        // self.debug.draw(builder, &cvd);
+
+        if (particle_debug) {
+            particles.debug_particles(
+                &self.particle_debug_pipeline,
+                builder,
+                &cvd,
+                transform_compute.gpu_transforms.clone(),
+                //
+                lights.clone(),
+                light_templates.clone(),
+                tiles.clone(),
+            );
+        }
+
         particles.render_particles(
             &self.particle_render_pipeline,
             builder,
@@ -678,7 +859,7 @@ impl CameraData {
             light_templates.clone(),
             tiles.clone(),
         );
-        
+
         if (light_debug) {
             let set = PersistentDescriptorSet::new(
                 &self.vk.desc_alloc,

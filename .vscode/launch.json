@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/target/debug/game-engine-rs",
             "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "rust: cargo build",
+            "preLaunchTask": "rust: cargo build --bin game-engine-rs",
         },
         {
             "type": "lldb",
@@ -20,7 +20,7 @@
             "program": "${workspaceFolder}/target/release/game-engine-rs",
             "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "rust: cargo build -r --bin game_engine_rs",
+            "preLaunchTask": "rust: cargo build -r --bin game-engine-rs",
         }
     ]
 }

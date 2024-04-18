@@ -13,7 +13,8 @@ layout(location = 3) out vec2 uv2;
 layout(location = 4) out vec3 v_pos;
 
 // layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
-layout(set = 0, binding = 0) buffer pl_c { pos_life_comp p_l[]; };
+// layout(set = 0, binding = 0) buffer pl_c { pos_life_comp p_l[]; };
+layout(set = 0, binding = 0) buffer pl_c { pos_lif p_l[]; };
 layout(set = 0, binding = 3) buffer pt { particle_template templates[]; };
 layout(set = 0, binding = 5) buffer a { int sorted[]; };
 layout(set = 0, binding = 6) buffer pti { int template_ids[]; };
@@ -52,29 +53,34 @@ void main() {
         mat4 model;
         float l1;
         float l2;
-        vec3 pos = get_pos(p_l[i]);
+        // vec3 pos = get_pos(p_l[i]);
+        vec3 pos = p_l[i].pos;
         if (templ.trail == 1) {   // trail
             vec3 next_pos;
-            l2 = 1. - get_life(p_l[i]);
+            // l2 = 1. - get_life(p_l[i]);
+            l2 = 1. - p_l[i].life;
             if (next[i] >= 0) {   // next is particle
-                next_pos = get_pos(p_l[next[i]]);
-                l1 = 1. - get_life(p_l[next[i]]);
+                // next_pos = get_pos(p_l[next[i]]);
+                // l1 = 1. - get_life(p_l[next[i]]);
+                next_pos = p_l[next[i]].pos;
+                l1 = 1. - p_l[next[i]].life;
             } else if (next[i] < -1) {   // next is emitter / transform
-                next_pos = transforms[-next[i] - 2].position - cam_pos;
+                next_pos = transforms[-next[i] - 2].position;
                 l1 = 0.;
             } else {   // next is invalid
                 next_pos = pos;
                 l1 = l2;
             }
-            vec3 v = next_pos - pos;
-            vec3 x = cross(v, pos);
+            vec3 v = (next_pos - cam_pos) - (pos - cam_pos);
+            vec3 x = cross(v, (pos - cam_pos));
             x = cross(x, v);
             vec4 l = lookAt(x, v);
             model =
                 translate(pos + v / 2.f) * rotate(l) *
                 scale(vec3(templ.scale.x, length(v) / 2 * templ.scale.y, 1));
         } else {   // not trail / billboard / aligned to velocity
-            l1 = l2 = 1. - get_life(p_l[i]);
+            // l1 = l2 = 1. - get_life(p_l[i]);
+            l1 = l2 = 1. - p_l[i].life;
             vec4 rot;
             // uint a = templ.billboard & templ.align_vel << 1;
             // switch (a) {
@@ -91,7 +97,7 @@ void main() {
             //     break;
             // }
             if (templ.billboard == 1 && templ.align_vel == 1) {
-                vec3 a = pos;
+                vec3 a = pos - cam_pos;
                 vec3 b = cross(p.vel, a);
                 vec3 c = cross(p.vel, b);
 
@@ -113,7 +119,7 @@ void main() {
         // float offset = 0.5 / float(num_templates);
         float tid = float(_templ_id + 0.5);
         float color_id = tid / float(num_templates);
-        mat4 mvp = proj * cam_inv_rot * model;
+        mat4 mvp = proj * view * model;
         templ_id = template_ids[i];
         gl_Position = get_position(mvp, 0);
         v_pos = (model * vert_pos[0]).xyz;

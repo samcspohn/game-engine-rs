@@ -759,36 +759,35 @@ impl World {
         sys: &Sys,
         _t: i32,
     ) {
-        if let Some(trans) = transforms.get(_t) {
+        let children = if let Some(trans) = transforms.get(_t) {
             // should always be valid unless destroy is called twice
-            {
-                let children: Vec<i32> = trans.get_children().map(|t| t.id).collect();
-                for t in children {
-                    Self::__destroy(transforms, components, sys, t);
-                }
-            }
-            {
-                // let trans = transforms.get(_t).unwrap();
-                for (t, c) in trans.entity().components.iter() {
-                    let stor = &mut components.get(t).unwrap();
-                    match c {
-                        entity::Components::Id(id) => {
+            trans.get_children().map(|t| t.id).collect()
+        } else {
+            println!("failed to get transform {} for deallocation", _t);
+            vec![]
+        };
+        for t in children {
+            Self::__destroy(transforms, components, sys, t);
+        }
+        if let Some(trans) = transforms.get(_t) {
+            // let trans = transforms.get(_t).unwrap();
+            for (t, c) in trans.entity().components.iter() {
+                let stor = &mut components.get(t).unwrap();
+                match c {
+                    entity::Components::Id(id) => {
+                        stor.deinit(&trans, *id, &sys);
+                        stor.remove(*id);
+                    }
+                    entity::Components::V(v) => {
+                        for id in v {
                             stor.deinit(&trans, *id, &sys);
                             stor.remove(*id);
                         }
-                        entity::Components::V(v) => {
-                            for id in v {
-                                stor.deinit(&trans, *id, &sys);
-                                stor.remove(*id);
-                            }
-                        }
                     }
                 }
-                // remove entity
-                // *ent = None;
             }
-        } else {
-            println!("failed to get transform {} for deallocation", _t);
+            // remove entity
+            // *ent = None;
         }
 
         // }

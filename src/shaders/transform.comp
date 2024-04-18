@@ -3,12 +3,6 @@
 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-struct MVP {
-    mat4 mvp;
-    mat4 mv;
-    mat4 m;
-};
-
 // layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
 // layout(set = 0, binding = 0) buffer tr0 { transform transforms1[]; };
 layout(set = 0, binding = 1) buffer tr1 { transform transforms[]; };
@@ -39,23 +33,20 @@ void main() {
             uint bit_id = 1 << (id % 32);
             uint i_id = id / 32;
             if ((pos_i[i_id] & bit_id) != 0) {
-                transforms[id].position =
-                    vec3(pos[_id], pos[_id + 1], pos[_id + 2]);
+                transforms[id].position = vec3(pos[_id], pos[_id + 1], pos[_id + 2]);
             }
             if ((rot_i[i_id] & bit_id) != 0) {
                 transforms[id].rotation = rot[id];
             }
             if ((scl_i[i_id] & bit_id) != 0) {
-                transforms[id].scale =
-                    vec3(scl[_id], scl[_id + 1], scl[_id + 2]);
+                transforms[id].scale = vec3(scl[_id], scl[_id + 1], scl[_id + 2]);
             }
         } break;
         case 3:
-            mvp[id].m = translate(transforms[id].position) *
-                        rotate(transforms[id].rotation) *
-                        scale(transforms[id].scale);
+            mvp[id].m = translate(transforms[id].position) * rotate(transforms[id].rotation) * scale(transforms[id].scale);
             mvp[id].mv = view * mvp[id].m;
             mvp[id].mvp = proj * view * mvp[id].m;
+            mvp[id].n = translate(transforms[id].position) * rotate(transforms[id].rotation);
             break;
         }
     }

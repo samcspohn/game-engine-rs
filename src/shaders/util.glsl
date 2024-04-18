@@ -25,6 +25,10 @@ struct Cone {
     vec3 d;    // Direction of the cone.
     float r;   // bottom radius of the cone.
 };
+struct LineSegment {
+    vec3 p1;
+    vec3 p2;
+};
 struct transform {
     vec3 position;
     int padding;
@@ -79,71 +83,36 @@ struct AABB {
     vec3 _max;
 };
 
+struct MVP {
+    mat4 mvp;
+    mat4 mv;
+    mat4 m;
+    mat4 n;
+};
+
 float halfSpaceTest(vec4 plane, vec3 p) { return dot(plane.xyz, p) - plane.w; }
-bool frustumAABBIntersect(Frustum f, AABB a) {
+bool frustumAABBIntersect(in Frustum f, AABB a) {
+    vec3 mins, maxs;
+    mins = a._min;
+    maxs = a._max;
+    vec3 axis_vert;
+    vec4 planes[6] = f.planes;
 
-    // int ret = 1;
+    for (int i = 0; i < 6; ++i) {
+        vec4 p = planes[i];
+        axis_vert = vec3(p.x > 0.0 ? maxs.x : mins.x, p.y > 0.0 ? maxs.y : mins.y, p.z > 0.0 ? maxs.z : mins.z);
+        if (dot(planes[i].xyz, axis_vert) - planes[i].w < 0) return false;
+    }
+    return true;
+}
 
-    // vec3 vmin, vmax;
-    // vec3 mins, maxs;
-    // mins = a._min;
-    // maxs = a._max;
-    // vec4 planes[6] = f.planes;
+bool frustumSegmentIntersect(in Frustum f, LineSegment s) {
 
-    // for (int i = 0; i < 6; ++i) {
-    //     // X axis
-    //     if (planes[i].x > 0) {
-    //         vmin.x = mins.x;
-    //         vmax.x = maxs.x;
-    //     } else {
-    //         vmin.x = maxs.x;
-    //         vmax.x = mins.x;
-    //     }
-    //     // Y axis
-    //     if (planes[i].y > 0) {
-    //         vmin.y = mins.y;
-    //         vmax.y = maxs.y;
-    //     } else {
-    //         vmin.y = maxs.y;
-    //         vmax.y = mins.y;
-    //     }
-    //     // Z axis
-    //     if (planes[i].z > 0) {
-    //         vmin.z = mins.z;
-    //         vmax.z = maxs.z;
-    //     } else {
-    //         vmin.z = maxs.z;
-    //         vmax.z = mins.z;
-    //     }
-    //     if (dot(planes[i].xyz, vmin) + planes[i].w > 0) return 2;
-    //     if (dot(planes[i].xyz, vmax) + planes[i].w >= 0) ret = 0;
-    // }
-    // return ret;
-
-    vec3 corners[8] = {
-        {a._min.x, a._min.y, a._min.z},
-        {a._min.x, a._min.y, a._max.z},
-        {a._min.x, a._max.y, a._min.z},
-        {a._min.x, a._max.y, a._max.z},
-
-        {a._max.x, a._min.y, a._min.z},
-        {a._max.x, a._min.y, a._max.z},
-        {a._max.x, a._max.y, a._min.z},
-        {a._max.x, a._max.y, a._max.z}
-    };
-    for (int i = 0; i < 4; ++i) {
-        // int incount = 8;
-        bool corner = false;
-        for (int c = 0; c < 8; ++c) {
-            if (halfSpaceTest(f.planes[i], corners[c]) > 0.0f) {
-                corner = true;
-                break;
-            }
+    for (int i = 0; i < 6; ++i) {
+        if (dot(normalize(f.planes[i].xyz), s.p1) - f.planes[i].w > 0 || dot(normalize(f.planes[i].xyz), s.p2) - f.planes[i].w > 0) {
+            continue;
         }
-        if (!corner) {
-            return false;
-        }
-        // if (incount <= 0) return false;
+        return false;
     }
     return true;
 }
@@ -153,46 +122,42 @@ int get_tile(int x, int y, int level) { return _light_quadtree_offsets[level] + 
 float DistanceToPlane(vec4 vPlane, vec3 vPoint) { return dot(vec4(vPoint, 1.0), vPlane); }
 
 // Frustum cullling on a sphere. Returns > 0 if visible, <= 0 otherwise
-float CullSphere(vec4 vPlanes[6], vec3 vCenter, float fRadius) {
+bool CullSphere(vec4 vPlanes[6], vec3 vCenter, float fRadius) {
     float dist01 = min(DistanceToPlane(vPlanes[0], vCenter), DistanceToPlane(vPlanes[1], vCenter));
     float dist23 = min(DistanceToPlane(vPlanes[2], vCenter), DistanceToPlane(vPlanes[3], vCenter));
     float dist45 = min(DistanceToPlane(vPlanes[4], vCenter), DistanceToPlane(vPlanes[5], vCenter));
 
-    return min(min(dist01, dist23), dist45) + fRadius;
+    return min(min(dist01, dist23), dist45) + fRadius < 0;
 }
 
-bool isCollided(vec3 pos, float radius, in tile t) {
+bool sphere_frustum(vec3 pos, float radius, in Frustum frustum) {
     // if(t.contains_origin == 1) {
     // 	return false;
     // }
-    Frustum frustum = t.frustum;
-    vec3 light_bbox_max = pos + vec3(radius);
-    vec3 light_bbox_min = pos - vec3(radius);
 
-    AABB aabb = {light_bbox_min, light_bbox_max};
-    bool result = frustumAABBIntersect(frustum, aabb);
-    return result;
-    if (!frustumAABBIntersect(frustum, aabb)) {
-        return false;
-    }
-    result = true;
+    // AABB aabb = {light_bbox_min, light_bbox_max};
+    // bool result = frustumAABBIntersect(frustum, aabb);
+    // return result;
+    // if (!frustumAABBIntersect(frustum, aabb)) {
+    //     return false;
+    // }
+    bool result = true;
 
     // Step1: sphere-plane test
     for (int i = 0; i < 6; i++) {
-        if (dot(frustum.planes[i].xyz, pos) + frustum.planes[i].w < -radius) {
-            result = false;
-            break;
-        }
-    }
-
-    // result = CullSphere(frustum.planes, pos, radius) > 0;
-
-    if (!result) {
+        if (dot(frustum.planes[i].xyz, pos) - frustum.planes[i].w < -radius) {
+            result = false;   // <--
+            break;            //   |
+        }                     //   |
+    }                         //   |
+                              //   |
+    if (!result) {            // if false ---
         return false;
     }
 
     // Step2: bbox corner test (to reduce false positive)
-
+    vec3 light_bbox_max = pos + vec3(radius);
+    vec3 light_bbox_min = pos - vec3(radius);
     int probe;
     probe = 0;
     for (int i = 0; i < 8; i++)

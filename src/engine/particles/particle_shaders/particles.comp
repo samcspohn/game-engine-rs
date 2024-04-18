@@ -91,7 +91,7 @@ void update_particle(uint id, uint _id) {
 #undef p
 }
 
-void init_particle(uint i, int tId, vec3 pos, vec4 rot, vec3 scale) {
+void init_particle(uint i, int tId, int eid, vec3 pos, vec4 rot, vec3 scale) {
 #define templ templates[tId]
 #define p     particles[i]
     vec3 random = rotate(
@@ -113,6 +113,7 @@ void init_particle(uint i, int tId, vec3 pos, vec4 rot, vec3 scale) {
     }
     p_l[i].pos = pos;
     p_l[i].life = 1.0;
+    p.emitter_id = eid;
     alive_b[i].b = true;
     template_ids[i] = tId;
 #undef templ
@@ -127,7 +128,7 @@ void particle_burst(uint id) {
     for (int _i = start; _i != end; ++_i) {
         uint i = avail[_i];
         vec4 rot = lookAt(brst.dir, vec3(0, 1, 0.000001));
-        init_particle(i, tId, brst.pos, rot, vec3(1));
+        init_particle(i, tId, -1, brst.pos, rot, vec3(1));
     }
 #undef brst
 }
@@ -149,7 +150,7 @@ void update_emitter(uint id) {
         //     return;
         for (int _i = start; _i != end; _i++) {
             uint i = avail[_i];
-            init_particle(i, tId, pos, trans.rotation, trans.scale);
+            init_particle(i, tId, int(id), pos, trans.rotation, trans.scale);
             if (templ.trail == 1) {
                 int last = e.last;
                 if (last >= 0) {
@@ -200,7 +201,7 @@ void deinit_emitters(uint id) {
     if (_e.last > -1) {
         int _i = min(atomicAdd(avail_count, 1), MAX_PARTICLES);
         uint i = avail[_i];
-        init_particle(i, tId, _e.prev_pos, _e.prev_rot, vec3(1));
+        init_particle(i, tId, int(init.e_id), _e.prev_pos, _e.prev_rot, vec3(1));
         next[_e.last] = int(i);
         next[i] = -1;
     }

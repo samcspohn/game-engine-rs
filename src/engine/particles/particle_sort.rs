@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{default, sync::Arc};
 
 use parking_lot::Mutex;
 use vulkano::{
@@ -12,14 +12,17 @@ use vulkano::{
     },
     device::{Device, Queue},
     memory::allocator::{MemoryUsage, StandardMemoryAllocator},
+    padded::Padded,
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
     sync::{self, FlushError, GpuFuture},
     DeviceSize,
 };
+use winit::event::VirtualKeyCode;
 
 use crate::engine::{
+    input::Input,
     perf::{self, Perf},
-    rendering::component::buffer_usage_all,
+    rendering::{camera::CameraViewData, component::buffer_usage_all},
     transform_compute::cs::transform,
     VulkanManager,
 };
@@ -40,7 +43,6 @@ pub struct ParticleSort {
     // pub uniforms: Mutex<SubbufferAllocator>,
     pub compute_pipeline: Arc<ComputePipeline>,
 }
-
 impl ParticleSort {
     pub fn new(vk: Arc<VulkanManager>) -> ParticleSort {
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -132,14 +134,9 @@ impl ParticleSort {
             vk,
         }
     }
-    // fn barrier(builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,){
-    //     builder.copy
-    // }
     pub fn sort(
         &self,
-        view: [[f32; 4]; 4],
-        proj: [[f32; 4]; 4],
-        cam_pos: [f32; 3],
+        cvd: &CameraViewData,
         transform: Subbuffer<[transform]>,
         pb: &ParticleBuffers,
         _device: Arc<Device>,
@@ -150,16 +147,33 @@ impl ParticleSort {
         >,
         desc_allocator: &StandardDescriptorSetAllocator,
         perf: &Perf,
+        input: &Input,
     ) {
         let max_particles: i32 = *_MAX_PARTICLES;
+        static mut FRUSTUM: scs::Frustum = scs::Frustum {
+            planes: [[0., 0., 0., 0.]; 6],
+            points: [Padded([0., 0., 0.]); 8],
+        };
+        static mut LOCK_FRUSTUM: bool = false;
 
+        if input.get_key_up(&VirtualKeyCode::C) {
+            unsafe {
+                LOCK_FRUSTUM = !LOCK_FRUSTUM;
+            }
+            println!("lock frustum: {}", unsafe { LOCK_FRUSTUM });
+        }
+        if unsafe { !LOCK_FRUSTUM } {
+            unsafe {
+                FRUSTUM = cvd.frustum.clone().into();
+            }
+        }
         let mut uniform_data = scs::Data {
             num_jobs: max_particles,
             stage: 0.into(),
-            view,
-            proj,
-            cam_pos,
-            // _dummy0: Default::default(),
+            view: cvd.view.into(),
+            proj: cvd.proj.into(),
+            cam_pos: Padded(cvd.cam_pos.into()),
+            frustum: unsafe { FRUSTUM },
         };
 
         let layout = self
@@ -185,17 +199,13 @@ impl ParticleSort {
             };
             let bound_indirect = match stage {
                 // update
-                0 => self.indirect[0].clone(),
                 2 => self.indirect[0].clone(),
-                6 => self.indirect[0].clone(),
                 _ => self.indirect[1].clone(),
             };
 
             uniform_data.num_jobs = num_jobs;
             uniform_data.stage = stage.into();
-            let uniform_sub_buffer = self.vk.allocate(uniform_data); //self.uniforms.lock().allocate_sized().unwrap();
-            // *uniform_sub_buffer.write().unwrap() = uniform_data;
-            // write_descriptors[6] = (6, uniform_sub_buffer.clone());
+            let uniform_sub_buffer = self.vk.allocate(uniform_data);
             let descriptor_set = PersistentDescriptorSet::new(
                 desc_allocator,
                 layout.clone(),
@@ -211,11 +221,11 @@ impl ParticleSort {
                     WriteDescriptorSet::buffer(8, self.draw.clone()),
                     WriteDescriptorSet::buffer(9, pb.particle_next.clone()),
                     WriteDescriptorSet::buffer(10, pb.particle_templates.lock().clone()),
-                    WriteDescriptorSet::buffer(11, pb.emitters.lock().clone()),
+                    WriteDescriptorSet::buffer(11, pb.particle_template_ids.clone()),
                     WriteDescriptorSet::buffer(12, transform.clone()),
                     WriteDescriptorSet::buffer(13, pb.alive.clone()),
                     WriteDescriptorSet::buffer(14, pb.alive_count.clone()),
-                    WriteDescriptorSet::buffer(15, pb.pos_life_compressed.clone()),
+                    // WriteDescriptorSet::buffer(15, pb.pos_life_compressed.clone()),
                 ],
             )
             .unwrap();

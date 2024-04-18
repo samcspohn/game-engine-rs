@@ -14,12 +14,6 @@ layout(location = 1) out vec2 coords;
 layout(location = 2) out vec3 v_pos;
 layout(location = 3) out vec3 _v;
 
-struct MVP {
-    mat4 mvp;
-    mat4 mv;
-    mat4 m;
-};
-
 layout(set = 0, binding = 0) buffer tr {
     MVP mvp[];
 };
@@ -37,7 +31,7 @@ void main() {
     // mat4 worldview = uniforms.view;
         // v_normal = transpose(inverse(mat3(worldview))) * normal;
     coords = uv;
-    v_normal = mat3(mvp[ids[id]].m) * normal;
+    v_normal = mat3(mvp[ids[id]].n) * normal;
     v_pos = (mvp[ids[id]].m * vec4(position, 1.0)).xyz;
     vec4 v = (mvp[ids[id]].mvp * vec4(position, 1.0));
     // _v = get_cluster_idx(v);
