@@ -13,6 +13,7 @@ use crate::{
         color_gradient::ColorGradient,
         project::asset_manager::{Asset, AssetInstance, AssetManager, AssetManagerBase},
         rendering::{
+            camera::CameraViewData,
             component::buffer_usage_all,
             lighting::lighting_compute::lt::{self, tile},
             texture::{Texture, TextureManager},
@@ -43,23 +44,16 @@ use vulkano::{
     buffer::{
         allocator::SubbufferAllocator, view::BufferView, Buffer, BufferContents, BufferCreateInfo,
         Subbuffer,
-    },
-    command_buffer::{
+    }, command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         CopyBufferInfo, DispatchIndirectCommand, PrimaryAutoCommandBuffer,
-    },
-    descriptor_set::{
+    }, descriptor_set::{
         allocator::StandardDescriptorSetAllocator,
         layout::{
             DescriptorSetLayout, DescriptorSetLayoutCreateInfo, DescriptorSetLayoutCreationError,
         },
         PersistentDescriptorSet, WriteDescriptorSet,
-    },
-    device::Device,
-    format::Format,
-    image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
-    memory::allocator::{MemoryUsage, StandardMemoryAllocator},
-    pipeline::{
+    }, device::Device, format::Format, image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount}, memory::allocator::{MemoryUsage, StandardMemoryAllocator}, padded::Padded, pipeline::{
         graphics::{
             color_blend::ColorBlendState,
             depth_stencil::{CompareOp, DepthState, DepthStencilState},
@@ -71,11 +65,7 @@ use vulkano::{
         },
         layout::PipelineLayoutCreateInfo,
         ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout, StateMode,
-    },
-    render_pass::{RenderPass, Subpass},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
-    sync::{self, FlushError, GpuFuture},
-    DeviceSize,
+    }, render_pass::{RenderPass, Subpass}, sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo}, sync::{self, FlushError, GpuFuture}, DeviceSize
 };
 // use super::cs::{{emitter_init, particle_template}, self};
 
@@ -191,6 +181,52 @@ impl ParticleRenderPipeline {
             .unwrap();
         // .build(vk.device.clone())
         // .unwrap();
+
+        Self {
+            arc: render_pipeline,
+        }
+    }
+}
+
+pub struct ParticleDebugPipeline {
+    pub arc: Arc<GraphicsPipeline>,
+}
+impl ParticleDebugPipeline {
+    pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>) -> Self {
+        let vs = shaders::vs::load(vk.device.clone()).unwrap();
+        let fs = shaders::fs_d::load(vk.device.clone()).unwrap();
+        let gs = shaders::gs_d::load(vk.device.clone()).unwrap();
+
+        let subpass = Subpass::from(render_pass, 0).unwrap();
+        // let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
+        // let mut depth_stencil_state = DepthStencilState::simple_depth_test();
+        // depth_stencil_state.depth = Some(DepthState {
+        //     enable_dynamic: false,
+        //     write_enable: StateMode::Fixed(false),
+        //     compare_op: StateMode::Fixed(CompareOp::Less),
+        // });
+
+        let render_pipeline = GraphicsPipeline::start()
+            .vertex_input_state(BuffersDefinition::new())
+            .vertex_shader(vs.entry_point("main").unwrap(), ())
+            // .input_assembly_state(InputAssemblyState::new())
+            .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            .geometry_shader(gs.entry_point("main").unwrap(), ())
+            // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
+            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .depth_stencil_state(DepthStencilState::simple_depth_test())
+            .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+            .multisample_state(MultisampleState {
+                rasterization_samples: subpass.num_samples().unwrap(),
+                ..Default::default()
+            })
+            // .color_blend_state(blend_state)
+            .render_pass(subpass)
+            // .with_pipeline_layout(vk.device.clone(), layout)
+            // .unwrap();
+            .build(vk.device.clone())
+            .unwrap();
 
         Self {
             arc: render_pipeline,
@@ -918,6 +954,111 @@ impl ParticlesSystem {
             .dispatch_indirect(pb.indirect.clone())
             .unwrap();
     }
+    pub fn debug_particles(
+        &self,
+        particle_debug_pipeline: &ParticleDebugPipeline,
+        builder: &mut AutoCommandBufferBuilder<
+            PrimaryAutoCommandBuffer,
+            Arc<StandardCommandBufferAllocator>,
+        >,
+        cvd: &CameraViewData,
+        transform: Subbuffer<[transform]>,
+
+        lights: Subbuffer<[crate::engine::rendering::lighting::lighting_compute::lt::light]>,
+        light_templates: Subbuffer<[crate::engine::rendering::pipeline::fs::lightTemplate]>,
+        // light_buckets: Subbuffer<[u32]>,
+        // light_buckets_count: Subbuffer<[u32]>,
+        tiles: Subbuffer<[lt::tile]>,
+    ) {
+        // static mut RENDER_QUERY: Lazy<i32> = Lazy::new(|| -1);
+        // unsafe {
+        //     if *RENDER_QUERY == -1 {
+        //         *RENDER_QUERY = self.vk.new_query();
+        //     }
+        // }
+        let pb = &self.particle_buffers;
+        let uniform_sub_buffer = self.vk.allocate(gs::Data {
+            view: cvd.view.into(),
+            proj: cvd.proj.into(),
+            cam_inv_rot: cvd.inv_rot.into(),
+            cam_rot: cvd.cam_rot.coords.into(),
+            cam_pos: Padded(cvd.cam_pos.into()),
+            num_templates: pb.particle_templates.lock().len() as u32,
+            // _dummy0: Default::default(),
+        });
+        // {
+        //     let uniform_data = gs::Data {
+        //         view: view.into(),
+        //         proj: proj.into(),
+        //         cam_inv_rot: cam_inv_rot.into(),
+        //         cam_rot,
+        //         cam_pos: cam_pos.into(),
+        //         num_templates: pb.particle_templates.lock().len() as u32,
+        //         // _dummy0: Default::default(),
+        //     };
+        //     // self.render_uniforms.from_data(uniform_data).unwrap()
+        //     let uniform_sub_buffer = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
+        //         .allocate_sized()
+        //         .unwrap();
+        //     *uniform_sub_buffer.write().unwrap() = uniform_data;
+        //     uniform_sub_buffer
+        // };
+        let pt = self.particle_textures.lock();
+        let set = PersistentDescriptorSet::new(
+            &self.vk.desc_alloc,
+            particle_debug_pipeline
+                .arc
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap()
+                .clone(),
+            [
+                // WriteDescriptorSet::buffer(0, pb.pos_life_compressed.clone()),
+                WriteDescriptorSet::buffer(0, pb.particle_positions_lifes.clone()),
+                WriteDescriptorSet::buffer(3, pb.particle_templates.lock().clone()),
+                WriteDescriptorSet::buffer(4, uniform_sub_buffer),
+                WriteDescriptorSet::buffer(5, self.sort.a2.clone()),
+                WriteDescriptorSet::buffer(6, pb.particle_template_ids.clone()),
+                WriteDescriptorSet::buffer(7, pb.particle_next.clone()),
+                WriteDescriptorSet::buffer(8, transform),
+                WriteDescriptorSet::buffer(9, pb.particles.clone()),
+                // WriteDescriptorSet::image_view_sampler(
+                //     10,
+                //     pt.color_tex.0.clone(),
+                //     pt.color_tex.1.clone(),
+                // ),
+                // WriteDescriptorSet::buffer(11, light_templates),
+                // WriteDescriptorSet::buffer(12, lights),
+                // WriteDescriptorSet::buffer(13, light_ids),
+                // WriteDescriptorSet::buffer(14, light_buckets),
+                // WriteDescriptorSet::buffer(15, light_buckets_count),
+                // WriteDescriptorSet::image_view_sampler_array(
+                //     16,
+                //     0,
+                //     pt.samplers.iter().map(|a| (a.0.clone() as _, a.1.clone())),
+                // ),
+            ],
+        )
+        .unwrap();
+        // unsafe {
+        //     self.vk.query(&*RENDER_QUERY, builder);
+        // }
+        builder
+            .bind_pipeline_graphics(particle_debug_pipeline.arc.clone())
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                particle_debug_pipeline.arc.layout().clone(),
+                0,
+                set,
+            )
+            .draw_indirect(self.sort.draw.clone())
+            .unwrap();
+        // unsafe {
+        //     self.vk.end_query(&*RENDER_QUERY, builder);
+        // }
+    }
+
     pub fn render_particles(
         &self,
         particle_render_pipeline: &ParticleRenderPipeline,

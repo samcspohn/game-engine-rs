@@ -20,7 +20,7 @@ use crossbeam::{
 use egui::TextureId;
 use egui_winit_vulkano::{Gui, GuiConfig};
 use force_send_sync::SendSync;
-use glm::{quat_euler_angles, vec3, Vec3};
+use glm::{quat_euler_angles, vec3, vec4, Vec3};
 use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
@@ -108,10 +108,8 @@ use self::{
     rendering::{
         camera::{Camera, CameraData, CameraViewData},
         component::{Renderer, SharedRendererData},
-        lighting::{
-            // light_bounding::LightBounding,
-            lighting_compute::{lt, LightingCompute},
-        },
+        debug::DebugSystem,
+        lighting::lighting_compute::{lt, LightingCompute},
         model::{Mesh, ModelRenderer},
         pipeline::{
             fs::{light, lightTemplate},
@@ -491,6 +489,7 @@ impl Engine {
                 framebuffers,
                 recreate_swapchain,
                 editor_window_image,
+                // debug: DebugSystem::new(vk.clone(), render_pass.clone()),
                 render_pass,
                 // previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
             },
@@ -654,6 +653,7 @@ impl Engine {
             recreate_swapchain,
             editor_window_image,
             render_pass,
+            // debug,
             // previous_frame_end,
         } = &mut self.renderer;
 
@@ -848,6 +848,17 @@ impl Engine {
         {
             unsafe {
                 LIGHT_DEBUG = !LIGHT_DEBUG;
+            }
+        }
+
+        static mut PARTICLE_DEBUG: bool = false;
+
+        if (input.get_key(&VirtualKeyCode::LControl)
+            && input.get_key(&VirtualKeyCode::LAlt)
+            && input.get_key_press(&VirtualKeyCode::P))
+        {
+            unsafe {
+                PARTICLE_DEBUG = !PARTICLE_DEBUG;
             }
         }
         // begin rendering
@@ -1049,7 +1060,9 @@ impl Engine {
                     lc.light_list2.lock().clone(),
                     lc.tiles.lock().clone(),
                     unsafe { LIGHT_DEBUG },
+                    unsafe { PARTICLE_DEBUG },
                     &input,
+                    // debug,
                 );
             }
         }

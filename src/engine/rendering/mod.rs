@@ -5,3 +5,4 @@ pub mod pipeline;
 pub mod texture;
 pub mod vulkan_manager;
 pub mod lighting;
+pub mod debug;

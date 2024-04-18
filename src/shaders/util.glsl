@@ -25,6 +25,11 @@ struct Cone {
     vec3 d;    // Direction of the cone.
     float r;   // bottom radius of the cone.
 };
+struct LineSegment {
+    vec3 p1;
+    vec3 p2;
+    vec3 p3;
+};
 struct transform {
     vec3 position;
     int padding;
@@ -91,81 +96,118 @@ bool frustumAABBIntersect(in Frustum f, AABB a) {
     // Returns: INTERSECT : 0
     //          INSIDE : 1
     //          OUTSIDE : 2
-        // int ret = 1;
-        bool cull = false;
+    // int ret = 1;
+    float radius = length(a._max - a._min);
 
-        vec3 vmin, vmax;
-        vec3 mins, maxs;
-        mins = a._min;
-        maxs = a._max;
-        vec3 axis_vert;
-        vec4 planes[6] = f.planes;
+    // bool cull = false;
+    // vec3 vmin, vmax;
 
-        for (int i = 0; i < 6; ++i) {
-            // X axis
-            if (planes[i].x > 0.0) {
-                axis_vert.x = maxs.x;
-                // vmin.x = mins.x;
-                // vmax.x = maxs.x;
-            } else {
-                axis_vert.x = mins.x;
-                // vmin.x = maxs.x;
-                // vmax.x = mins.x;
-            }
-            // Y axis
-            if (planes[i].y > 0.0) {
-                axis_vert.y = maxs.y;
-                // vmin.y = mins.y;
-                // vmax.y = maxs.y;
-            } else {
-                axis_vert.y = mins.y;
-                // vmin.y = maxs.y;
-                // vmax.y = mins.y;
-            }
-            // Z axis
-            if (planes[i].z > 0.0) {
-                axis_vert.z = maxs.z;
-                // vmin.z = mins.z;
-                // vmax.z = maxs.z;
-            } else {
-                axis_vert.z = mins.z;
-                // vmin.z = maxs.z;
-                // vmax.z = mins.z;
-            }
-            if(dot(planes[i].xyz,axis_vert) - planes[i].w < 0.0)
-                return false;
-            // if (dot(planes[i].xyz, vmin) + planes[i].w > 0) return false;
-            // if (dot(planes[i].xyz, vmax) + planes[i].w >= 0) ret = 0;
-        }
-        return true;
+    // vec3 mins, maxs;
+    // mins = a._min;
+    // maxs = a._max;
+    // vec3 axis_vert;
+    // vec4 planes[6] = f.planes;
 
-    // vec3 corners[8] = {
-    //     {a._min.x, a._min.y, a._min.z}, // | 0, 0, 0|
-    //     {a._min.x, a._min.y, a._max.z}, // | 0, 0, 1|
-    //     {a._min.x, a._max.y, a._min.z}, // | 0, 1, 0|
-    //     {a._min.x, a._max.y, a._max.z}, // | 0, 1, 1|
-
-    //     {a._max.x, a._min.y, a._min.z}, // | 1, 0, 0|
-    //     {a._max.x, a._min.y, a._max.z}, // | 1, 0, 1|
-    //     {a._max.x, a._max.y, a._min.z}, // | 1, 1, 0|
-    //     {a._max.x, a._max.y, a._max.z}  // | 1, 1, 1|
-    // };
-    // // bool point_in_plane[6] = {false};
     // for (int i = 0; i < 6; ++i) {
-    //     // int incount = 0;
-    //     bool point_inside = false;
-    //     for (int c = 0; c < 8; ++c) {
-    //         // if (halfSpaceTest(f.planes[i], corners[c]) > 0.0f) {
-    //         if (dot(f.planes[i].xyz, corners[c]) - f.planes[i].w > 0.) {
-    //             // point_in_plane[i] = true;
-    //             point_inside = true;
-    //             break;
+    //     // X axis
+    //     if (planes[i].x < 0.0) {
+    //         axis_vert.x = maxs.x;
+    //         // vmin.x = mins.x;
+    //         // vmax.x = maxs.x;
+    //     } else {
+    //         axis_vert.x = mins.x;
+    //         // vmin.x = maxs.x;
+    //         // vmax.x = mins.x;
+    //     }
+    //     // Y axis
+    //     if (planes[i].y > 0.0) {
+    //         axis_vert.y = maxs.y;
+    //         // vmin.y = mins.y;
+    //         // vmax.y = maxs.y;
+    //     } else {
+    //         axis_vert.y = mins.y;
+    //         // vmin.y = maxs.y;
+    //         // vmax.y = mins.y;
+    //     }
+    //     // Z axis
+    //     if (planes[i].z < 0.0) {
+    //         axis_vert.z = maxs.z;
+    //         // vmin.z = mins.z;
+    //         // vmax.z = maxs.z;
+    //     } else {
+    //         axis_vert.z = mins.z;
+    //         // vmin.z = maxs.z;
+    //         // vmax.z = mins.z;
+    //     }
+    //     if(dot(planes[i].xyz,axis_vert) - planes[i].w < 0 )
+    //         return false;
+    //     // if (dot(planes[i].xyz, vmin) + planes[i].w > 0) return false;
+    //     // if (dot(planes[i].xyz, vmax) + planes[i].w >= 0) ret = 0;
+    // }
+    // return true;
+
+    vec3 corners[8] = {
+        {a._min.x, a._min.y, a._min.z}, // | 0, 0, 0|
+        {a._min.x, a._min.y, a._max.z}, // | 0, 0, 1|
+        {a._min.x, a._max.y, a._min.z}, // | 0, 1, 0|
+        {a._min.x, a._max.y, a._max.z}, // | 0, 1, 1|
+
+        {a._max.x, a._min.y, a._min.z}, // | 1, 0, 0|
+        {a._max.x, a._min.y, a._max.z}, // | 1, 0, 1|
+        {a._max.x, a._max.y, a._min.z}, // | 1, 1, 0|
+        {a._max.x, a._max.y, a._max.z}  // | 1, 1, 1|
+    };
+    // bool pi[8] = {false, false, false, false, false, false, false, false};
+
+    // for (int c = 0; c < 8; ++c) {
+    //     for (int i = 0; i < 6; ++i) {
+    //         // int incount = 0;
+    //         if (dot(f.planes[i].xyz, corners[c]) - f.planes[i].w > 0) {   // point is inside
+    //             // point_outside = false;
+    //             incount += 1;
+    //             // pi[c] = true;
+    //             // break;
     //         }
     //     }
-    //     if (!point_inside) return false;
+    //     if (incount == 6) {
+    //         return true;
+    //     }
     // }
-    // // if (incount <= 0) return false;
+    // if (!pi[0]) return false;
+    // if (!pi[1]) return false;
+    // if (!pi[2]) return false;
+    // if (!pi[3]) return false;
+    // if (!pi[4]) return false;
+    // if (!pi[5]) return false;
+    // if (!pi[6]) return false;
+    // if (!pi[7]) return false;
     // return true;
+    // return pi[0] && pi[1] && pi[2] && pi[3] && pi[4] && pi[5] && pi[6] && pi[7];
+    // return true;
+    bool point_outside;
+    for (int i = 0; i < 6; ++i) {
+        point_outside = true;
+        for (int c = 0; c < 8; ++c) {
+            if (dot(normalize(f.planes[i].xyz), corners[c]) - f.planes[i].w > 0) {   // point is inside
+                point_outside = false;
+                break;
+            }
+        }
+        if (point_outside) return false;
+    }
+    return true;
+}
+
+bool frustumSegmentIntersect(in Frustum f, LineSegment s) {
+
+    for (int i = 0; i < 6; ++i) {
+        if (dot(normalize(f.planes[i].xyz), s.p1) - f.planes[i].w > 0 || dot(normalize(f.planes[i].xyz), s.p2) - f.planes[i].w > 0 ||
+            dot(normalize(f.planes[i].xyz), s.p3) - f.planes[i].w > 0) {
+            continue;
+        }
+        return false;
+    }
+    return true;
 }
 
 int get_tile(int x, int y, int level) { return _light_quadtree_offsets[level] + (x + (y) *_light_quadtree_widths[level]); }
@@ -197,14 +239,12 @@ bool sphere_frustum(vec3 pos, float radius, in Frustum frustum) {
     // Step1: sphere-plane test
     for (int i = 0; i < 6; i++) {
         if (dot(frustum.planes[i].xyz, pos) - frustum.planes[i].w < -radius) {
-            result = false;
-            break;
-        }
-    }
-
-    // result = CullSphere(frustum.planes, pos, radius) > 0;
-
-    if (!result) {
+            result = false;   // <--
+            break;            //   |
+        }                     //   |
+    }                         //   |
+                              //   |
+    if (!result) {            // if false ---
         return false;
     }
 
