@@ -83,10 +83,12 @@ void main() {
                 next_pos = p_l[id].pos;
             }
 
-            // AABB aabb = particles[id].aabb;
-            particles[id].aabb._min = min(pos, next_pos) - radius;
-            particles[id].aabb._max = max(pos, next_pos) + radius;
-            if (frustumAABBIntersect(frustum, particles[id].aabb)) {
+            AABB aabb;
+            aabb._min = min(pos, next_pos) - radius;
+            aabb._max = max(pos, next_pos) + radius;
+            // particles[id].aabb._min = min(pos, next_pos) - radius;
+            // particles[id].aabb._max = max(pos, next_pos) + radius;
+            if (frustumAABBIntersect(frustum, aabb)) {
                 int i = atomicAdd(avail_count, 1);   // elements to sort
 
                 float z = (view * vec4(p_l[id].pos, 1.0)).z;

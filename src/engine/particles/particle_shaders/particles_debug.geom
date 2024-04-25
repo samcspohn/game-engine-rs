@@ -132,15 +132,15 @@ void main() {
     }
     mat4 vp = proj * view;
     float radius = length(templ.scale);
-    // AABB a;
-    // a._min = min(pos, next_pos) - radius;
-    // a._max = max(pos, next_pos) + radius;
+    AABB a;
+    a._min = min(pos, next_pos) - radius;
+    a._max = max(pos, next_pos) + radius;
     // float size = length(a._max - a._min);
     // a._max += size * 2;
     // a._min -= size * 2;
     // vec3 center = (pos + next_pos) / 2.0;
     // a._min = a._max = center;
-    AABB a = p.aabb;
+    // AABB a = p.aabb;
     vec3 corners[8] = {
         {a._min.x, a._min.y, a._min.z}, // 0, | 0, 0, 0|
         {a._min.x, a._min.y, a._max.z}, // 1, | 0, 0, 1|

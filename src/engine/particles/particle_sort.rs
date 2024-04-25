@@ -212,7 +212,7 @@ impl ParticleSort {
                 [
                     WriteDescriptorSet::buffer(0, self.a1.clone()),
                     WriteDescriptorSet::buffer(1, self.a2.clone()),
-                    WriteDescriptorSet::buffer(2, pb.particles.clone()),
+                    // WriteDescriptorSet::buffer(2, pb.particles.clone()),
                     WriteDescriptorSet::buffer(3, pb.particle_positions_lifes.clone()),
                     WriteDescriptorSet::buffer(4, bound_indirect),
                     WriteDescriptorSet::buffer(5, self.avail_count.clone()),
