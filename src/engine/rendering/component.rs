@@ -79,7 +79,7 @@ impl Component for Renderer {
             .get(&self.model_id.id)
             .unwrap()
             .lock()
-            .meshes
+            .meshes.meshes
             .iter()
             .map(|mesh| {
                 let id = rm

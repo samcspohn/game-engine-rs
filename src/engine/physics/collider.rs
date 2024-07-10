@@ -56,12 +56,12 @@ impl _ColliderType {
                         if let Some(_id) = model_manager.assets_id.get(&id) {
                             unsafe {
                                 let model = model_manager.assets_id.get(id).unwrap().lock();
-                                let verts = model.meshes[0]
+                                let verts = model.meshes.meshes[0]
                                     .vertices
                                     .iter()
                                     .map(|f| point![f.position[0], f.position[1], f.position[2]])
                                     .collect();
-                                let indices = model.meshes[0]
+                                let indices = model.meshes.meshes[0]
                                     .indeces
                                     .chunks(3)
                                     .map(|f| [f[0], f[1], f[2]])
@@ -167,14 +167,14 @@ impl Component for _Collider {
                                     if !mesh_map.contains_key(_id) {
                                         let model =
                                             model_manager.assets_id.get(_id).unwrap().lock();
-                                        let verts = model.meshes[0]
+                                        let verts = model.meshes.meshes[0]
                                             .vertices
                                             .iter()
                                             .map(|f| {
                                                 point![f.position[0], f.position[1], f.position[2]]
                                             })
                                             .collect();
-                                        let indices = model.meshes[0]
+                                        let indices = model.meshes.meshes[0]
                                             .indeces
                                             .chunks(3)
                                             .map(|f| [f[0], f[1], f[2]])

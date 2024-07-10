@@ -305,7 +305,7 @@ impl Engine {
         )));
         let model_manager = Arc::new(Mutex::new(ModelManager::new(
             (texture_manager.clone(), vk.clone()),
-            &["obj"],
+            &["obj", "dae"],
         )));
         let recompiled = Arc::new(AtomicBool::new(false));
         let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new(
