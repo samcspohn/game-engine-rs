@@ -62,7 +62,7 @@ use vulkano::{
 use winit::{
     dpi::{LogicalPosition, PhysicalSize},
     event::{Event, ModifiersState, VirtualKeyCode, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy}, platform::windows::EventLoopBuilderExtWindows,
 };
 // use crate::{physics::Physics};
 
@@ -280,22 +280,51 @@ unsafe impl Sync for EnginePtr {}
 
 impl Engine {
     pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
-        let event_loop: SendSync<EventLoop<EngineEvent>> =
-            unsafe { SendSync::new(EventLoopBuilder::with_user_event().build()) };
-        let vk = VulkanManager::new(&event_loop);
-        let render_pass = vulkano::single_pass_renderpass!(
-            vk.device.clone(),
-            attachments: {
-                final_color: {
-                    load: Clear,
-                    store: Store,
-                    format: vk.swapchain().image_format(),
-                    samples: 1,
-                }
-            },
-            pass: { color: [final_color], depth_stencil: {}} // Create a second renderpass to draw egui
-        )
-        .unwrap();
+        // let mut cam_data = CameraData::new(vk.clone(), 2);
+        let (input_snd, input_rcv) = crossbeam::channel::bounded(1);
+        let (vk_snd, vk_rcv) = crossbeam::channel::bounded(1);
+
+        let input_thread = Arc::new({
+            // let vk = vk.clone();
+            thread::spawn(move || {
+                let event_loop: EventLoop<EngineEvent> =
+                    EventLoopBuilder::with_user_event().with_any_thread(true).build();
+                let vk = VulkanManager::new(&event_loop);
+                let proxy = event_loop.create_proxy();
+                let render_pass = vulkano::single_pass_renderpass!(
+                    vk.device.clone(),
+                    attachments: {
+                        final_color: {
+                            load: Clear,
+                            store: Store,
+                            format: vk.swapchain().image_format(),
+                            samples: 1,
+                        }
+                    },
+                    pass: { color: [final_color], depth_stencil: {}} // Create a second renderpass to draw egui
+                )
+                .unwrap();
+                let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
+                    &event_loop,
+                    vk.surface.clone(),
+                    vk.queue.clone(),
+                    Subpass::from(render_pass.clone(), 0).unwrap(),
+                    vk.swapchain().image_format(),
+                    GuiConfig {
+                        // preferred_format: Some(vk.swapchain().image_format()),
+                        allow_srgb_render_target: true,
+                        is_overlay: true,
+                        ..Default::default()
+                    },
+                );
+
+                vk_snd.send((vk.clone(),proxy, gui, render_pass)).unwrap();
+                input_thread::input_thread(event_loop, vk, input_snd);
+            })
+        });
+        let (vk, proxy,gui,render_pass) = vk_rcv.recv().unwrap();
+
+        
 
         let assets_manager = Arc::new(AssetsManager::new());
 
@@ -408,32 +437,12 @@ impl Engine {
         };
         let mut file_watcher = file_watcher::FileWatcher::new(".");
 
-        // let mut cam_data = CameraData::new(vk.clone(), 2);
-        let (input_snd, input_rcv) = crossbeam::channel::bounded(1);
-        let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
-            &event_loop,
-            vk.surface.clone(),
-            vk.queue.clone(),
-            Subpass::from(render_pass.clone(), 0).unwrap(),
-            vk.swapchain().image_format(),
-            GuiConfig {
-                // preferred_format: Some(vk.swapchain().image_format()),
-                allow_srgb_render_target: true,
-                is_overlay: true,
-                ..Default::default()
-            },
-        );
-        let proxy = event_loop.create_proxy();
         let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
         let (rendering_snd2, rendering_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd, phys_rcv) = crossbeam::channel::bounded(1);
         // let (phys_snd2, phys_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd3, phys_rcv3) = crossbeam::channel::bounded(1);
         // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
-        let input_thread = Arc::new({
-            let vk = vk.clone();
-            thread::spawn(move || input_thread::input_thread(event_loop, vk, input_snd))
-        });
         let rendering_thread = Arc::new({
             let vk = vk.clone();
             thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
@@ -536,6 +545,7 @@ impl Engine {
         };
         // TODO: remove in favor of placeholder component
         let mut args = vec!["build"];
+        args.push("--lib");
         #[cfg(not(debug_assertions))]
         {
             println!("compiling for release");
@@ -544,7 +554,7 @@ impl Engine {
         // args.push("-r");
         let com = Command::new("cargo")
             .args(args.as_slice())
-            .env("RUSTFLAGS", "-Z threads=16")
+            // .env("RUSTFLAGS", "-Z threads=16")
             .status()
             .unwrap();
         self.file_watcher.get_updates(self.assets_manager.clone());

@@ -79,6 +79,7 @@ mod win_alloc {
 
 fn main() {
     env::set_var("RUST_BACKTRACE", "1");
+    // env::set_var("RUSTFLAGS", format!("-Z threads={}",thread::max_concurrency()));
     crate::engine::utils::SETTINGS
         .read()
         .get::<i32>("MAX_PARTICLES")

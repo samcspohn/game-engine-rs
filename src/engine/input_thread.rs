@@ -13,7 +13,7 @@ use crate::engine::rendering::vulkan_manager::VulkanManager;
 use super::{input::Input, EngineEvent};
 
 pub(crate) fn input_thread(
-    event_loop: SendSync<EventLoop<EngineEvent>>,
+    event_loop: EventLoop<EngineEvent>,
     vk: Arc<VulkanManager>,
     coms: Sender<(
         Vec<WindowEvent<'static>>,
@@ -27,7 +27,6 @@ pub(crate) fn input_thread(
     let mut modifiers = ModifiersState::default();
     // let mut recreate_swapchain = true;
     let mut events = Vec::new();
-    let mut event_loop = event_loop.unwrap();
     let mut size = None;
     let mut should_quit = false;
     event_loop.run(move |event, _, control_flow| {

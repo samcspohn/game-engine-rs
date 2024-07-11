@@ -45,7 +45,7 @@ once_cell = "*"
 pqueue = "*"
 rand = "*"
 scoped_threadpool = "*"
-nalgebra-glm = { version = "*", features = ["serde-serialize"] }
+nalgebra-glm = { version = "0.18.0", features = ["serde-serialize"] }
 png = "*"
 image = "*"
 serde = { version = "*", features = ["derive"] }
@@ -53,7 +53,7 @@ ron = "*"
 serde_yaml = "*"
 glium = { git = "https://github.com/glium/glium.git" }
 
-rapier3d = { version = "*", features = [
+rapier3d = { version = "0.17.2", features = [
     "simd-stable",
     "parallel",
     "serde-serialize",
@@ -83,7 +83,7 @@ tobj = "4.0.0"
 
 walkdir = "*"
 substring = "*"
-lazy_static = "*"
+lazy_static = "1.5.0"
 notify = { version = "*", features = ["serde"] }
 relative-path = "*"
 nohash-hasher = "*"
