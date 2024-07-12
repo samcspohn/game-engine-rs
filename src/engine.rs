@@ -59,10 +59,14 @@ use vulkano::{
     sync::{self, FlushError, GpuFuture},
     DeviceSize,
 };
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows;
+#[cfg(not(target_os = "windows"))]
+use winit::platform::x11::EventLoopBuilderExtX11;
 use winit::{
     dpi::{LogicalPosition, PhysicalSize},
     event::{Event, ModifiersState, VirtualKeyCode, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy}, platform::windows::EventLoopBuilderExtWindows,
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
 };
 // use crate::{physics::Physics};
 
@@ -278,6 +282,7 @@ pub struct EnginePtr {
 unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
 
+
 impl Engine {
     pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
         // let mut cam_data = CameraData::new(vk.clone(), 2);
@@ -287,8 +292,9 @@ impl Engine {
         let input_thread = Arc::new({
             // let vk = vk.clone();
             thread::spawn(move || {
-                let event_loop: EventLoop<EngineEvent> =
-                    EventLoopBuilder::with_user_event().with_any_thread(true).build();
+                let event_loop: EventLoop<EngineEvent> = EventLoopBuilder::with_user_event()
+                    .with_any_thread(true)
+                    .build();
                 let vk = VulkanManager::new(&event_loop);
                 let proxy = event_loop.create_proxy();
                 let render_pass = vulkano::single_pass_renderpass!(
@@ -318,13 +324,11 @@ impl Engine {
                     },
                 );
 
-                vk_snd.send((vk.clone(),proxy, gui, render_pass)).unwrap();
+                vk_snd.send((vk.clone(), proxy, gui, render_pass)).unwrap();
                 input_thread::input_thread(event_loop, vk, input_snd);
             })
         });
-        let (vk, proxy,gui,render_pass) = vk_rcv.recv().unwrap();
-
-        
+        let (vk, proxy, gui, render_pass) = vk_rcv.recv().unwrap();
 
         let assets_manager = Arc::new(AssetsManager::new());
 
@@ -802,6 +806,7 @@ impl Engine {
             }
             // self.compiler_thread
             let mut args = vec!["build"];
+            args.push("--lib");
             #[cfg(not(debug_assertions))]
             {
                 println!("compiling for release");
@@ -810,7 +815,7 @@ impl Engine {
             // args.push("-r");
             let com = Command::new("cargo")
                 .args(args.as_slice())
-                .env("RUSTFLAGS", "-Z threads=16")
+                // .env("RUSTFLAGS", "-Z threads=16")
                 .spawn()
                 .unwrap();
             self.compiler_process = Some(com);
