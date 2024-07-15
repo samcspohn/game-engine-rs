@@ -1,6 +1,6 @@
 // extern crate assimp;
 
-use std::{collections::BTreeMap, ops::Sub, sync::Arc};
+use std::{borrow::Borrow, collections::{BTreeMap, HashMap}, ops::Sub, rc::Rc, sync::Arc};
 
 // use ai::import::Importer;
 // use assimp as ai;
@@ -10,12 +10,21 @@ use crate::engine::{
     project::asset_manager::AssetInstance,
 };
 use component_derive::{AssetID, ComponentID};
+use glium::buffer::Content;
 use glm::{float_bits_to_int, IVec2};
 use parking_lot::{Mutex, RwLock};
 
 // use std::mem::size_of;
-use nalgebra_glm::{self as glm, Mat4};
-use russimp::{animation::Animation, bone, material::TextureType, scene::PostProcess};
+use nalgebra_glm::{self as glm, quat, vec3, Mat4, Quat, Vec3};
+use russimp::{
+    animation::{Animation, QuatKey, VectorKey},
+    bone,
+    material::TextureType,
+    node::Node,
+    scene::{PostProcess, Scene},
+    sys::aiQuaternionInterpolate,
+    Matrix4x4,
+};
 use serde::{Deserialize, Serialize};
 // use rapier3d::na::Norm;
 use crate::{
@@ -97,9 +106,19 @@ pub struct Mesh {
     pub bone_weights_buffer: Option<Subbuffer<[[i32; 2]]>>,
     pub texture: Option<i32>,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct BoneInfo {
+    pub offset: Mat4,
+    pub final_transformation: Mat4,
+}
+
 pub struct Model {
     pub meshes: Vec<Mesh>,
-    pub animations: Vec<Animation>,
+    // pub animations: Vec<Animation>,
+    pub scene: Scene,
+    pub bone_names_index: HashMap<String, u32>,
+    pub bone_info: Vec<BoneInfo>,
 }
 impl Model {
     pub fn load_model(
@@ -128,15 +147,20 @@ impl Model {
                 _meshes.push(mesh);
             }
         }
+        // scene.root;
 
         // let mut _anims = Vec::new();
         // for anim in scene.animations.iter() {
 
         // }
+        let bone_names_index = scene.meshes[0].bones.iter().enumerate().map(|(id,bone)| (bone.name.clone(), id as u32)).collect::<HashMap<String, u32>>();
 
         Model {
             meshes: _meshes,
-            animations: scene.animations,
+            // animations: scene.animations.clone(),
+            bone_info: Vec::new(),
+            bone_names_index,
+            scene,
         }
     }
 }
@@ -403,18 +427,114 @@ impl Component for Skeleton {
         Ins(&mut self.model).inspect("model", ui, sys);
     }
 }
+
+fn calc_interpolated3(t: &Vec<VectorKey>, time: f64) -> Vec3 {
+    // let mut scaling = Vec3::new(0,0,0);
+    if t.len() == 1 {
+        let v = t[0].value;
+        vec3(v.x, v.y, v.z)
+    } else {
+        t.iter()
+            .as_slice()
+            .windows(2)
+            .filter(|x| time > x[0].time && time < x[1].time)
+            .map(|x| {
+                let t1 = x[0].time;
+                let t2 = x[1].time;
+                let delta_time = t2 - t1;
+                let factor = (time - t1) / delta_time;
+                let start = x[0].value;
+                let start = vec3(start.x, start.y, start.z);
+                let end = x[1].value;
+                let end = vec3(end.x, end.y, end.z);
+                let delta = end - start;
+                start + factor as f32 * delta
+                // glm::scale(&scaling, out)
+            })
+            .collect::<Vec<Vec3>>()[0]
+    }
+}
+fn calc_interpolated4(t: &Vec<QuatKey>, time: f64) -> Quat {
+    if t.len() == 1 {
+        let v = t[0].value;
+        quat(v.x, v.y, v.z, v.w)
+    } else {
+        t.iter()
+            .as_slice()
+            .windows(2)
+            .filter(|x| time > x[0].time && time < x[1].time)
+            .map(|x| {
+                let t1 = x[0].time;
+                let t2 = x[1].time;
+                let delta_time = t2 - t1;
+                let factor = (time - t1) / delta_time;
+                let start = x[0].value;
+                let start = quat(start.x, start.y, start.z, start.w);
+                let end = x[1].value;
+                let end = quat(end.x, end.y, end.z, end.w);
+                start.lerp(&end, factor as f32)
+                // let delta = end - start;
+                // start + factor as f32 * delta
+                // glm::scale(&scaling, out)
+            })
+            .collect::<Vec<Quat>>()[0]
+    }
+}
 impl Skeleton {
-    pub fn get_skeleton(&self, model_manager: &ModelManager) -> Vec<Mat4> {
+    fn read_node_hierarchy(
+        &mut self,
+        time: f64,
+        node: &Node,
+        parent_transform: &Mat4,
+        scene: &Scene,
+    ) {
+        let name = node.name.clone();
+        let anim = &scene.animations[0];
+        let mut node_transform: nalgebra_glm::Mat4 =
+            unsafe { std::mem::transmute(node.transformation) };
+
+        let mut node_anim = None;
+        // find node anim
+        for channel in &anim.channels {
+            if channel.name == name {
+                node_anim = Some(channel);
+            }
+        }
+        if let Some(node_anim) = node_anim {
+            let scl = calc_interpolated3(&node_anim.scaling_keys, 0.1);
+            let scaling = glm::scaling(&scl);
+
+            let pos = calc_interpolated3(&node_anim.position_keys, 0.1);
+            let translation = glm::translation(&pos);
+
+            let rot = calc_interpolated4(&node_anim.rotation_keys, 0.1);
+            let rotation = glm::quat_to_mat4(&rot);
+
+            node_transform = translation * rotation * scaling;
+        }
+
+        let global_transform = parent_transform * node_transform;
+
+        if let Some(bone_index) = self.bone_names_index.get(&name) {
+            self.bone_info[*bone_index as usize].final_transformation = unsafe {
+                std::mem::transmute::<Matrix4x4, Mat4>(scene.root.as_ref().unwrap().transformation)
+            } * global_transform
+                * self.bone_info[*bone_index as usize].offset;
+        }
+    }
+    pub fn get_skeleton(&mut self, model_manager: &ModelManager) -> Vec<Mat4> {
         model_manager
             .assets_id
             .get(&self.model.id)
             .and_then(|x| Some(x.lock()))
             .map(|x| {
+                let root = x.model.scene.root.as_ref().unwrap().clone();
+
                 let bones = Vec::new();
-                let animations = &x.model.animations;
-                let anim = &animations[0];
-                for bone_keys in &anim.channels { // channel per bone
-                }
+                // let animations = &x.model.animations;
+                // let anim = &animations[0];
+                // for bone_keys in &anim.channels { // channel per bone
+                // }
                 bones
             })
             .unwrap()

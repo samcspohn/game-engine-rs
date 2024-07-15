@@ -1,0 +1,2 @@
+FOR /F %%i IN ('where.exe /r .\target\release assimp.dll') DO (copy %%i .\target\release\deps)
+@REM FOR /F \"tokens=*\" %%g IN ('where.exe /r .\target\release assimp.dll') do (SET PATH=%%g;${env:PATH})

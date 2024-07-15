@@ -32,6 +32,11 @@
 			],
 			"group": "build",
 			"label": "rust: cargo build -r --bin game-engine-rs"
+		},
+		{
+			"type":"shell",
+			"command": "./find_dlls.bat",
+			"label": "find assimp",
 		}
 	]
 }

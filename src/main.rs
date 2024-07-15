@@ -3,6 +3,7 @@
 #![feature(sync_unsafe_cell)]
 #![feature(ptr_from_ref)]
 #![feature(closure_lifetime_binder)]
+#![feature(iter_map_windows)]
 mod editor;
 mod engine;
 // mod terrain_eng;
