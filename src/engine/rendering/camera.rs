@@ -742,7 +742,7 @@ impl CameraData {
                                 cvd.dimensions,
                                 // end lights
                                 transform_compute.gpu_transforms.clone(),
-                                &mr.meshes.meshes[i],
+                                &mr.model.meshes[i],
                                 indirect_buffer.clone(),
                                 cvd.cam_pos.clone(),
                                 light_list.clone(),
