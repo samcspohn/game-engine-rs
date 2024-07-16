@@ -253,6 +253,8 @@ impl RenderPipeline {
         light_list: Subbuffer<[u32]>,
         visible_lights: Subbuffer<[u32]>,
         visible_lights_count: Subbuffer<u32>,
+        skeleton: (Subbuffer<[[[f32;4];4]]>, Subbuffer<[i32]>, Subbuffer<[i32]>),
+        has_skeleton: bool,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
@@ -277,21 +279,16 @@ impl RenderPipeline {
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
         // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
         let uniform = self.vk.allocate(fs::Data { screen_dims });
-        //  {
-        //     let uni = self.uniforms.allocate_sized().unwrap();
-        //     *uni.write().unwrap() = fs::Data { screen_dims };
-        //     uni
-        // };
+        let vs_uniform = self.vk.allocate(vs::UniformBufferObject { has_skeleton: if has_skeleton {1} else {0}});
         descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
         descriptors.push(WriteDescriptorSet::buffer(5, tiles));
         descriptors.push(WriteDescriptorSet::buffer(6, uniform));
         descriptors.push(WriteDescriptorSet::buffer(7, light_list));
-        // descriptors.push(WriteDescriptorSet::buffer(8, visible_lights));
-        // descriptors.push(WriteDescriptorSet::buffer(9, visible_lights_count));
-        // descriptors.push(WriteDescriptorSet::buffer(7, light_ids));
-        // descriptors.push(WriteDescriptorSet::buffer(8, light_buckets));
-        // descriptors.push(WriteDescriptorSet::buffer(9, light_buckets_count));
+        // descriptors.push(WriteDescriptorSet::buffer(7, mesh.bone_weight_offsets));
+        descriptors.push(WriteDescriptorSet::buffer(11, mesh.bone_weights_buffer.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(12, vs_uniform));
+
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
         {
             builder

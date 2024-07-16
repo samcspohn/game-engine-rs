@@ -35,21 +35,14 @@ use winit::event::VirtualKeyCode;
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        input::Input,
-        particles::{
+        input::Input, particles::{
             particles::{ParticleDebugPipeline, ParticleRenderPipeline, ParticlesSystem},
             shaders::scs,
-        },
-        perf::Perf,
-        project::asset_manager::AssetsManager,
-        rendering::{component::ur, debug},
-        transform_compute::{cs::Data, TransformCompute},
-        world::{
+        }, perf::Perf, project::asset_manager::{AssetInstance, AssetsManager}, rendering::{component::ur, debug, model::Skeleton}, time::Time, transform_compute::{cs::Data, TransformCompute}, world::{
             component::{Component, _ComponentID},
             transform::{Transform, TransformBuf, TransformData},
             Sys,
-        },
-        RenderJobData,
+        }, RenderJobData
     },
 };
 
@@ -596,6 +589,7 @@ impl CameraData {
         light_debug: bool,
         particle_debug: bool,
         input: &Input,
+        time: &Time,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
@@ -706,6 +700,15 @@ impl CameraData {
 
         self.rend.bind_pipeline(builder);
 
+        let mut skeleton = Skeleton::default();
+        skeleton.model.id = model_manager
+            .assets_id
+            .iter()
+            .filter(|x| x.1.lock().model.bone_info.len() > 0)
+            .map(|x| *x.0)
+            .next()
+            .unwrap();
+        let skeleton = vk.buffer_from_iter(skeleton.get_skeleton(model_manager, time.time));
         // {
         // let mm = model_manager.lock();
         let mm = model_manager;

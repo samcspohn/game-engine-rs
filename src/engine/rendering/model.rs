@@ -1,11 +1,18 @@
 // extern crate assimp;
 
-use std::{borrow::Borrow, collections::{BTreeMap, HashMap}, ops::Sub, rc::Rc, sync::Arc};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, HashMap},
+    ops::Sub,
+    rc::Rc,
+    sync::Arc,
+};
 
 // use ai::import::Importer;
 // use assimp as ai;
 // use bytemuck::{Pod, Zeroable};
 use crate::engine::{
+    particles::shaders::cs::b,
     prelude::{Component, Inpsect, Ins, _ComponentID},
     project::asset_manager::AssetInstance,
 };
@@ -18,7 +25,7 @@ use parking_lot::{Mutex, RwLock};
 use nalgebra_glm::{self as glm, quat, vec3, Mat4, Quat, Vec3};
 use russimp::{
     animation::{Animation, QuatKey, VectorKey},
-    bone,
+    bone::{self, Bone, VertexWeight},
     material::TextureType,
     node::Node,
     scene::{PostProcess, Scene},
@@ -103,6 +110,7 @@ pub struct Mesh {
     pub index_buffer: Subbuffer<[u32]>,
     pub normals_buffer: Subbuffer<[Normal]>,
     pub bone_weights_offsets_buf: Option<Subbuffer<[u32]>>,
+    pub bone_weights_counts_buf: Option<Subbuffer<[u32]>>,
     pub bone_weights_buffer: Option<Subbuffer<[[i32; 2]]>>,
     pub texture: Option<i32>,
 }
@@ -113,12 +121,23 @@ pub struct BoneInfo {
     pub final_transformation: Mat4,
 }
 
+#[derive(Default, Clone)]
+struct _VertexWeight {
+    pub weight: f32,
+    pub vertex_id: u32,
+}
+#[derive(Default, Clone)]
+pub struct _Bone {
+    pub weights: Vec<_VertexWeight>,
+    pub name: String,
+    pub offset_matrix: Matrix4x4,
+}
 pub struct Model {
     pub meshes: Vec<Mesh>,
     // pub animations: Vec<Animation>,
-    pub scene: Scene,
-    pub bone_names_index: HashMap<String, u32>,
-    pub bone_info: Vec<BoneInfo>,
+    pub scene: Arc<Scene>,
+    pub bone_names_index: HashMap<String, (u32, _Bone)>,
+    pub bone_info: Vec<Mat4>,
 }
 impl Model {
     pub fn load_model(
@@ -139,11 +158,53 @@ impl Model {
         // println!("model stats: {:?}", model);
         // let model = tobj::load_obj(path, &(tobj::GPU_LOAD_OPTIONS));
         let (scene) = model.expect(format!("Failed to load OBJ file: {}", path).as_str());
+
+        let bone_names_index = scene
+            .meshes
+            .iter()
+            .map(|m| {
+                m.bones
+                    .iter()
+                    .map(|(bone)| {
+                        (
+                            bone.name.clone(),
+                            _Bone {
+                                weights: bone
+                                    .weights
+                                    .iter()
+                                    .map(|vw| _VertexWeight {
+                                        weight: vw.weight,
+                                        vertex_id: vw.vertex_id,
+                                    })
+                                    .collect(),
+                                name: bone.name.clone(),
+                                offset_matrix: bone.offset_matrix.clone(),
+                            },
+                        )
+                    })
+                    .into_iter()
+            })
+            .flatten()
+            .enumerate()
+            .map(|(id, (b_name, b_))| (b_name, (id as u32, b_)))
+            .collect::<HashMap<String, (u32, _Bone)>>();
+
+        let bone_info: Vec<Mat4> = bone_names_index
+            .iter()
+            .map(|(b_name, (id, b_))| unsafe { std::mem::transmute(b_.offset_matrix) })
+            .collect();
+
         let mut _meshes = Vec::new();
         println!("here");
         for mesh in scene.meshes.iter() {
-            if let Some(mesh) = Mesh::load_mesh(&mesh, &scene, texture_manager.clone(), &_path, vk)
-            {
+            if let Some(mesh) = Mesh::load_mesh(
+                &mesh,
+                &scene,
+                &bone_names_index,
+                texture_manager.clone(),
+                &_path,
+                vk,
+            ) {
                 _meshes.push(mesh);
             }
         }
@@ -153,14 +214,13 @@ impl Model {
         // for anim in scene.animations.iter() {
 
         // }
-        let bone_names_index = scene.meshes[0].bones.iter().enumerate().map(|(id,bone)| (bone.name.clone(), id as u32)).collect::<HashMap<String, u32>>();
 
         Model {
             meshes: _meshes,
             // animations: scene.animations.clone(),
-            bone_info: Vec::new(),
+            bone_info,
             bone_names_index,
-            scene,
+            scene: Arc::new(scene),
         }
     }
 }
@@ -193,6 +253,7 @@ impl Mesh {
     pub fn load_mesh(
         mesh: &russimp::mesh::Mesh,
         scene: &russimp::scene::Scene,
+        bone_name_index: &HashMap<String, (u32, _Bone)>,
         texture_manager: Arc<Mutex<TextureManager>>,
         _path: &std::path::Path,
         vk: &VulkanManager,
@@ -257,11 +318,13 @@ impl Mesh {
         let mut vertex_weights = BTreeMap::<u32, Vec<(u32, f32)>>::new(); // vertexid -> [(bone,weight)]
 
         for (id, bone) in mesh.bones.iter().enumerate() {
-            for weight in &bone.weights {
-                vertex_weights
-                    .entry(weight.vertex_id as u32)
-                    .or_default()
-                    .push((id as u32, weight.weight));
+            if let Some((id, _bone)) = bone_name_index.get(&bone.name) {
+                for weight in &bone.weights {
+                    vertex_weights
+                        .entry(weight.vertex_id as u32)
+                        .or_default()
+                        .push((*id, weight.weight));
+                }
             }
         }
         let mut offset: u32 = 0;
@@ -296,6 +359,11 @@ impl Mesh {
             None
         } else {
             Some(vk.buffer_from_iter(bone_weight_offsets.clone()))
+        };
+        let bone_weights_counts_buf = if vertex_weights.len() == 0 {
+            None
+        } else {
+            Some(vk.buffer_from_iter(vertex_weights.iter().map(|(vert,weights)| weights.len() as u32)))
         };
 
         let mut texture = None;
@@ -365,6 +433,7 @@ impl Mesh {
             index_buffer,
             texture,
             bone_weights_buffer,
+            bone_weights_counts_buf,
             bone_weights_offsets_buf: bone_weights_offsets_buffer,
         });
         // }
@@ -413,7 +482,8 @@ pub type ModelManager =
 #[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
 pub struct Skeleton {
     pub model: AssetInstance<ModelRenderer>,
-    pub bones: Vec<Mat4>,
+    // pub bones: Vec<Mat4>,
+    // pub bone_info: Vec<BoneInfo>,
 }
 
 impl Component for Skeleton {
@@ -428,7 +498,7 @@ impl Component for Skeleton {
     }
 }
 
-fn calc_interpolated3(t: &Vec<VectorKey>, time: f64) -> Vec3 {
+fn calc_interpolated_vector(t: &Vec<VectorKey>, time: f64) -> Vec3 {
     // let mut scaling = Vec3::new(0,0,0);
     if t.len() == 1 {
         let v = t[0].value;
@@ -454,7 +524,7 @@ fn calc_interpolated3(t: &Vec<VectorKey>, time: f64) -> Vec3 {
             .collect::<Vec<Vec3>>()[0]
     }
 }
-fn calc_interpolated4(t: &Vec<QuatKey>, time: f64) -> Quat {
+fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
     if t.len() == 1 {
         let v = t[0].value;
         quat(v.x, v.y, v.z, v.w)
@@ -487,6 +557,8 @@ impl Skeleton {
         node: &Node,
         parent_transform: &Mat4,
         scene: &Scene,
+        bone_names_index: &HashMap<String, (u32, _Bone)>,
+        bone_info: &mut Vec<Mat4>,
     ) {
         let name = node.name.clone();
         let anim = &scene.animations[0];
@@ -501,13 +573,13 @@ impl Skeleton {
             }
         }
         if let Some(node_anim) = node_anim {
-            let scl = calc_interpolated3(&node_anim.scaling_keys, 0.1);
+            let scl = calc_interpolated_vector(&node_anim.scaling_keys, time);
             let scaling = glm::scaling(&scl);
 
-            let pos = calc_interpolated3(&node_anim.position_keys, 0.1);
+            let pos = calc_interpolated_vector(&node_anim.position_keys, time);
             let translation = glm::translation(&pos);
 
-            let rot = calc_interpolated4(&node_anim.rotation_keys, 0.1);
+            let rot = calc_interpolated_quat(&node_anim.rotation_keys, time);
             let rotation = glm::quat_to_mat4(&rot);
 
             node_transform = translation * rotation * scaling;
@@ -515,27 +587,48 @@ impl Skeleton {
 
         let global_transform = parent_transform * node_transform;
 
-        if let Some(bone_index) = self.bone_names_index.get(&name) {
-            self.bone_info[*bone_index as usize].final_transformation = unsafe {
+        if let Some((bone_index, bone_)) = bone_names_index.get(&name) {
+            bone_info[*bone_index as usize] = unsafe {
                 std::mem::transmute::<Matrix4x4, Mat4>(scene.root.as_ref().unwrap().transformation)
             } * global_transform
-                * self.bone_info[*bone_index as usize].offset;
+                * unsafe { std::mem::transmute::<Matrix4x4, Mat4>(bone_.offset_matrix) };
+        }
+        for child in node.children.borrow().iter() {
+            self.read_node_hierarchy(
+                time,
+                &child,
+                &global_transform,
+                scene,
+                bone_names_index,
+                bone_info,
+            );
         }
     }
-    pub fn get_skeleton(&mut self, model_manager: &ModelManager) -> Vec<Mat4> {
+    pub fn get_skeleton(&mut self, model_manager: &ModelManager, time: f64) -> Vec<[[f32; 4]; 4]> {
         model_manager
             .assets_id
             .get(&self.model.id)
             .and_then(|x| Some(x.lock()))
-            .map(|x| {
+            .and_then(|x| {
                 let root = x.model.scene.root.as_ref().unwrap().clone();
 
-                let bones = Vec::new();
+                let mut bones = Vec::with_capacity(x.model.bone_info.len());
+                unsafe { bones.set_len(x.model.bone_info.len()) }
+
+                self.read_node_hierarchy(
+                    time,
+                    &root,
+                    &Mat4::identity(),
+                    &x.model.scene,
+                    &x.model.bone_names_index,
+                    &mut bones,
+                );
+
                 // let animations = &x.model.animations;
                 // let anim = &animations[0];
                 // for bone_keys in &anim.channels { // channel per bone
                 // }
-                bones
+                Some(bones.iter().map(|x| { *x }.into()).collect())
             })
             .unwrap()
     }
