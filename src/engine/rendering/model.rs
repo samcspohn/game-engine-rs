@@ -17,6 +17,7 @@ use crate::engine::{
     project::asset_manager::AssetInstance,
 };
 use component_derive::{AssetID, ComponentID};
+use force_send_sync::SendSync;
 use glium::buffer::Content;
 use glm::{float_bits_to_int, IVec2};
 use parking_lot::{Mutex, RwLock};
@@ -109,8 +110,8 @@ pub struct Mesh {
     pub uvs_buffer: Subbuffer<[UV]>,
     pub index_buffer: Subbuffer<[u32]>,
     pub normals_buffer: Subbuffer<[Normal]>,
-    pub bone_weights_offsets_buf: Option<Subbuffer<[u32]>>,
-    pub bone_weights_counts_buf: Option<Subbuffer<[u32]>>,
+    pub bone_weights_offsets_buf: Subbuffer<[u32]>,
+    pub bone_weights_counts_buf: Subbuffer<[u32]>,
     pub bone_weights_buffer: Option<Subbuffer<[[i32; 2]]>>,
     pub texture: Option<i32>,
 }
@@ -135,7 +136,8 @@ pub struct _Bone {
 pub struct Model {
     pub meshes: Vec<Mesh>,
     // pub animations: Vec<Animation>,
-    pub scene: Arc<Scene>,
+    pub scene: force_send_sync::SendSync<Arc<Scene>>,
+    pub has_skeleton: bool,
     pub bone_names_index: HashMap<String, (u32, _Bone)>,
     pub bone_info: Vec<Mat4>,
 }
@@ -185,6 +187,8 @@ impl Model {
                     .into_iter()
             })
             .flatten()
+            .collect::<HashMap<String, _Bone>>()
+            .into_iter()
             .enumerate()
             .map(|(id, (b_name, b_))| (b_name, (id as u32, b_)))
             .collect::<HashMap<String, (u32, _Bone)>>();
@@ -208,6 +212,7 @@ impl Model {
                 _meshes.push(mesh);
             }
         }
+        println!("number of animations: {}", scene.animations.len());
         // scene.root;
 
         // let mut _anims = Vec::new();
@@ -218,9 +223,10 @@ impl Model {
         Model {
             meshes: _meshes,
             // animations: scene.animations.clone(),
+            has_skeleton: bone_info.len() > 0,
             bone_info,
             bone_names_index,
-            scene: Arc::new(scene),
+            scene: unsafe { SendSync::new(Arc::new(scene)) },
         }
     }
 }
@@ -258,23 +264,6 @@ impl Mesh {
         _path: &std::path::Path,
         vk: &VulkanManager,
     ) -> Option<Mesh> {
-        // let _path = std::path::Path::new(path);
-        // let model = russimp::scene::Scene::from_file(
-        //     path,
-        //     vec![
-        //         PostProcess::CalculateTangentSpace,
-        //         PostProcess::Triangulate,
-        //         PostProcess::JoinIdenticalVertices,
-        //         PostProcess::SortByPrimitiveType,
-        //     ],
-        // );
-        // // println!("model stats: {:?}", model);
-        // // let model = tobj::load_obj(path, &(tobj::GPU_LOAD_OPTIONS));
-        // let (scene) = model.expect(format!("Failed to load OBJ file: {}", path).as_str());
-        // let mut _meshes = Vec::new();
-        // println!("here");
-
-        // for mesh in scene.meshes.iter() {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut normals = Vec::new();
@@ -317,7 +306,7 @@ impl Mesh {
 
         let mut vertex_weights = BTreeMap::<u32, Vec<(u32, f32)>>::new(); // vertexid -> [(bone,weight)]
 
-        for (id, bone) in mesh.bones.iter().enumerate() {
+        for bone in mesh.bones.iter() {
             if let Some((id, _bone)) = bone_name_index.get(&bone.name) {
                 for weight in &bone.weights {
                     vertex_weights
@@ -328,16 +317,15 @@ impl Mesh {
             }
         }
         let mut offset: u32 = 0;
-        let mut vert_weight = vertex_weights.iter();
-        let mut vert = vert_weight.next();
+        // let mut vert_weight = vertex_weights.iter();
+        // let mut vert = vert_weight.next();
         let mut bone_weight_offsets = Vec::new();
         for i in 0..vertices.len() as u32 {
             bone_weight_offsets.push(offset);
-            if let Some(vw) = vert {
-                if *vw.0 == i {
-                    offset += vw.1.len() as u32;
-                    vert = vert_weight.next();
-                }
+            if let Some(weights) = vertex_weights.get(&i) {
+                // if *vw.0 == i {
+                offset += weights.len() as u32;
+                // }
             }
         }
         for (vertex_id, weights) in vertex_weights.iter() {
@@ -356,14 +344,18 @@ impl Mesh {
             Some(vk.buffer_from_iter(vertex_bones.iter().map(|i| [i.x, i.y])))
         };
         let bone_weights_offsets_buffer = if bone_weight_offsets.len() == 0 {
-            None
+            vk.buffer_array(1, MemoryUsage::DeviceOnly)
         } else {
-            Some(vk.buffer_from_iter(bone_weight_offsets.clone()))
+            vk.buffer_from_iter(bone_weight_offsets.clone())
         };
         let bone_weights_counts_buf = if vertex_weights.len() == 0 {
-            None
+            vk.buffer_array(1, MemoryUsage::DeviceOnly)
         } else {
-            Some(vk.buffer_from_iter(vertex_weights.iter().map(|(vert,weights)| weights.len() as u32)))
+            vk.buffer_from_iter(
+                vertex_weights
+                    .iter()
+                    .map(|(vert, weights)| weights.len() as u32),
+            )
         };
 
         let mut texture = None;
@@ -507,7 +499,7 @@ fn calc_interpolated_vector(t: &Vec<VectorKey>, time: f64) -> Vec3 {
         t.iter()
             .as_slice()
             .windows(2)
-            .filter(|x| time > x[0].time && time < x[1].time)
+            .filter(|x| time >= x[0].time && time < x[1].time)
             .map(|x| {
                 let t1 = x[0].time;
                 let t2 = x[1].time;
@@ -532,7 +524,7 @@ fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
         t.iter()
             .as_slice()
             .windows(2)
-            .filter(|x| time > x[0].time && time < x[1].time)
+            .filter(|x| time >= x[0].time && time < x[1].time)
             .map(|x| {
                 let t1 = x[0].time;
                 let t2 = x[1].time;
@@ -559,11 +551,12 @@ impl Skeleton {
         scene: &Scene,
         bone_names_index: &HashMap<String, (u32, _Bone)>,
         bone_info: &mut Vec<Mat4>,
+        anim_id: usize,
     ) {
         let name = node.name.clone();
-        let anim = &scene.animations[0];
+        let anim = &scene.animations[anim_id];
         let mut node_transform: nalgebra_glm::Mat4 =
-            unsafe { std::mem::transmute(node.transformation) };
+        glm::transpose(&unsafe { std::mem::transmute(node.transformation) });
 
         let mut node_anim = None;
         // find node anim
@@ -589,9 +582,9 @@ impl Skeleton {
 
         if let Some((bone_index, bone_)) = bone_names_index.get(&name) {
             bone_info[*bone_index as usize] = unsafe {
-                std::mem::transmute::<Matrix4x4, Mat4>(scene.root.as_ref().unwrap().transformation)
+                glm::inverse(&glm::transpose(&std::mem::transmute::<Matrix4x4, Mat4>(scene.root.as_ref().unwrap().transformation)))
             } * global_transform
-                * unsafe { std::mem::transmute::<Matrix4x4, Mat4>(bone_.offset_matrix) };
+                * glm::transpose(&unsafe { std::mem::transmute::<Matrix4x4, Mat4>(bone_.offset_matrix) });
         }
         for child in node.children.borrow().iter() {
             self.read_node_hierarchy(
@@ -601,6 +594,7 @@ impl Skeleton {
                 scene,
                 bone_names_index,
                 bone_info,
+                anim_id,
             );
         }
     }
@@ -610,18 +604,35 @@ impl Skeleton {
             .get(&self.model.id)
             .and_then(|x| Some(x.lock()))
             .and_then(|x| {
+                let idle = x
+                    .model
+                    .scene
+                    .animations
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, a)| a.name.contains("idle"))
+                    .map(|(i, a)| i)
+                    .next()
+                    .unwrap_or(0);
+
                 let root = x.model.scene.root.as_ref().unwrap().clone();
+
+                // let time = time % x.model.scene.animations[0].duration;
+
+                let time_in_ticks = time * x.model.scene.animations[idle].ticks_per_second;
+                let animation_time = time_in_ticks % x.model.scene.animations[idle].duration;
 
                 let mut bones = Vec::with_capacity(x.model.bone_info.len());
                 unsafe { bones.set_len(x.model.bone_info.len()) }
 
                 self.read_node_hierarchy(
-                    time,
+                    animation_time,
                     &root,
                     &Mat4::identity(),
                     &x.model.scene,
                     &x.model.bone_names_index,
                     &mut bones,
+                    idle,
                 );
 
                 // let animations = &x.model.animations;

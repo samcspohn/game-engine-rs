@@ -338,7 +338,7 @@ impl Engine {
         )));
         let model_manager = Arc::new(Mutex::new(ModelManager::new(
             (texture_manager.clone(), vk.clone()),
-            &["obj", "dae"],
+            &["obj", "dae", "fbx"],
         )));
         let recompiled = Arc::new(AtomicBool::new(false));
         let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new(
@@ -842,7 +842,7 @@ impl Engine {
 
         let _recreate_swapchain = window_size.is_some();
         let editor_size = *EDITOR_WINDOW_DIM.lock();
-        self.time.time += self.time.dt;
+        self.time.time += self.time.dt as f64;
         self.time.dt = self.frame_time.elapsed().as_secs_f64() as f32;
 
         self.fps_queue.push_back(self.time.dt);
@@ -1077,6 +1077,7 @@ impl Engine {
                     unsafe { LIGHT_DEBUG },
                     unsafe { PARTICLE_DEBUG },
                     &input,
+                    &self.time,
                     // debug,
                 );
             }

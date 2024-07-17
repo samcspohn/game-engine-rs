@@ -90,6 +90,18 @@ pub struct RenderPipeline {
     vk: Arc<VulkanManager>,
 }
 
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+struct VertU32 {
+    #[format(R32_UINT)]
+    a: u32,
+}
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+struct VertU32_2 {
+    #[format(R32_UINT)]
+    a: u32,
+}
 impl RenderPipeline {
     pub fn new(
         render_pass: Arc<RenderPass>,
@@ -106,7 +118,9 @@ impl RenderPipeline {
                 BuffersDefinition::new()
                     .vertex::<_Vertex>()
                     .vertex::<Normal>()
-                    .vertex::<UV>(), // .instance::<Id>(),
+                    .vertex::<UV>() // .instance::<Id>(),
+                    // .vertex::<VertU32>()
+                    // .vertex::<VertU32_2>(),
             )
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
@@ -253,8 +267,9 @@ impl RenderPipeline {
         light_list: Subbuffer<[u32]>,
         visible_lights: Subbuffer<[u32]>,
         visible_lights_count: Subbuffer<u32>,
-        skeleton: (Subbuffer<[[[f32;4];4]]>, Subbuffer<[i32]>, Subbuffer<[i32]>),
+        skeleton: Subbuffer<[[[f32; 4]; 4]]>,
         has_skeleton: bool,
+        empty: Subbuffer<[i32]>,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
@@ -279,15 +294,24 @@ impl RenderPipeline {
         descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
         // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
         let uniform = self.vk.allocate(fs::Data { screen_dims });
-        let vs_uniform = self.vk.allocate(vs::UniformBufferObject { has_skeleton: if has_skeleton {1} else {0}});
+        let vs_uniform = self.vk.allocate(vs::UniformBufferObject {
+            has_skeleton: if has_skeleton { 1 } else { 0 },
+        });
         descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
         descriptors.push(WriteDescriptorSet::buffer(5, tiles));
         descriptors.push(WriteDescriptorSet::buffer(6, uniform));
         descriptors.push(WriteDescriptorSet::buffer(7, light_list));
         // descriptors.push(WriteDescriptorSet::buffer(7, mesh.bone_weight_offsets));
-        descriptors.push(WriteDescriptorSet::buffer(11, mesh.bone_weights_buffer.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(10, skeleton.clone()));
+        if let Some(buf) = mesh.bone_weights_buffer.as_ref() {
+            descriptors.push(WriteDescriptorSet::buffer(11, buf.clone()));
+        } else {
+            descriptors.push(WriteDescriptorSet::buffer(11, empty.clone()));
+        }
         descriptors.push(WriteDescriptorSet::buffer(12, vs_uniform));
+        descriptors.push(WriteDescriptorSet::buffer(13, mesh.bone_weights_offsets_buf.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
 
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
         {
@@ -304,6 +328,8 @@ impl RenderPipeline {
                         mesh.vertex_buffer.clone(),
                         mesh.normals_buffer.clone(),
                         mesh.uvs_buffer.clone(),
+                        // mesh.bone_weights_offsets_buf.clone(),
+                        // mesh.bone_weights_counts_buf.clone(),
                         // instance_buffer.clone(),
                     ),
                 )

@@ -704,11 +704,12 @@ impl CameraData {
         skeleton.model.id = model_manager
             .assets_id
             .iter()
-            .filter(|x| x.1.lock().model.bone_info.len() > 0)
+            .filter(|x| x.1.lock().model.has_skeleton)
             .map(|x| *x.0)
             .next()
             .unwrap();
         let skeleton = vk.buffer_from_iter(skeleton.get_skeleton(model_manager, time.time));
+        let empty = vk.buffer_from_iter([0]);
         // {
         // let mm = model_manager.lock();
         let mm = model_manager;
@@ -751,6 +752,9 @@ impl CameraData {
                                 light_list.clone(),
                                 visible_lights.clone(),
                                 visible_lights_count.clone(),
+                                skeleton.clone(),
+                                mr.model.has_skeleton,
+                                empty.clone()
                             );
                         }
                         offset += indr.count as u64;

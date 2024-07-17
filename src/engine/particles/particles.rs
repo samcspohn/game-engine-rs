@@ -648,25 +648,11 @@ impl ParticlesSystem {
         let uniform_sub_buffer = self.vk.allocate(cs::Data {
             num_jobs: len as i32,
             dt: time.dt,
-            time: time.time,
+            time: time.time as f32,
             stage: 0,
             MAX_PARTICLES: max_particles,
         });
-        //  {
-        //     let uniform_data = cs::Data {
-        //         num_jobs: len as i32,
-        //         dt: time.dt,
-        //         time: time.time,
-        //         stage: 0,
-        //         MAX_PARTICLES: max_particles,
-        //     };
-        //     let ub = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
-        //         .allocate_sized()
-        //         .unwrap();
-        //     *ub.write().unwrap() = uniform_data;
-        //     ub
-        //     // self.compute_uniforms.from_data(uniform_data).unwrap()
-        // };
+
         let descriptor_set = self.get_descriptors(
             transform,
             uniform_sub_buffer,
@@ -722,24 +708,11 @@ impl ParticlesSystem {
         let uniform_sub_buffer = self.vk.allocate(cs::Data {
             num_jobs: len as i32,
             dt: time.dt,
-            time: time.time,
+            time: time.time as f32,
             stage: 1,
             MAX_PARTICLES: max_particles,
         });
-        // {
-        //     let uniform_data = cs::Data {
-        //         num_jobs: len as i32,
-        //         dt: time.dt,
-        //         time: time.time,
-        //         stage: 1,
-        //         MAX_PARTICLES: max_particles,
-        //     };
-        //     let ub = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
-        //         .allocate_sized()
-        //         .unwrap();
-        //     *ub.write().unwrap() = uniform_data;
-        //     ub
-        // };
+
         let descriptor_set = self.get_descriptors(
             transform,
             uniform_sub_buffer,
@@ -787,24 +760,10 @@ impl ParticlesSystem {
         let uniform_sub_buffer = self.vk.allocate(cs::Data {
             num_jobs: len as i32,
             dt: time.dt,
-            time: time.time,
+            time: time.time as f32,
             stage: 2,
             MAX_PARTICLES: max_particles,
         });
-        // {
-        //     let uniform_data = cs::Data {
-        //         num_jobs: len as i32,
-        //         dt: time.dt,
-        //         time: time.time,
-        //         stage: 2,
-        //         MAX_PARTICLES: max_particles,
-        //     };
-        //     let ub = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
-        //         .allocate_sized()
-        //         .unwrap();
-        //     *ub.write().unwrap() = uniform_data;
-        //     ub
-        // };
         let descriptor_set = self.get_descriptors(
             transform,
             uniform_sub_buffer,
@@ -841,24 +800,10 @@ impl ParticlesSystem {
         let uniform_sub_buffer = self.vk.allocate(cs::Data {
             num_jobs: emitter_len as i32,
             dt: time.dt,
-            time: time.time,
+            time: time.time as f32,
             stage: 3,
             MAX_PARTICLES: max_particles,
         });
-        // {
-        //     let uniform_data = cs::Data {
-        //         num_jobs: emitter_len as i32,
-        //         dt: time.dt,
-        //         time: time.time,
-        //         stage: 3,
-        //         MAX_PARTICLES: max_particles,
-        //     };
-        //     let ub = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
-        //         .allocate_sized()
-        //         .unwrap();
-        //     *ub.write().unwrap() = uniform_data;
-        //     ub
-        // };
         let descriptor_set = self.get_descriptors2(transform, uniform_sub_buffer);
 
         builder
@@ -887,15 +832,12 @@ impl ParticlesSystem {
         let mut uniform_data = cs::Data {
             num_jobs: max_particles,
             dt: time.dt,
-            time: time.time,
+            time: time.time as f32,
             stage: 4,
             MAX_PARTICLES: max_particles,
         };
         let uniform_sub_buffer = self.vk.allocate(uniform_data);
-        // let uniform_sub_buffer = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
-        //     .allocate_sized()
-        //     .unwrap();
-        // *uniform_sub_buffer.write().unwrap() = uniform_data;
+
 
         let descriptor_set = self.get_descriptors2(transform.clone(), uniform_sub_buffer);
 
