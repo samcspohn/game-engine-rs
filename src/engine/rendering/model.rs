@@ -556,7 +556,7 @@ impl Skeleton {
         let name = node.name.clone();
         let anim = &scene.animations[anim_id];
         let mut node_transform: nalgebra_glm::Mat4 =
-        glm::transpose(&unsafe { std::mem::transmute(node.transformation) });
+            glm::transpose(&unsafe { std::mem::transmute(node.transformation) });
 
         let mut node_anim = None;
         // find node anim
@@ -582,9 +582,13 @@ impl Skeleton {
 
         if let Some((bone_index, bone_)) = bone_names_index.get(&name) {
             bone_info[*bone_index as usize] = unsafe {
-                glm::inverse(&glm::transpose(&std::mem::transmute::<Matrix4x4, Mat4>(scene.root.as_ref().unwrap().transformation)))
+                glm::inverse(&glm::transpose(&std::mem::transmute::<Matrix4x4, Mat4>(
+                    scene.root.as_ref().unwrap().transformation,
+                )))
             } * global_transform
-                * glm::transpose(&unsafe { std::mem::transmute::<Matrix4x4, Mat4>(bone_.offset_matrix) });
+                * glm::transpose(&unsafe {
+                    std::mem::transmute::<Matrix4x4, Mat4>(bone_.offset_matrix)
+                });
         }
         for child in node.children.borrow().iter() {
             self.read_node_hierarchy(
@@ -610,7 +614,7 @@ impl Skeleton {
                     .animations
                     .iter()
                     .enumerate()
-                    .filter(|(i, a)| a.name.contains("idle"))
+                    .filter(|(i, a)| a.name.contains("attack2"))
                     .map(|(i, a)| i)
                     .next()
                     .unwrap_or(0);
