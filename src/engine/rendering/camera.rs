@@ -1,4 +1,8 @@
-use std::{collections::VecDeque, default, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    default,
+    sync::Arc,
+};
 
 use component_derive::ComponentID;
 use egui::TextureId;
@@ -35,14 +39,22 @@ use winit::event::VirtualKeyCode;
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        input::Input, particles::{
+        input::Input,
+        particles::{
             particles::{ParticleDebugPipeline, ParticleRenderPipeline, ParticlesSystem},
             shaders::scs,
-        }, perf::Perf, project::asset_manager::{AssetInstance, AssetsManager}, rendering::{component::ur, debug, model::Skeleton}, time::Time, transform_compute::{cs::Data, TransformCompute}, world::{
+        },
+        perf::Perf,
+        project::asset_manager::{AssetInstance, AssetsManager},
+        rendering::{component::ur, debug, model::Skeleton},
+        time::Time,
+        transform_compute::{cs::Data, TransformCompute},
+        world::{
             component::{Component, _ComponentID},
             transform::{Transform, TransformBuf, TransformData},
             Sys,
-        }, RenderJobData
+        },
+        RenderJobData,
     },
 };
 
@@ -590,6 +602,7 @@ impl CameraData {
         particle_debug: bool,
         input: &Input,
         time: &Time,
+        sys: &Sys,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
@@ -700,15 +713,54 @@ impl CameraData {
 
         self.rend.bind_pipeline(builder);
 
-        let mut skeleton = Skeleton::default();
-        skeleton.model.id = model_manager
-            .assets_id
-            .iter()
-            .filter(|x| x.1.lock().model.has_skeleton)
-            .map(|x| *x.0)
-            .next()
-            .unwrap();
-        let skeleton = vk.buffer_from_iter(skeleton.get_skeleton(model_manager, time.time));
+        // let mut skeleton = Skeleton::default();
+        // skeleton.model.id = model_manager
+        //     .assets_id
+        //     .iter()
+        //     .filter(|x| x.1.lock().model.has_skeleton)
+        //     .map(|x| *x.0)
+        //     .next()
+        //     .unwrap();
+        let skeletons = sys
+            .skeletons_manager
+            .write()
+            .iter_mut()
+            .map(|(id, skeletons)| {
+                (*id, {
+                    let a: Vec<_> = skeletons
+                        .data
+                        .iter_mut()
+                        .zip(skeletons.valid.iter())
+                        // .filter(|(d, v)| v.load(std::sync::atomic::Ordering::Relaxed))
+                        .map(|(skel, v)| {
+                            if v.load(std::sync::atomic::Ordering::Relaxed) {
+                                skel.get_skeleton(model_manager, time.time)
+                            } else {
+                                (0..model_manager
+                                    .assets_id
+                                    .get(&skel.model.id)
+                                    .unwrap()
+                                    .lock()
+                                    .model
+                                    .bone_info
+                                    .len())
+                                    .into_iter()
+                                    .map(|_| Mat4::default().into())
+                                    .collect()
+                            }
+                        })
+                        .flatten()
+                        .collect();
+
+                    if a.len() == 0 {
+                         None
+                    } else {    
+                        Some(vk.buffer_from_iter(a.into_iter()))
+                    }
+                })
+            })
+            .collect::<HashMap<i32, Option<Subbuffer<[[[f32; 4]; 4]]>>>>();
+
         let empty = vk.buffer_from_iter([0]);
         // {
         // let mm = model_manager.lock();
@@ -752,9 +804,10 @@ impl CameraData {
                                 light_list.clone(),
                                 visible_lights.clone(),
                                 visible_lights_count.clone(),
-                                skeleton.clone(),
+                                skeletons.get(&m_id).unwrap_or(&None),
                                 mr.model.has_skeleton,
-                                empty.clone()
+                                empty.clone(),
+                                mr.model.bone_info.len() as i32,
                             );
                         }
                         offset += indr.count as u64;

@@ -251,7 +251,7 @@ impl RenderPipeline {
             Arc<StandardCommandBufferAllocator>,
         >,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
-        instance_buffer: Subbuffer<[i32]>,
+        instance_buffer: Subbuffer<[[i32;2]]>,
         mvp_buffer: Subbuffer<[MVP]>,
         ////
         light_len: u32,
@@ -267,9 +267,10 @@ impl RenderPipeline {
         light_list: Subbuffer<[u32]>,
         visible_lights: Subbuffer<[u32]>,
         visible_lights_count: Subbuffer<u32>,
-        skeleton: Subbuffer<[[[f32; 4]; 4]]>,
+        skeleton: &Option<Subbuffer<[[[f32; 4]; 4]]>>,
         has_skeleton: bool,
         empty: Subbuffer<[i32]>,
+        num_bones: i32,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
@@ -296,6 +297,7 @@ impl RenderPipeline {
         let uniform = self.vk.allocate(fs::Data { screen_dims });
         let vs_uniform = self.vk.allocate(vs::UniformBufferObject {
             has_skeleton: if has_skeleton { 1 } else { 0 },
+            num_bones,
         });
         descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
@@ -303,7 +305,11 @@ impl RenderPipeline {
         descriptors.push(WriteDescriptorSet::buffer(6, uniform));
         descriptors.push(WriteDescriptorSet::buffer(7, light_list));
         // descriptors.push(WriteDescriptorSet::buffer(7, mesh.bone_weight_offsets));
-        descriptors.push(WriteDescriptorSet::buffer(10, skeleton.clone()));
+        if let Some(skel) = skeleton {
+            descriptors.push(WriteDescriptorSet::buffer(10, skel.clone()));
+        } else {
+            descriptors.push(WriteDescriptorSet::buffer(10, empty.clone()));
+        }
         if let Some(buf) = mesh.bone_weights_buffer.as_ref() {
             descriptors.push(WriteDescriptorSet::buffer(11, buf.clone()));
         } else {

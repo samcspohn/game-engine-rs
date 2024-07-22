@@ -471,24 +471,25 @@ impl Inspectable_ for ModelRenderer {
 pub type ModelManager =
     asset_manager::AssetManager<(Arc<Mutex<TextureManager>>, Arc<VulkanManager>), ModelRenderer>;
 
-#[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone)]
 pub struct Skeleton {
     pub model: AssetInstance<ModelRenderer>,
+    pub anim_id: usize,
     // pub bones: Vec<Mat4>,
     // pub bone_info: Vec<BoneInfo>,
 }
 
-impl Component for Skeleton {
-    fn inspect(
-        &mut self,
-        transform: &crate::engine::prelude::Transform,
-        id: i32,
-        ui: &mut egui::Ui,
-        sys: &crate::engine::prelude::Sys,
-    ) {
-        Ins(&mut self.model).inspect("model", ui, sys);
-    }
-}
+// impl Component for Skeleton {
+//     fn inspect(
+//         &mut self,
+//         transform: &crate::engine::prelude::Transform,
+//         id: i32,
+//         ui: &mut egui::Ui,
+//         sys: &crate::engine::prelude::Sys,
+//     ) {
+//         Ins(&mut self.model).inspect("model", ui, sys);
+//     }
+// }
 
 fn calc_interpolated_vector(t: &Vec<VectorKey>, time: f64) -> Vec3 {
     // let mut scaling = Vec3::new(0,0,0);
@@ -543,6 +544,9 @@ fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
     }
 }
 impl Skeleton {
+    pub fn new(m_id: AssetInstance<ModelRenderer>, anim_id: usize) -> Skeleton {
+        Skeleton { model: m_id, anim_id }
+    }
     fn read_node_hierarchy(
         &mut self,
         time: f64,
@@ -608,23 +612,23 @@ impl Skeleton {
             .get(&self.model.id)
             .and_then(|x| Some(x.lock()))
             .and_then(|x| {
-                let idle = x
-                    .model
-                    .scene
-                    .animations
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, a)| a.name.contains("attack2"))
-                    .map(|(i, a)| i)
-                    .next()
-                    .unwrap_or(0);
+                // let anim_id = x
+                //     .model
+                //     .scene
+                //     .animations
+                //     .iter()
+                //     .enumerate()
+                //     .filter(|(i, a)| a.name.contains("attack2"))
+                //     .map(|(i, a)| i)
+                //     .next()
+                //     .unwrap_or(0);
 
                 let root = x.model.scene.root.as_ref().unwrap().clone();
 
                 // let time = time % x.model.scene.animations[0].duration;
 
-                let time_in_ticks = time * x.model.scene.animations[idle].ticks_per_second;
-                let animation_time = time_in_ticks % x.model.scene.animations[idle].duration;
+                let time_in_ticks = time * x.model.scene.animations[self.anim_id].ticks_per_second;
+                let animation_time = time_in_ticks % x.model.scene.animations[self.anim_id].duration;
 
                 let mut bones = Vec::with_capacity(x.model.bone_info.len());
                 unsafe { bones.set_len(x.model.bone_info.len()) }
@@ -636,7 +640,7 @@ impl Skeleton {
                     &x.model.scene,
                     &x.model.bone_names_index,
                     &mut bones,
-                    idle,
+                    self.anim_id,
                 );
 
                 // let animations = &x.model.animations;

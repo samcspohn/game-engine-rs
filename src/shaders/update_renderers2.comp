@@ -12,6 +12,7 @@ struct VkDrawIndexedIndirectCommand {
 struct transform_id {
     int indirect_id;
     int id;
+    int skeleton_id;
     // vec2 padding;
 };
 
@@ -19,7 +20,7 @@ layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) buffer u { int updates[]; };
 layout(set = 0, binding = 1) buffer _t { transform_id transform_ids[]; };
-layout(set = 0, binding = 2) buffer r { int renderers[]; };
+layout(set = 0, binding = 2) buffer r { ivec2 renderers[]; };
 layout(set = 0, binding = 3) buffer a {
     VkDrawIndexedIndirectCommand indirect[];
 };
@@ -41,8 +42,10 @@ void main() {
             int t_id = updates[_id + 0];
             int ind_id = updates[_id + 1];
             int r_id = updates[_id + 2];
+            int s_id = updates[_id + 3];
             transform_ids[t_id].indirect_id = ind_id;
             transform_ids[t_id].id = r_id;
+            transform_ids[t_id].skeleton_id = s_id;
             // transform_id trans_id;
             // trans_id.indirect_id = ind_id;
             // trans_id.id = r_id;
@@ -51,11 +54,13 @@ void main() {
         case 1:
             int t_id = transform_ids[id].id;
             int ind_id = transform_ids[id].indirect_id;
+            int skeleton_id = transform_ids[id].skeleton_id;
             // && (view * vec4(transforms[t_id].position, 1)).z < 0.f
             if (t_id != -1 &&
                 (view * vec4(transforms[t_id].position, 1)).z < 0.f) {
                 uint r_id = atomicAdd(indirect[ind_id].instanceCount, 1);
-                renderers[offsets[ind_id] + r_id] = t_id;
+                renderers[offsets[ind_id] + r_id].x = t_id;
+                renderers[offsets[ind_id] + r_id].y = skeleton_id;
             }
             break;
         }

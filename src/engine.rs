@@ -1078,6 +1078,7 @@ impl Engine {
                     unsafe { PARTICLE_DEBUG },
                     &input,
                     &self.time,
+                    &self.world.lock().sys,
                     // debug,
                 );
             }

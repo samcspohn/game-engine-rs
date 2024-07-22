@@ -51,10 +51,10 @@ use super::{
         camera::{Camera, CameraData, CameraViewData},
         component::RendererManager,
         lighting::lighting::LightingSystem,
-        model::ModelRenderer,
+        model::{ModelRenderer, Skeleton},
         vulkan_manager::VulkanManager,
     },
-    storage::{Storage, StorageBase},
+    storage::{Storage, StorageBase, _Storage},
     time::Time,
     utils::GPUWork,
     Defer, RenderJobData,
@@ -80,6 +80,7 @@ pub struct Sys {
     // pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub audio_manager: AudioSystem,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
+    pub skeletons_manager: Arc<RwLock<HashMap<i32,_Storage<Skeleton>>>>,
     pub assets_manager: Arc<AssetsManager>,
     // physics
     pub physics: Arc<Mutex<Physics>>,
@@ -170,6 +171,7 @@ impl World {
             sys: Sys {
                 audio_manager: AudioSystem::new(),
                 renderer_manager: Arc::new(RwLock::new(RendererManager::new(vk.clone()))),
+                skeletons_manager: Arc::new(RwLock::new(HashMap::new())),
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
                 physics2: Arc::new(Mutex::new(PhysicsData::new())),
