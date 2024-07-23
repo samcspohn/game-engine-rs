@@ -267,7 +267,7 @@ impl RenderPipeline {
         light_list: Subbuffer<[u32]>,
         visible_lights: Subbuffer<[u32]>,
         visible_lights_count: Subbuffer<u32>,
-        skeleton: &Option<Subbuffer<[[[f32; 4]; 4]]>>,
+        skeleton: Option<&Subbuffer<[[[f32; 4]; 4]]>>,
         has_skeleton: bool,
         empty: Subbuffer<[i32]>,
         num_bones: i32,

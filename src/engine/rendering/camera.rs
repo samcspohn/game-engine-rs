@@ -736,14 +736,15 @@ impl CameraData {
                             if v.load(std::sync::atomic::Ordering::Relaxed) {
                                 skel.get_skeleton(model_manager, time.time)
                             } else {
-                                (0..model_manager
-                                    .assets_id
-                                    .get(&skel.model.id)
-                                    .unwrap()
-                                    .lock()
-                                    .model
-                                    .bone_info
-                                    .len())
+                                let len = model_manager
+                                .assets_id
+                                .get(id)
+                                .unwrap()
+                                .lock()
+                                .model
+                                .bone_info
+                                .len();
+                                (0..len)
                                     .into_iter()
                                     .map(|_| Mat4::default().into())
                                     .collect()
@@ -752,14 +753,10 @@ impl CameraData {
                         .flatten()
                         .collect();
 
-                    if a.len() == 0 {
-                         None
-                    } else {    
-                        Some(vk.buffer_from_iter(a.into_iter()))
-                    }
+                    vk.buffer_from_iter(a.into_iter())
                 })
             })
-            .collect::<HashMap<i32, Option<Subbuffer<[[[f32; 4]; 4]]>>>>();
+            .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>>();
 
         let empty = vk.buffer_from_iter([0]);
         // {
@@ -804,7 +801,7 @@ impl CameraData {
                                 light_list.clone(),
                                 visible_lights.clone(),
                                 visible_lights_count.clone(),
-                                skeletons.get(&m_id).unwrap_or(&None),
+                                skeletons.get(&m_id),
                                 mr.model.has_skeleton,
                                 empty.clone(),
                                 mr.model.bone_info.len() as i32,

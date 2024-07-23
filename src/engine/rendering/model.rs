@@ -612,18 +612,18 @@ impl Skeleton {
             .get(&self.model.id)
             .and_then(|x| Some(x.lock()))
             .and_then(|x| {
-                let anim_id = x
-                    .model
-                    .scene
-                    .animations
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, a)| a.name.contains("attack2"))
-                    .map(|(i, a)| i)
-                    .next()
-                    .unwrap_or(0);
+                // let anim_id = x
+                //     .model
+                //     .scene
+                //     .animations
+                //     .iter()
+                //     .enumerate()
+                //     .filter(|(i, a)| a.name.contains("attack2"))
+                //     .map(|(i, a)| i)
+                //     .next()
+                //     .unwrap_or(0);
 
-                self.anim_id = anim_id;
+                // self.anim_id = anim_id;
 
                 let root = x.model.scene.root.as_ref().unwrap().clone();
 

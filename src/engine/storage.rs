@@ -45,10 +45,12 @@ impl<T: 'static> _Storage<T> {
         match self.avail.pop() {
             Some(Reverse(i)) => {
                 self.data[i as usize] = d;
+                self.valid[i as usize].store(true, Ordering::Relaxed);
                 i
             }
             None => {
                 self.data.push(d);
+                self.valid.push(AtomicBool::new(true));
                 self.extent += 1;
                 self.extent - 1
             }
@@ -56,6 +58,7 @@ impl<T: 'static> _Storage<T> {
     }
     pub fn erase(&mut self, id: i32) {
         self.avail.push(Reverse(id));
+        self.valid[id as usize].store(false, Ordering::Relaxed);
     }
     pub fn get(&self, i: &i32) -> &T {
         &self.data[*i as usize]

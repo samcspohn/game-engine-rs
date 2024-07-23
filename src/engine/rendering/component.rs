@@ -60,9 +60,6 @@ impl Component for Renderer {
     fn init(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
         let mut rm = sys.renderer_manager.write();
         let mut model_indirect = rm.model_indirect.write();
-        let mut skeleton = None;
-
-
         let mut ind_id = if let Some(ind) = model_indirect.get_mut(&self.model_id.id) {
             ind.iter_mut()
                 .map(|ind| {
@@ -83,9 +80,6 @@ impl Component for Renderer {
                 .get(&self.model_id.id)
                 .and_then(|l| {
                     let l = l.lock();
-                    if l.model.has_skeleton {
-                        skeleton = Some(true)
-                    }
                     let ids =
                         l.model
                             .meshes
@@ -112,14 +106,37 @@ impl Component for Renderer {
             ind_id
         };
         drop(model_indirect);
-        if let Some(skel) = skeleton {
-            self.skeleton = Some(
-                sys.skeletons_manager
-                    .write()
-                    .entry(self.model_id.id)
-                    .or_insert(_Storage::new())
-                    .emplace(Skeleton::new(self.model_id, rand::random::<usize>() % 26)),
-            );
+        let skeleton = unsafe {
+            sys.get_model_manager()
+                .lock()
+                .as_any()
+                .downcast_ref_unchecked::<ModelManager>()
+                .assets_id
+                .get(&self.model_id.id)
+                .unwrap()
+                .lock()
+                .model
+                .has_skeleton
+        };
+
+        if skeleton {
+            self.skeleton = Some({
+                let mut skel_man = sys.skeletons_manager.write();
+                if let Some(skel_stor) = skel_man.get_mut(&self.model_id.id) {
+                    skel_stor.emplace(Skeleton::new(self.model_id, rand::random::<usize>() % 26))
+                } else {
+                    skel_man.insert(self.model_id.id, _Storage::new());
+                    skel_man
+                        .get_mut(&self.model_id.id)
+                        .unwrap()
+                        .emplace(Skeleton::new(self.model_id, rand::random::<usize>() % 26))
+                }
+                // sys.skeletons_manager
+                // .write()
+                // .entry(self.model_id.id)
+                // .or_insert(_Storage::new())
+                // .emplace(Skeleton::new(self.model_id, rand::random::<usize>() % 26)),
+            });
         }
 
         self.id = ind_id
@@ -141,7 +158,6 @@ impl Component for Renderer {
                 _id
             })
             .collect();
-        
     }
     fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
         let mut rm = sys.renderer_manager.write();
@@ -163,7 +179,11 @@ impl Component for Renderer {
             rm.transforms.erase(*id);
         }
         if let Some(skel) = self.skeleton {
-            sys.skeletons_manager.write().get_mut(&self.model_id.id).unwrap().erase(skel);
+            sys.skeletons_manager
+                .write()
+                .get_mut(&self.model_id.id)
+                .unwrap()
+                .erase(skel);
         }
     }
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys) {
@@ -224,7 +244,7 @@ pub struct RendererData {
 
 pub struct SharedRendererData {
     pub transform_ids_gpu: Subbuffer<[ur::transform_id]>,
-    pub renderers_gpu: Subbuffer<[[i32;2]]>,
+    pub renderers_gpu: Subbuffer<[[i32; 2]]>,
     pub updates_gpu: Subbuffer<[i32]>,
     pub indirect: _Storage<DrawIndexedIndirectCommand>,
     pub indirect_buffer: Subbuffer<[DrawIndexedIndirectCommand]>,
@@ -405,7 +425,7 @@ impl RendererManager {
                     id: -1,
                     skeleton_id: -1,
                 }]),
-                renderers_gpu: vk.buffer_from_iter(vec![[0,0]]),
+                renderers_gpu: vk.buffer_from_iter(vec![[0, 0]]),
                 updates_gpu: vk.buffer_from_iter(vec![0]),
                 indirect: _Storage::new(),
                 indirect_buffer: vk.buffer_from_iter(vec![DrawIndexedIndirectCommand {
@@ -439,7 +459,7 @@ impl RendererManager {
             updates: self
                 .updates
                 .iter()
-                .flat_map(|(id, t)| vec![*id, t.indirect_id, t.id, t.skeleton_id ].into_iter())
+                .flat_map(|(id, t)| vec![*id, t.indirect_id, t.id, t.skeleton_id].into_iter())
                 .collect(),
             transforms_len: self.transforms.data.len() as i32,
         };
