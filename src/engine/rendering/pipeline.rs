@@ -316,8 +316,8 @@ impl RenderPipeline {
             descriptors.push(WriteDescriptorSet::buffer(11, empty.clone()));
         }
         descriptors.push(WriteDescriptorSet::buffer(12, vs_uniform));
-        descriptors.push(WriteDescriptorSet::buffer(13, mesh.bone_weights_offsets_buf.clone()));
-        descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(13, mesh.bone_weights_offsets_counts_buf.clone()));
+        // descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
 
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
         {

@@ -110,8 +110,8 @@ pub struct Mesh {
     pub uvs_buffer: Subbuffer<[UV]>,
     pub index_buffer: Subbuffer<[u32]>,
     pub normals_buffer: Subbuffer<[Normal]>,
-    pub bone_weights_offsets_buf: Subbuffer<[u32]>,
-    pub bone_weights_counts_buf: Subbuffer<[u32]>,
+    pub bone_weights_offsets_counts_buf: Subbuffer<[[u32; 2]]>,
+    // pub bone_weights_counts_buf: Subbuffer<[u32]>,
     pub bone_weights_buffer: Option<Subbuffer<[[i32; 2]]>>,
     pub texture: Option<i32>,
 }
@@ -343,20 +343,29 @@ impl Mesh {
         } else {
             Some(vk.buffer_from_iter(vertex_bones.iter().map(|i| [i.x, i.y])))
         };
-        let bone_weights_offsets_buffer = if bone_weight_offsets.len() == 0 {
-            vk.buffer_array(1, MemoryUsage::DeviceOnly)
-        } else {
-            vk.buffer_from_iter(bone_weight_offsets.clone())
-        };
-        let bone_weights_counts_buf = if vertex_weights.len() == 0 {
+        let bone_weights_offsets_counts_buffer = if bone_weight_offsets.len() == 0 || vertex_weights.len() == 0 {
             vk.buffer_array(1, MemoryUsage::DeviceOnly)
         } else {
             vk.buffer_from_iter(
-                vertex_weights
+                bone_weight_offsets
                     .iter()
-                    .map(|(vert, weights)| weights.len() as u32),
+                    .zip(
+                        vertex_weights
+                            .iter()
+                            .map(|(vert, weights)| weights.len() as u32),
+                    )
+                    .map(|(of, co)| [*of, co]),
             )
         };
+        // let bone_weights_counts_buf = if vertex_weights.len() == 0 {
+        //     vk.buffer_array(1, MemoryUsage::DeviceOnly)
+        // } else {
+        //     vk.buffer_from_iter(
+        //         vertex_weights
+        //             .iter()
+        //             .map(|(vert, weights)| weights.len() as u32),
+        //     )
+        // };
 
         let mut texture = None;
         // for mat in materials.iter() {
@@ -425,8 +434,7 @@ impl Mesh {
             index_buffer,
             texture,
             bone_weights_buffer,
-            bone_weights_counts_buf,
-            bone_weights_offsets_buf: bone_weights_offsets_buffer,
+            bone_weights_offsets_counts_buf: bone_weights_offsets_counts_buffer,
         });
         // }
 
@@ -517,6 +525,47 @@ fn calc_interpolated_vector(t: &Vec<VectorKey>, time: f64) -> Vec3 {
             .collect::<Vec<Vec3>>()[0]
     }
 }
+fn interpolate(p_start: &Quat, p_end: &Quat, factor: f32) -> Quat {
+ // calc cosine theta
+ let mut cosom = p_start.coords.x * p_end.coords.x + p_start.coords.y * p_end.coords.y + p_start.coords.z * p_end.coords.z + p_start.coords.w * p_end.coords.w;
+
+ // adjust signs (if necessary)
+ let mut end: Quat = p_end.clone();
+ if( cosom < 0.)
+ {
+     cosom = -cosom;
+     end.coords.x = -end.coords.x;   // Reverse all signs
+     end.coords.y = -end.coords.y;
+     end.coords.z = -end.coords.z;
+     end.w = -end.w;
+ }
+
+ // Calculate coefficients
+ let mut sclp = 0.;
+ let mut sclq = 0.;
+
+ if 1.0 - cosom > 0.01 // 0.0001 -> some epsillon
+ {
+     // Standard case (slerp)
+     let mut omega = 0.;
+     let mut sinom = 0.;
+     omega = cosom.cos(); // extract theta from dot product's cos theta
+     sinom = omega.sin();
+     sclp  = ( (1.0 - factor) * omega).sin() / sinom;
+     sclq  = ( factor * omega).sin() / sinom;
+ } else
+ {
+     // Very close, do linear interp (because it's faster)
+     sclp = 1.0 - factor;
+     sclq = factor;
+ }
+
+ let x = sclp * p_start.coords.x + sclq * end.coords.x;
+ let y = sclp * p_start.coords.y + sclq * end.coords.y;
+ let z = sclp * p_start.coords.z + sclq * end.coords.z;
+ let w = sclp * p_start.w + sclq * end.w;
+ quat(x, y, z, w)
+}
 fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
     if t.len() == 1 {
         let v = t[0].value;
@@ -535,7 +584,10 @@ fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
                 let start = quat(start.x, start.y, start.z, start.w);
                 let end = x[1].value;
                 let end = quat(end.x, end.y, end.z, end.w);
-                start.lerp(&end, factor as f32)
+                
+                interpolate(&start, &end, factor as f32).normalize()
+                // start.lerp(&end, factor as f32).normalize()
+                // start
                 // let delta = end - start;
                 // start + factor as f32 * delta
                 // glm::scale(&scaling, out)
@@ -545,7 +597,10 @@ fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
 }
 impl Skeleton {
     pub fn new(m_id: AssetInstance<ModelRenderer>, anim_id: usize) -> Skeleton {
-        Skeleton { model: m_id, anim_id }
+        Skeleton {
+            model: m_id,
+            anim_id,
+        }
     }
     fn read_node_hierarchy(
         &mut self,
@@ -630,7 +685,8 @@ impl Skeleton {
                 // let time = time % x.model.scene.animations[0].duration;
 
                 let time_in_ticks = time * x.model.scene.animations[self.anim_id].ticks_per_second;
-                let animation_time = time_in_ticks % x.model.scene.animations[self.anim_id].duration;
+                let animation_time =
+                    time_in_ticks % x.model.scene.animations[self.anim_id].duration;
 
                 let mut bones = Vec::with_capacity(x.model.bone_info.len());
                 unsafe { bones.set_len(x.model.bone_info.len()) }

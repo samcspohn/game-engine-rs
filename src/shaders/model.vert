@@ -26,7 +26,7 @@ struct bone_weight {
 layout(set = 0, binding = 11) buffer bvw { bone_weight bone_vertex_weights[]; };
 
 layout(set = 0, binding = 12) uniform UniformBufferObject { int has_skeleton; int num_bones; };
-layout(set = 0, binding = 13) buffer bwo { uint bone_weight_offsets[]; };
+layout(set = 0, binding = 13) buffer bwo { uvec2 bone_weight_offsets_counts[]; };
 layout(set = 0, binding = 14) buffer bwc { uint bone_weight_counts[]; };
 // layout(location = 4) in uint bone_weight_count;
 // mat4 world;
@@ -43,7 +43,7 @@ void main() {
             {0, 0, 0, 0}
         };
         vertex_offset = z;
-        for (uint i = bone_weight_offsets[gl_VertexIndex]; i < bone_weight_offsets[gl_VertexIndex] + bone_weight_counts[gl_VertexIndex]; ++i) {
+        for (uint i = bone_weight_offsets_counts[gl_VertexIndex].x; i < bone_weight_offsets_counts[gl_VertexIndex].x + bone_weight_offsets_counts[gl_VertexIndex].y; ++i) {
             vertex_offset += bones[ids[gl_InstanceIndex].y * num_bones + bone_vertex_weights[i].bone_id] * bone_vertex_weights[i].weight;
         }
     }
