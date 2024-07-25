@@ -12,6 +12,7 @@ use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
 use rapier3d::na::ComplexField;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::Subbuffer,
@@ -727,23 +728,16 @@ impl CameraData {
             .iter_mut()
             .map(|(id, skeletons)| {
                 (*id, {
+                    let model_renderer = model_manager.assets_id.get(id).unwrap().lock();
                     let a: Vec<_> = skeletons
                         .data
                         .iter_mut()
                         .zip(skeletons.valid.iter())
-                        // .filter(|(d, v)| v.load(std::sync::atomic::Ordering::Relaxed))
                         .map(|(skel, v)| {
                             if v.load(std::sync::atomic::Ordering::Relaxed) {
-                                skel.get_skeleton(model_manager, time.time)
+                                skel.get_skeleton(&model_renderer.model, time.time)
                             } else {
-                                let len = model_manager
-                                .assets_id
-                                .get(id)
-                                .unwrap()
-                                .lock()
-                                .model
-                                .bone_info
-                                .len();
+                                let len = model_renderer.model.bone_info.len();
                                 (0..len)
                                     .into_iter()
                                     .map(|_| Mat4::default().into())
