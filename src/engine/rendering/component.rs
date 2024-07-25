@@ -123,13 +123,13 @@ impl Component for Renderer {
             self.skeleton = Some({
                 let mut skel_man = sys.skeletons_manager.write();
                 if let Some(skel_stor) = skel_man.get_mut(&self.model_id.id) {
-                    skel_stor.emplace(Skeleton::new(self.model_id, rand::random::<usize>() % 26))
+                    skel_stor.emplace(Skeleton::new(self.model_id, rand::random::<usize>() % 25))
                 } else {
                     skel_man.insert(self.model_id.id, _Storage::new());
                     skel_man
                         .get_mut(&self.model_id.id)
                         .unwrap()
-                        .emplace(Skeleton::new(self.model_id, rand::random::<usize>() % 26))
+                        .emplace(Skeleton::new(self.model_id, rand::random::<usize>() % 25))
                 }
                 // sys.skeletons_manager
                 // .write()
