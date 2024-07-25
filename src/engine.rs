@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 
 use rayon::prelude::*;
 
-use nalgebra_glm as glm;
+use nalgebra_glm::{self as glm, Mat4};
 use parking_lot::{Mutex, RwLock};
 use thincollections::thin_map::ThinMap;
 use vulkano::{
@@ -281,7 +281,6 @@ pub struct EnginePtr {
 }
 unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
-
 
 impl Engine {
     pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
@@ -1035,6 +1034,50 @@ impl Engine {
             self.transform_compute.read().gpu_transforms.clone(),
             light_templates.clone(),
         );
+        
+        let skeletons = {
+            let skeletons = self.perf.node("compute skeletons");
+            let _model_manager = self.assets_manager.get_manager::<ModelRenderer>();
+            let __model_manager = _model_manager.lock();
+            let model_manager: &ModelManager =
+                unsafe { __model_manager.as_any().downcast_ref_unchecked() };
+            // let __model_manager = _model_manager.lock();
+            // let model_manager: &ModelManager =
+            //     unsafe { __model_manager.as_any().downcast_ref_unchecked() };
+            self.world
+                .lock()
+                .sys
+                .skeletons_manager
+                .write()
+                .par_iter()
+                .map(|(id, skeletons)| {
+                    (*id, {
+                        let model_renderer = model_manager.assets_id.get(id).unwrap().lock();
+                        let a: Vec<_> = skeletons
+                            .data
+                            .par_iter()
+                            .zip_eq(skeletons.valid.par_iter())
+                            .map(|(skel, v)| {
+                                if v.load(std::sync::atomic::Ordering::Relaxed) {
+                                    skel.lock()
+                                        .get_skeleton(&model_renderer.model, self.time.time)
+                                } else {
+                                    let len = model_renderer.model.bone_info.len();
+                                    (0..len)
+                                        .into_iter()
+                                        .map(|_| Mat4::default().into())
+                                        .collect()
+                                }
+                            })
+                            .flatten()
+                            .collect();
+
+                        vk.buffer_from_iter(a.into_iter())
+                    })
+                })
+                .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>>()
+        };
+
         let mut game_image = None;
         for cam in cam_datas {
             if let (Some(cam), Some(cvd)) = cam {
@@ -1079,6 +1122,7 @@ impl Engine {
                     &input,
                     &self.time,
                     &self.world.lock().sys,
+                    &skeletons,
                     // debug,
                 );
             }

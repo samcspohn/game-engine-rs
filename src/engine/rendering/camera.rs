@@ -604,6 +604,7 @@ impl CameraData {
         input: &Input,
         time: &Time,
         sys: &Sys,
+        skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {
         let _model_manager = assets.get_manager::<ModelRenderer>();
@@ -722,35 +723,6 @@ impl CameraData {
         //     .map(|x| *x.0)
         //     .next()
         //     .unwrap();
-        let skeletons = sys
-            .skeletons_manager
-            .write()
-            .par_iter()
-            .map(|(id, skeletons)| {
-                (*id, {
-                    let model_renderer = model_manager.assets_id.get(id).unwrap().lock();
-                    let a: Vec<_> = skeletons
-                        .data
-                        .par_iter()
-                        .zip_eq(skeletons.valid.par_iter())
-                        .map(|(skel, v)| {
-                            if v.load(std::sync::atomic::Ordering::Relaxed) {
-                                skel.lock().get_skeleton(&model_renderer.model, time.time)
-                            } else {
-                                let len = model_renderer.model.bone_info.len();
-                                (0..len)
-                                    .into_iter()
-                                    .map(|_| Mat4::default().into())
-                                    .collect()
-                            }
-                        })
-                        .flatten()
-                        .collect();
-
-                    vk.buffer_from_iter(a.into_iter())
-                })
-            })
-            .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>>();
 
         let empty = vk.buffer_from_iter([0]);
         // {
@@ -795,7 +767,7 @@ impl CameraData {
                                 light_list.clone(),
                                 visible_lights.clone(),
                                 visible_lights_count.clone(),
-                                skeletons.get(&m_id),
+                                skeletal_data.get(&m_id),
                                 mr.model.has_skeleton,
                                 empty.clone(),
                                 mr.model.bone_info.len() as i32,
