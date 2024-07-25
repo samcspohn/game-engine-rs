@@ -28,7 +28,12 @@ use crate::engine::{
         Physics, PhysicsData,
     },
     project::asset_manager::{AssetInstance, AssetManager, AssetManagerBase, AssetsManager},
-    rendering::{component::RendererManager, model::ModelRenderer, vulkan_manager::VulkanManager},
+    rendering::{
+        component::RendererManager,
+        model::{ModelRenderer, Skeleton},
+        vulkan_manager::VulkanManager,
+    },
+    storage::_Storage,
     time::Time,
     utils::{GPUWork, PrimaryCommandBuffer},
     world::{transform::Transform, Sys, World},
@@ -40,6 +45,7 @@ use super::{NewCollider, NewRigidBody};
 pub struct System<'a> {
     pub audio: &'a AudioSystem,
     pub mesh_map: Arc<Mutex<HashMap<i32, ColliderBuilder>>>,
+    // pub skeleton_manager: &'a HashMap<i32,_Storage<Mutex<Skeleton>>>,
     pub proc_collider: &'a Mutex<HashMap<i32, Arc<Mutex<_Collider>>>>,
     pub proc_mesh_id: &'a AtomicI32,
     pub physics: &'a PhysicsData,

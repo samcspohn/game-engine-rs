@@ -53,9 +53,14 @@ pub struct Renderer {
     model_id: AssetInstance<ModelRenderer>,
     #[serde(skip_serializing, skip_deserializing)]
     id: Vec<i32>,
-    skeleton: Option<i32>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub skeleton: Option<i32>,
 }
-
+impl Renderer {
+    pub fn get_model(&self) -> AssetInstance<ModelRenderer> {
+        self.model_id.clone()
+    }
+}
 impl Component for Renderer {
     fn init(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
         let mut rm = sys.renderer_manager.write();
@@ -123,13 +128,13 @@ impl Component for Renderer {
             self.skeleton = Some({
                 let mut skel_man = sys.skeletons_manager.write();
                 if let Some(skel_stor) = skel_man.get_mut(&self.model_id.id) {
-                    skel_stor.emplace(Skeleton::new(rand::random::<usize>() % 25))
+                    skel_stor.emplace(Mutex::new(Skeleton::new(rand::random::<usize>() % 25)))
                 } else {
                     skel_man.insert(self.model_id.id, _Storage::new());
                     skel_man
                         .get_mut(&self.model_id.id)
                         .unwrap()
-                        .emplace(Skeleton::new(rand::random::<usize>() % 25))
+                        .emplace(Mutex::new(Skeleton::new(rand::random::<usize>() % 25)))
                 }
                 // sys.skeletons_manager
                 // .write()

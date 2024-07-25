@@ -80,7 +80,7 @@ pub struct Sys {
     // pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub audio_manager: AudioSystem,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
-    pub skeletons_manager: Arc<RwLock<HashMap<i32,_Storage<Skeleton>>>>,
+    pub skeletons_manager: Arc<RwLock<HashMap<i32,_Storage<Mutex<Skeleton>>>>>,
     pub assets_manager: Arc<AssetsManager>,
     // physics
     pub physics: Arc<Mutex<Physics>>,
@@ -558,6 +558,7 @@ impl World {
         let sys = &self.sys;
         let syst = System {
             audio: &sys.audio_manager,
+            // skeleton_manager: &sys.skeletons_manager.read(),
             mesh_map: sys.mesh_map.clone(),
             proc_collider: &sys.proc_colliders,
             proc_mesh_id: &sys.proc_mesh_id,
@@ -873,6 +874,7 @@ impl World {
             let sys = &self.sys;
             let sys = System {
                 audio: &sys.audio_manager,
+                // skeleton_manager: &sys.skeletons_manager.read(),
                 mesh_map: sys.mesh_map.clone(),
                 proc_collider: &sys.proc_colliders,
                 proc_mesh_id: &sys.proc_mesh_id,
@@ -935,6 +937,7 @@ impl World {
         let sys = &self.sys;
         let sys = System {
             audio: &sys.audio_manager,
+            // skeleton_manager: &sys.skeletons_manager.read(),
             mesh_map: sys.mesh_map.clone(),
             proc_collider: &sys.proc_colliders,
             proc_mesh_id: &sys.proc_mesh_id,
@@ -1062,6 +1065,7 @@ impl World {
         let sys = &self.sys;
         let sys = System {
             audio: &sys.audio_manager,
+            // skeleton_manager: &sys.skeletons_manager.read(),
             mesh_map: sys.mesh_map.clone(),
             proc_collider: &sys.proc_colliders,
             proc_mesh_id: &sys.proc_mesh_id,

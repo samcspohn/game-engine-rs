@@ -725,17 +725,17 @@ impl CameraData {
         let skeletons = sys
             .skeletons_manager
             .write()
-            .iter_mut()
+            .par_iter()
             .map(|(id, skeletons)| {
                 (*id, {
                     let model_renderer = model_manager.assets_id.get(id).unwrap().lock();
                     let a: Vec<_> = skeletons
                         .data
-                        .iter_mut()
-                        .zip(skeletons.valid.iter())
+                        .par_iter()
+                        .zip_eq(skeletons.valid.par_iter())
                         .map(|(skel, v)| {
                             if v.load(std::sync::atomic::Ordering::Relaxed) {
-                                skel.get_skeleton(&model_renderer.model, time.time)
+                                skel.lock().get_skeleton(&model_renderer.model, time.time)
                             } else {
                                 let len = model_renderer.model.bone_info.len();
                                 (0..len)
