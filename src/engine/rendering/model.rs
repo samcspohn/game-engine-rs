@@ -3,6 +3,7 @@
 use std::{
     borrow::Borrow,
     collections::{BTreeMap, HashMap},
+    mem::transmute,
     ops::Sub,
     rc::Rc,
     sync::Arc,
@@ -131,15 +132,42 @@ struct _VertexWeight {
 pub struct _Bone {
     pub weights: Vec<_VertexWeight>,
     pub name: String,
-    pub offset_matrix: Matrix4x4,
+    pub offset_matrix: Mat4,
+}
+
+struct BoneNode {
+    name: String,
+    transformation: Mat4,
+    children: Vec<BoneNode>,
+}
+
+struct Anim {
+    position_keys: Vec<VectorKey>,
+    rotation_keys: Vec<QuatKey>,
+    scale_keys: Vec<VectorKey>,
 }
 pub struct Model {
     pub meshes: Vec<Mesh>,
     // pub animations: Vec<Animation>,
     pub scene: force_send_sync::SendSync<Arc<Scene>>,
+    pub bone_hierarchy: BoneNode,
     pub has_skeleton: bool,
     pub bone_names_index: HashMap<String, (u32, _Bone)>,
     pub bone_info: Vec<Mat4>,
+}
+fn create_hierarchy(bn: &mut BoneNode, node: &Node) {
+    // let root = node.;
+    // let mut children = Vec::new();
+    for child in node.children.borrow().iter() {
+        let mut child_node = BoneNode {
+            name: child.name.clone(),
+            transformation: glm::transpose(unsafe { &transmute(child.transformation) }),
+            children: Vec::new(),
+        };
+        create_hierarchy(&mut child_node, &child);
+        bn.children.push(child_node);
+    }
+    // let mut bone_hierarchy = BoneNode { name: node.name.clone(),  transformation: glm::transpose(unsafe { &transmute(node.transformation) }), children: Vec::new() };
 }
 impl Model {
     pub fn load_model(
@@ -180,7 +208,9 @@ impl Model {
                                     })
                                     .collect(),
                                 name: bone.name.clone(),
-                                offset_matrix: bone.offset_matrix.clone(),
+                                offset_matrix: glm::transpose(unsafe {
+                                    &transmute(bone.offset_matrix.clone())
+                                }),
                             },
                         )
                     })
@@ -195,8 +225,16 @@ impl Model {
 
         let bone_info: Vec<Mat4> = bone_names_index
             .iter()
-            .map(|(b_name, (id, b_))| unsafe { std::mem::transmute(b_.offset_matrix) })
+            .map(|(b_name, (id, b_))| b_.offset_matrix)
             .collect();
+
+        let root = scene.root.borrow().as_ref().unwrap();
+        let mut bone_hierarchy = BoneNode {
+            name: root.name.clone(),
+            transformation: glm::transpose(unsafe { &transmute(root.transformation) }),
+            children: Vec::new(),
+        };
+        create_hierarchy(&mut bone_hierarchy, &root);
 
         let mut _meshes = Vec::new();
         println!("here");
@@ -227,6 +265,7 @@ impl Model {
             bone_info,
             bone_names_index,
             scene: unsafe { SendSync::new(Arc::new(scene)) },
+            bone_hierarchy,
         }
     }
 }
@@ -607,18 +646,18 @@ impl Skeleton {
     }
     fn read_node_hierarchy(
         &mut self,
+        inverse_transform: &Mat4,
         time: f64,
-        node: &Node,
+        node: &BoneNode,
         parent_transform: &Mat4,
-        scene: &Scene,
+        anim: &Animation,
         bone_names_index: &HashMap<String, (u32, _Bone)>,
         bone_info: &mut Vec<Mat4>,
-        anim_id: usize,
+        // anim_id: usize,
     ) {
         let name = node.name.clone();
-        let anim = &scene.animations[anim_id];
-        let mut node_transform: nalgebra_glm::Mat4 =
-            glm::transpose(&unsafe { std::mem::transmute(node.transformation) });
+        // let anim = &scene.animations[anim_id];
+        // let mut node_transform = node.transformation;
 
         let mut node_anim = None;
         // find node anim
@@ -627,7 +666,7 @@ impl Skeleton {
                 node_anim = Some(channel);
             }
         }
-        if let Some(node_anim) = node_anim {
+        let node_transform = if let Some(node_anim) = node_anim {
             let scl = calc_interpolated_vector(&node_anim.scaling_keys, time);
             let scaling = glm::scaling(&scl);
 
@@ -637,30 +676,27 @@ impl Skeleton {
             let rot = calc_interpolated_quat(&node_anim.rotation_keys, time);
             let rotation = glm::quat_to_mat4(&rot);
 
-            node_transform = translation * rotation * scaling;
-        }
+            translation * rotation * scaling
+        } else {
+            node.transformation
+        };
 
         let global_transform = parent_transform * node_transform;
 
         if let Some((bone_index, bone_)) = bone_names_index.get(&name) {
-            bone_info[*bone_index as usize] = unsafe {
-                glm::inverse(&glm::transpose(&std::mem::transmute::<Matrix4x4, Mat4>(
-                    scene.root.as_ref().unwrap().transformation,
-                )))
-            } * global_transform
-                * glm::transpose(&unsafe {
-                    std::mem::transmute::<Matrix4x4, Mat4>(bone_.offset_matrix)
-                });
+            bone_info[*bone_index as usize] =
+                inverse_transform * global_transform * bone_.offset_matrix;
         }
-        for child in unsafe { &*node.children.as_ptr()}.iter() {
+        for child in node.children.iter() {
             self.read_node_hierarchy(
+                &inverse_transform,
                 time,
                 &child,
                 &global_transform,
-                scene,
+                anim,
                 bone_names_index,
                 bone_info,
-                anim_id,
+                // anim_id,
             );
         }
     }
@@ -683,8 +719,6 @@ impl Skeleton {
 
         // self.anim_id = anim_id;
 
-        let root = model.scene.root.as_ref().unwrap().clone();
-
         // let time = time % x.model.scene.animations[0].duration;
 
         let time_in_ticks = time * model.scene.animations[self.anim_id].ticks_per_second;
@@ -693,14 +727,22 @@ impl Skeleton {
         let mut bones = Vec::with_capacity(model.bone_info.len());
         unsafe { bones.set_len(model.bone_info.len()) }
 
+        let inverse_transformation = glm::inverse(&model.bone_hierarchy.transformation);
+        // let inverse_transformation = unsafe {
+        //     glm::inverse(&glm::transpose(&std::mem::transmute::<Matrix4x4, Mat4>(
+        //         model.scene.root.as_ref().unwrap().transformation,
+        //     )))
+        // };
+        let anim = &model.scene.animations[self.anim_id];
+
         self.read_node_hierarchy(
+            &inverse_transformation,
             animation_time,
-            &root,
+            &model.bone_hierarchy,
             &Mat4::identity(),
-            &model.scene,
+            &anim,
             &model.bone_names_index,
             &mut bones,
-            self.anim_id,
         );
 
         // let animations = &x.model.animations;

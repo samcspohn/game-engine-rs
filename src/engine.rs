@@ -1,4 +1,5 @@
 use std::{
+    cell::SyncUnsafeCell,
     collections::{BTreeMap, HashMap, VecDeque},
     env, fs,
     mem::size_of,
@@ -1005,7 +1006,6 @@ impl Engine {
             )
         };
         drop(update_renderers);
-        let render_cameras = self.perf.node("render camera(s)");
 
         {
             let world = self.world.lock();
@@ -1034,7 +1034,7 @@ impl Engine {
             self.transform_compute.read().gpu_transforms.clone(),
             light_templates.clone(),
         );
-        
+
         let skeletons = {
             let skeletons = self.perf.node("compute skeletons");
             let _model_manager = self.assets_manager.get_manager::<ModelRenderer>();
@@ -1049,35 +1049,47 @@ impl Engine {
                 .sys
                 .skeletons_manager
                 .write()
-                .par_iter()
+                .iter()
                 .map(|(id, skeletons)| {
                     (*id, {
                         let model_renderer = model_manager.assets_id.get(id).unwrap().lock();
-                        let a: Vec<_> = skeletons
-                            .data
-                            .par_iter()
-                            .zip_eq(skeletons.valid.par_iter())
-                            .map(|(skel, v)| {
-                                if v.load(std::sync::atomic::Ordering::Relaxed) {
-                                    skel.lock()
-                                        .get_skeleton(&model_renderer.model, self.time.time)
-                                } else {
-                                    let len = model_renderer.model.bone_info.len();
-                                    (0..len)
-                                        .into_iter()
-                                        .map(|_| Mat4::default().into())
-                                        .collect()
-                                }
-                            })
-                            .flatten()
-                            .collect();
-
-                        vk.buffer_from_iter(a.into_iter())
+                        let num_bones = model_renderer.model.bone_info.len();
+                        let len = num_bones * skeletons.data.len();
+                        let mut a: Vec<[[f32; 4]; 4]> = Vec::with_capacity(len);
+                        unsafe {
+                            a.set_len(len);
+                        }
+                        let c: Subbuffer<[[[f32; 4]; 4]]> = vk.allocate_unsized(len as u64);
+                        {
+                            let mut _c = unsafe { SyncUnsafeCell::new(c.write().unwrap()) };
+                            let __c = &_c;
+                            skeletons
+                                .data
+                                .par_iter()
+                                .zip_eq(skeletons.valid.par_iter())
+                                .enumerate()
+                                .for_each(|(i, (skel, v))| {
+                                    if v.load(std::sync::atomic::Ordering::Relaxed) {
+                                        let d = skel
+                                            .lock()
+                                            .get_skeleton(&model_renderer.model, self.time.time);
+                                        d.into_iter().enumerate().for_each(|(j, d)| unsafe {
+                                            let g = &mut *__c.get();
+                                            *g.get_unchecked_mut(i * num_bones + j) = d;
+                                        });
+                                    }
+                                });
+                        }
+                        // .flatten()
+                        // .collect();
+                        c
+                        // vk.buffer_from_iter(a.into_iter())
                     })
                 })
                 .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>>()
         };
 
+        let render_cameras = self.perf.node("render camera(s)");
         let mut game_image = None;
         for cam in cam_datas {
             if let (Some(cam), Some(cvd)) = cam {
