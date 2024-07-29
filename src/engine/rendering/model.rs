@@ -45,7 +45,7 @@ use crate::{
     },
 };
 use vulkano::{
-    buffer::{Buffer, BufferContents, Subbuffer},
+    buffer::{subbuffer::BufferWriteGuard, Buffer, BufferContents, Subbuffer},
     memory::allocator::{MemoryAllocator, MemoryUsage, StandardMemoryAllocator},
     pipeline::graphics::vertex_input::Vertex,
 };
@@ -652,7 +652,7 @@ impl Skeleton {
         parent_transform: &Mat4,
         anim: &Animation,
         bone_names_index: &HashMap<String, (u32, _Bone)>,
-        bone_info: &mut Vec<Mat4>,
+        bones: &mut [[[f32; 4]; 4]],
         // anim_id: usize,
     ) {
         let name = node.name.clone();
@@ -684,8 +684,8 @@ impl Skeleton {
         let global_transform = parent_transform * node_transform;
 
         if let Some((bone_index, bone_)) = bone_names_index.get(&name) {
-            bone_info[*bone_index as usize] =
-                inverse_transform * global_transform * bone_.offset_matrix;
+            bones[*bone_index as usize] =
+                { inverse_transform * global_transform * bone_.offset_matrix }.into();
         }
         for child in node.children.iter() {
             self.read_node_hierarchy(
@@ -695,12 +695,12 @@ impl Skeleton {
                 &global_transform,
                 anim,
                 bone_names_index,
-                bone_info,
+                bones,
                 // anim_id,
             );
         }
     }
-    pub fn get_skeleton(&mut self, model: &Model, time: f64) -> Vec<[[f32; 4]; 4]> {
+    pub fn get_skeleton(&mut self, model: &Model, time: f64, bones: &mut [[[f32; 4]; 4]]) {
         // model_manager
         //     .assets_id
         //     .get(&self.model.id)
@@ -724,8 +724,8 @@ impl Skeleton {
         let time_in_ticks = time * model.scene.animations[self.anim_id].ticks_per_second;
         let animation_time = time_in_ticks % model.scene.animations[self.anim_id].duration;
 
-        let mut bones = Vec::with_capacity(model.bone_info.len());
-        unsafe { bones.set_len(model.bone_info.len()) }
+        // let mut bones = Vec::with_capacity(model.bone_info.len());
+        // unsafe { bones.set_len(model.bone_info.len()) }
 
         let inverse_transformation = glm::inverse(&model.bone_hierarchy.transformation);
         // let inverse_transformation = unsafe {
@@ -742,14 +742,14 @@ impl Skeleton {
             &Mat4::identity(),
             &anim,
             &model.bone_names_index,
-            &mut bones,
+            bones,
         );
 
         // let animations = &x.model.animations;
         // let anim = &animations[0];
         // for bone_keys in &anim.channels { // channel per bone
         // }
-        bones.iter().map(|x| { *x }.into()).collect()
+        // bones.iter().map(|x| { *x }.into()).collect()
         // })
         // .unwrap()
     }

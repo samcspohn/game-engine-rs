@@ -603,7 +603,6 @@ impl CameraData {
         particle_debug: bool,
         input: &Input,
         time: &Time,
-        sys: &Sys,
         skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {

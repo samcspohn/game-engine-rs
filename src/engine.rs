@@ -795,6 +795,94 @@ impl Engine {
         };
         let transform_extent = world.transforms.last_active();
 
+        let transforms_buf = {
+            let allocate_transform_buf = self.perf.node("allocate transforms_buf");
+            self.transform_compute
+                .write()
+                .alloc_buffers(transform_extent as DeviceSize)
+        };
+
+
+        let vk = self.vk.clone();
+        let mut builder = AutoCommandBufferBuilder::primary(
+            &vk.comm_alloc,
+            vk.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        {
+            let get_transform_data = self.perf.node("get transform data");
+
+            world
+                .transforms
+                .get_transform_data_updates(transforms_buf.clone());
+        }
+        {
+            while let Some(job) = world.gpu_work.pop() {
+                job.unwrap()(&mut builder, vk.clone());
+            }
+        }
+        let light_len = world.get_components::<Light>().unwrap().1.read().len();
+
+        let skeletons = {
+            let skeletons = self.perf.node("compute skeletons");
+            let _model_manager = self.assets_manager.get_manager::<ModelRenderer>();
+            let __model_manager = _model_manager.lock();
+            let model_manager: &ModelManager =
+                unsafe { __model_manager.as_any().downcast_ref_unchecked() };
+            // let __model_manager = _model_manager.lock();
+            // let model_manager: &ModelManager =
+            //     unsafe { __model_manager.as_any().downcast_ref_unchecked() };
+            world
+                .sys
+                .skeletons_manager
+                .write()
+                .iter()
+                .map(|(id, skeletons)| {
+                    (*id, {
+                        let model_renderer = model_manager.assets_id.get(id).unwrap().lock();
+                        let num_bones = model_renderer.model.bone_info.len();
+                        let len = num_bones * skeletons.data.len();
+                        let mut a: Vec<[[f32; 4]; 4]> = Vec::with_capacity(len);
+                        unsafe {
+                            a.set_len(len);
+                        }
+                        let c: Subbuffer<[[[f32; 4]; 4]]> = vk.allocate_unsized(len as u64);
+                        {
+                            // let mut _c = unsafe { SyncUnsafeCell::new(c.write().unwrap()) };
+                            // let __c = &_c;
+                            let mut _c = c.write().unwrap();
+                            skeletons
+                                .data
+                                .par_iter()
+                                .zip_eq(skeletons.valid.par_iter())
+                                .zip_eq(_c.par_chunks_mut(num_bones))
+                                // .enumerate()
+                                .for_each(|(((skel, v), g))| {
+                                    if v.load(std::sync::atomic::Ordering::Relaxed) {
+                                        // let g = unsafe { &mut *__c.get() };
+                                        let d = skel.lock().get_skeleton(
+                                            &model_renderer.model,
+                                            self.time.time,
+                                            g,
+                                            // &mut g[(i * num_bones)..((i + 1) * num_bones)],
+                                        );
+                                        // d.into_iter().enumerate().for_each(|(j, d)| unsafe {
+                                        //     let g = &mut *__c.get();
+                                        //     *g.get_unchecked_mut(i * num_bones + j) = d;
+                                        // });
+                                    }
+                                });
+                        }
+                        // .flatten()
+                        // .collect();
+                        c
+                        // vk.buffer_from_iter(a.into_iter())
+                    })
+                })
+                .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>>()
+        };
+
         drop(_cd);
         drop(world);
         drop(_gui);
@@ -852,7 +940,6 @@ impl Engine {
 
         self.frame_time = Instant::now();
 
-        let vk = self.vk.clone();
         let full_render_time = self.perf.node("full render time");
 
         static mut LIGHT_DEBUG: bool = false;
@@ -929,8 +1016,6 @@ impl Engine {
             *recreate_swapchain = true;
         }
 
-        // let render_jobs = engine.world.lock().render();
-
         let mut rm = self.shared_render_data.write();
         // let clean_up = self.perf.node("previous frame end clean up finished");
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
@@ -941,27 +1026,7 @@ impl Engine {
         //         a = 1;
         //     });
         // });
-        let transforms_buf = {
-            let allocate_transform_buf = self.perf.node("allocate transforms_buf");
-            self.transform_compute
-                .write()
-                .alloc_buffers(transform_extent as DeviceSize)
-        };
-        {
-            let get_transform_data = self.perf.node("get transform data");
 
-            self.world
-                .lock()
-                .transforms
-                .get_transform_data_updates(transforms_buf.clone());
-        }
-
-        let mut builder = AutoCommandBufferBuilder::primary(
-            &vk.comm_alloc,
-            vk.queue.queue_family_index(),
-            CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
         self.transform_compute
             .write()
             ._update_gpu_transforms(&mut builder, transforms_buf.1.len() as usize);
@@ -1007,21 +1072,6 @@ impl Engine {
         };
         drop(update_renderers);
 
-        {
-            let world = self.world.lock();
-            while let Some(job) = world.gpu_work.pop() {
-                job.unwrap()(&mut builder, vk.clone());
-            }
-        }
-        let light_len = self
-            .world
-            .lock()
-            .get_components::<Light>()
-            .unwrap()
-            .1
-            .read()
-            .len();
-
         let (light_templates, light_deinits, light_inits) = self
             .lighting_system
             .get_light_buffer(light_len, &mut builder);
@@ -1034,60 +1084,6 @@ impl Engine {
             self.transform_compute.read().gpu_transforms.clone(),
             light_templates.clone(),
         );
-
-        let skeletons = {
-            let skeletons = self.perf.node("compute skeletons");
-            let _model_manager = self.assets_manager.get_manager::<ModelRenderer>();
-            let __model_manager = _model_manager.lock();
-            let model_manager: &ModelManager =
-                unsafe { __model_manager.as_any().downcast_ref_unchecked() };
-            // let __model_manager = _model_manager.lock();
-            // let model_manager: &ModelManager =
-            //     unsafe { __model_manager.as_any().downcast_ref_unchecked() };
-            self.world
-                .lock()
-                .sys
-                .skeletons_manager
-                .write()
-                .iter()
-                .map(|(id, skeletons)| {
-                    (*id, {
-                        let model_renderer = model_manager.assets_id.get(id).unwrap().lock();
-                        let num_bones = model_renderer.model.bone_info.len();
-                        let len = num_bones * skeletons.data.len();
-                        let mut a: Vec<[[f32; 4]; 4]> = Vec::with_capacity(len);
-                        unsafe {
-                            a.set_len(len);
-                        }
-                        let c: Subbuffer<[[[f32; 4]; 4]]> = vk.allocate_unsized(len as u64);
-                        {
-                            let mut _c = unsafe { SyncUnsafeCell::new(c.write().unwrap()) };
-                            let __c = &_c;
-                            skeletons
-                                .data
-                                .par_iter()
-                                .zip_eq(skeletons.valid.par_iter())
-                                .enumerate()
-                                .for_each(|(i, (skel, v))| {
-                                    if v.load(std::sync::atomic::Ordering::Relaxed) {
-                                        let d = skel
-                                            .lock()
-                                            .get_skeleton(&model_renderer.model, self.time.time);
-                                        d.into_iter().enumerate().for_each(|(j, d)| unsafe {
-                                            let g = &mut *__c.get();
-                                            *g.get_unchecked_mut(i * num_bones + j) = d;
-                                        });
-                                    }
-                                });
-                        }
-                        // .flatten()
-                        // .collect();
-                        c
-                        // vk.buffer_from_iter(a.into_iter())
-                    })
-                })
-                .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>>()
-        };
 
         let render_cameras = self.perf.node("render camera(s)");
         let mut game_image = None;
@@ -1133,7 +1129,6 @@ impl Engine {
                     unsafe { PARTICLE_DEBUG },
                     &input,
                     &self.time,
-                    &self.world.lock().sys,
                     &skeletons,
                     // debug,
                 );
