@@ -24,7 +24,7 @@ pub struct AssetInstance<T> {
     _pd: PhantomData<T>,
 }
 impl<T> AssetInstance<T> {
-    pub fn new(id: i32) -> Self {
+    pub const fn new(id: i32) -> Self {
         Self {
             id,
             _pd: PhantomData,

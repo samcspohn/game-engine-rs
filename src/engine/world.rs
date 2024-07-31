@@ -80,7 +80,7 @@ pub struct Sys {
     // pub model_manager: Arc<parking_lot::Mutex<ModelManager>>,
     pub audio_manager: AudioSystem,
     pub renderer_manager: Arc<RwLock<RendererManager>>,
-    pub skeletons_manager: Arc<RwLock<HashMap<i32,_Storage<Mutex<Skeleton>>>>>,
+    pub skeletons_manager: Arc<RwLock<HashMap<i32, _Storage<Mutex<Skeleton>>>>>,
     pub assets_manager: Arc<AssetsManager>,
     // physics
     pub physics: Arc<Mutex<Physics>>,
@@ -298,22 +298,22 @@ impl World {
     //         panic!("no type key?")
     //     }
     // }
-    pub fn get_component<T: 'static + Component + _ComponentID>(
-        &self,
-        g_id: i32,
-    ) -> Option<Vec<*const Mutex<T>>> {
+    pub fn get_component<T: 'static + Component + _ComponentID, U>(&self, g_id: i32, func: U)
+    where
+        U: FnOnce(Vec<&Mutex<T>>),
+    {
         let Some(ent) = self.transforms.entity.get(g_id as usize) else {
-            return None;
+            return;
         };
         let Some(c) = unsafe { &*ent.get() }.components.get(&T::ID) else {
-            return None;
+            return;
         };
         let Some(stor) = self.components.get(&T::ID) else {
-            return None;
+            return;
         };
         let a = stor.1.read();
         let b = unsafe { a.as_any().downcast_ref_unchecked::<Storage<T>>() };
-        let mut _v: Vec<*const Mutex<T>> = vec![];
+        let mut _v: Vec<&Mutex<T>> = vec![];
         match c {
             entity::Components::Id(id) => {
                 _v.push(&b.data.get(*id as usize).unwrap().1);
@@ -324,7 +324,7 @@ impl World {
                 }
             }
         }
-        return Some(_v);
+        func(_v);
     }
     pub fn add_component_id(&mut self, g: i32, key: u64, c_id: i32) {
         let trans = self.transforms.get(g).unwrap();
@@ -852,11 +852,21 @@ impl World {
     //         }
     //     }
     // }
-    pub fn get_components<T: 'static + Send + Sync + Component + _ComponentID>(
+    pub fn get_components<T: 'static + Send + Sync + Component + _ComponentID, U, I>(
         &self,
-    ) -> Option<&(AtomicI32, Arc<RwLock<Box<dyn StorageBase + Send + Sync>>>)> {
+        func: U,
+    ) -> I
+    where
+        U: FnOnce(&Storage<T>) -> I,
+    {
         let key = T::ID;
-        self.components.get(&key)
+
+        let stor = self.components.get(&key).unwrap().1.write();
+        let _stor = unsafe { stor.as_any().downcast_ref_unchecked::<Storage<T>>() };
+        func(&_stor)
+
+        // let key = T::ID;
+        // self.components.get(&key)
     }
 
     pub fn do_defered(&mut self) {
@@ -912,25 +922,21 @@ impl World {
     pub fn update_cameras(
         &mut self,
     ) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
-        let camera_components = self.get_components::<Camera>().unwrap().1.read();
         let mut ret = Vec::new();
-        let camera_storage = unsafe {
-            camera_components
-                .as_any()
-                .downcast_ref_unchecked::<Storage<Camera>>()
-        };
-        camera_storage
-            .valid
-            .iter()
-            .zip(camera_storage.data.iter())
-            .for_each(|(v, _d)| {
-                if unsafe { *v.get() } {
-                    let mut d = _d.1.lock();
-                    let id: i32 = unsafe { *_d.0.get() };
-                    let cvd = d._update(&self.transforms.get(id).unwrap());
-                    ret.push((d.get_data(), cvd))
-                }
-            });
+        self.get_components::<Camera, _, _>(|camera_storage| {
+            camera_storage
+                .valid
+                .iter()
+                .zip(camera_storage.data.iter())
+                .for_each(|(v, _d)| {
+                    if unsafe { *v.get() } {
+                        let mut d = _d.1.lock();
+                        let id: i32 = unsafe { *_d.0.get() };
+                        let cvd = d._update(&self.transforms.get(id).unwrap());
+                        ret.push((d.get_data(), cvd))
+                    }
+                });
+        });
         ret
     }
     pub(crate) fn editor_update(&mut self) {
@@ -966,43 +972,28 @@ impl World {
         render_jobs
     }
     pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
-        let camera_components = self.get_components::<Camera>().unwrap().1.read();
-        let camera_storage = unsafe {
-            camera_components
-                .as_any()
-                .downcast_ref::<Storage<Camera>>()
-                .unwrap()
-        };
-        let mut main_cam_id = -1;
-        let cam_datas = camera_storage
-            .valid
-            .iter()
-            .zip(camera_storage.data.iter())
-            .map(|(v, _d)| {
-                if unsafe { *v.get() } {
-                    let d = _d.1.lock();
-                    main_cam_id = unsafe { *_d.0.get() };
-                    d.get_data()
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect();
-        (main_cam_id, cam_datas)
+        self.get_components::<Camera, _, _>(|camera_storage| {
+            let mut main_cam_id = -1;
+            let cam_datas = camera_storage
+                .valid
+                .iter()
+                .zip(camera_storage.data.iter())
+                .map(|(v, _d)| {
+                    if unsafe { *v.get() } {
+                        let d = _d.1.lock();
+                        main_cam_id = unsafe { *_d.0.get() };
+                        d.get_data()
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect();
+            (main_cam_id, cam_datas)
+        })
     }
     pub(crate) fn get_emitter_len(&self) -> usize {
-        unsafe {
-            self.get_components::<ParticleEmitter>()
-                .unwrap()
-                .1
-                .read()
-                .as_any()
-                .downcast_ref::<Storage<ParticleEmitter>>()
-                .unwrap()
-                .data
-                .len()
-        }
+        self.get_components::<ParticleEmitter, _, _>(|x| x.len())
     }
 
     pub fn clear(&mut self) {

@@ -822,7 +822,7 @@ impl Engine {
                 job.unwrap()(&mut builder, vk.clone());
             }
         }
-        let light_len = world.get_components::<Light>().unwrap().1.read().len();
+        let light_len = world.get_components::<Light, _ ,_>(|l| l.len());
 
         let skeletons = {
             let skeletons = self.perf.node("compute skeletons");
