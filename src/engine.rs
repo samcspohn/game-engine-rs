@@ -822,25 +822,19 @@ impl Engine {
                 job.unwrap()(&mut builder, vk.clone());
             }
         }
-        let light_len = world.get_components::<Light, _ ,_>(|l| l.len());
+        let light_len = world.get_component_storage::<Light, _ ,_>(|l| l.len());
 
         let skeletons = {
             let skeletons = self.perf.node("compute skeletons");
-            let _model_manager = self.assets_manager.get_manager::<ModelRenderer>();
-            let __model_manager = _model_manager.lock();
-            let model_manager: &ModelManager =
-                unsafe { __model_manager.as_any().downcast_ref_unchecked() };
-            // let __model_manager = _model_manager.lock();
-            // let model_manager: &ModelManager =
-            //     unsafe { __model_manager.as_any().downcast_ref_unchecked() };
-            world
+            self.assets_manager.get_manager2(|model: &ModelManager| {
+                world
                 .sys
                 .skeletons_manager
                 .write()
                 .iter()
                 .map(|(id, skeletons)| {
                     (*id, {
-                        let model_renderer = model_manager.assets_id.get(id).unwrap().lock();
+                        let model_renderer = model.assets_id.get(id).unwrap().lock();
                         let num_bones = model_renderer.model.bone_info.len();
                         let len = num_bones * skeletons.data.len();
                         let mut a: Vec<[[f32; 4]; 4]> = Vec::with_capacity(len);
@@ -849,8 +843,6 @@ impl Engine {
                         }
                         let c: Subbuffer<[[[f32; 4]; 4]]> = vk.allocate_unsized(len as u64);
                         {
-                            // let mut _c = unsafe { SyncUnsafeCell::new(c.write().unwrap()) };
-                            // let __c = &_c;
                             let mut _c = c.write().unwrap();
                             skeletons
                                 .data
@@ -865,22 +857,15 @@ impl Engine {
                                             &model_renderer.model,
                                             self.time.time,
                                             g,
-                                            // &mut g[(i * num_bones)..((i + 1) * num_bones)],
                                         );
-                                        // d.into_iter().enumerate().for_each(|(j, d)| unsafe {
-                                        //     let g = &mut *__c.get();
-                                        //     *g.get_unchecked_mut(i * num_bones + j) = d;
-                                        // });
                                     }
                                 });
                         }
-                        // .flatten()
-                        // .collect();
                         c
-                        // vk.buffer_from_iter(a.into_iter())
                     })
                 })
                 .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>>()
+            })
         };
 
         drop(_cd);

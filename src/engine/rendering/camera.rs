@@ -606,308 +606,316 @@ impl CameraData {
         skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {
-        let _model_manager = assets.get_manager::<ModelRenderer>();
-        let __model_manager = _model_manager.lock();
-        let model_manager: &ModelManager =
-            unsafe { __model_manager.as_any().downcast_ref_unchecked() };
-        let _texture_manager = assets.get_manager::<Texture>();
-        let __texture_manager = _texture_manager.lock();
-        let texture_manager: &TextureManager =
-            unsafe { __texture_manager.as_any().downcast_ref_unchecked() };
-        transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_buf);
+        assets.get_manager2(|model_manager: &ModelManager| {
+            assets.get_manager2(|texture_manager: &TextureManager| {
 
-        if !offset_vec.is_empty() {
-            let offsets_buffer = vk.buffer_from_iter(offset_vec);
-            // Buffer::from_iter(&vk.mem_alloc, buffer_usage_all(), false, offset_vec).unwrap();
-            {
-                // per camera
-                puffin::profile_scope!("update renderers: stage 1");
-                // stage 1
-                let uniforms = self.vk.allocate(ur::Data {
-                    num_jobs: rd.transforms_len,
-                    stage: 1.into(),
-                    view: cvd.view.into(),
-                    // _dummy0: Default::default(),
-                });
-                // {
-                //     puffin::profile_scope!("update renderers: stage 1: uniform data");
-                //     let data = ur::Data {
-                //         num_jobs: rd.transforms_len,
-                //         stage: 1.into(),
-                //         view: cvd.view.into(),
-                //         // _dummy0: Default::default(),
-                //     };
-                //     let u = rm.uniform.lock().allocate_sized().unwrap();
-                //     *u.write().unwrap() = data;
-                //     u
-                // };
-                let update_renderers_set = {
-                    puffin::profile_scope!("update renderers: stage 1: descriptor set");
-                    PersistentDescriptorSet::new(
-                        &vk.desc_alloc,
-                        renderer_pipeline
-                            .layout()
-                            .set_layouts()
-                            .get(0) // 0 is the index of the descriptor set.
+                transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_buf);
+
+                if !offset_vec.is_empty() {
+                    let offsets_buffer = vk.buffer_from_iter(offset_vec);
+                    // Buffer::from_iter(&vk.mem_alloc, buffer_usage_all(), false, offset_vec).unwrap();
+                    {
+                        // per camera
+                        puffin::profile_scope!("update renderers: stage 1");
+                        // stage 1
+                        let uniforms = self.vk.allocate(ur::Data {
+                            num_jobs: rd.transforms_len,
+                            stage: 1.into(),
+                            view: cvd.view.into(),
+                            // _dummy0: Default::default(),
+                        });
+                        // {
+                        //     puffin::profile_scope!("update renderers: stage 1: uniform data");
+                        //     let data = ur::Data {
+                        //         num_jobs: rd.transforms_len,
+                        //         stage: 1.into(),
+                        //         view: cvd.view.into(),
+                        //         // _dummy0: Default::default(),
+                        //     };
+                        //     let u = rm.uniform.lock().allocate_sized().unwrap();
+                        //     *u.write().unwrap() = data;
+                        //     u
+                        // };
+                        let update_renderers_set = {
+                            puffin::profile_scope!("update renderers: stage 1: descriptor set");
+                            PersistentDescriptorSet::new(
+                                &vk.desc_alloc,
+                                renderer_pipeline
+                                    .layout()
+                                    .set_layouts()
+                                    .get(0) // 0 is the index of the descriptor set.
+                                    .unwrap()
+                                    .clone(),
+                                [
+                                    WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
+                                    WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
+                                    WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
+                                    WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
+                                    WriteDescriptorSet::buffer(
+                                        4,
+                                        transform_compute.gpu_transforms.clone(),
+                                    ),
+                                    WriteDescriptorSet::buffer(5, offsets_buffer),
+                                    WriteDescriptorSet::buffer(6, uniforms),
+                                ],
+                            )
                             .unwrap()
-                            .clone(),
-                        [
-                            WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
-                            WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
-                            WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
-                            WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                            WriteDescriptorSet::buffer(4, transform_compute.gpu_transforms.clone()),
-                            WriteDescriptorSet::buffer(5, offsets_buffer),
-                            WriteDescriptorSet::buffer(6, uniforms),
-                        ],
-                    )
-                    .unwrap()
-                };
-                {
-                    puffin::profile_scope!("update renderers: stage 1: bind pipeline/dispatch");
-                    builder
-                        .bind_pipeline_compute(renderer_pipeline.clone())
-                        .bind_descriptor_sets(
-                            PipelineBindPoint::Compute,
-                            renderer_pipeline.layout().clone(),
-                            0, // Bind this descriptor set to index 0.
-                            update_renderers_set,
-                        )
-                        .dispatch([rd.transforms_len as u32 / 128 + 1, 1, 1])
-                        .unwrap();
-                }
-            }
-        }
-        let particle_sort = perf.node("particle sort");
-        particles.sort.sort(
-            // per camera
-            &cvd,
-            transform_compute.gpu_transforms.clone(),
-            &particles.particle_buffers,
-            vk.device.clone(),
-            vk.queue.clone(),
-            builder,
-            &vk.desc_alloc,
-            &perf,
-            &input,
-        );
-        drop(particle_sort);
-        // light_bounding.render(
-        //     builder,
-        //     light_ids.clone(),
-        //     lights.clone(),
-        //     tiles.clone(),
-        //     light_draw_indirect.clone(),
-        //     cvd.proj * cvd.view,
-        // );
-
-        builder
-            .begin_render_pass(
-                RenderPassBeginInfo {
-                    clear_values: vec![Some([0.2, 0.25, 1., 1.].into()), Some(1f32.into()), None],
-                    ..RenderPassBeginInfo::framebuffer(self.framebuffer.clone())
-                },
-                SubpassContents::Inline,
-            )
-            .unwrap();
-        builder.set_viewport(0, [self.viewport.clone()]);
-
-        self.rend.bind_pipeline(builder);
-
-        // let mut skeleton = Skeleton::default();
-        // skeleton.model.id = model_manager
-        //     .assets_id
-        //     .iter()
-        //     .filter(|x| x.1.lock().model.has_skeleton)
-        //     .map(|x| *x.0)
-        //     .next()
-        //     .unwrap();
-
-        let empty = vk.buffer_from_iter([0]);
-        // {
-        // let mm = model_manager.lock();
-        let mm = model_manager;
-        let render_models = perf.node("render models");
-        let mut offset = 0;
-        let max = rm.renderers_gpu.len();
-        for (_ind_id, m_id) in rd.indirect_model.iter() {
-            if let Some(model_indr) = rd.model_indirect.get(m_id) {
-                for (i, indr) in model_indr.iter().enumerate() {
-                    if indr.id == *_ind_id {
-                        if let Some(mr) = mm.assets_id.get(m_id) {
-                            let mr = mr.lock();
-                            if indr.count == 0 {
-                                continue;
-                            }
-                            let indirect_buffer = rm
-                                .indirect_buffer
-                                .clone()
-                                .slice(indr.id as u64..(indr.id + 1) as u64);
-                            let renderer_buffer = rm.renderers_gpu.clone().slice(
-                                offset..(offset + indr.count as u64).min(rm.renderers_gpu.len()),
+                        };
+                        {
+                            puffin::profile_scope!(
+                                "update renderers: stage 1: bind pipeline/dispatch"
                             );
-                            self.rend.bind_mesh(
-                                &texture_manager,
-                                builder,
-                                vk.desc_alloc.clone(),
-                                renderer_buffer.clone(),
-                                transform_compute.mvp.clone(),
-                                // lights
-                                light_len,
-                                lights.clone(),
-                                light_templates.clone(),
-                                tiles.clone(),
-                                cvd.dimensions,
-                                // end lights
-                                transform_compute.gpu_transforms.clone(),
-                                &mr.model.meshes[i],
-                                indirect_buffer.clone(),
-                                cvd.cam_pos.clone(),
-                                light_list.clone(),
-                                visible_lights.clone(),
-                                visible_lights_count.clone(),
-                                skeletal_data.get(&m_id),
-                                mr.model.has_skeleton,
-                                empty.clone(),
-                                mr.model.bone_info.len() as i32,
-                            );
+                            builder
+                                .bind_pipeline_compute(renderer_pipeline.clone())
+                                .bind_descriptor_sets(
+                                    PipelineBindPoint::Compute,
+                                    renderer_pipeline.layout().clone(),
+                                    0, // Bind this descriptor set to index 0.
+                                    update_renderers_set,
+                                )
+                                .dispatch([rd.transforms_len as u32 / 128 + 1, 1, 1])
+                                .unwrap();
                         }
-                        offset += indr.count as u64;
-                        break;
                     }
                 }
-            }
-        }
-        drop(render_models);
-        // }
-        let render_jobs_perf = perf.node("render jobs");
-        let mut rjd = RenderJobData {
-            builder,
-            // uniforms: Arc::new(Mutex::new(vk.sub_buffer_allocator())),
-            gpu_transforms: transform_compute.gpu_transforms.clone(),
-            light_len,
-            lights: lights.clone(),
-            light_templates: light_templates.clone(),
-            light_list: light_list.clone(),
-            visible_lights: visible_lights.clone(),
-            visible_lights_count: visible_lights_count.clone(),
-            tiles: tiles.clone(),
-            screen_dims: cvd.dimensions,
-            mvp: transform_compute.mvp.clone(),
-            view: &cvd.view,
-            proj: &cvd.proj,
-            pipeline: &self.rend,
-            viewport: &self.viewport,
-            texture_manager: texture_manager,
-            vk: vk.clone(),
-            cam_pos: cvd.cam_pos,
-        };
-        for job in render_jobs {
-            job(&mut rjd);
-        }
-        drop(render_jobs_perf);
+                let particle_sort = perf.node("particle sort");
+                particles.sort.sort(
+                    // per camera
+                    &cvd,
+                    transform_compute.gpu_transforms.clone(),
+                    &particles.particle_buffers,
+                    vk.device.clone(),
+                    vk.queue.clone(),
+                    builder,
+                    &vk.desc_alloc,
+                    &perf,
+                    &input,
+                );
+                drop(particle_sort);
+                // light_bounding.render(
+                //     builder,
+                //     light_ids.clone(),
+                //     lights.clone(),
+                //     tiles.clone(),
+                //     light_draw_indirect.clone(),
+                //     cvd.proj * cvd.view,
+                // );
 
-        static mut CAM_POS: Vec3 = Vec3::new(0.0, 0.0, 0.0);
-        static mut CAM_FORW: Vec3 = Vec3::new(0.0, 0.0, 0.0);
-        static mut FRUSTUM: debug::gs1::Frustum = debug::gs1::Frustum {
-            planes: [[0., 0., 0., 0.]; 6],
-            points: [Padded([0., 0., 0.]); 8],
-        };
-        static mut LOCK_FRUSTUM: bool = false;
+                builder
+                    .begin_render_pass(
+                        RenderPassBeginInfo {
+                            clear_values: vec![
+                                Some([0.2, 0.25, 1., 1.].into()),
+                                Some(1f32.into()),
+                                None,
+                            ],
+                            ..RenderPassBeginInfo::framebuffer(self.framebuffer.clone())
+                        },
+                        SubpassContents::Inline,
+                    )
+                    .unwrap();
+                builder.set_viewport(0, [self.viewport.clone()]);
 
-        if input.get_key_up(&VirtualKeyCode::C) {
-            unsafe {
-                LOCK_FRUSTUM = !LOCK_FRUSTUM;
-            }
-        }
-        if unsafe { !LOCK_FRUSTUM } {
-            unsafe {
-                FRUSTUM = cvd.frustum.clone().into();
-                CAM_FORW = cvd.cam_forw;
-                CAM_POS = cvd.cam_pos;
-            }
-        }
-        // self.debug.append_arrow(
-        //     glm::vec3(0.0, 1.0, 0.0),
-        //     glm::vec3(0.0, 0.0, 3.0),
-        //     8.0,
-        //     vec4(1.0, 0.0, 0.0, 1.0),
-        // );
-        // self.debug.append_arrow(
-        //     glm::vec3(0.0, 1.0, 0.0),
-        //     glm::vec3(5.0, 0.0, 8.0),
-        //     12.0,
-        //     vec4(1.0, 1.0, 0.0, 1.0),
-        // );
-        // self.debug
-        //     .append_frustum(unsafe { FRUSTUM.clone() }, vec4(0., 1.0, 1.0, 1.0));
-        let point = unsafe { CAM_POS + CAM_FORW * 30.0 };
-        for p in unsafe { &FRUSTUM.planes } {
-            let dir = normalize(&glm::vec3(p[0], p[1], p[2]));
-            let orig = dir * -p[3];
-            let v = point - orig;
-            let dist = v.x * dir.x + v.y * dir.y + v.z * dir.z;
-            let point = point - dist * dir;
-            let point = point - (glm::dot(&dir, &point) - p[3]) * dir;
-            self.debug
-                .append_arrow(dir, point, 8.0, vec4(1.0, 1.0, 0.0, 1.0));
-        }
-        // self.debug.draw(builder, &cvd);
+                self.rend.bind_pipeline(builder);
 
-        if (particle_debug) {
-            particles.debug_particles(
-                &self.particle_debug_pipeline,
-                builder,
-                &cvd,
-                transform_compute.gpu_transforms.clone(),
-                //
-                lights.clone(),
-                light_templates.clone(),
-                tiles.clone(),
-            );
-        }
+                // let mut skeleton = Skeleton::default();
+                // skeleton.model.id = model_manager
+                //     .assets_id
+                //     .iter()
+                //     .filter(|x| x.1.lock().model.has_skeleton)
+                //     .map(|x| *x.0)
+                //     .next()
+                //     .unwrap();
 
-        particles.render_particles(
-            &self.particle_render_pipeline,
-            builder,
-            cvd.view,
-            cvd.proj,
-            cvd.inv_rot,
-            cvd.cam_rot.coords.into(),
-            cvd.cam_pos.into(),
-            transform_compute.gpu_transforms.clone(),
-            //
-            lights.clone(),
-            light_templates.clone(),
-            tiles.clone(),
-        );
+                let empty = vk.buffer_from_iter([0]);
+                // {
+                // let mm = model_manager.lock();
+                let mm = model_manager;
+                let render_models = perf.node("render models");
+                let mut offset = 0;
+                let max = rm.renderers_gpu.len();
+                for (_ind_id, m_id) in rd.indirect_model.iter() {
+                    if let Some(model_indr) = rd.model_indirect.get(m_id) {
+                        for (i, indr) in model_indr.iter().enumerate() {
+                            if indr.id == *_ind_id {
+                                if let Some(mr) = mm.assets_id.get(m_id) {
+                                    let mr = mr.lock();
+                                    if indr.count == 0 {
+                                        continue;
+                                    }
+                                    let indirect_buffer = rm
+                                        .indirect_buffer
+                                        .clone()
+                                        .slice(indr.id as u64..(indr.id + 1) as u64);
+                                    let renderer_buffer = rm.renderers_gpu.clone().slice(
+                                        offset
+                                            ..(offset + indr.count as u64)
+                                                .min(rm.renderers_gpu.len()),
+                                    );
+                                    self.rend.bind_mesh(
+                                        &texture_manager,
+                                        builder,
+                                        vk.desc_alloc.clone(),
+                                        renderer_buffer.clone(),
+                                        transform_compute.mvp.clone(),
+                                        // lights
+                                        light_len,
+                                        lights.clone(),
+                                        light_templates.clone(),
+                                        tiles.clone(),
+                                        cvd.dimensions,
+                                        // end lights
+                                        transform_compute.gpu_transforms.clone(),
+                                        &mr.model.meshes[i],
+                                        indirect_buffer.clone(),
+                                        cvd.cam_pos.clone(),
+                                        light_list.clone(),
+                                        visible_lights.clone(),
+                                        visible_lights_count.clone(),
+                                        skeletal_data.get(&m_id),
+                                        mr.model.has_skeleton,
+                                        empty.clone(),
+                                        mr.model.bone_info.len() as i32,
+                                    );
+                                }
+                                offset += indr.count as u64;
+                                break;
+                            }
+                        }
+                    }
+                }
+                drop(render_models);
+                // }
+                let render_jobs_perf = perf.node("render jobs");
+                let mut rjd = RenderJobData {
+                    builder,
+                    // uniforms: Arc::new(Mutex::new(vk.sub_buffer_allocator())),
+                    gpu_transforms: transform_compute.gpu_transforms.clone(),
+                    light_len,
+                    lights: lights.clone(),
+                    light_templates: light_templates.clone(),
+                    light_list: light_list.clone(),
+                    visible_lights: visible_lights.clone(),
+                    visible_lights_count: visible_lights_count.clone(),
+                    tiles: tiles.clone(),
+                    screen_dims: cvd.dimensions,
+                    mvp: transform_compute.mvp.clone(),
+                    view: &cvd.view,
+                    proj: &cvd.proj,
+                    pipeline: &self.rend,
+                    viewport: &self.viewport,
+                    texture_manager: texture_manager,
+                    vk: vk.clone(),
+                    cam_pos: cvd.cam_pos,
+                };
+                for job in render_jobs {
+                    job(&mut rjd);
+                }
+                drop(render_jobs_perf);
 
-        if (light_debug) {
-            let set = PersistentDescriptorSet::new(
-                &self.vk.desc_alloc,
-                self.light_debug
-                    .layout()
-                    .set_layouts()
-                    .get(0)
-                    .unwrap()
-                    .clone(),
-                [WriteDescriptorSet::buffer(0, tiles.clone())],
-            )
-            .unwrap();
-            builder
-                .bind_pipeline_graphics(self.light_debug.clone())
-                .bind_descriptor_sets(
-                    PipelineBindPoint::Graphics,
-                    self.light_debug.layout().clone(),
-                    0,
-                    set,
-                )
-                .draw(NUM_TILES as u32, 1, 0, 0)
-                .unwrap();
-        }
-        builder.end_render_pass().unwrap();
-        // self.camera_view_data.pop_front();
-        Some(self.image.clone())
+                static mut CAM_POS: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+                static mut CAM_FORW: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+                static mut FRUSTUM: debug::gs1::Frustum = debug::gs1::Frustum {
+                    planes: [[0., 0., 0., 0.]; 6],
+                    points: [Padded([0., 0., 0.]); 8],
+                };
+                static mut LOCK_FRUSTUM: bool = false;
+
+                if input.get_key_up(&VirtualKeyCode::C) {
+                    unsafe {
+                        LOCK_FRUSTUM = !LOCK_FRUSTUM;
+                    }
+                }
+                if unsafe { !LOCK_FRUSTUM } {
+                    unsafe {
+                        FRUSTUM = cvd.frustum.clone().into();
+                        CAM_FORW = cvd.cam_forw;
+                        CAM_POS = cvd.cam_pos;
+                    }
+                }
+                // self.debug.append_arrow(
+                //     glm::vec3(0.0, 1.0, 0.0),
+                //     glm::vec3(0.0, 0.0, 3.0),
+                //     8.0,
+                //     vec4(1.0, 0.0, 0.0, 1.0),
+                // );
+                // self.debug.append_arrow(
+                //     glm::vec3(0.0, 1.0, 0.0),
+                //     glm::vec3(5.0, 0.0, 8.0),
+                //     12.0,
+                //     vec4(1.0, 1.0, 0.0, 1.0),
+                // );
+                // self.debug
+                //     .append_frustum(unsafe { FRUSTUM.clone() }, vec4(0., 1.0, 1.0, 1.0));
+                let point = unsafe { CAM_POS + CAM_FORW * 30.0 };
+                for p in unsafe { &FRUSTUM.planes } {
+                    let dir = normalize(&glm::vec3(p[0], p[1], p[2]));
+                    let orig = dir * -p[3];
+                    let v = point - orig;
+                    let dist = v.x * dir.x + v.y * dir.y + v.z * dir.z;
+                    let point = point - dist * dir;
+                    let point = point - (glm::dot(&dir, &point) - p[3]) * dir;
+                    self.debug
+                        .append_arrow(dir, point, 8.0, vec4(1.0, 1.0, 0.0, 1.0));
+                }
+                // self.debug.draw(builder, &cvd);
+
+                if (particle_debug) {
+                    particles.debug_particles(
+                        &self.particle_debug_pipeline,
+                        builder,
+                        &cvd,
+                        transform_compute.gpu_transforms.clone(),
+                        //
+                        lights.clone(),
+                        light_templates.clone(),
+                        tiles.clone(),
+                    );
+                }
+
+                particles.render_particles(
+                    &self.particle_render_pipeline,
+                    builder,
+                    cvd.view,
+                    cvd.proj,
+                    cvd.inv_rot,
+                    cvd.cam_rot.coords.into(),
+                    cvd.cam_pos.into(),
+                    transform_compute.gpu_transforms.clone(),
+                    //
+                    lights.clone(),
+                    light_templates.clone(),
+                    tiles.clone(),
+                );
+
+                if (light_debug) {
+                    let set = PersistentDescriptorSet::new(
+                        &self.vk.desc_alloc,
+                        self.light_debug
+                            .layout()
+                            .set_layouts()
+                            .get(0)
+                            .unwrap()
+                            .clone(),
+                        [WriteDescriptorSet::buffer(0, tiles.clone())],
+                    )
+                    .unwrap();
+                    builder
+                        .bind_pipeline_graphics(self.light_debug.clone())
+                        .bind_descriptor_sets(
+                            PipelineBindPoint::Graphics,
+                            self.light_debug.layout().clone(),
+                            0,
+                            set,
+                        )
+                        .draw(NUM_TILES as u32, 1, 0, 0)
+                        .unwrap();
+                }
+                builder.end_render_pass().unwrap();
+                // self.camera_view_data.pop_front();
+                Some(self.image.clone())
+            })
+        })
     }
 }
 /// This method is called once during initialization, then again whenever the window is resized

@@ -298,7 +298,7 @@ impl World {
     //         panic!("no type key?")
     //     }
     // }
-    pub fn get_component<T: 'static + Component + _ComponentID, U>(&self, g_id: i32, func: U)
+    pub fn get_components<T: 'static + Component + _ComponentID, U>(&self, g_id: i32, func: U)
     where
         U: FnOnce(Vec<&Mutex<T>>),
     {
@@ -852,7 +852,7 @@ impl World {
     //         }
     //     }
     // }
-    pub fn get_components<T: 'static + Send + Sync + Component + _ComponentID, U, I>(
+    pub fn get_component_storage<T: 'static + Send + Sync + Component + _ComponentID, U, I>(
         &self,
         func: U,
     ) -> I
@@ -923,7 +923,7 @@ impl World {
         &mut self,
     ) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
         let mut ret = Vec::new();
-        self.get_components::<Camera, _, _>(|camera_storage| {
+        self.get_component_storage::<Camera, _, _>(|camera_storage| {
             camera_storage
                 .valid
                 .iter()
@@ -972,7 +972,7 @@ impl World {
         render_jobs
     }
     pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
-        self.get_components::<Camera, _, _>(|camera_storage| {
+        self.get_component_storage::<Camera, _, _>(|camera_storage| {
             let mut main_cam_id = -1;
             let cam_datas = camera_storage
                 .valid
@@ -993,7 +993,7 @@ impl World {
         })
     }
     pub(crate) fn get_emitter_len(&self) -> usize {
-        self.get_components::<ParticleEmitter, _, _>(|x| x.len())
+        self.get_component_storage::<ParticleEmitter, _, _>(|x| x.len())
     }
 
     pub fn clear(&mut self) {

@@ -47,35 +47,33 @@ impl Component for AudioSource {
     }
 
     fn on_start(&mut self, transform: &Transform, sys: &System) {
-        let audio_asset_manager = sys.assets.get_manager::<AudioAsset>();
-        let guard = audio_asset_manager.lock();
-        let audio_asset_manager_downcast: &AudioManager =
-            unsafe { guard.as_any().downcast_ref_unchecked() };
-        if let Some(sound_data) = audio_asset_manager_downcast.assets_id.get(&self.id.id) {
-            let pos: [f32; 3] = transform.get_position().into();
-            let emitter = sys
-                .audio
-                .scene
-                .lock()
-                .add_emitter(pos, EmitterSettings::default())
-                .unwrap();
-            unsafe {
-                let asset = sound_data.lock();
-                let dur = asset.get_sound_data().duration().as_secs_f64();
-                let mut m_sound = asset.get_sound_data().with_modified_settings(|settings| {
-                    let mut new_settings = settings.output_destination(&emitter);
-                    if self.looping {
-                        new_settings = new_settings.loop_region(0.0..dur);
-                    } else {
-                        new_settings.loop_region = None;
-                    }
-                    new_settings
-                });
-                self.data = Some(m_sound);
-                self.emitter = Some(emitter);
-                sys.audio.m.lock().play(self.data.as_ref().unwrap().clone());
+        sys.assets.get_manager2(|audio: &AudioManager| {
+            if let Some(sound_data) = audio.assets_id.get(&self.id.id) {
+                let pos: [f32; 3] = transform.get_position().into();
+                let emitter = sys
+                    .audio
+                    .scene
+                    .lock()
+                    .add_emitter(pos, EmitterSettings::default())
+                    .unwrap();
+                unsafe {
+                    let asset = sound_data.lock();
+                    let dur = asset.get_sound_data().duration().as_secs_f64();
+                    let mut m_sound = asset.get_sound_data().with_modified_settings(|settings| {
+                        let mut new_settings = settings.output_destination(&emitter);
+                        if self.looping {
+                            new_settings = new_settings.loop_region(0.0..dur);
+                        } else {
+                            new_settings.loop_region = None;
+                        }
+                        new_settings
+                    });
+                    self.data = Some(m_sound);
+                    self.emitter = Some(emitter);
+                    sys.audio.m.lock().play(self.data.as_ref().unwrap().clone());
+                }
             }
-        }
+        });
     }
     fn update(&mut self, transform: &Transform, sys: &System, world: &crate::engine::World) {
         if let (Some(mut sound), Some(mut emitter)) = (self.data.as_mut(), self.emitter.as_mut()) {

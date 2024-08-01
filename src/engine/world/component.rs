@@ -6,7 +6,6 @@ use std::{
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
-use kira::manager::AudioManager;
 use nalgebra_glm::{Quat, Vec3};
 use parking_lot::{Mutex, RwLock};
 use rapier3d::{
@@ -20,7 +19,11 @@ use vulkano::command_buffer::{
 };
 
 use crate::engine::{
-    audio::{self, asset::AudioAsset, system::AudioSystem},
+    audio::{
+        self,
+        asset::{AudioAsset, AudioManager},
+        system::AudioSystem,
+    },
     input::Input,
     particles::{asset::ParticleTemplate, particles::ParticlesSystem},
     physics::{
@@ -90,23 +93,35 @@ impl<'a> System<'a> {
         self.particle_system.particle_burts.push(burst);
     }
     pub fn play_sound(&self, template: &AssetInstance<AudioAsset>) {
-        let b = &self.assets;
-        let a = b.get_manager::<AudioAsset>().clone();
-        unsafe {
-            let c = a.lock();
-            let d = c
-                .as_any()
-                .downcast_ref_unchecked::<AssetManager<audio::asset::Param, AudioAsset>>();
-            self.audio.m.lock().play(
-                d.assets_id
+        self.assets.get_manager2(|audio_manager: &AudioManager| {
+            self.audio.m.lock().play(unsafe {
+                audio_manager
+                    .assets_id
                     .get(&template.id)
                     .unwrap()
                     .lock()
                     .d
                     .assume_init_ref()
-                    .clone(),
-            );
-        }
+                    .clone()
+            });
+        })
+        // let b = &self.assets;
+        // let a = b.get_manager::<AudioAsset>().clone();
+        // unsafe {
+        //     let c = a.lock();
+        //     let d = c
+        //         .as_any()
+        //         .downcast_ref_unchecked::<AssetManager<audio::asset::Param, AudioAsset>>();
+        //     self.audio.m.lock().play(
+        //         d.assets_id
+        //             .get(&template.id)
+        //             .unwrap()
+        //             .lock()
+        //             .d
+        //             .assume_init_ref()
+        //             .clone(),
+        //     );
+        // }
     }
     pub fn procedural_mesh(
         &self,

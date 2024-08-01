@@ -458,6 +458,32 @@ impl AssetsManager {
             .unwrap()
             .clone()
     }
+    pub fn get_manager2<
+        // A: 'static + AssetManagerBase,
+        T: 'static + _AssetID + Inspectable_ + Asset<T, P>,
+        P: 'static,
+        U,
+        Q,
+    >(
+        &self,
+        func: U,
+    ) -> Q
+    where
+        U: FnOnce(&AssetManager<P, T>) -> Q,
+    {
+        func(unsafe {
+            (&*self.asset_managers_type.get())
+                .get(&T::ID)
+                .unwrap()
+                .lock()
+                .as_any()
+                .downcast_ref_unchecked()
+        })
+        //     .clone();
+        // let guard = lock.lock();
+        // let guard_cast: &AssetManager<P, T> = unsafe { guard.as_any().downcast_ref_unchecked() };
+        // func(&guard_cast)
+    }
     // pub fn get_manager_type<T: 'static>(
     //     &self,
     //     id: &AssetInstance<T>,

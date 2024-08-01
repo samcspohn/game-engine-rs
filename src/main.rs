@@ -89,15 +89,6 @@ fn main() {
     // dbg!(args);
     let engine_dir = env::current_dir().ok().unwrap();
     assert!(env::set_current_dir(&Path::new(&args[1])).is_ok()); // TODO move to top. procedurally generate cube/move cube to built in assets
-    match thread_priority::set_current_thread_priority(thread_priority::ThreadPriority::Max) {
-        Ok(_) => println!("set main thread priority"),
-        Err(_) => println!("failed to set main thread priority"),
-    }
-    println!("main thread id: {:?}", thread::current().id());
-    println!(
-        "main thread priority: {:?}",
-        thread_priority::get_current_thread_priority().ok().unwrap()
-    );
 
     let path = "runtime";
     if let Ok(_) = fs::remove_dir_all(path) {}
