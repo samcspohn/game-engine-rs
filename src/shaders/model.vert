@@ -18,7 +18,7 @@ layout(location = 3) out vec3 _v;
 
 layout(set = 0, binding = 0) buffer tr { MVP mvp[]; };
 layout(set = 0, binding = 2) buffer id { ivec2 ids[]; };
-layout(set = 0, binding = 10) buffer b { mat4 bones[]; };
+layout(set = 0, binding = 10) buffer b { vec4 bones[]; };
 struct bone_weight {
     int bone_id;
     float weight;
@@ -40,12 +40,17 @@ void main() {
             {0, 0, 0, 0},
             {0, 0, 0, 0},
             {0, 0, 0, 0},
-            {0, 0, 0, 0}
+            {0, 0, 0, 1}
         };
         vertex_offset = z;
         for (uint i = bone_weight_offsets_counts[gl_VertexIndex].x; i < bone_weight_offsets_counts[gl_VertexIndex].x + bone_weight_offsets_counts[gl_VertexIndex].y; ++i) {
-            vertex_offset += bones[ids[gl_InstanceIndex].y * num_bones + bone_vertex_weights[i].bone_id] * bone_vertex_weights[i].weight;
+            int raw_offset = ids[gl_InstanceIndex].y * num_bones + bone_vertex_weights[i].bone_id;
+            int b = raw_offset * 3; // 3 vec4 per matrix
+            vertex_offset[0] += bones[b] * bone_vertex_weights[i].weight;
+            vertex_offset[1] += bones[b + 1] * bone_vertex_weights[i].weight;
+            vertex_offset[2] += bones[b + 2] * bone_vertex_weights[i].weight;
         }
+        vertex_offset = transpose(vertex_offset);
     }
     // mat4 worldview = uniforms.view;
     // v_normal = transpose(inverse(mat3(worldview))) * normal;

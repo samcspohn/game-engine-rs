@@ -837,11 +837,11 @@ impl Engine {
                         let model_renderer = model.assets_id.get(id).unwrap().lock();
                         let num_bones = model_renderer.model.bone_info.len();
                         let len = num_bones * skeletons.data.len();
-                        let mut a: Vec<[[f32; 4]; 4]> = Vec::with_capacity(len);
+                        let mut a: Vec<[[f32; 4]; 3]> = Vec::with_capacity(len);
                         unsafe {
                             a.set_len(len);
                         }
-                        let c: Subbuffer<[[[f32; 4]; 4]]> = vk.allocate_unsized(len as u64);
+                        let c: Subbuffer<[[[f32; 4]; 3]]> = vk.allocate_unsized(len as u64);
                         {
                             let mut _c = c.write().unwrap();
                             skeletons
@@ -864,7 +864,7 @@ impl Engine {
                         c
                     })
                 })
-                .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>>()
+                .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>>()
             })
         };
 

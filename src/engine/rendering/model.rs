@@ -25,6 +25,7 @@ use parking_lot::{Mutex, RwLock};
 
 // use std::mem::size_of;
 use nalgebra_glm::{self as glm, quat, vec3, Mat4, Quat, Vec3};
+use rapier3d::na::{self, Matrix4x3};
 use russimp::{
     animation::{Animation, QuatKey, VectorKey},
     bone::{self, Bone, VertexWeight},
@@ -514,10 +515,14 @@ impl Inspectable_ for ModelRenderer {
     fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
         ui.add(egui::Label::new(self.file.as_str()));
         ui.separator();
-        self.model.scene.animations.iter().enumerate().for_each(|(i, x)| {
-            ui.add(egui::Label::new(format!("{}: {}", x.name,i)));
-        }) 
-        
+        self.model
+            .scene
+            .animations
+            .iter()
+            .enumerate()
+            .for_each(|(i, x)| {
+                ui.add(egui::Label::new(format!("{}: {}", x.name, i)));
+            })
     }
 }
 
@@ -657,7 +662,7 @@ impl Skeleton {
         parent_transform: &Mat4,
         anim: &Animation,
         bone_names_index: &HashMap<String, (u32, _Bone)>,
-        bones: &mut [[[f32; 4]; 4]],
+        bones: &mut [[[f32; 4]; 3]],
         // anim_id: usize,
     ) {
         let name = node.name.clone();
@@ -689,8 +694,13 @@ impl Skeleton {
         let global_transform = parent_transform * node_transform;
 
         if let Some((bone_index, bone_)) = bone_names_index.get(&name) {
-            bones[*bone_index as usize] =
-                { inverse_transform * global_transform * bone_.offset_matrix }.into();
+            let a = inverse_transform * global_transform * bone_.offset_matrix;
+            let a = (a.row(0), a.row(1), a.row(2));
+            bones[*bone_index as usize] = [
+                [a.0[0], a.0[1], a.0[2], a.0[3]],
+                [a.1[0], a.1[1], a.1[2], a.1[3]],
+                [a.2[0], a.2[1], a.2[2], a.2[3]],
+            ];
         }
         for child in node.children.iter() {
             self.read_node_hierarchy(
@@ -705,7 +715,7 @@ impl Skeleton {
             );
         }
     }
-    pub fn get_skeleton(&mut self, model: &Model, time: f64, bones: &mut [[[f32; 4]; 4]]) {
+    pub fn get_skeleton(&mut self, model: &Model, time: f64, bones: &mut [[[f32; 4]; 3]]) {
         // model_manager
         //     .assets_id
         //     .get(&self.model.id)

@@ -603,7 +603,7 @@ impl CameraData {
         particle_debug: bool,
         input: &Input,
         time: &Time,
-        skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 4]]>>,
+        skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {
         assets.get_manager2(|model_manager: &ModelManager| {

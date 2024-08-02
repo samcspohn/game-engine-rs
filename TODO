@@ -35,6 +35,8 @@ game-engine:
   ☐ fix recreate swapchain early exit
   ☐ add temp component for invalid/no type key components
   ☐ pass transform ref (t_ref: &TRef) to component functions, make transform.get_parent() consume Self, unlocking transform
+  ☐ character controller
+  ☐ shader/pipeline abstration
   rendering:
     ☐ add materials
     ☐ use indirect to draw all geometry in one pass
@@ -48,7 +50,7 @@ game-engine:
     ☐ color over emission
     ☐ size over life
     ☐ particle count display
-    ☐ fix culling @started(23-04-30 16:13)
+    ✔ fix culling @started(23-04-30 16:13) @done(24-08-02 10:26) @lasted(1y13w3d18h13m50s)
     ✔ active particles list @done(23-08-07 16:02)
     ✔ seperate buffers for emitter init/de-init @done(23-08-11 20:47)
     ✔ textures @started(23-08-11 20:47) @done(23-08-14 12:51) @lasted(2d16h4m33s)
@@ -69,7 +71,10 @@ game-engine:
     ☐ morton code sort lights before quadtree insertion?
     ✔ performance regression when looking at origin? @done(24-02-23 19:35) # incorrectly calculated uninitialized/inactive lights that existed at origin
   animations:
-    ☐ animations
+    ✔ animations @done(24-08-02 10:28)
+    ☐ add animations as asset? (drag drop)
+    ☐ add "animate from bone"
+    ☐ add animation graph
   camera:
     ✔ camera @done(23-04-26 10:06)
     ✔ multiple camera @done(23-04-26 10:06)
