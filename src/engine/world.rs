@@ -924,18 +924,10 @@ impl World {
     ) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
         let mut ret = Vec::new();
         self.get_component_storage::<Camera, _, _>(|camera_storage| {
-            camera_storage
-                .valid
-                .iter()
-                .zip(camera_storage.data.iter())
-                .for_each(|(v, _d)| {
-                    if unsafe { *v.get() } {
-                        let mut d = _d.1.lock();
-                        let id: i32 = unsafe { *_d.0.get() };
-                        let cvd = d._update(&self.transforms.get(id).unwrap());
-                        ret.push((d.get_data(), cvd))
-                    }
-                });
+            camera_storage.for_each(|t_id, cam| {
+                let cvd = cam._update(&self.transforms.get(t_id).unwrap());
+                ret.push((cam.get_data(), cvd))
+            })
         });
         ret
     }
@@ -974,21 +966,13 @@ impl World {
     pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
         self.get_component_storage::<Camera, _, _>(|camera_storage| {
             let mut main_cam_id = -1;
-            let cam_datas = camera_storage
-                .valid
-                .iter()
-                .zip(camera_storage.data.iter())
-                .map(|(v, _d)| {
-                    if unsafe { *v.get() } {
-                        let d = _d.1.lock();
-                        main_cam_id = unsafe { *_d.0.get() };
-                        d.get_data()
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-                .collect();
+            let mut cam_datas = Vec::new();
+            camera_storage.for_each(|t_id, cam| {
+                main_cam_id = t_id;
+                if let Some(data) = cam.get_data() {
+                    cam_datas.push(data);
+                }
+            });
             (main_cam_id, cam_datas)
         })
     }

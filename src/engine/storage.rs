@@ -166,6 +166,52 @@ impl<
             + for<'a> Deserialize<'a>,
     > Storage<T>
 {
+    // pub fn iter(&self) -> impl Iterator<Item = &(SyncUnsafeCell<i32>, Mutex<T>)> {
+    //     let a = self
+    //         .data
+    //         .iter()
+    //         .zip(self.valid.iter())
+    //         .filter(|(_, v)| unsafe { *v.get() })
+    //         .map(|(d, v)| d);
+    //     a
+    // }
+    pub fn for_each<D>(&self, mut f: D)
+    where
+        D: FnMut(i32, &mut T) + Send + Sync,
+    {
+        self.data.iter().zip(self.valid.iter()).for_each(|(d, v)| {
+            if unsafe { *v.get() } {
+                let id: i32 = unsafe { *d.0.get() };
+                let mut d = d.1.lock();
+                f(id, &mut d);
+            }
+        });
+    }
+    pub fn par_for_each<D>(&self, f: D)
+    where
+        D: Fn(i32, &mut T) + Send + Sync,
+    {
+        let last = (self.last + 1) as usize;
+        // let leading = 31 - last.leading_zeros();
+        // let leading = last.log2();
+        let data = unsafe { SendSync::new(self.data.slice(0..last)) };
+        let valid = unsafe { SendSync::new(self.valid.slice(0..last)) };
+        rayon::scope(|s| {
+            data.segmented_iter()
+                .zip(valid.segmented_iter())
+                .for_each(|p| {
+                    s.spawn(|_| {
+                        p.0.par_iter().zip_eq(p.1.par_iter()).for_each(|(d, v)| {
+                            if unsafe { *v.get() } {
+                                let t_id = unsafe { *d.0.get() };
+                                let mut d = d.1.lock();
+                                f(t_id, &mut d);
+                            }
+                        })
+                    })
+                })
+        });
+    }
     pub fn len(&self) -> usize {
         self.valid.len()
     }
@@ -319,30 +365,32 @@ impl<
         if !self.has_update {
             return;
         }
-        let last = (self.last + 1) as usize;
-        (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].1.lock();
-                if let Some(trans) = transforms.get(unsafe { *self.data[i].0.get() }) {
-                    d.update(&trans, &sys, world);
-                } else {
-                    panic!("transform {} is invalid", unsafe { *self.data[i].0.get() });
-                }
+        self.par_for_each(|t_id, d| {
+            if let Some(trans) = transforms.get(t_id) {
+                d.update(&trans, &sys, world);
+            } else {
+                panic!("transform {} is invalid", t_id);
             }
         });
+        // (0..last).into_par_iter().for_each(|i| {
+        //     if unsafe { *self.valid[i].get() } {
+        //         let mut d = self.data[i].1.lock();
+        //         if let Some(trans) = transforms.get(unsafe { *self.data[i].0.get() }) {
+        //             d.update(&trans, &sys, world);
+        //         } else {
+        //             panic!("transform {} is invalid", unsafe { *self.data[i].0.get() });
+        //         }
+        //     }
+        // });
     }
     fn late_update(&self, transforms: &Transforms, sys: &System) {
         if !self.has_late_update {
             return;
         }
-        let last = (self.last + 1) as usize;
-        (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].1.lock();
-                let trans = transforms.get(unsafe { *self.data[i].0.get() }).unwrap();
-                d.late_update(&trans, &sys);
-            }
-        });
+        self.par_for_each(|t_id, d| {
+            let trans = transforms.get(t_id).unwrap();
+            d.late_update(&trans, &sys);
+        })
     }
     fn remove(&self, i: i32) {
         self._erase(i);
@@ -389,16 +437,10 @@ impl<
         serde_yaml::to_value(&*self.data[i as usize].1.lock()).unwrap()
     }
     fn clear(&mut self, transforms: &Transforms, sys: &Sys) {
-        let last = (self.last + 1) as usize;
-        (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].1.lock();
-                let id: i32 = unsafe { *self.data[i].0.get() };
-                let trans = transforms.get(id).unwrap();
-                d.deinit(&trans, id, sys);
-            }
+        self.par_for_each(|id, d| {
+            let trans = transforms.get(id).unwrap();
+            d.deinit(&trans, id, sys);
         });
-        // *self = Self::new(self.has_update, self.has_late_update, self.has_render);
     }
 
     fn deserialize(&mut self, transform: i32, d: serde_yaml::Value) -> i32 {
@@ -410,13 +452,8 @@ impl<
         if !self.has_render {
             return;
         }
-        let last = (self.last + 1) as usize;
-        (0..last).into_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].1.lock();
-                let t_id = unsafe { *self.data[i].0.get() };
-                render_jobs.push(d.on_render(t_id));
-            }
+        self.for_each(|t_id,d| {
+            render_jobs.push(d.on_render(t_id));
         });
     }
 
@@ -424,15 +461,9 @@ impl<
         if !self.has_update {
             return;
         }
-
-        let last = (self.last + 1) as usize;
-        (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
-                let mut d = self.data[i].1.lock();
-                let trans = transforms.get(unsafe { *self.data[i].0.get() }).unwrap();
-                d.editor_update(&trans, &sys);
-            }
-            // }
+        self.par_for_each(|t_id, d| {
+            let trans = transforms.get(t_id).unwrap();
+            d.editor_update(&trans, &sys);
         });
     }
     fn get_id(&self) -> u64 {
