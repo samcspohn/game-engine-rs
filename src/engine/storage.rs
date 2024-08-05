@@ -9,6 +9,7 @@ use std::{
 
 use bitvec::vec::BitVec;
 use crossbeam::queue::SegQueue;
+use force_send_sync::SendSync;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 use segvec::SegVec;
