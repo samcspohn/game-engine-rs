@@ -3,7 +3,11 @@ use std::sync::Arc;
 use glium::buffer::Content;
 use nalgebra_glm::{Vec3, Vec4};
 use vulkano::{
-    buffer::Subbuffer, descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet}, memory::allocator::MemoryUsage, padded::Padded, pipeline::{
+    buffer::Subbuffer,
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    memory::allocator::MemoryUsage,
+    padded::Padded,
+    pipeline::{
         graphics::{
             depth_stencil::DepthStencilState,
             input_assembly::{InputAssemblyState, PrimitiveTopology},
@@ -13,7 +17,8 @@ use vulkano::{
             viewport::ViewportState,
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
-    }, render_pass::{RenderPass, Subpass}
+    },
+    render_pass::{RenderPass, Subpass},
 };
 
 use crate::engine::{particles::shaders::scs, utils::PrimaryCommandBuffer};
@@ -141,7 +146,8 @@ impl DebugSystem {
     pub fn draw(&mut self, builder: &mut PrimaryCommandBuffer, cvd: &CameraViewData) {
         {
             let num_frust = self.frustums_to_draw.len();
-            let buf: Subbuffer<[gs1::DrawFrustum]> = self.vk.allocate_unsized(self.frustums_to_draw.len() as u64);
+            let buf: Subbuffer<[gs1::DrawFrustum]> =
+                self.vk.allocate_unsized(self.frustums_to_draw.len() as u64);
             {
                 let mut a = buf.write().unwrap();
                 let ftd = std::mem::take(&mut self.frustums_to_draw);

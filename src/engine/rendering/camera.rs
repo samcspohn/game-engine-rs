@@ -608,7 +608,6 @@ impl CameraData {
     ) -> Option<Arc<dyn ImageAccess>> {
         assets.get_manager2(|model_manager: &ModelManager| {
             assets.get_manager2(|texture_manager: &TextureManager| {
-
                 transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_buf);
 
                 if !offset_vec.is_empty() {

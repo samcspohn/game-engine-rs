@@ -118,9 +118,9 @@ impl RenderPipeline {
                 BuffersDefinition::new()
                     .vertex::<_Vertex>()
                     .vertex::<Normal>()
-                    .vertex::<UV>() // .instance::<Id>(),
-                    // .vertex::<VertU32>()
-                    // .vertex::<VertU32_2>(),
+                    .vertex::<UV>(), // .instance::<Id>(),
+                                     // .vertex::<VertU32>()
+                                     // .vertex::<VertU32_2>(),
             )
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
@@ -251,7 +251,7 @@ impl RenderPipeline {
             Arc<StandardCommandBufferAllocator>,
         >,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
-        instance_buffer: Subbuffer<[[i32;2]]>,
+        instance_buffer: Subbuffer<[[i32; 2]]>,
         mvp_buffer: Subbuffer<[MVP]>,
         ////
         light_len: u32,
@@ -316,7 +316,10 @@ impl RenderPipeline {
             descriptors.push(WriteDescriptorSet::buffer(11, empty.clone()));
         }
         descriptors.push(WriteDescriptorSet::buffer(12, vs_uniform));
-        descriptors.push(WriteDescriptorSet::buffer(13, mesh.bone_weights_offsets_counts_buf.clone()));
+        descriptors.push(WriteDescriptorSet::buffer(
+            13,
+            mesh.bone_weights_offsets_counts_buf.clone(),
+        ));
         // descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
 
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)

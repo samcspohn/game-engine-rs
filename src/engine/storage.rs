@@ -453,7 +453,7 @@ impl<
         if !self.has_render {
             return;
         }
-        self.for_each(|t_id,d| {
+        self.for_each(|t_id, d| {
             render_jobs.push(d.on_render(t_id));
         });
     }

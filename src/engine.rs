@@ -802,7 +802,6 @@ impl Engine {
                 .alloc_buffers(transform_extent as DeviceSize)
         };
 
-
         let vk = self.vk.clone();
         let mut builder = AutoCommandBufferBuilder::primary(
             &vk.comm_alloc,
@@ -822,49 +821,49 @@ impl Engine {
                 job.unwrap()(&mut builder, vk.clone());
             }
         }
-        let light_len = world.get_component_storage::<Light, _ ,_>(|l| l.len());
+        let light_len = world.get_component_storage::<Light, _, _>(|l| l.len());
 
         let skeletons = {
             let skeletons = self.perf.node("compute skeletons");
             self.assets_manager.get_manager2(|model: &ModelManager| {
                 world
-                .sys
-                .skeletons_manager
-                .write()
-                .iter()
-                .map(|(id, skeletons)| {
-                    (*id, {
-                        let model_renderer = model.assets_id.get(id).unwrap().lock();
-                        let num_bones = model_renderer.model.bone_info.len();
-                        let len = num_bones * skeletons.data.len();
-                        let mut a: Vec<[[f32; 4]; 3]> = Vec::with_capacity(len);
-                        unsafe {
-                            a.set_len(len);
-                        }
-                        let c: Subbuffer<[[[f32; 4]; 3]]> = vk.allocate_unsized(len as u64);
-                        {
-                            let mut _c = c.write().unwrap();
-                            skeletons
-                                .data
-                                .par_iter()
-                                .zip_eq(skeletons.valid.par_iter())
-                                .zip_eq(_c.par_chunks_mut(num_bones))
-                                // .enumerate()
-                                .for_each(|(((skel, v), g))| {
-                                    if v.load(std::sync::atomic::Ordering::Relaxed) {
-                                        // let g = unsafe { &mut *__c.get() };
-                                        let d = skel.lock().get_skeleton(
-                                            &model_renderer.model,
-                                            self.time.time,
-                                            g,
-                                        );
-                                    }
-                                });
-                        }
-                        c
+                    .sys
+                    .skeletons_manager
+                    .write()
+                    .iter()
+                    .map(|(id, skeletons)| {
+                        (*id, {
+                            let model_renderer = model.assets_id.get(id).unwrap().lock();
+                            let num_bones = model_renderer.model.bone_info.len();
+                            let len = num_bones * skeletons.data.len();
+                            let mut a: Vec<[[f32; 4]; 3]> = Vec::with_capacity(len);
+                            unsafe {
+                                a.set_len(len);
+                            }
+                            let c: Subbuffer<[[[f32; 4]; 3]]> = vk.allocate_unsized(len as u64);
+                            {
+                                let mut _c = c.write().unwrap();
+                                skeletons
+                                    .data
+                                    .par_iter()
+                                    .zip_eq(skeletons.valid.par_iter())
+                                    .zip_eq(_c.par_chunks_mut(num_bones))
+                                    // .enumerate()
+                                    .for_each(|(((skel, v), g))| {
+                                        if v.load(std::sync::atomic::Ordering::Relaxed) {
+                                            // let g = unsafe { &mut *__c.get() };
+                                            let d = skel.lock().get_skeleton(
+                                                &model_renderer.model,
+                                                self.time.time,
+                                                g,
+                                            );
+                                        }
+                                    });
+                            }
+                            c
+                        })
                     })
-                })
-                .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>>()
+                    .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>>()
             })
         };
 

@@ -37,7 +37,8 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
         Arc,
-    }, thread::ThreadId,
+    },
+    thread::ThreadId,
 };
 
 pub struct TransformMeta {

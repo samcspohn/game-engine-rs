@@ -1,4 +1,4 @@
-use egui::{Color32, Context, Layout, Pos2, Rect, Rounding, ScrollArea, Sense, Ui};
+use egui::{menu, Color32, Context, Layout, Pos2, Rect, Rounding, ScrollArea, Sense, Ui};
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -12,12 +12,13 @@ use std::{
 };
 
 use crate::{
-    editor::{
-        editor_ui::entity_inspector::_selected,
-        inspectable::{Inspectable_},
-    },
+    editor::{editor_ui::entity_inspector::_selected, inspectable::Inspectable_},
     engine::{
-        project::{asset_manager::AssetsManager, serialize, save_project, file_watcher::{self, FileWatcher}},
+        project::{
+            asset_manager::AssetsManager,
+            file_watcher::{self, FileWatcher},
+            save_project, serialize,
+        },
         utils,
         world::{transform::Transform, Sys, World},
     },
@@ -84,6 +85,7 @@ impl egui_dock::TabViewer for TabViewer<'_> {
             );
         } else {
             ui.horizontal_top(|ui| {
+
                 if unsafe { PLAYING_GAME } {
                     if ui.button("Stop").clicked() {
                         println!("stop game");
@@ -140,7 +142,25 @@ pub fn editor_ui(
     curr_playing: bool,
 ) -> bool {
     {
-        unsafe { PLAYING_GAME = curr_playing; }
+        egui::TopBottomPanel::top("game engine").show(egui_ctx, |ui| {
+                menu::bar(ui, |ui| {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Open").clicked() {
+                            serialize::deserialize(world, "test.scene");
+                            ui.close_menu();
+                        }
+                        if ui.button("Save").clicked() {
+                            serialize::serialize(world,"test.scene");
+                            save_project(file_watcher, world, assets_manager.clone());
+                            // assets_manager.serialize();
+                            ui.close_menu();
+                        }
+                    });
+                });
+        });
+        unsafe {
+            PLAYING_GAME = curr_playing;
+        }
         static mut _SELECTED_TRANSFORMS: Lazy<HashMap<i32, bool>> =
             Lazy::new(HashMap::<i32, bool>::new);
 
@@ -164,8 +184,24 @@ pub fn editor_ui(
         unsafe {
             DockArea::new(&mut DOCK)
                 .style(Style::from_egui(egui_ctx.style().as_ref()))
-                .show(egui_ctx, &mut TabViewer {image: frame_color, world, fps: fps_queue, inspectable: &mut INSPECTABLE, assets_manager, file_watcher, func:
-                    Box::new(|tab, ui, world: &mut World, fps_queue: &mut VecDeque<f32>, _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>, assets_manager: Arc<AssetsManager>, file_watcher: &FileWatcher, rec: Rect, id: egui::Id| {
+                .show(egui_ctx,
+                     &mut TabViewer {
+                        image: frame_color,
+                         world,
+                         fps: fps_queue,
+                         inspectable: &mut INSPECTABLE,
+                         assets_manager,
+                         file_watcher,
+                         func:
+                            Box::new(|tab,
+                                ui,
+                                world: &mut World,
+                                fps_queue: &mut VecDeque<f32>,
+                                _ins: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
+                                assets_manager: Arc<AssetsManager>,
+                                file_watcher: &FileWatcher,
+                                rec: Rect,
+                                id: egui::Id| {
                         let assets_manager = assets_manager;
                         match tab {
                             "Hierarchy" => {
@@ -190,16 +226,16 @@ pub fn editor_ui(
                                             println!("add game object");
                                             ui.close_menu();
                                         }
-                                        if ui.button("Save").clicked() {
-                                            serialize::serialize(world,"test.scene");
-                                            save_project(file_watcher, world, assets_manager);
-                                            // assets_manager.serialize();
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Load").clicked() {
-                                            serialize::deserialize(world, "test.scene");
-                                            ui.close_menu();
-                                        }
+                                        // if ui.button("Save").clicked() {
+                                        //     serialize::serialize(world,"test.scene");
+                                        //     save_project(file_watcher, world, assets_manager);
+                                        //     // assets_manager.serialize();
+                                        //     ui.close_menu();
+                                        // }
+                                        // if ui.button("Load").clicked() {
+                                        //     serialize::deserialize(world, "test.scene");
+                                        //     ui.close_menu();
+                                        // }
                                     });
 
                                     let mut clicked = false;
@@ -312,7 +348,6 @@ pub fn editor_ui(
                                                     let resp = ui.interact(resp.rect, id, egui::Sense::drag());
                                                     if resp.drag_started() {
                                                         *DRAGGED_TRANSFORM.lock() = t.id;
-                                                        
                                                     }
                                                     if is_being_dragged {
                                                         ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
