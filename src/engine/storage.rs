@@ -4,11 +4,12 @@ use std::{
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap},
     ops::Div,
-    sync::atomic::{AtomicBool, AtomicI32, Ordering},
+    ptr::slice_from_raw_parts,
+    sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
 };
 
 use bitvec::vec::BitVec;
-use crossbeam::queue::SegQueue;
+use crossbeam::{epoch::Atomic, queue::SegQueue};
 use force_send_sync::SendSync;
 use parking_lot::Mutex;
 use rayon::prelude::*;
@@ -144,8 +145,8 @@ impl Avail {
 
 #[repr(C)]
 pub struct Storage<T> {
-    pub data: SegVec<(SyncUnsafeCell<i32>, Mutex<T>)>,
-    pub valid: SegVec<SyncUnsafeCell<bool>>,
+    pub data: Vec<(SyncUnsafeCell<i32>, Mutex<T>)>,
+    pub valid: Vec<SyncUnsafeCell<bool>>,
     new_ids_cache: VecCache<i32>,
     new_offsets_cache: VecCache<i32>,
     avail: Avail,
@@ -195,23 +196,69 @@ impl<
         let last = (self.last + 1) as usize;
         // let leading = 31 - last.leading_zeros();
         // let leading = last.log2();
-        let data = unsafe { SendSync::new(self.data.slice(0..last)) };
-        let valid = unsafe { SendSync::new(self.valid.slice(0..last)) };
-        rayon::scope(|s| {
-            data.segmented_iter()
-                .zip(valid.segmented_iter())
-                .for_each(|p| {
-                    s.spawn(|_| {
-                        p.0.par_iter().zip_eq(p.1.par_iter()).for_each(|(d, v)| {
-                            if unsafe { *v.get() } {
-                                let t_id = unsafe { *d.0.get() };
-                                let mut d = d.1.lock();
-                                f(t_id, &mut d);
-                            }
-                        })
-                    })
-                })
+        // let data = unsafe { SendSync::new(self.data.slice(0..last)) };
+        // let valid = unsafe { SendSync::new(self.valid.slice(0..last)) };
+        // rayon::scope(|s| {
+        //     data.segmented_iter()
+        //         .zip(valid.segmented_iter())
+        //         .for_each(|p| {
+        //             s.spawn(|_| {
+        //                 p.0.par_iter().zip_eq(p.1.par_iter()).for_each(|(d, v)| {
+        //                     if unsafe { *v.get() } {
+        //                         let t_id = unsafe { *d.0.get() };
+        //                         let mut d = d.1.lock();
+        //                         f(t_id, &mut d);
+        //                     }
+        //                 })
+        //             })
+        //         })
+        // });
+
+        // let index = AtomicUsize::new(0);
+        // let num = num_cpus::get();
+        // let chunk_size = last.div(num).max(1).min(256);
+        // // (0..num_cpus::get()).into_par_iter().for_each(|thread_id| {
+        // rayon::scope(|s| {
+        //     for _ in (0..num_cpus::get()) {
+        //         s.spawn(|_| {
+        //             let mut start = index.fetch_add(chunk_size, Ordering::SeqCst);
+        //             let mut end = (start + chunk_size).min(last);
+        //             while start < last {
+        //                 for i in start..end {
+        //                     if unsafe { *self.valid[i].get() } {
+        //                         let mut d = self.data[i].1.lock();
+        //                         let t_id = unsafe { *self.data[i].0.get() };
+        //                         f(t_id, &mut d);
+        //                     }
+        //                 }
+        //                 start = index.fetch_add(chunk_size, Ordering::SeqCst);
+        //                 end = (start + chunk_size).min(last);
+        //             }
+        //         });
+        //     }
+        // })
+        // });
+
+        (0..last).into_par_iter().for_each(|i| {
+            if unsafe { *self.valid[i].get() } {
+                let mut d = self.data[i].1.lock();
+                let t_id = unsafe { *self.data[i].0.get() };
+                f(t_id,&mut d);
+            }
         });
+        // let data = unsafe { &*slice_from_raw_parts(self.data.as_ptr(), last) };
+        // let valid = unsafe { &*slice_from_raw_parts(self.valid.as_ptr(), last) };
+
+        // data.par_iter()
+        //     .zip_eq(valid.par_iter())
+        //     .filter(|(_, v)| unsafe { *v.get() })
+        //     .for_each(|(d, _)| {
+        //         // if unsafe { *v.get() } {
+        //         let t_id = unsafe { *d.0.get() };
+        //         let mut d = d.1.lock();
+        //         f(t_id, &mut d);
+        //         // }
+        //     });
     }
     pub fn len(&self) -> usize {
         self.valid.len()
@@ -330,8 +377,8 @@ impl<
     }
     pub fn new(has_update: bool, has_late_update: bool, has_render: bool) -> Storage<T> {
         Storage::<T> {
-            data: SegVec::new(),
-            valid: SegVec::new(),
+            data: Vec::new(),
+            valid: Vec::new(),
             avail: Avail::new(),
             new_ids_cache: VecCache::new(),
             new_offsets_cache: VecCache::new(),
