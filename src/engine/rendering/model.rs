@@ -14,13 +14,13 @@ use std::{
 // use bytemuck::{Pod, Zeroable};
 use crate::engine::{
     particles::shaders::cs::b,
-    prelude::{Component, Inpsect, Ins, _ComponentID},
+    prelude::{Component, Inpsect, Ins},
     project::asset_manager::AssetInstance,
 };
-use component_derive::{AssetID, ComponentID};
 use force_send_sync::SendSync;
 use glium::buffer::Content;
 use glm::{float_bits_to_int, IVec2};
+use id::*;
 use parking_lot::{Mutex, RwLock};
 
 // use std::mem::size_of;
@@ -483,10 +483,8 @@ impl Mesh {
     }
 }
 
-use crate::engine::project::asset_manager::_AssetID;
-
 use super::{component::buffer_usage_all, texture::TextureManager};
-#[derive(AssetID)]
+#[derive(ID)]
 pub struct ModelRenderer {
     pub file: String,
     pub model: Model,

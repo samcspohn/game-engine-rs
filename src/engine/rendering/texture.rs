@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use component_derive::AssetID;
 use egui::TextureId;
+use id::{ID, ID_trait};
 use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
@@ -24,8 +24,8 @@ use crate::{
 
 pub type TextureManager =
     AssetManager<(Arc<Device>, Arc<Queue>, Arc<StandardMemoryAllocator>), Texture>;
-use crate::engine::project::asset_manager::_AssetID;
-#[derive(AssetID)]
+
+#[derive(ID)]
 pub struct Texture {
     pub file: String,
     pub image: Arc<ImageView<ImmutableImage>>,

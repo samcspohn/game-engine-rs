@@ -79,6 +79,15 @@ pub fn serialize(world: &World, scene_file: &str) {
     std::fs::write(scene_file, serde_yaml::to_string(&root).unwrap()).unwrap();
 }
 
+pub fn serialize_new(scene_file: &str) {
+    let mut root = SerGameObject {
+        t: (0, _Transform::default()),
+        c: vec![],
+        t_c: vec![],
+    };
+    std::fs::write(scene_file, serde_yaml::to_string(&root).unwrap()).unwrap();
+}
+
 fn deserialize_c<'a>(
     parent: i32,
     sgo: SerGameObject,

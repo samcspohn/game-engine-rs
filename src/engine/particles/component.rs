@@ -1,4 +1,4 @@
-use component_derive::ComponentID;
+use id::*;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::{prelude, project::asset_manager::AssetInstance};
@@ -6,7 +6,7 @@ use prelude::*;
 
 use super::{asset::ParticleTemplate, shaders::cs};
 
-#[derive(ComponentID, Clone, Deserialize, Serialize)]
+#[derive(ID, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ParticleEmitter {
     template: AssetInstance<ParticleTemplate>,

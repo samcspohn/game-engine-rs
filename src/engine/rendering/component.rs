@@ -1,4 +1,4 @@
-use component_derive::ComponentID;
+use id::*;
 use parking_lot::{Mutex, RwLock};
 use puffin_egui::puffin;
 use std::{
@@ -15,11 +15,7 @@ use crate::{
         project::asset_manager::AssetInstance,
         storage::_Storage,
         transform_compute::TransformCompute,
-        world::{
-            component::{Component, _ComponentID},
-            transform::Transform,
-            Sys,
-        },
+        world::{component::Component, transform::Transform, Sys},
     },
 };
 // use bytemuck::{Pod, Zeroable};
@@ -47,7 +43,7 @@ use super::{
     vulkan_manager::VulkanManager,
 };
 
-#[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
+#[derive(ID, Default, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Renderer {
     model_id: AssetInstance<ModelRenderer>,

@@ -25,6 +25,7 @@ use glm::{quat_euler_angles, vec3, vec4, Vec3};
 use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
+use project::scene_manager::SceneManager;
 use puffin_egui::puffin;
 use rapier3d::{
     na::{ComplexField, UnitQuaternion},
@@ -72,7 +73,11 @@ use winit::{
 // use crate::{physics::Physics};
 
 use crate::{
-    editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
+    editor::{
+        self,
+        editor_cam::EditorCam,
+        editor_ui::{Editor, EditorArgs, EDITOR_WINDOW_DIM},
+    },
     engine::{
         audio::{
             asset::AudioManager,
@@ -107,7 +112,7 @@ use self::{
     project::{
         asset_manager::AssetsManager,
         file_watcher::{self, FileWatcher},
-        save_project, serialize, Project,
+        serialize, Project,
     },
     render_thread::RenderingData,
     rendering::{
@@ -268,6 +273,7 @@ pub struct Engine {
     pub(crate) compiler_process: Option<std::process::Child>,
     // pub(crate) working_scene: String,
     pub(crate) file_watcher: FileWatcher,
+    editor: Editor,
     pub(crate) gui: SendSync<Gui>,
     pub(crate) tex_id: Option<TextureId>,
     pub(crate) image_view: Option<Arc<ImageView<ImmutableImage>>>,
@@ -382,6 +388,7 @@ impl Engine {
             world.lock().sys.audio_manager.m.clone(),
             &["mp3", "wav", "ogg", "flac"],
         )));
+        let scene_manager = Arc::new(Mutex::new(SceneManager::new((), &["scene"])));
 
         unsafe {
             if !game_mode {
@@ -395,7 +402,8 @@ impl Engine {
                 particles_system.particle_template_manager.clone(),
             );
             assets_manager.add_asset_manager("light", light_manager.clone());
-            assets_manager.add_asset_manager("audio", audio_manager.clone())
+            assets_manager.add_asset_manager("audio", audio_manager.clone());
+            assets_manager.add_asset_manager("scene", scene_manager.clone());
         }
 
         let mut viewport = Viewport {
@@ -523,6 +531,7 @@ impl Engine {
             physics_thread,
             compiler_process: None,
             file_watcher,
+            editor: Editor::new(),
             tex_id: None,
             image_view: None,
             game_mode,
@@ -765,15 +774,27 @@ impl Engine {
         let mut _playing_game = false;
         self.gui.immediate_ui(|gui| {
             let ctx = gui.context();
-            _playing_game = editor::editor_ui::editor_ui(
-                &mut world,
-                &mut self.fps_queue,
+            _playing_game = self.editor.editor_ui(
+                EditorArgs {
+                    world: &mut world,
+                    project: &mut self.project,
+                    assets_manager: self.assets_manager.clone(),
+                    file_watcher: &self.file_watcher,
+                    playing_game: self.game_mode | self.playing_game,
+                },
                 &ctx,
                 self.tex_id.unwrap_or_default(),
-                self.assets_manager.clone(),
-                &self.file_watcher,
                 self.game_mode | self.playing_game,
-            );
+            )
+            // _playing_game = editor::editor_ui::editor_ui(
+            //     &mut world,
+            //     &mut self.fps_queue,
+            //     &ctx,
+            //     self.tex_id.unwrap_or_default(),
+            //     self.assets_manager.clone(),
+            //     &self.file_watcher,
+            //     self.game_mode | self.playing_game,
+            // );
         });
         if _playing_game && _playing_game != self.playing_game {
             // save current state of scene before play

@@ -6,8 +6,8 @@ use std::{
     },
 };
 
-use component_derive::ComponentID;
 use force_send_sync::SendSync;
+use id::*;
 use noise::{NoiseFn, Perlin};
 
 use nalgebra_glm as glm;
@@ -33,7 +33,6 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use crate::engine::world::component::_ComponentID;
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
@@ -65,7 +64,7 @@ struct TerrainChunkRenderData {
     pub texture: Option<i32>,
 }
 // #[component]
-#[derive(component_derive::ComponentID, Default, Clone, Serialize, Deserialize)]
+#[derive(ID, Default, Clone, Serialize, Deserialize)]
 pub struct TerrainEng {
     // pub device: Arc<Device>,
     // pub queue: Arc<Queue>,

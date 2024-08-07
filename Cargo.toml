@@ -35,7 +35,8 @@ mimalloc = { version = "*", default-features = false }
 
 [dependencies]
 thread-priority = "*"
-component-derive = { path = "component-derive" }
+id = { path = "id" }
+id_macro = { path = "id_macro" }
 num_cpus = "*"
 num-integer = "*"
 libc = "*"
@@ -105,3 +106,4 @@ bitvec = "1.0.1"
 smallvec = "1.11.0"
 kira = "0.8.7"
 russimp = { version = "3.2.0", features = ["prebuilt"] }
+rfd = "0.14.1"

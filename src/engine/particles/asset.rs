@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use id::*;
 use lazy_static::lazy_static;
 use nalgebra_glm::{vec2, Vec2};
 use parking_lot::Mutex;
@@ -28,10 +29,8 @@ use super::{
     particle_textures::ParticleTextures,
     shaders::cs::{self, particle_template},
 };
-use crate::engine::project::asset_manager::_AssetID;
-use component_derive::AssetID;
 
-#[derive(AssetID, Clone, Serialize, Deserialize)]
+#[derive(ID, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ParticleTemplate {
     color: [f32; 4],

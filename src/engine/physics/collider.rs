@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::{collections::HashMap, mem::transmute};
 
 use crate::engine::rendering::model::ModelManager;
-// use component_derive::ComponentID;
 use crate::engine::project::asset_manager::AssetInstance;
 use crate::engine::world::NewCollider;
 use crate::engine::{prelude::*, project::asset_manager::drop_target};
@@ -93,7 +92,7 @@ impl _ColliderType {
         }
     }
 }
-#[derive(ComponentID, Clone, Default, Deserialize, Serialize)]
+#[derive(ID, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 #[repr(C)]
 pub struct _Collider {

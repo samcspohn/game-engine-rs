@@ -2,12 +2,11 @@ use std::mem::MaybeUninit;
 use std::ptr::null;
 use std::sync::Arc;
 
-use crate::engine::project::asset_manager::_AssetID;
 use crate::engine::{
     prelude::Inspectable_,
     project::asset_manager::{Asset, AssetManager},
 };
-use component_derive::AssetID;
+use id::{ID_trait, ID};
 use kira::{
     manager::{backend::DefaultBackend, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
@@ -17,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 pub type Param = Arc<Mutex<kira::manager::AudioManager>>;
 
-#[derive(AssetID, Serialize, Deserialize)]
+#[derive(ID, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AudioAsset {
     file: String,

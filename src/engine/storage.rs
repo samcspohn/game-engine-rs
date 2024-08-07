@@ -11,6 +11,7 @@ use std::{
 use bitvec::vec::BitVec;
 use crossbeam::{epoch::Atomic, queue::SegQueue};
 use force_send_sync::SendSync;
+use id::ID_trait;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 use segvec::SegVec;
@@ -22,7 +23,7 @@ use super::{
     input::Input,
     perf::Perf,
     world::{
-        component::{Component, System, _ComponentID},
+        component::{Component, System},
         entity::Entity,
         transform::{CacheVec, Transform, Transforms, VecCache},
         Sys, World,
@@ -159,7 +160,7 @@ pub struct Storage<T> {
 impl<
         T: 'static
             + Component
-            + _ComponentID
+            + ID_trait
             + Send
             + Sync
             + Default
@@ -394,7 +395,7 @@ impl<
 impl<
         T: 'static
             + Component
-            + _ComponentID
+            + ID_trait
             + Send
             + Sync
             + Default

@@ -4,6 +4,7 @@ pub mod transform;
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
+use id::ID_trait;
 use kira::manager::{backend::DefaultBackend, AudioManager, AudioManagerSettings};
 use nalgebra_glm::{quat_euler_angles, Quat, Vec3};
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -29,7 +30,7 @@ use std::{
 use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
 use self::{
-    component::{Component, System, _ComponentID},
+    component::{Component, System},
     entity::{
         Entity, EntityBuilder, EntityParBuilder, Unlocked, _EntityBuilder, _EntityParBuilder,
     },
@@ -135,7 +136,7 @@ pub struct World {
     v: VecCache<i32>,
     pub(crate) gpu_work: GPUWork,
     input: Input,
-    time: Time,
+    pub(crate) time: Time,
 }
 
 //  T_ = 'static
@@ -298,7 +299,7 @@ impl World {
     //         panic!("no type key?")
     //     }
     // }
-    pub fn get_components<T: 'static + Component + _ComponentID, U>(&self, g_id: i32, func: U)
+    pub fn get_components<T: 'static + Component + ID_trait, U>(&self, g_id: i32, func: U)
     where
         U: FnOnce(Vec<&Mutex<T>>),
     {
@@ -382,7 +383,7 @@ impl World {
             + Send
             + Sync
             + Component
-            + _ComponentID
+            + ID_trait
             + Default
             + Clone
             + Serialize
@@ -418,7 +419,7 @@ impl World {
             + Send
             + Sync
             + Component
-            + _ComponentID
+            + ID_trait
             + Default
             + Clone
             + Serialize
@@ -852,7 +853,7 @@ impl World {
     //         }
     //     }
     // }
-    pub fn get_component_storage<T: 'static + Send + Sync + Component + _ComponentID, U, I>(
+    pub fn get_component_storage<T: 'static + Send + Sync + Component + ID_trait, U, I>(
         &self,
         func: U,
     ) -> I

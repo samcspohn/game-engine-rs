@@ -6,6 +6,7 @@ use std::{
 };
 
 use force_send_sync::SendSync;
+use id::ID_trait;
 use once_cell::sync::Lazy;
 use parking_lot::{RawRwLock, RwLockReadGuard};
 use rayon::prelude::*;
@@ -19,7 +20,7 @@ use crate::engine::{
 };
 
 use super::{
-    component::{Component, _ComponentID},
+    component::Component,
     transform::{CacheVec, Transform, Transforms, _Transform},
     World,
 };
@@ -132,7 +133,7 @@ impl<'a> EntityBuilder<'a> {
             + Send
             + Sync
             + Component
-            + _ComponentID
+            + ID_trait
             + Default
             + Clone
             + Serialize
@@ -249,7 +250,7 @@ impl<'a> EntityParBuilder<'a> {
             + Send
             + Sync
             + Component
-            + _ComponentID
+            + ID_trait
             + Default
             + Clone
             + Serialize

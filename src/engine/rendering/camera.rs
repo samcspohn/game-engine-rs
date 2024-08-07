@@ -1,19 +1,18 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    default,
-    sync::Arc,
-};
-
-use component_derive::ComponentID;
 use egui::TextureId;
 use glium::buffer::Content;
 use glm::{cross, dot, normalize, radians, vec1, vec2, vec4, Mat4, Quat, Vec2, Vec3, Vec4};
+use id::*;
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
 use rapier3d::na::ComplexField;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, VecDeque},
+    default,
+    sync::Arc,
+};
 use vulkano::{
     buffer::Subbuffer,
     command_buffer::{
@@ -51,7 +50,7 @@ use crate::{
         time::Time,
         transform_compute::{cs::Data, TransformCompute},
         world::{
-            component::{Component, _ComponentID},
+            component::Component,
             transform::{Transform, TransformBuf, TransformData},
             Sys,
         },
@@ -276,7 +275,7 @@ pub struct CameraViewData {
     pub far: f32,
 }
 
-#[derive(ComponentID, Clone, Serialize, Deserialize)]
+#[derive(ID, Clone, Serialize, Deserialize)]
 #[repr(C)]
 #[serde(default)]
 pub struct Camera {

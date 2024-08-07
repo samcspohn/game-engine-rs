@@ -1,12 +1,12 @@
 use std::sync::atomic::AtomicBool;
 use std::{fs, process::Command, sync::Arc, time::Duration};
 
-use component_derive::AssetID;
+
+use id::*;
 use lazy_static::lazy_static;
 use libloading::Library;
 use parking_lot::Mutex;
 
-use crate::engine::project::asset_manager::_AssetID;
 use crate::{
     editor::inspectable::Inspectable_,
     engine::{
@@ -20,7 +20,7 @@ use crate::{
 
 use super::project::serialize::serialize;
 
-#[derive(AssetID)]
+#[derive(ID)]
 pub struct RSFile {
     path: String,
 }
@@ -62,7 +62,7 @@ impl Inspectable_ for RSFile {
 }
 pub type RSManager = AssetManager<(Arc<AtomicBool>), RSFile>;
 
-#[derive(AssetID)]
+#[derive(ID)]
 pub struct Lib {}
 
 impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {

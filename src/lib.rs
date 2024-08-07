@@ -7,7 +7,6 @@
 #![feature(non_lifetime_binders)]
 pub mod editor;
 pub mod engine;
-pub use component_derive;
 
 pub use egui;
 pub use force_send_sync;
@@ -19,16 +18,16 @@ pub use rayon;
 pub use serde;
 pub use vulkano;
 pub use winit;
+pub use id;
 pub mod prelude {
     // pub use serde;
     pub use crate::engine::particles::component::ParticleEmitter;
     pub use crate::engine::rendering::component::Renderer;
-    pub use component_derive::AssetID;
-    pub use component_derive::ComponentID;
+    pub use id::*;
     pub use engine::{
         input, utils,
         world::{
-            component::{Component, System, _ComponentID},
+            component::{Component, System},
             transform::{Transform, TransformRef, _Transform},
             Sys, World,
         },

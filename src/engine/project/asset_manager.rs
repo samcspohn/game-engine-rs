@@ -1,4 +1,5 @@
 use egui::Ui;
+use id::ID_trait;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -50,7 +51,7 @@ impl<T> Clone for AssetInstance<T> {
 }
 impl<T> Copy for AssetInstance<T> {}
 
-impl<'a, T: 'static + _AssetID> Inpsect for Ins<'a, AssetInstance<T>> {
+impl<'a, T: 'static + ID_trait> Inpsect for Ins<'a, AssetInstance<T>> {
     fn inspect(&mut self, name: &str, ui: &mut egui::Ui, sys: &Sys) -> bool {
         let drop_data = sys.assets_manager.drag_drop_data.lock().clone();
         sys.assets_manager
@@ -59,9 +60,7 @@ impl<'a, T: 'static + _AssetID> Inpsect for Ins<'a, AssetInstance<T>> {
 }
 
 impl<T> AssetInstance<T> {}
-pub trait _AssetID {
-    const ID: u64;
-}
+
 pub trait Asset<T, P> {
     fn from_file(file: &str, params: &P) -> T;
     fn reload(&mut self, file: &str, params: &P);
@@ -76,7 +75,7 @@ pub trait Asset<T, P> {
 struct TestAsset {}
 
 #[derive(Serialize, Deserialize)]
-pub struct AssetManager<P, T: Inspectable_ + Asset<T, P> + _AssetID> {
+pub struct AssetManager<P, T: Inspectable_ + Asset<T, P> + ID_trait> {
     pub assets: BTreeMap<String, i32>,
     #[serde(skip_serializing, skip_deserializing)]
     pub assets_r: BTreeMap<i32, String>,
@@ -113,7 +112,7 @@ pub struct AssetManager<P, T: Inspectable_ + Asset<T, P> + _AssetID> {
 //     }
 // }
 
-impl<P: 'static, T: Inspectable_ + Asset<T, P> + _AssetID> AssetManager<P, T> {
+impl<P: 'static, T: Inspectable_ + Asset<T, P> + ID_trait> AssetManager<P, T> {
     pub fn new(const_params: P, ext: &[&str]) -> Self {
         Self {
             assets: BTreeMap::new(),
@@ -175,7 +174,7 @@ pub fn drop_target<R>(
     egui::InnerResponse::new(ret, response)
 }
 
-impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + _AssetID> AssetManagerBase
+impl<P: 'static, T: 'static + Inspectable_ + Asset<T, P> + ID_trait> AssetManagerBase
     for AssetManager<P, T>
 {
     fn inspect(&mut self, file: &str, ui: &mut Ui, world: &mut World) {
@@ -450,7 +449,7 @@ impl AssetsManager {
     //         None
     //     }
     // }
-    pub fn get_manager<T: 'static + _AssetID>(
+    pub fn get_manager<T: 'static + ID_trait>(
         &self,
     ) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
         unsafe { &*self.asset_managers_type.get() }
@@ -460,7 +459,7 @@ impl AssetsManager {
     }
     pub fn get_manager2<
         // A: 'static + AssetManagerBase,
-        T: 'static + _AssetID + Inspectable_ + Asset<T, P>,
+        T: 'static + ID_trait + Inspectable_ + Asset<T, P>,
         P: 'static,
         U,
         Q,
@@ -493,7 +492,7 @@ impl AssetsManager {
     //         .unwrap()
     //         .clone()
     // }
-    pub fn inspect_instance<T: 'static + _AssetID>(
+    pub fn inspect_instance<T: 'static + ID_trait>(
         &self,
         name: &str,
         path: &str,

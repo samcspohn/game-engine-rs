@@ -13,7 +13,6 @@ use crate::engine::particles::{component::ParticleEmitter, particles::ParticlesS
 use crate::engine::perf::Perf;
 use crate::engine::project::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::engine::project::{file_watcher, Project};
-use crate::engine::project::{load_project, save_project};
 use crate::engine::rendering::camera::{Camera, CameraData};
 use crate::engine::rendering::component::{buffer_usage_all, Renderer};
 use crate::engine::rendering::model::{ModelManager, ModelRenderer};
@@ -79,6 +78,7 @@ mod win_alloc {
 }
 
 fn main() {
+    println!("here");
     env::set_var("RUST_BACKTRACE", "1");
     // env::set_var("RUSTFLAGS", format!("-Z threads={}",thread::max_concurrency()));
     crate::engine::utils::SETTINGS

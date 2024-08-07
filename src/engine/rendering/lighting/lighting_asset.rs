@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use glm::{vec3, Vec3};
+use id::*;
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,6 @@ use crate::engine::{
     rendering::{pipeline::fs, vulkan_manager::VulkanManager},
     storage::_Storage,
 };
-use component_derive::ComponentID;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -26,7 +26,7 @@ pub struct Attenuation {
     exponential: f32,
     brightness: f32,
 }
-#[derive(AssetID, Clone, Serialize, Deserialize)]
+#[derive(ID, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LightTemplate {
     color: [f32; 3],

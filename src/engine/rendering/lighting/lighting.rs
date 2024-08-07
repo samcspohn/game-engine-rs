@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crossbeam::queue::SegQueue;
 use glm::Vec3;
+use id::*;
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,6 @@ use crate::{
     },
     // prelude::utils::PrimaryCommandBuffer,
 };
-use component_derive::ComponentID;
 
 use super::{
     lighting_asset::LightTemplate,
@@ -125,7 +125,7 @@ impl LightingSystem {
     }
 }
 
-#[derive(ComponentID, Serialize, Deserialize, Default, Clone)]
+#[derive(ID, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct Light {
     #[serde(skip_serializing, skip_deserializing)]

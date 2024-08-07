@@ -23,16 +23,11 @@ use crate::{
         time::Time,
         transform_compute::{self, cs::transform, TransformCompute},
         utils::PrimaryCommandBuffer,
-        world::{
-            component::{Component, _ComponentID},
-            transform::Transform,
-            Sys, World,
-        },
+        world::{component::Component, transform::Transform, Sys, World},
     },
 };
 // use lazy_static::lazy::Lazy;
 
-use component_derive::{AssetID, ComponentID};
 use crossbeam::queue::SegQueue;
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
@@ -90,8 +85,6 @@ lazy_static! {
         .get::<i32>("MAX_PARTICLES")
         .unwrap();
 }
-
-use crate::engine::project::asset_manager::_AssetID;
 
 use super::{
     asset::{ParticleTemplateManager, TEMPLATE_UPDATE},
