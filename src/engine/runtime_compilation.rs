@@ -1,7 +1,6 @@
 use std::sync::atomic::AtomicBool;
 use std::{fs, process::Command, sync::Arc, time::Duration};
 
-
 use id::*;
 use lazy_static::lazy_static;
 use libloading::Library;
@@ -100,17 +99,19 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
         if let Ok(_) = fs::copy(file, &so_file) {
             // LOAD NEW LIB
             let lib = unsafe { libloading::Library::new(&so_file).unwrap() };
-            let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> =
-                unsafe { lib.get(b"register").unwrap() };
+            let func = unsafe { lib.get(b"register") };
 
-            // let mut world = params.lock();
-            world.clear();
-            unsafe {
-                func(&mut world);
+            if func.is_ok() {
+                let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> = func.unwrap();
+                // let mut world = params.lock();
+                world.clear();
+                unsafe {
+                    func(&mut world);
+                }
+                serialize::deserialize(&mut world, "temp_scene");
+                fs::remove_file("temp_scene");
+                *LIB.lock() = Some(lib);
             }
-            serialize::deserialize(&mut world, "temp_scene");
-            fs::remove_file("temp_scene");
-            *LIB.lock() = Some(lib);
         }
 
         Lib {}

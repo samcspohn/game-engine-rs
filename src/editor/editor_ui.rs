@@ -212,12 +212,18 @@ impl Editor {
                             if ui.button("New scene").clicked() {
                                 let files = FileDialog::new()
                                     .add_filter("scene", &["scene"])
-                                    .set_directory(".")
+                                    .set_directory(std::env::current_dir().unwrap())
                                     .save_file();
                                 if let Some(file) = files {
-                                    let file = file.as_os_str().to_str().unwrap();
+                                    let file = file
+                                        .strip_prefix(std::env::current_dir().unwrap())
+                                        .unwrap()
+                                        .as_os_str()
+                                        .to_str()
+                                        .unwrap();
                                     serialize::serialize_new(file);
                                     serialize::deserialize(editor_args.world, file);
+                                    // utils::path_format(file);
                                     editor_args.project.working_scene = file.into();
                                 }
                                 ui.close_menu();
@@ -226,17 +232,25 @@ impl Editor {
                                 // project?
                                 let files = FileDialog::new()
                                     .add_filter("scene", &["scene"])
-                                    .set_directory(".")
+                                    .set_directory(std::env::current_dir().unwrap())
                                     .pick_file();
                                 if let Some(file) = files {
-                                    let file = file.as_os_str().to_str().unwrap();
+                                    let file = file
+                                        .strip_prefix(std::env::current_dir().unwrap())
+                                        .unwrap()
+                                        .as_os_str()
+                                        .to_str()
+                                        .unwrap();
                                     serialize::deserialize(editor_args.world, file);
                                     editor_args.project.working_scene = file.into();
                                 }
                                 ui.close_menu();
                             }
                             if ui.button("Save").clicked() {
-                                serialize::serialize(&editor_args.world, &editor_args.project.working_scene);
+                                serialize::serialize(
+                                    &editor_args.world,
+                                    &editor_args.project.working_scene,
+                                );
                                 editor_args.project.save_project(
                                     file_watcher,
                                     &editor_args.world,
