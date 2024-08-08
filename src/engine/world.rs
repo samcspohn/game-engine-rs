@@ -135,7 +135,7 @@ pub struct World {
     pub(crate) to_instantiate_count_trans: AtomicI32,
     v: VecCache<i32>,
     pub(crate) gpu_work: GPUWork,
-    input: Input,
+    pub(crate) input: Input,
     pub(crate) time: Time,
 }
 

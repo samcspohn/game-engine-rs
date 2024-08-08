@@ -111,7 +111,7 @@ where
     });
 }
 impl Inspectable_ for ParticleTemplate {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) -> bool {
         field(ui, "color", |ui| {
             if ui
                 .color_edit_button_rgba_premultiplied(&mut self.color)
@@ -207,6 +207,7 @@ impl Inspectable_ for ParticleTemplate {
         {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
         }
+        true
     }
 }
 

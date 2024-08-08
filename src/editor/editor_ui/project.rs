@@ -23,6 +23,42 @@ use crate::{
     },
 };
 
+use super::EditorWindow;
+pub(super) struct ProjectWindow {
+    // file checker thread
+}
+impl ProjectWindow {
+    pub fn new() -> ProjectWindow {
+        ProjectWindow {}
+    }
+}
+impl EditorWindow for ProjectWindow {
+    fn draw(
+        &mut self,
+        ui: &mut Ui,
+        editor_args: &mut super::EditorArgs,
+        inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
+        rec: Rect,
+        id: egui::Id,
+    ) {
+        let assets_manager = editor_args.assets_manager.clone();
+        let file_watcher = &editor_args.file_watcher;
+        project(
+            ui,
+            editor_args.world,
+            inspectable,
+            assets_manager,
+            file_watcher,
+            rec,
+            id,
+        )
+    }
+
+    fn get_name(&self) -> &str {
+        "Project"
+    }
+}
+
 pub(crate) fn project(
     ui: &mut egui::Ui,
     world: &mut World,

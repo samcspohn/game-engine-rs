@@ -26,12 +26,13 @@ impl Asset<SceneAsset, ()> for SceneAsset {
 }
 
 impl Inspectable_ for SceneAsset {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         ui.label(self.file.as_str());
         ui.separator();
         if ui.button("Load").clicked() {
             serialize::deserialize(world, &self.file);
         }
+        true
     }
 }
 

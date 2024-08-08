@@ -63,7 +63,7 @@ impl LightTemplate {
     }
 }
 impl Inspectable_ for LightTemplate {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::world::World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::world::World) -> bool{
         ui.horizontal(|ui| {
             ui.label("color");
             ui.color_edit_button_rgb(&mut self.color);
@@ -82,6 +82,7 @@ impl Inspectable_ for LightTemplate {
             .light_templates
             .lock()
             .get_mut(&self.id)) = self.gen_light();
+        true
     }
 }
 pub type Param = (Arc<Mutex<_Storage<fs::lightTemplate>>>);

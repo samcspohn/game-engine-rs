@@ -1,7 +1,7 @@
 use glm::{vec4, Vec3};
 use winit::event::VirtualKeyCode;
 
-use nalgebra_glm as glm;
+use nalgebra_glm::{self as glm, vec3};
 
 use crate::engine::{input::Input, time::Time};
 
@@ -12,6 +12,13 @@ pub struct EditorCam {
 }
 
 impl EditorCam {
+    pub fn new() -> EditorCam {
+        EditorCam {
+            pos: Vec3::zeros(),
+            rot: glm::quat_look_at(&vec3(0f32, 0f32, 1f32), &vec3(0f32, 1f32, 0f32)),
+            speed: 4f32,
+        }
+    }
     pub fn update(&mut self, input: &Input, time: &Time) {
         let speed = self.speed * time.dt;
         if !input.get_key(&VirtualKeyCode::LControl) && input.get_mouse_button(&2) {

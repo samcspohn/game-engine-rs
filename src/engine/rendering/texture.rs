@@ -33,10 +33,12 @@ pub struct Texture {
     ui_id: Option<TextureId>,
 }
 impl Inspectable_ for Texture {
-    fn inspect(&mut self, _ui: &mut egui::Ui, _world: &mut World) {
+    fn inspect(&mut self, _ui: &mut egui::Ui, _world: &mut World) -> bool {
         if let Some(id) = &self.ui_id {
             _ui.image(*id, egui::vec2(200., 200.));
+            true
         } else {
+            false
         }
     }
 }

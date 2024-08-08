@@ -510,7 +510,7 @@ impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)> for 
 }
 
 impl Inspectable_ for ModelRenderer {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) -> bool {
         ui.add(egui::Label::new(self.file.as_str()));
         ui.separator();
         self.model
@@ -520,7 +520,8 @@ impl Inspectable_ for ModelRenderer {
             .enumerate()
             .for_each(|(i, x)| {
                 ui.add(egui::Label::new(format!("{}: {}", x.name, i)));
-            })
+            });
+            true
     }
 }
 

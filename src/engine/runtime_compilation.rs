@@ -55,8 +55,9 @@ impl Asset<RSFile, (Arc<AtomicBool>)> for RSFile {
     }
 }
 impl Inspectable_ for RSFile {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         ui.add(egui::Label::new(self.path.as_str()));
+        true
     }
 }
 pub type RSManager = AssetManager<(Arc<AtomicBool>), RSFile>;
@@ -124,8 +125,9 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
 }
 
 impl Inspectable_ for Lib {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool{
         // ui.add(egui::Label::new(self.path));
+        true
     }
 }
 pub type LibManager = AssetManager<(Arc<Mutex<World>>), Lib>;

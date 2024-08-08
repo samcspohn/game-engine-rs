@@ -77,13 +77,14 @@ impl AudioAsset {
     }
 }
 impl Inspectable_ for AudioAsset {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::World) -> bool {
         ui.horizontal(|ui| {
             ui.label(&self.file);
             if ui.button("play").clicked() {
                 self.play();
             }
         });
+        true
         // unsafe {
         //     let dur = self.d.assume_init_ref().duration().as_secs_f64();
         //     let settings = &mut self.d.assume_init_mut().settings;

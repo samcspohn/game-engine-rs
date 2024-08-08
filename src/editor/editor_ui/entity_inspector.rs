@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     editor::inspectable::Inspectable_,
     engine::{
@@ -9,17 +11,20 @@ use glm::{Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 
+use super::EditorWindow;
+
 pub(crate) struct GameObjectInspector {
     // world: &'a Mutex<World>,
 }
 pub static mut _selected: Option<i32> = None;
 
 impl Inspectable_ for GameObjectInspector {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         // let mut world = world.lock();
         let mut rmv: Option<(i32, u64, i32)> = None;
         static mut ROTATION_EULER: Option<Vec3> = None;
         static mut QUAT_PTR: Option<*mut Quat> = None;
+        let mut ret = true;
         let resp = ui.scope(|ui| {
             egui::ScrollArea::both().auto_shrink([false,true]).show(ui, |ui| {
 
@@ -120,7 +125,11 @@ impl Inspectable_ for GameObjectInspector {
                                 }
                             }
                         }
+                    } else {
+                        ret = false;
                     }
+                } else {
+                    ret = false;
                 }
             });
         });
@@ -150,5 +159,58 @@ impl Inspectable_ for GameObjectInspector {
                 world.add_component_id(t_id, key, c_id)
             }
         }
+        ret
+    }
+}
+
+pub struct Inspector {
+    inspectable: Option<Arc<Mutex<dyn Inspectable_>>>,
+}
+
+impl Inspector {
+    pub fn new() -> Inspector {
+        Inspector { inspectable: None }
+    }
+}
+
+static mut LAST_ACTIVE: *const Inspector = std::ptr::null();
+impl EditorWindow for Inspector {
+    fn update(
+        &mut self,
+        editor_args: &mut super::EditorArgs,
+        inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
+        is_focused: bool,
+    ) {
+        if is_focused {
+            unsafe {
+                LAST_ACTIVE = self;
+            }
+        }
+        if unsafe { LAST_ACTIVE == self } {
+            // if is_focused {
+            if inspectable.is_some() {
+                self.inspectable = inspectable.take();
+            }
+            // }
+        }
+    }
+    fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        editor_args: &mut super::EditorArgs,
+        inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
+        rec: egui::Rect,
+        id: egui::Id,
+    ) {
+        if let Some(ins) = &mut self.inspectable {
+            if !ins.lock().inspect(ui, editor_args.world) {
+                self.inspectable = None;
+            }
+        } else {
+        }
+    }
+
+    fn get_name(&self) -> &str {
+        "Inspector"
     }
 }

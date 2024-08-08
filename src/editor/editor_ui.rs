@@ -1,24 +1,30 @@
 use crate::{
     editor::{editor_ui::entity_inspector::_selected, inspectable::Inspectable_},
     engine::{
+        input::Input,
         project::{
             asset_manager::AssetsManager,
             file_watcher::{self, FileWatcher},
             serialize, Project,
         },
+        time::Time,
         utils,
         world::{transform::Transform, Sys, World},
         Engine,
     },
 };
+use console::ConsoleWindow;
 use egui::{menu, Color32, Context, Layout, Pos2, Rect, Rounding, ScrollArea, Sense, Ui};
+use entity_inspector::Inspector;
 use hierarchy::Hierarchy;
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, MutexGuard};
+use project::ProjectWindow;
 use puffin_egui::puffin;
 use rayon::str::EncodeUtf16;
 use rfd::FileDialog;
+use scene_window::SceneWindow;
 use serde::de::IntoDeserializer;
 use std::{
     any::TypeId,
@@ -62,79 +68,107 @@ struct TabViewer<'a, 'b> {
     editor_args: &'a mut EditorArgs<'b>,
     // editor: &'a mut Editor,
     // goi: &'a GameObjectInspector<'b>,
-    views: &'a mut Vec<Box<dyn EditorWindow>>,
+    // views: &'a mut Vec<Box<dyn EditorWindow>>,
+    active: *const (),
     inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
 }
 // pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_, '_> {
-    type Tab = String;
+    type Tab = Box<dyn EditorWindow>;
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
-        if tab != "Game" {
-            // ui.label(format!("Content of {tab}"));
-            let rec = ui.max_rect();
-            let id = ui.id();
-            match tab.as_str() {
-                "Hierarchy" => {
-                    // self.editor.draw(0, self.engine, ui, rec, id);
-                    // let mut view = self.editor.views[0].get_mut();
-                    // // let _v = view.borrow_mut();
-                    // view.draw(ui, self.engine, self.editor, rec, id);
-                    self.views[0].draw(ui, &mut self.editor_args, self.inspectable, rec, id);
-                }
-                "Inspector" => {
-                    if let Some(ins) = &mut self.inspectable {
-                        ins.lock().inspect(ui, self.editor_args.world);
-                    } else {
-                    }
-                }
-                "Project" => {
-                    let assets_manager = self.editor_args.assets_manager.clone();
-                    let file_watcher = &self.editor_args.file_watcher;
-                    project::project(
-                        ui,
-                        self.editor_args.world,
-                        self.inspectable,
-                        assets_manager,
-                        file_watcher,
-                        rec,
-                        id,
-                    )
-                }
-                _ => {}
-            }
-        } else {
-            ui.horizontal_top(|ui| {
-                if self.editor_args.playing_game {
-                    if ui.button("Stop").clicked() {
-                        println!("stop game");
-                        self.editor_args.playing_game = false;
-
-                        // {
-                        //     // let mut world = self.world;
-                        //     self.world.clear();
-                        //     serialize::deserialize(&mut self.world);
-                        // }
-                    }
-                } else if ui.button("Play").clicked() {
-                    println!("play game");
-                    self.editor_args.playing_game = true;
-                    self.editor_args.world.begin_play();
-                    // {
-                    //     // let mut world = self.world;
-                    //     self.world.clear();
-                    //     serialize::deserialize(&mut self.world);
-                    // }
-                }
-            });
-            let a = ui.available_size();
-            *EDITOR_WINDOW_DIM.lock() = [a[0] as u32, a[1] as u32];
-            ui.image(self.image, a);
+        let rec = ui.max_rect();
+        // let id = ui.id();
+        if tab.as_ref() as *const dyn EditorWindow as *const () == self.active {
+            println!("active tab is {}", tab.get_name());
         }
+        tab.update(
+            self.editor_args,
+            self.inspectable,
+            tab.as_ref() as *const dyn EditorWindow as *const () == self.active,
+        );
+        tab.draw(
+            ui,
+            &mut self.editor_args,
+            self.inspectable,
+            rec,
+            egui::Id::new(format!(
+                "{}: {:?}",
+                tab.get_name(),
+                tab.as_ref() as *const dyn EditorWindow as *const ()
+            )),
+        );
+        // if tab != "Game" {
+        //     // ui.label(format!("Content of {tab}"));
+        //     let rec = ui.max_rect();
+        //     let id = ui.id();
+        //     match tab.as_str() {
+        //         "Hierarchy" => {
+        //             // self.editor.draw(0, self.engine, ui, rec, id);
+        //             // let mut view = self.editor.views[0].get_mut();
+        //             // // let _v = view.borrow_mut();
+        //             // view.draw(ui, self.engine, self.editor, rec, id);
+        //             self.views[0].draw(ui, &mut self.editor_args, self.inspectable, rec, id);
+        //         }
+        //         "Inspector" => {
+        //             if let Some(ins) = &mut self.inspectable {
+        //                 ins.lock().inspect(ui, self.editor_args.world);
+        //             } else {
+        //             }
+        //         }
+        //         "Project" => {
+        //             let assets_manager = self.editor_args.assets_manager.clone();
+        //             let file_watcher = &self.editor_args.file_watcher;
+        //             project::project(
+        //                 ui,
+        //                 self.editor_args.world,
+        //                 self.inspectable,
+        //                 assets_manager,
+        //                 file_watcher,
+        //                 rec,
+        //                 id,
+        //             )
+        //         }
+        //         _ => {}
+        //     }
+        // } else {
+        //     ui.horizontal_top(|ui| {
+        //         if self.editor_args.playing_game {
+        //             if ui.button("Stop").clicked() {
+        //                 println!("stop game");
+        //                 self.editor_args.playing_game = false;
+
+        //                 // {
+        //                 //     // let mut world = self.world;
+        //                 //     self.world.clear();
+        //                 //     serialize::deserialize(&mut self.world);
+        //                 // }
+        //             }
+        //         } else if ui.button("Play").clicked() {
+        //             println!("play game");
+        //             self.editor_args.playing_game = true;
+        //             self.editor_args.world.begin_play();
+        //             // {
+        //             //     // let mut world = self.world;
+        //             //     self.world.clear();
+        //             //     serialize::deserialize(&mut self.world);
+        //             // }
+        //         }
+        //     });
+        //     let a = ui.available_size();
+        //     *EDITOR_WINDOW_DIM.lock() = [a[0] as u32, a[1] as u32];
+        //     ui.image(self.image, a);
+        // }
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
-        (&*tab).into()
+        format!(
+            "{}: {:?}",
+            tab.get_name(),
+            tab.as_ref() as *const dyn EditorWindow as *const ()
+        )
+        .into()
+        // (&*tab).into()
     }
 }
 
@@ -143,8 +177,9 @@ struct ModelInspector {
 }
 
 impl Inspectable_ for ModelInspector {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) -> bool {
         ui.add(egui::Label::new(self.file.as_str()));
+        true
     }
 }
 
@@ -153,7 +188,7 @@ pub struct Editor {
     dragged_transform: Mutex<i32>,
     transform_drag: Mutex<Option<TransformDrag>>,
     inspectable: Option<Arc<Mutex<dyn Inspectable_>>>,
-    dock: Tree<String>,
+    dock: Tree<Box<dyn EditorWindow>>,
     views: Vec<Box<dyn EditorWindow>>,
     play_game: bool,
 }
@@ -168,17 +203,14 @@ pub struct EditorArgs<'a> {
 
 impl Editor {
     pub fn new() -> Self {
-        let mut tree = Tree::new(vec!["Game".to_owned()]);
+        let mut tree: Tree<Box<dyn EditorWindow>> =
+            Tree::new(vec![Box::new(scene_window::SceneWindow::new())]);
 
         // You can modify the tree before constructing the dock
-        let [a, b] = tree.split_left(
-            NodeIndex::root(),
-            0.15,
-            vec!["Hierarchy".to_owned(), "tabx".to_owned()],
-        );
-        let [c, _] = tree.split_right(a, 0.8, vec!["Inspector".to_owned()]);
-        let [_, _] = tree.split_below(b, 0.5, vec!["Project".to_owned()]);
-        let [_, _] = tree.split_below(c, 0.7, vec!["console".to_owned()]);
+        let [a, b] = tree.split_left(NodeIndex::root(), 0.15, vec![Box::new(Hierarchy::new())]);
+        let [c, _] = tree.split_right(a, 0.8, vec![Box::new(Inspector::new())]);
+        let [_, _] = tree.split_below(b, 0.5, vec![Box::new(ProjectWindow::new())]);
+        let [_, _] = tree.split_below(c, 0.7, vec![Box::new(ConsoleWindow::new())]);
         Self {
             editor_window_dim: [1920, 1080],
             dragged_transform: Mutex::new(-1),
@@ -197,6 +229,27 @@ impl Editor {
         curr_playing: bool,
     ) -> bool {
         {
+            let active = self
+                .dock
+                .find_active_focused()
+                .and_then(|p| {
+                    let a: *const dyn EditorWindow = &(*p.1.as_ref());
+                    let b: *const () = a as *const ();
+                    Some(b)
+                })
+                .unwrap_or(std::ptr::null());
+            // self.dock.tabs().for_each(|tab| {
+            //     // if active.is_none() {
+            //     //     tab.update(&editor_args.world.input, &editor_args.world.time, false);
+            //     // } else {
+            //     //     let active = active.unwrap();
+            //     tab.update(
+            //         &editor_args.world.input,
+            //         &editor_args.world.time,
+            //         tab.as_ref() as *const dyn EditorWindow as *const () == active,
+            //     );
+            //     // }
+            // });
             {
                 // let world = editor_args.world;
                 let assets_manager = editor_args.assets_manager.clone();
@@ -261,9 +314,19 @@ impl Editor {
                             }
                         });
                         ui.menu_button("View", |ui| {
-                            for v in ["Game", "Hierarchy", "Inspector", "Project", "console"] {
+                            for v in ["Scene", "Hierarchy", "Inspector", "Project", "Console"] {
                                 if ui.button(v).clicked() {
-                                    unsafe { self.dock.push_to_focused_leaf(v.into()) };
+                                    let a: Box<dyn EditorWindow> = match v {
+                                        "Scene" => Box::new(SceneWindow::new()),
+                                        "Hierarchy" => Box::new(Hierarchy::new()),
+                                        "Inspector" => Box::new(Inspector::new()),
+                                        "Project" => Box::new(ProjectWindow::new()),
+                                        "Console" => Box::new(ConsoleWindow::new()),
+                                        _ => {
+                                            unreachable!()
+                                        }
+                                    };
+                                    unsafe { self.dock.push_to_focused_leaf(a) };
                                     ui.close_menu();
                                 }
                             }
@@ -277,7 +340,8 @@ impl Editor {
                 let mut tab_viewer = TabViewer {
                     image: frame_color,
                     editor_args: &mut editor_args,
-                    views: &mut self.views,
+                    active,
+                    // views: &mut self.views,
                     inspectable: &mut self.inspectable,
                 };
                 DockArea::new(&mut self.dock)
@@ -301,6 +365,13 @@ impl Editor {
 }
 
 pub trait EditorWindow {
+    fn update(
+        &mut self,
+        editor_args: &mut EditorArgs,
+        inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
+        is_focused: bool,
+    ) {
+    }
     fn draw(
         &mut self,
         ui: &mut Ui,
@@ -309,4 +380,5 @@ pub trait EditorWindow {
         rec: Rect,
         id: egui::Id,
     );
+    fn get_name(&self) -> &str;
 }
