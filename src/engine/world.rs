@@ -922,15 +922,15 @@ impl World {
     }
     pub fn update_cameras(
         &mut self,
-    ) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
-        let mut ret = Vec::new();
+    ) {
+        // let mut ret = Vec::new();
         self.get_component_storage::<Camera, _, _>(|camera_storage| {
             camera_storage.for_each(|t_id, cam| {
-                let cvd = cam._update(&self.transforms.get(t_id).unwrap());
-                ret.push((cam.get_data(), cvd))
+                cam._update(&self.transforms.get(t_id).unwrap());
+                // ret.push(cvd)
             })
         });
-        ret
+        // ret
     }
     pub(crate) fn editor_update(&mut self) {
         let sys = &self.sys;
@@ -964,19 +964,19 @@ impl World {
         }
         render_jobs
     }
-    pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
-        self.get_component_storage::<Camera, _, _>(|camera_storage| {
-            let mut main_cam_id = -1;
-            let mut cam_datas = Vec::new();
-            camera_storage.for_each(|t_id, cam| {
-                main_cam_id = t_id;
-                if let Some(data) = cam.get_data() {
-                    cam_datas.push(data);
-                }
-            });
-            (main_cam_id, cam_datas)
-        })
-    }
+    // pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
+    //     self.get_component_storage::<Camera, _, _>(|camera_storage| {
+    //         let mut main_cam_id = -1;
+    //         let mut cam_datas = Vec::new();
+    //         camera_storage.for_each(|t_id, cam| {
+    //             main_cam_id = t_id;
+    //             if let Some(data) = cam.get_data() {
+    //                 cam_datas.push(data);
+    //             }
+    //         });
+    //         (main_cam_id, cam_datas)
+    //     })
+    // }
     pub(crate) fn get_emitter_len(&self) -> usize {
         self.get_component_storage::<ParticleEmitter, _, _>(|x| x.len())
     }

@@ -6,6 +6,7 @@ use std::{
 };
 
 use egui::{Color32, Rect, Rounding, Sense, Ui};
+use egui_winit_vulkano::Gui;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use puffin_egui::puffin;
@@ -40,6 +41,7 @@ impl EditorWindow for ProjectWindow {
         inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
         rec: Rect,
         id: egui::Id,
+        gui: &mut Gui,
     ) {
         let assets_manager = editor_args.assets_manager.clone();
         let file_watcher = &editor_args.file_watcher;

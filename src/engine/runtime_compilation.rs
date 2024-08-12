@@ -99,19 +99,20 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
         let so_file = format!("runtime/lib{}.{}", id, ext);
         if let Ok(_) = fs::copy(file, &so_file) {
             // LOAD NEW LIB
-            let lib = unsafe { libloading::Library::new(&so_file).unwrap() };
-            let func = unsafe { lib.get(b"register") };
+            if let Ok(lib) = unsafe { libloading::Library::new(&so_file) } {
+                let func = unsafe { lib.get(b"register") };
 
-            if func.is_ok() {
-                let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> = func.unwrap();
-                // let mut world = params.lock();
-                world.clear();
-                unsafe {
-                    func(&mut world);
+                if func.is_ok() {
+                    let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> = func.unwrap();
+                    // let mut world = params.lock();
+                    world.clear();
+                    unsafe {
+                        func(&mut world);
+                    }
+                    serialize::deserialize(&mut world, "temp_scene");
+                    fs::remove_file("temp_scene");
+                    *LIB.lock() = Some(lib);
                 }
-                serialize::deserialize(&mut world, "temp_scene");
-                fs::remove_file("temp_scene");
-                *LIB.lock() = Some(lib);
             }
         }
 
@@ -125,7 +126,7 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
 }
 
 impl Inspectable_ for Lib {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool{
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         // ui.add(egui::Label::new(self.path));
         true
     }

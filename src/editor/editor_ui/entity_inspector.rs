@@ -7,6 +7,7 @@ use crate::{
         world::{entity, World},
     },
 };
+use egui_winit_vulkano::Gui;
 use glm::{Quat, Vec3};
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
@@ -201,6 +202,7 @@ impl EditorWindow for Inspector {
         inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
         rec: egui::Rect,
         id: egui::Id,
+        gui: &mut Gui,
     ) {
         if let Some(ins) = &mut self.inspectable {
             if !ins.lock().inspect(ui, editor_args.world) {

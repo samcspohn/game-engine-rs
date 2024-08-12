@@ -289,9 +289,9 @@ impl SharedRendererData {
                 ))
                 .unwrap();
         }
-        if !self.indirect.data.is_empty() {
-            self.indirect_buffer = vk.buffer_from_iter(self.indirect.data.clone());
-        }
+        // if !self.indirect.data.is_empty() { // don't need here
+        //     self.indirect_buffer = vk.buffer_from_iter(self.indirect.data.clone());
+        // }
 
         let mut offset_vec = Vec::new();
         let mut offset = 0;
@@ -307,7 +307,7 @@ impl SharedRendererData {
             }
         }
         if !offset_vec.is_empty() {
-            let offsets_buffer = vk.buffer_from_iter(offset_vec.clone());
+            // let offsets_buffer = vk.buffer_from_iter(offset_vec.clone()); // don't need here
 
             {
                 puffin::profile_scope!("update renderers: stage 0");
@@ -343,7 +343,7 @@ impl SharedRendererData {
                         WriteDescriptorSet::buffer(2, self.renderers_gpu.clone()),
                         WriteDescriptorSet::buffer(3, self.indirect_buffer.clone()),
                         WriteDescriptorSet::buffer(4, transform_compute.gpu_transforms.clone()),
-                        WriteDescriptorSet::buffer(5, offsets_buffer),
+                        WriteDescriptorSet::buffer(5, self.indirect_buffer.clone()),
                         WriteDescriptorSet::buffer(6, uniforms),
                     ],
                 )

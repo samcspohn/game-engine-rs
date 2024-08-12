@@ -2,6 +2,7 @@ use crate::{
     editor::{editor_ui::entity_inspector::_selected, inspectable::Inspectable_},
     engine::{
         input::Input,
+        prelude::VulkanManager,
         project::{
             asset_manager::AssetsManager,
             file_watcher::{self, FileWatcher},
@@ -15,6 +16,7 @@ use crate::{
 };
 use console::ConsoleWindow;
 use egui::{menu, Color32, Context, Layout, Pos2, Rect, Rounding, ScrollArea, Sense, Ui};
+use egui_winit_vulkano::Gui;
 use entity_inspector::Inspector;
 use hierarchy::Hierarchy;
 use nalgebra_glm as glm;
@@ -64,104 +66,43 @@ enum GameObjectContextMenu {
 pub static EDITOR_WINDOW_DIM: Lazy<Mutex<[u32; 2]>> = Lazy::new(|| Mutex::new([1920, 1080]));
 
 struct TabViewer<'a, 'b> {
-    image: egui::TextureId,
+    // image: egui::TextureId,
     editor_args: &'a mut EditorArgs<'b>,
     // editor: &'a mut Editor,
     // goi: &'a GameObjectInspector<'b>,
     // views: &'a mut Vec<Box<dyn EditorWindow>>,
+    gui: &'a mut Gui,
     active: *const (),
     inspectable: &'a mut Option<Arc<Mutex<dyn Inspectable_>>>,
 }
 // pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_, '_> {
-    type Tab = Box<dyn EditorWindow>;
+    type Tab = Mutex<Box<dyn EditorWindow>>;
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         let rec = ui.max_rect();
         // let id = ui.id();
-        if tab.as_ref() as *const dyn EditorWindow as *const () == self.active {
-            println!("active tab is {}", tab.get_name());
-        }
-        tab.update(
-            self.editor_args,
-            self.inspectable,
-            tab.as_ref() as *const dyn EditorWindow as *const () == self.active,
-        );
+        // if tab.as_ref() as *const dyn EditorWindow as *const () == self.active {
+        //     println!("active tab is {}", tab.get_name());
+        // }
+        let mut tab = tab.lock();
+        let id = egui::Id::new(format!(
+            "{}: {:?}",
+            tab.get_name(),
+            tab.as_ref() as *const dyn EditorWindow as *const ()
+        ));
         tab.draw(
             ui,
             &mut self.editor_args,
             self.inspectable,
             rec,
-            egui::Id::new(format!(
-                "{}: {:?}",
-                tab.get_name(),
-                tab.as_ref() as *const dyn EditorWindow as *const ()
-            )),
+            id,
+            self.gui,
         );
-        // if tab != "Game" {
-        //     // ui.label(format!("Content of {tab}"));
-        //     let rec = ui.max_rect();
-        //     let id = ui.id();
-        //     match tab.as_str() {
-        //         "Hierarchy" => {
-        //             // self.editor.draw(0, self.engine, ui, rec, id);
-        //             // let mut view = self.editor.views[0].get_mut();
-        //             // // let _v = view.borrow_mut();
-        //             // view.draw(ui, self.engine, self.editor, rec, id);
-        //             self.views[0].draw(ui, &mut self.editor_args, self.inspectable, rec, id);
-        //         }
-        //         "Inspector" => {
-        //             if let Some(ins) = &mut self.inspectable {
-        //                 ins.lock().inspect(ui, self.editor_args.world);
-        //             } else {
-        //             }
-        //         }
-        //         "Project" => {
-        //             let assets_manager = self.editor_args.assets_manager.clone();
-        //             let file_watcher = &self.editor_args.file_watcher;
-        //             project::project(
-        //                 ui,
-        //                 self.editor_args.world,
-        //                 self.inspectable,
-        //                 assets_manager,
-        //                 file_watcher,
-        //                 rec,
-        //                 id,
-        //             )
-        //         }
-        //         _ => {}
-        //     }
-        // } else {
-        //     ui.horizontal_top(|ui| {
-        //         if self.editor_args.playing_game {
-        //             if ui.button("Stop").clicked() {
-        //                 println!("stop game");
-        //                 self.editor_args.playing_game = false;
-
-        //                 // {
-        //                 //     // let mut world = self.world;
-        //                 //     self.world.clear();
-        //                 //     serialize::deserialize(&mut self.world);
-        //                 // }
-        //             }
-        //         } else if ui.button("Play").clicked() {
-        //             println!("play game");
-        //             self.editor_args.playing_game = true;
-        //             self.editor_args.world.begin_play();
-        //             // {
-        //             //     // let mut world = self.world;
-        //             //     self.world.clear();
-        //             //     serialize::deserialize(&mut self.world);
-        //             // }
-        //         }
-        //     });
-        //     let a = ui.available_size();
-        //     *EDITOR_WINDOW_DIM.lock() = [a[0] as u32, a[1] as u32];
-        //     ui.image(self.image, a);
-        // }
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        let tab = tab.lock();
         format!(
             "{}: {:?}",
             tab.get_name(),
@@ -184,11 +125,12 @@ impl Inspectable_ for ModelInspector {
 }
 
 pub struct Editor {
+    vk: Arc<VulkanManager>,
     editor_window_dim: [u32; 2],
     dragged_transform: Mutex<i32>,
     transform_drag: Mutex<Option<TransformDrag>>,
     inspectable: Option<Arc<Mutex<dyn Inspectable_>>>,
-    dock: Tree<Box<dyn EditorWindow>>,
+    dock: Tree<Mutex<Box<dyn EditorWindow>>>,
     views: Vec<Box<dyn EditorWindow>>,
     play_game: bool,
 }
@@ -202,16 +144,22 @@ pub struct EditorArgs<'a> {
 }
 
 impl Editor {
-    pub fn new() -> Self {
-        let mut tree: Tree<Box<dyn EditorWindow>> =
-            Tree::new(vec![Box::new(scene_window::SceneWindow::new())]);
+    pub fn new(vk: Arc<VulkanManager>) -> Self {
+        let mut tree: Tree<Mutex<Box<dyn EditorWindow>>> = Tree::new(vec![Mutex::new(Box::new(
+            scene_window::SceneWindow::new(vk.clone()),
+        ))]);
 
         // You can modify the tree before constructing the dock
-        let [a, b] = tree.split_left(NodeIndex::root(), 0.15, vec![Box::new(Hierarchy::new())]);
-        let [c, _] = tree.split_right(a, 0.8, vec![Box::new(Inspector::new())]);
-        let [_, _] = tree.split_below(b, 0.5, vec![Box::new(ProjectWindow::new())]);
-        let [_, _] = tree.split_below(c, 0.7, vec![Box::new(ConsoleWindow::new())]);
+        let [a, b] = tree.split_left(
+            NodeIndex::root(),
+            0.15,
+            vec![Mutex::new(Box::new(Hierarchy::new()))],
+        );
+        let [c, _] = tree.split_right(a, 0.8, vec![Mutex::new(Box::new(Inspector::new()))]);
+        let [_, _] = tree.split_below(b, 0.5, vec![Mutex::new(Box::new(ProjectWindow::new()))]);
+        let [_, _] = tree.split_below(c, 0.7, vec![Mutex::new(Box::new(ConsoleWindow::new()))]);
         Self {
+            vk,
             editor_window_dim: [1920, 1080],
             dragged_transform: Mutex::new(-1),
             transform_drag: Mutex::new(None),
@@ -225,7 +173,8 @@ impl Editor {
         &mut self,
         mut editor_args: EditorArgs,
         egui_ctx: &Context,
-        frame_color: egui::TextureId,
+        gui: &mut Gui,
+        // frame_color: egui::TextureId,
         curr_playing: bool,
     ) -> bool {
         {
@@ -233,11 +182,17 @@ impl Editor {
                 .dock
                 .find_active_focused()
                 .and_then(|p| {
-                    let a: *const dyn EditorWindow = &(*p.1.as_ref());
+                    let a: *const dyn EditorWindow = &(*p.1.lock().as_ref());
                     let b: *const () = a as *const ();
                     Some(b)
                 })
                 .unwrap_or(std::ptr::null());
+
+            self.dock.tabs().for_each(|tab| {
+                let mut tab = tab.lock();
+                let is_active = tab.as_ref() as *const dyn EditorWindow as *const () == active;
+                tab.update(&mut editor_args, &mut self.inspectable, is_active);
+            });
             // self.dock.tabs().for_each(|tab| {
             //     // if active.is_none() {
             //     //     tab.update(&editor_args.world.input, &editor_args.world.time, false);
@@ -316,8 +271,8 @@ impl Editor {
                         ui.menu_button("View", |ui| {
                             for v in ["Scene", "Hierarchy", "Inspector", "Project", "Console"] {
                                 if ui.button(v).clicked() {
-                                    let a: Box<dyn EditorWindow> = match v {
-                                        "Scene" => Box::new(SceneWindow::new()),
+                                    let a: Mutex<Box<dyn EditorWindow>> = Mutex::new(match v {
+                                        "Scene" => Box::new(SceneWindow::new(self.vk.clone())),
                                         "Hierarchy" => Box::new(Hierarchy::new()),
                                         "Inspector" => Box::new(Inspector::new()),
                                         "Project" => Box::new(ProjectWindow::new()),
@@ -325,7 +280,7 @@ impl Editor {
                                         _ => {
                                             unreachable!()
                                         }
-                                    };
+                                    });
                                     unsafe { self.dock.push_to_focused_leaf(a) };
                                     ui.close_menu();
                                 }
@@ -338,9 +293,10 @@ impl Editor {
 
             {
                 let mut tab_viewer = TabViewer {
-                    image: frame_color,
+                    // image: frame_color,
                     editor_args: &mut editor_args,
                     active,
+                    gui,
                     // views: &mut self.views,
                     inspectable: &mut self.inspectable,
                 };
@@ -379,6 +335,7 @@ pub trait EditorWindow {
         inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
         rec: Rect,
         id: egui::Id,
+        gui: &mut Gui,
     );
     fn get_name(&self) -> &str;
 }

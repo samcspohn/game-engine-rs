@@ -1,3 +1,5 @@
+use egui_winit_vulkano::Gui;
+
 use super::EditorWindow;
 
 
@@ -17,6 +19,7 @@ impl EditorWindow for ConsoleWindow {
         inspectable: &mut Option<std::sync::Arc<parking_lot::Mutex<dyn crate::engine::prelude::Inspectable_>>>,
         rec: egui::Rect,
         id: egui::Id,
+        gui: &mut Gui,
     ) {
         
     }

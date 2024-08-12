@@ -1,4 +1,5 @@
 use egui::TextureId;
+use egui_winit_vulkano::Gui;
 use glium::buffer::Content;
 use glm::{cross, dot, normalize, radians, vec1, vec2, vec4, Mat4, Quat, Vec2, Vec3, Vec4};
 use id::*;
@@ -11,28 +12,19 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     default,
-    sync::Arc,
+    sync::{atomic::AtomicI32, Arc},
 };
 use vulkano::{
-    buffer::Subbuffer,
-    command_buffer::{
+    buffer::Subbuffer, command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, DrawIndirectCommand,
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
-    },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    format::{ClearValue, Format},
-    image::{
-        view::ImageView, AttachmentImage, ImageAccess, ImageDimensions, ImageUsage, SampleCount,
-        StorageImage,
-    },
-    memory::allocator::MemoryUsage,
-    padded::Padded,
-    pipeline::{
+    }, descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet}, format::{ClearValue, Format}, image::{
+        view::ImageView, AttachmentImage, ImageAccess, ImageDimensions, ImageUsage,
+        ImageViewAbstract, SampleCount, StorageImage,
+    }, memory::allocator::MemoryUsage, padded::Padded, pipeline::{
         graphics::viewport::Viewport, ComputePipeline, GraphicsPipeline, Pipeline,
         PipelineBindPoint,
-    },
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    sync::GpuFuture,
+    }, render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass}, sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE}, sync::GpuFuture
 };
 use winit::event::VirtualKeyCode;
 
@@ -75,8 +67,80 @@ use super::{
     vulkan_manager::VulkanManager,
 };
 
+pub struct CameraList {
+    pub cameras: Mutex<Vec<(i32, CameraData)>>,
+    pub camera_id_gen: AtomicI32,
+}
+
+pub static CAMERA_LIST: CameraList = CameraList {
+    cameras: Mutex::new(Vec::new()),
+    camera_id_gen: AtomicI32::new(0),
+};
+
+pub struct CameraDataId {
+    id: i32,
+}
+
+impl Clone for CameraDataId {
+    fn clone(&self) -> Self {
+        let cid = CameraDataId {
+            id: CAMERA_LIST
+                .camera_id_gen
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        };
+        let mut list = CAMERA_LIST.cameras.lock();
+
+        let cd = list
+            .binary_search_by(|(id, cam)| id.cmp(&self.id))
+            .map(|index| {
+                let cd = &list[index].1;
+                let _cd = CameraData::new(cd.vk.clone(), cd.num_samples);
+                _cd
+            })
+            .unwrap();
+        list.push((cid.id, cd));
+        list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        cid
+        // *let cid = CameraDataId::new(vk: , num_samples)
+    }
+}
+
+impl CameraDataId {
+    pub fn new(vk: Arc<VulkanManager>, num_samples: u32) -> CameraDataId {
+        let cid = CameraDataId {
+            id: CAMERA_LIST
+                .camera_id_gen
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        };
+        let mut list = CAMERA_LIST.cameras.lock();
+        list.push((cid.id, CameraData::new(vk, num_samples)));
+        list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        cid
+    }
+    pub fn get<D>(&self, f: D)
+    where
+        D: FnOnce(&mut CameraData),
+    {
+        let mut list = CAMERA_LIST.cameras.lock();
+        list.binary_search_by(|(id, cam)| id.cmp(&self.id))
+            .map(|index| f(&mut list[index].1));
+    }
+}
+
+impl Drop for CameraDataId {
+    fn drop(&mut self) {
+        let mut list = CAMERA_LIST.cameras.lock();
+        let index = list.binary_search_by(|(id, cam)| id.cmp(&self.id)).unwrap();
+        list.remove(index);
+        list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    }
+}
+
 // #[derive(Clone)]
 pub struct CameraData {
+    pub is_active: bool,
+    pub is_visible: bool,
+    num_samples: u32,
     rend: RenderPipeline,
     particle_render_pipeline: ParticleRenderPipeline,
     particle_debug_pipeline: ParticleDebugPipeline,
@@ -85,8 +149,9 @@ pub struct CameraData {
     _render_pass: Arc<RenderPass>,
     viewport: Viewport,
     framebuffer: Arc<Framebuffer>,
-    pub render_textures_ids: Option<Vec<TextureId>>,
+    pub texture_id: Option<egui::TextureId>,
     pub image: Arc<dyn ImageAccess>,
+    pub view: Arc<dyn ImageViewAbstract>,
 
     samples: SampleCount,
     vk: Arc<VulkanManager>,
@@ -174,38 +239,7 @@ impl _Frustum {
                 dot(&temp_normal, &frustum.points[4]),
             );
         }
-        // let rot = glm::quat_to_mat3(&cam.cam_rot);
-        // let h_far = far_dist * (fovY).tan();
-        // let w_far = h_far * aspect;
-        // let h_near = near_dist * (fovY).tan();
-        // let w_near = h_near * aspect;
-        // let p = cam.cam_pos;
-        // let d = rot * glm::Vec3::z();
-        // let right = rot * glm::Vec3::x();
-        // let up = rot * glm::Vec3::y();
-        // let fc = p + d * far_dist;
-        // let ftl = fc + (up * h_far / 2.) - (right * w_far / 2.);
-        // let ftr = fc + (up * h_far / 2.) + (right * w_far / 2.);
-        // let fbl = fc - (up * h_far / 2.) - (right * w_far / 2.);
-        // let fbr = fc - (up * h_far / 2.) + (right * w_far / 2.);
-
-        // let nc = p + d * near_dist;
-
-        // let ntl = nc + (up * h_near / 2.) - (right * w_near / 2.);
-        // let ntr = nc + (up * h_near / 2.) + (right * w_near / 2.);
-        // let nbl = nc - (up * h_near / 2.) - (right * w_near / 2.);
-        // let nbr = nc - (up * h_near / 2.) + (right * w_near / 2.);
         frustum
-        //     let halfVSide = zFar * (fovY * 0.5).tan();
-        //     let halfHSide = halfVSide * aspect;
-        //     let rot = glm::quat_to_mat3(&cam.cam_rot);
-        //     let front = rot * glm::Vec3::z();
-        //     let right = rot * glm::Vec3::x();
-        //     let up = rot * glm::Vec3::y();
-
-        //     let p = cam.cam_pos;
-        //     let d = front;
-        // let frontMultFar = zFar * front;
     }
 }
 
@@ -234,27 +268,8 @@ impl Into<crate::engine::particles::shaders::scs::Frustum> for _Frustum {
 }
 impl Into<debug::gs1::Frustum> for _Frustum {
     fn into(self) -> debug::gs1::Frustum {
-        // let mut planes: [[f32; 4]; 6] = {
-
-        // }
         let f: scs::Frustum = self.into();
         unsafe { *(f.to_void_ptr() as *const debug::gs1::Frustum) }
-        // scs::Frustum {
-        //     planes: self
-        //         .planes
-        //         .into_iter()
-        //         .map(|p| p.into())
-        //         .collect::<Vec<[f32; 4]>>()
-        //         .try_into()
-        //         .unwrap(),
-        //     points: self
-        //         .points
-        //         .into_iter()
-        //         .map(|p| Padded(p.into()))
-        //         .collect::<Vec<Padded<[f32; 3], 4>>>()
-        //         .try_into()
-        //         .unwrap(),
-        // }
     }
 }
 
@@ -280,7 +295,7 @@ pub struct CameraViewData {
 #[serde(default)]
 pub struct Camera {
     #[serde(skip_serializing, skip_deserializing)]
-    data: Option<Arc<Mutex<CameraData>>>,
+    data: Option<CameraDataId>,
     pub fov: f32,
     pub near: f32,
     pub far: f32,
@@ -306,10 +321,11 @@ impl Default for Camera {
 
 impl Component for Camera {
     fn init(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
-        self.data = Some(Arc::new(Mutex::new(CameraData::new(
-            sys.vk.clone(),
-            self.samples,
-        ))));
+        self.data = Some(CameraDataId::new(sys.vk.clone(), self.samples));
+        // self.data = Some(Arc::new(Mutex::new(CameraData::new(
+        //     sys.vk.clone(),
+        //     self.samples,
+        // ))));
     }
     fn inspect(&mut self, _transform: &Transform, _id: i32, ui: &mut egui::Ui, sys: &Sys) {
         Ins(&mut self.fov).inspect("fov", ui, sys);
@@ -355,24 +371,27 @@ impl Component for Camera {
     }
 }
 impl Camera {
-    pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
-        self.data.as_ref().map(|data| data.clone())
-    }
-    pub fn _update(&mut self, transform: &Transform) -> Option<CameraViewData> {
+    // pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
+    //     self.data.as_ref().map(|data| data.get(f).clone())
+    // }
+    pub fn _update(&mut self, transform: &Transform) {
         if let Some(cam_data) = &self.data {
-            let r = Some(cam_data.lock().update(
-                transform.get_position(),
-                transform.get_rotation(),
-                self.near,
-                self.far,
-                self.fov,
-                self.rebuild_renderpass,
-                self.samples,
-            ));
+            // let mut cvd = CameraViewData::default();
+            cam_data.get(|cam_data: &mut CameraData| {
+                cam_data.update(
+                    transform.get_position(),
+                    transform.get_rotation(),
+                    self.near,
+                    self.far,
+                    self.fov,
+                    self.rebuild_renderpass,
+                    self.samples,
+                );
+            });
             self.rebuild_renderpass = false;
-            r
+            // Some(cvd)
         } else {
-            None
+            // None
         }
     }
 }
@@ -386,9 +405,12 @@ impl CameraData {
         fov: f32,
         rebuild_pipeline: bool,
         num_samples: u32,
-    ) -> CameraViewData {
+    ) {
         if rebuild_pipeline {
             *self = Self::new(self.vk.clone(), num_samples);
+        }
+        if !self.is_visible || !self.is_active {
+            return;
         }
 
         let mut cvd = CameraViewData::default();
@@ -417,8 +439,8 @@ impl CameraData {
         cvd.far = far;
         cvd.frustum = _Frustum::create(&cvd);
         // cvd.proj.column_mut(1)[1] *= -1.;
-        cvd
-        // self.camera_view_data.push_back(cvd);
+        // cvd
+        self.camera_view_data.push_back(cvd);
     }
     pub fn new(vk: Arc<VulkanManager>, num_samples: u32) -> Self {
         let samples = match num_samples {
@@ -516,7 +538,11 @@ impl CameraData {
             depth_range: 0.0..1.0,
         };
 
-        let (framebuffer, image): (Arc<Framebuffer>, Arc<dyn ImageAccess>) = if use_msaa {
+        let (framebuffer, image, view): (
+            Arc<Framebuffer>,
+            Arc<dyn ImageAccess>,
+            Arc<dyn ImageViewAbstract>,
+        ) = if use_msaa {
             window_size_dependent_setup_msaa(
                 [1920, 1080],
                 render_pass.clone(),
@@ -534,6 +560,7 @@ impl CameraData {
         };
         // let subpass = Subpass::from(render_pass, 0).unwrap();
         let rend = RenderPipeline::new(render_pass.clone(), [1920, 1080], 0, vk.clone());
+
         Self {
             rend,
             particle_render_pipeline: ParticleRenderPipeline::new(vk.clone(), render_pass.clone()),
@@ -543,25 +570,29 @@ impl CameraData {
             _render_pass: render_pass,
             viewport,
             framebuffer,
-            render_textures_ids: None,
+            texture_id: None,
             image,
+            view,
             camera_view_data: VecDeque::new(), // swapchain,
             samples,
             // tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly)),
             vk,
+            is_active: true,
+            is_visible: false,
+            num_samples,
         }
     }
-    pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>) {
+    pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>, gui: &mut Gui) {
         if self.framebuffer.extent() != dimensions {
             if self.samples == SampleCount::Sample1 {
-                (self.framebuffer, self.image) = window_size_dependent_setup(
+                (self.framebuffer, self.image, self.view) = window_size_dependent_setup(
                     dimensions,
                     self._render_pass.clone(),
                     &mut self.viewport,
                     vk,
                 )
             } else {
-                (self.framebuffer, self.image) = window_size_dependent_setup_msaa(
+                (self.framebuffer, self.image, self.view) = window_size_dependent_setup_msaa(
                     dimensions,
                     self._render_pass.clone(),
                     &mut self.viewport,
@@ -569,6 +600,18 @@ impl CameraData {
                     self.samples,
                 )
             }
+            if let Some(tex) = self.texture_id.as_ref() {
+                gui.unregister_user_image(*tex);
+            }
+            self.texture_id = Some(gui.register_user_image_view(
+                self.view.clone(),
+                SamplerCreateInfo {
+                    lod: 0.0..=LOD_CLAMP_NONE,
+                    mip_lod_bias: -0.2,
+                    address_mode: [SamplerAddressMode::Repeat; 3],
+                    ..Default::default()
+                },
+            ))
         }
     }
     pub fn render(
@@ -634,6 +677,9 @@ impl CameraData {
                         //     *u.write().unwrap() = data;
                         //     u
                         // };
+                        if !rm.indirect.data.is_empty() {
+                            rm.indirect_buffer = vk.buffer_from_iter(rm.indirect.data.clone());
+                        }
                         let update_renderers_set = {
                             puffin::profile_scope!("update renderers: stage 1: descriptor set");
                             PersistentDescriptorSet::new(
@@ -923,7 +969,11 @@ fn window_size_dependent_setup_msaa(
     viewport: &mut Viewport,
     vk: Arc<VulkanManager>,
     samples: SampleCount,
-) -> (Arc<Framebuffer>, Arc<dyn ImageAccess>) {
+) -> (
+    Arc<Framebuffer>,
+    Arc<dyn ImageAccess>,
+    Arc<dyn ImageViewAbstract>,
+) {
     viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
     viewport.origin[1] = -viewport.dimensions[1];
     let depth_buffer = ImageView::new_default(
@@ -963,7 +1013,7 @@ fn window_size_dependent_setup_msaa(
         Framebuffer::new(
             render_pass.clone(),
             FramebufferCreateInfo {
-                attachments: vec![view, depth_buffer],
+                attachments: vec![view.clone(), depth_buffer],
                 ..Default::default()
             },
         )
@@ -972,14 +1022,14 @@ fn window_size_dependent_setup_msaa(
         Framebuffer::new(
             render_pass.clone(),
             FramebufferCreateInfo {
-                attachments: vec![intermediary, depth_buffer, view],
+                attachments: vec![intermediary, depth_buffer, view.clone()],
                 ..Default::default()
             },
         )
         .unwrap()
     };
 
-    (frame_buf, image)
+    (frame_buf, image, view)
 }
 
 /// This method is called once during initialization, then again whenever the window is resized
@@ -988,7 +1038,11 @@ fn window_size_dependent_setup(
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     vk: Arc<VulkanManager>,
-) -> (Arc<Framebuffer>, Arc<dyn ImageAccess>) {
+) -> (
+    Arc<Framebuffer>,
+    Arc<dyn ImageAccess>,
+    Arc<dyn ImageViewAbstract>,
+) {
     viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
     viewport.origin[1] = -viewport.dimensions[1];
     let depth_buffer = ImageView::new_default(
@@ -1014,12 +1068,12 @@ fn window_size_dependent_setup(
     let frame_buf = Framebuffer::new(
         render_pass.clone(),
         FramebufferCreateInfo {
-            attachments: vec![view, depth_buffer.clone()],
+            attachments: vec![view.clone(), depth_buffer.clone()],
             ..Default::default()
         },
     )
     .unwrap();
 
-    (frame_buf, image)
+    (frame_buf, image, view)
     // (fb, images)
 }

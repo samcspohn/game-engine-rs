@@ -1,22 +1,28 @@
+use std::sync::Arc;
+
 use glm::{vec4, Vec3};
 use winit::event::VirtualKeyCode;
 
 use nalgebra_glm::{self as glm, vec3};
 
-use crate::engine::{input::Input, time::Time};
+use crate::engine::{
+    input::Input, prelude::VulkanManager, rendering::camera::CameraDataId, time::Time,
+};
 
 pub struct EditorCam {
     pub pos: glm::Vec3,
     pub rot: glm::Quat,
     pub speed: f32,
+    pub camera: CameraDataId,
 }
 
 impl EditorCam {
-    pub fn new() -> EditorCam {
+    pub fn new(vk: Arc<VulkanManager>) -> EditorCam {
         EditorCam {
             pos: Vec3::zeros(),
-            rot: glm::quat_look_at(&vec3(0f32, 0f32, 1f32), &vec3(0f32, 1f32, 0f32)),
-            speed: 4f32,
+            rot: glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()),
+            speed: 32f32,
+            camera: CameraDataId::new(vk, 1),
         }
     }
     pub fn update(&mut self, input: &Input, time: &Time) {
