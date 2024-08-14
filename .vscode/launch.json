@@ -25,7 +25,7 @@
             "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
             // "env": {"RUSTFLAGS": "-Z unstable-options"},
-            "preLaunchTask": "find assimp",
+            // "preLaunchTask": "find assimp",
             "env": {
                 "PATH": "${workspaceFolder}/target/release/deps;${env:PATH}",
                 // Switch `nightly` to `stable` if you're using Rust stable

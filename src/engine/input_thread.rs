@@ -21,6 +21,7 @@ pub(crate) fn input_thread(
         Option<PhysicalSize<u32>>,
         bool,
     )>,
+    interupt: Receiver<i32>,
 ) {
     let mut focused = true;
     let mut input = Input::default();
@@ -31,6 +32,25 @@ pub(crate) fn input_thread(
     let mut should_quit = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
+        interupt.try_recv().ok().map(|i| {
+            match i {
+                0 => {
+                    // let mut a = Vec::new();
+                    // swap(&mut a, &mut events);
+                    coms.send((events.clone(), input.clone(), size, should_quit));
+                    // recreate_swapchain = false;
+                    size = None;
+                    events.clear();
+                    input.reset();
+                }
+                1 => {
+                    // todo!()
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                },
+                _ => unreachable!()
+            }
+        });
         match event {
             Event::DeviceEvent { event, .. } => input.process_device(event, focused),
             Event::WindowEvent { event, .. } => {

@@ -6,7 +6,7 @@ use id::*;
 use nalgebra_glm as glm;
 use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use puffin_egui::puffin;
-use rapier3d::na::ComplexField;
+use rapier3d::{na::ComplexField, parry::simba::scalar::SupersetOf};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -15,16 +15,26 @@ use std::{
     sync::{atomic::AtomicI32, Arc},
 };
 use vulkano::{
-    buffer::Subbuffer, command_buffer::{
+    buffer::Subbuffer,
+    command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, DrawIndirectCommand,
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
-    }, descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet}, format::{ClearValue, Format}, image::{
+    },
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    format::{ClearValue, Format},
+    image::{
         view::ImageView, AttachmentImage, ImageAccess, ImageDimensions, ImageUsage,
         ImageViewAbstract, SampleCount, StorageImage,
-    }, memory::allocator::MemoryUsage, padded::Padded, pipeline::{
+    },
+    memory::allocator::MemoryUsage,
+    padded::Padded,
+    pipeline::{
         graphics::viewport::Viewport, ComputePipeline, GraphicsPipeline, Pipeline,
         PipelineBindPoint,
-    }, render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass}, sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE}, sync::GpuFuture
+    },
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
+    sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
+    sync::GpuFuture,
 };
 use winit::event::VirtualKeyCode;
 
@@ -77,6 +87,7 @@ pub static CAMERA_LIST: CameraList = CameraList {
     camera_id_gen: AtomicI32::new(0),
 };
 
+// #[derive(Clone)]
 pub struct CameraDataId {
     id: i32,
 }
@@ -290,12 +301,19 @@ pub struct CameraViewData {
     pub far: f32,
 }
 
-#[derive(ID, Clone, Serialize, Deserialize)]
-#[repr(C)]
+pub(crate) static mut MAIN_CAMERA: Option<i32> = None;
+
+pub fn set_main_cam(cam: &Camera) {
+    unsafe {
+        MAIN_CAMERA = Some(cam.data.as_ref().unwrap().id);
+    }
+}
+#[derive(ID, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Camera {
     #[serde(skip_serializing, skip_deserializing)]
-    data: Option<CameraDataId>,
+    pub(crate) data: Option<CameraDataId>,
+    pub main_cam: bool,
     pub fov: f32,
     pub near: f32,
     pub far: f32,
@@ -305,10 +323,25 @@ pub struct Camera {
     rebuild_renderpass: bool,
 }
 
+impl Clone for Camera {
+    fn clone(&self) -> Self {
+        Self {
+            data: None,
+            main_cam: false,
+            fov: self.fov.clone(),
+            near: self.near.clone(),
+            far: self.far.clone(),
+            use_msaa: self.use_msaa.clone(),
+            samples: self.samples.clone(),
+            rebuild_renderpass: true,
+        }
+    }
+}
 impl Default for Camera {
     fn default() -> Self {
         Self {
             data: None,
+            main_cam: false,
             fov: 60f32,
             near: 0.1f32,
             far: 100f32,
@@ -322,6 +355,12 @@ impl Default for Camera {
 impl Component for Camera {
     fn init(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
         self.data = Some(CameraDataId::new(sys.vk.clone(), self.samples));
+
+        unsafe {
+            if self.main_cam {
+                MAIN_CAMERA = Some(self.data.as_ref().unwrap().id);
+            }
+        }
         // self.data = Some(Arc::new(Mutex::new(CameraData::new(
         //     sys.vk.clone(),
         //     self.samples,
@@ -367,7 +406,45 @@ impl Component for Camera {
             // }
         });
 
+        if ui.checkbox(&mut self.main_cam, "Is Main Camera").changed() {
+            unsafe {
+                if !self.main_cam {
+                    MAIN_CAMERA = None;
+                } else {
+                    MAIN_CAMERA = Some(self.data.as_ref().unwrap().id);
+                }
+            }
+        }
+        // if ui.button("Set as main camera").clicked() {
+        //     set_main_cam(&self);
+        // }
+
         // Ins(&mut self.samples).inspect("samples", ui, sys);
+    }
+    fn editor_update(&mut self, transform: &Transform, sys: &crate::engine::prelude::System) {
+        if unsafe {
+            MAIN_CAMERA
+                .as_ref()
+                .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
+                .unwrap_or(false)
+        } {
+            self.main_cam = false;
+        }
+    }
+    fn update(
+        &mut self,
+        transform: &Transform,
+        sys: &crate::engine::prelude::System,
+        world: &crate::engine::world::World,
+    ) {
+        if unsafe {
+            MAIN_CAMERA
+                .as_ref()
+                .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
+                .unwrap_or(false)
+        } {
+            self.main_cam = false;
+        }
     }
 }
 impl Camera {

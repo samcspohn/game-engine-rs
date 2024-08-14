@@ -17,6 +17,7 @@ use rayon::prelude::*;
 use segvec::SegVec;
 use serde::{Deserialize, Serialize};
 use thincollections::thin_vec::ThinVec;
+use vulkano::padded::Padded;
 
 use super::{
     atomic_vec::AtomicVec,
@@ -146,8 +147,8 @@ impl Avail {
 
 #[repr(C)]
 pub struct Storage<T> {
-    pub data: Vec<(SyncUnsafeCell<i32>, Mutex<T>)>,
-    pub valid: Vec<SyncUnsafeCell<bool>>,
+    pub data: SegVec<(SyncUnsafeCell<i32>, Mutex<T>)>,
+    pub valid: SegVec<SyncUnsafeCell<Padded<bool,3>>>,
     new_ids_cache: VecCache<i32>,
     new_offsets_cache: VecCache<i32>,
     avail: Avail,
@@ -183,7 +184,7 @@ impl<
         D: FnMut(i32, &mut T) + Send + Sync,
     {
         self.data.iter().zip(self.valid.iter()).for_each(|(d, v)| {
-            if unsafe { *v.get() } {
+            if unsafe { **v.get() } {
                 let id: i32 = unsafe { *d.0.get() };
                 let mut d = d.1.lock();
                 f(id, &mut d);
@@ -241,7 +242,7 @@ impl<
         // });
 
         (0..last).into_par_iter().for_each(|i| {
-            if unsafe { *self.valid[i].get() } {
+            if unsafe { **self.valid[i].get() } {
                 let mut d = self.data[i].1.lock();
                 let t_id = unsafe { *self.data[i].0.get() };
                 f(t_id,&mut d);
@@ -277,7 +278,7 @@ impl<
     }
     fn write_t(&self, id: i32, transform: i32, d: T) {
         unsafe {
-            *self.valid[id as usize].get() = true;
+            *self.valid[id as usize].get() = Padded(true);
             *self.data[id as usize].0.get() = transform;
         };
         *self.data[id as usize].1.lock() = d;
@@ -285,7 +286,7 @@ impl<
     fn push_t(&mut self, transform: i32, d: T) {
         self.data
             .push((SyncUnsafeCell::new(transform), Mutex::new(d)));
-        self.valid.push(SyncUnsafeCell::new(true));
+        self.valid.push(SyncUnsafeCell::new(Padded(true)));
     }
     fn reserve(&mut self, count: usize) {
         let c = self.avail.len().min(count);
@@ -294,7 +295,7 @@ impl<
             let c = c + self.len();
             self.data
                 .resize_with(c, || (SyncUnsafeCell::new(-1), Mutex::new(T::default())));
-            self.valid.resize_with(c, || SyncUnsafeCell::new(false));
+            self.valid.resize_with(c, || SyncUnsafeCell::new(Padded(false)));
         }
     }
     pub fn insert(&mut self, transform: i32, d: T) -> i32 {
@@ -363,7 +364,7 @@ impl<
     fn _reduce_last(&mut self) {
         self.avail.commit();
         let mut id = self.last;
-        while id >= 0 && !*self.valid[id as usize].get_mut() {
+        while id >= 0 && !**self.valid[id as usize].get_mut() {
             // not thread safe!
             id -= 1;
         }
@@ -373,13 +374,13 @@ impl<
         // self.avail = self.avail.min(id);
         self.avail.push(id);
         unsafe {
-            *self.valid[id as usize].get() = false;
+            **self.valid[id as usize].get() = false;
         }
     }
     pub fn new(has_update: bool, has_late_update: bool, has_render: bool) -> Storage<T> {
         Storage::<T> {
-            data: Vec::new(),
-            valid: Vec::new(),
+            data: SegVec::new(),
+            valid: SegVec::new(),
             avail: Avail::new(),
             new_ids_cache: VecCache::new(),
             new_offsets_cache: VecCache::new(),

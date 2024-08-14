@@ -17,7 +17,8 @@ use crate::{
 use console::ConsoleWindow;
 use egui::{menu, Color32, Context, Layout, Pos2, Rect, Rounding, ScrollArea, Sense, Ui};
 use egui_winit_vulkano::Gui;
-use entity_inspector::Inspector;
+use entity_inspector::{Inspector, LAST_ACTIVE};
+use game_window::GameWindow;
 use hierarchy::Hierarchy;
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
@@ -44,6 +45,7 @@ use egui_dock::{DockArea, NodeIndex, Style, Tree};
 mod asset_browser;
 mod console;
 mod entity_inspector;
+mod game_window;
 mod hierarchy;
 mod project;
 mod scene_window;
@@ -145,9 +147,10 @@ pub struct EditorArgs<'a> {
 
 impl Editor {
     pub fn new(vk: Arc<VulkanManager>) -> Self {
-        let mut tree: Tree<Mutex<Box<dyn EditorWindow>>> = Tree::new(vec![Mutex::new(Box::new(
-            scene_window::SceneWindow::new(vk.clone()),
-        ))]);
+        let mut tree: Tree<Mutex<Box<dyn EditorWindow>>> = Tree::new(vec![
+            Mutex::new(Box::new(SceneWindow::new(vk.clone()))),
+            Mutex::new(Box::new(GameWindow::new(vk.clone()))),
+        ]);
 
         // You can modify the tree before constructing the dock
         let [a, b] = tree.split_left(
@@ -155,7 +158,9 @@ impl Editor {
             0.15,
             vec![Mutex::new(Box::new(Hierarchy::new()))],
         );
-        let [c, _] = tree.split_right(a, 0.8, vec![Mutex::new(Box::new(Inspector::new()))]);
+        let ins = Box::new(Inspector::new());
+        unsafe { LAST_ACTIVE = ins.as_ref() };
+        let [c, _] = tree.split_right(a, 0.8, vec![Mutex::new(ins)]);
         let [_, _] = tree.split_below(b, 0.5, vec![Mutex::new(Box::new(ProjectWindow::new()))]);
         let [_, _] = tree.split_below(c, 0.7, vec![Mutex::new(Box::new(ConsoleWindow::new()))]);
         Self {
@@ -174,7 +179,6 @@ impl Editor {
         mut editor_args: EditorArgs,
         egui_ctx: &Context,
         gui: &mut Gui,
-        // frame_color: egui::TextureId,
         curr_playing: bool,
     ) -> bool {
         {
@@ -193,6 +197,8 @@ impl Editor {
                 let is_active = tab.as_ref() as *const dyn EditorWindow as *const () == active;
                 tab.update(&mut editor_args, &mut self.inspectable, is_active);
             });
+
+            // self.dock.set_active_tab(node_index, tab_index)
             // self.dock.tabs().for_each(|tab| {
             //     // if active.is_none() {
             //     //     tab.update(&editor_args.world.input, &editor_args.world.time, false);
@@ -269,7 +275,14 @@ impl Editor {
                             }
                         });
                         ui.menu_button("View", |ui| {
-                            for v in ["Scene", "Hierarchy", "Inspector", "Project", "Console"] {
+                            for v in [
+                                "Scene",
+                                "Hierarchy",
+                                "Inspector",
+                                "Project",
+                                "Console",
+                                "Game",
+                            ] {
                                 if ui.button(v).clicked() {
                                     let a: Mutex<Box<dyn EditorWindow>> = Mutex::new(match v {
                                         "Scene" => Box::new(SceneWindow::new(self.vk.clone())),
@@ -277,6 +290,7 @@ impl Editor {
                                         "Inspector" => Box::new(Inspector::new()),
                                         "Project" => Box::new(ProjectWindow::new()),
                                         "Console" => Box::new(ConsoleWindow::new()),
+                                        "Game" => Box::new(GameWindow::new(self.vk.clone())),
                                         _ => {
                                             unreachable!()
                                         }

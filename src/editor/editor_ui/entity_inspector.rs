@@ -174,7 +174,7 @@ impl Inspector {
     }
 }
 
-static mut LAST_ACTIVE: *const Inspector = std::ptr::null();
+pub(super) static mut LAST_ACTIVE: *const Inspector = std::ptr::null();
 impl EditorWindow for Inspector {
     fn update(
         &mut self,

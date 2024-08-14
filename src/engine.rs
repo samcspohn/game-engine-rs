@@ -251,6 +251,7 @@ pub struct Engine {
         Option<PhysicalSize<u32>>,
         bool,
     )>,
+    pub(crate) input_interrupt: Sender<i32>,
     pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) rendering_data: Sender<(
         bool,
@@ -293,6 +294,7 @@ impl Engine {
     pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
         // let mut cam_data = CameraData::new(vk.clone(), 2);
         let (input_snd, input_rcv) = crossbeam::channel::bounded(1);
+        let (input_interrupt_snd, input_interrupt_rcv) = crossbeam::channel::bounded(1);
         let (vk_snd, vk_rcv) = crossbeam::channel::bounded(1);
 
         let input_thread = Arc::new({
@@ -331,7 +333,7 @@ impl Engine {
                 );
 
                 vk_snd.send((vk.clone(), proxy, gui, render_pass)).unwrap();
-                input_thread::input_thread(event_loop, vk, input_snd);
+                input_thread::input_thread(event_loop, vk, input_snd, input_interrupt_rcv);
             })
         });
         let (vk, proxy, gui, render_pass) = vk_rcv.recv().unwrap();
@@ -432,7 +434,7 @@ impl Engine {
             let mut world = world.lock();
             world.register::<Renderer>(false, false, false);
             world.register::<ParticleEmitter>(false, false, false);
-            world.register::<Camera>(false, false, false);
+            world.register::<Camera>(true, false, false);
             world.register::<_Collider>(false, false, false);
             world.register::<_RigidBody>(false, false, false);
             world.register::<Light>(false, false, false);
@@ -500,6 +502,7 @@ impl Engine {
             perf,
             shared_render_data: rm,
             input: input_rcv,
+            input_interrupt: input_interrupt_snd,
             rendering_data: rendering_snd,
             rendering_complete: rendering_rcv2,
             phys_upd_start: phys_snd,
@@ -662,6 +665,7 @@ impl Engine {
 
     pub fn update_sim(&mut self) -> bool {
         let full_frame_time = self.perf.node("full frame time");
+        self.input_interrupt.send(0);
         let (events, input, window_size, should_exit) = self.input.recv().unwrap();
         for event in events {
             self.gui.update(&event);
@@ -726,22 +730,6 @@ impl Engine {
 
             world.do_defered();
             world.init_colls_rbs(&self.perf);
-            // self.phys_upd_start
-            //     .send((false, world.sys.physics.clone()))
-            //     .unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
-            // self.phys_upd_compl.recv().unwrap();
-
-            // self.editor_cam.update(&input, &self.time);
-            // let cvd = self.cam_data.lock().update(
-            //     self.editor_cam.pos,
-            //     self.editor_cam.rot,
-            //     0.01f32,
-            //     10_000f32,
-            //     70f32,
-            //     false,
-            //     1,
-            // );
-            // vec![(Some(self.cam_data.clone()), Some(cvd))]
         };
         world.update_cameras();
         
@@ -981,7 +969,7 @@ impl Engine {
                 }) => {
                     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
                     self.rendering_data.send((false, None)).unwrap();
-                    self.event_loop_proxy.send_event(EngineEvent::Send);
+                    // self.event_loop_proxy.send_event(EngineEvent::Send);
                     return should_exit;
                 }
                 Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
@@ -1283,9 +1271,10 @@ impl Engine {
 
         self.update_editor_window = window_size.is_some();
         self.playing_game = _playing_game;
-        if !should_exit {
-            self.event_loop_proxy.send_event(EngineEvent::Send);
-        }
+        // if !should_exit {
+        //     self.input_interrupt.send(1)
+        //     // self.event_loop_proxy.send_event(EngineEvent::Send);
+        // }
         should_exit
     }
     pub fn end(mut self) {
@@ -1300,7 +1289,8 @@ impl Engine {
         Arc::into_inner(self.rendering_thread).unwrap().join();
 
         // join input thread
-        self.event_loop_proxy.send_event(EngineEvent::Quit);
+        self.input_interrupt.send(1);
+        // self.event_loop_proxy.send_event(EngineEvent::Quit);
         Arc::into_inner(self.input_thread).unwrap().join();
         if let Some(compiling) = &mut self.compiler_process {
             compiling.kill();
