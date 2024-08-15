@@ -40,7 +40,7 @@ use std::{
     sync::Arc,
 };
 
-use egui_dock::{DockArea, NodeIndex, Style, Tree};
+use egui_dock::{DockArea, NodeIndex, Style, TabIndex, Tree};
 
 mod asset_browser;
 mod console;
@@ -135,6 +135,8 @@ pub struct Editor {
     dock: Tree<Mutex<Box<dyn EditorWindow>>>,
     views: Vec<Box<dyn EditorWindow>>,
     play_game: bool,
+    scene_window: NodeIndex,
+    game_window: NodeIndex,
 }
 
 pub struct EditorArgs<'a> {
@@ -172,6 +174,8 @@ impl Editor {
             dock: tree,
             views: vec![Box::new(Hierarchy::new())],
             play_game: false,
+            scene_window: NodeIndex(1),
+            game_window: NodeIndex(2),
         }
     }
     pub fn editor_ui(
@@ -182,7 +186,7 @@ impl Editor {
         curr_playing: bool,
     ) -> bool {
         {
-            let active = self
+            let _active = self
                 .dock
                 .find_active_focused()
                 .and_then(|p| {
@@ -192,11 +196,26 @@ impl Editor {
                 })
                 .unwrap_or(std::ptr::null());
 
-            self.dock.tabs().for_each(|tab| {
-                let mut tab = tab.lock();
-                let is_active = tab.as_ref() as *const dyn EditorWindow as *const () == active;
-                tab.update(&mut editor_args, &mut self.inspectable, is_active);
+            self.dock.iter_mut().for_each(|a| {
+                match a {
+                    // egui_dock::Node::Empty => {},
+                    egui_dock::Node::Leaf { rect, viewport, tabs, active, scroll } => {
+                        for tab in tabs {
+                            let mut tab = tab.lock();
+                        let is_active = tab.as_ref() as *const dyn EditorWindow as *const () == _active;
+                        tab.update(&mut editor_args, &mut self.inspectable, is_active);
+                        }
+                    },
+                    // egui_dock::Node::Vertical { rect, fraction } => {},
+                    // egui_dock::Node::Horizontal { rect, fraction } => todo!(),
+                    _ => {}
+                }
             });
+            // self.dock.tabs().for_each(|tab| {
+            //     let mut tab = tab.lock();
+            //     let is_active = tab.as_ref() as *const dyn EditorWindow as *const () == active;
+            //     tab.update(&mut editor_args, &mut self.inspectable, is_active);
+            // });
 
             // self.dock.set_active_tab(node_index, tab_index)
             // self.dock.tabs().for_each(|tab| {
@@ -303,13 +322,13 @@ impl Editor {
                     });
                 });
             }
-            self.play_game = curr_playing;
+            self.play_game = editor_args.playing_game;
 
             {
                 let mut tab_viewer = TabViewer {
                     // image: frame_color,
                     editor_args: &mut editor_args,
-                    active,
+                    active: _active,
                     gui,
                     // views: &mut self.views,
                     inspectable: &mut self.inspectable,
@@ -317,6 +336,13 @@ impl Editor {
                 DockArea::new(&mut self.dock)
                     .style(Style::from_egui(egui_ctx.style().as_ref()))
                     .show(egui_ctx, &mut tab_viewer);
+            }
+            if editor_args.playing_game != self.play_game {
+                if editor_args.playing_game {
+                    self.dock.set_active_tab(NodeIndex::root(), TabIndex(1));
+                } else {
+                    self.dock.set_active_tab(NodeIndex::root(), TabIndex(0));
+                }
             }
             self.play_game = editor_args.playing_game;
             editor_args.playing_game
