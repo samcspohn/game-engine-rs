@@ -79,7 +79,7 @@ struct TabViewer<'a, 'b> {
 }
 // pub(crate) static mut PLAYING_GAME: bool = false;
 impl egui_dock::TabViewer for TabViewer<'_, '_> {
-    type Tab = Mutex<Box<dyn EditorWindow>>;
+    type Tab = Box<dyn EditorWindow>;
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         let rec = ui.max_rect();
@@ -87,7 +87,7 @@ impl egui_dock::TabViewer for TabViewer<'_, '_> {
         // if tab.as_ref() as *const dyn EditorWindow as *const () == self.active {
         //     println!("active tab is {}", tab.get_name());
         // }
-        let mut tab = tab.lock();
+        // let mut tab = tab.lock();
         let id = egui::Id::new(format!(
             "{}: {:?}",
             tab.get_name(),
@@ -104,7 +104,7 @@ impl egui_dock::TabViewer for TabViewer<'_, '_> {
     }
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
-        let tab = tab.lock();
+        // let tab = tab.lock();
         format!(
             "{}: {:?}",
             tab.get_name(),
@@ -132,7 +132,7 @@ pub struct Editor {
     dragged_transform: Mutex<i32>,
     transform_drag: Mutex<Option<TransformDrag>>,
     inspectable: Option<Arc<Mutex<dyn Inspectable_>>>,
-    dock: Tree<Mutex<Box<dyn EditorWindow>>>,
+    dock: Tree<Box<dyn EditorWindow>>,
     views: Vec<Box<dyn EditorWindow>>,
     play_game: bool,
     scene_window: NodeIndex,
@@ -149,22 +149,18 @@ pub struct EditorArgs<'a> {
 
 impl Editor {
     pub fn new(vk: Arc<VulkanManager>) -> Self {
-        let mut tree: Tree<Mutex<Box<dyn EditorWindow>>> = Tree::new(vec![
-            Mutex::new(Box::new(SceneWindow::new(vk.clone()))),
-            Mutex::new(Box::new(GameWindow::new(vk.clone()))),
+        let mut tree: Tree<Box<dyn EditorWindow>> = Tree::new(vec![
+            Box::new(SceneWindow::new(vk.clone())),
+            Box::new(GameWindow::new(vk.clone())),
         ]);
 
         // You can modify the tree before constructing the dock
-        let [a, b] = tree.split_left(
-            NodeIndex::root(),
-            0.15,
-            vec![Mutex::new(Box::new(Hierarchy::new()))],
-        );
+        let [a, b] = tree.split_left(NodeIndex::root(), 0.15, vec![Box::new(Hierarchy::new())]);
         let ins = Box::new(Inspector::new());
         unsafe { LAST_ACTIVE = ins.as_ref() };
-        let [c, _] = tree.split_right(a, 0.8, vec![Mutex::new(ins)]);
-        let [_, _] = tree.split_below(b, 0.5, vec![Mutex::new(Box::new(ProjectWindow::new()))]);
-        let [_, _] = tree.split_below(c, 0.7, vec![Mutex::new(Box::new(ConsoleWindow::new()))]);
+        let [c, _] = tree.split_right(a, 0.8, vec![ins]);
+        let [_, _] = tree.split_below(b, 0.5, vec![Box::new(ProjectWindow::new())]);
+        let [_, _] = tree.split_below(c, 0.7, vec![Box::new(ConsoleWindow::new())]);
         Self {
             vk,
             editor_window_dim: [1920, 1080],
@@ -190,46 +186,20 @@ impl Editor {
                 .dock
                 .find_active_focused()
                 .and_then(|p| {
-                    let a: *const dyn EditorWindow = &(*p.1.lock().as_ref());
+                    let a: *const dyn EditorWindow = &(*p.1.as_ref());
                     let b: *const () = a as *const ();
                     Some(b)
                 })
                 .unwrap_or(std::ptr::null());
 
-            self.dock.iter_mut().for_each(|a| {
-                match a {
-                    // egui_dock::Node::Empty => {},
-                    egui_dock::Node::Leaf { rect, viewport, tabs, active, scroll } => {
+                for node in self.dock.iter_mut() {
+                    if let egui_dock::Node::Leaf { tabs, .. } = node {
                         for tab in tabs {
-                            let mut tab = tab.lock();
-                        let is_active = tab.as_ref() as *const dyn EditorWindow as *const () == _active;
-                        tab.update(&mut editor_args, &mut self.inspectable, is_active);
+                            let is_active = tab.as_ref() as *const dyn EditorWindow as *const () == _active;
+                            tab.update(&mut editor_args, &mut self.inspectable, is_active);
                         }
-                    },
-                    // egui_dock::Node::Vertical { rect, fraction } => {},
-                    // egui_dock::Node::Horizontal { rect, fraction } => todo!(),
-                    _ => {}
+                    }
                 }
-            });
-            // self.dock.tabs().for_each(|tab| {
-            //     let mut tab = tab.lock();
-            //     let is_active = tab.as_ref() as *const dyn EditorWindow as *const () == active;
-            //     tab.update(&mut editor_args, &mut self.inspectable, is_active);
-            // });
-
-            // self.dock.set_active_tab(node_index, tab_index)
-            // self.dock.tabs().for_each(|tab| {
-            //     // if active.is_none() {
-            //     //     tab.update(&editor_args.world.input, &editor_args.world.time, false);
-            //     // } else {
-            //     //     let active = active.unwrap();
-            //     tab.update(
-            //         &editor_args.world.input,
-            //         &editor_args.world.time,
-            //         tab.as_ref() as *const dyn EditorWindow as *const () == active,
-            //     );
-            //     // }
-            // });
             {
                 // let world = editor_args.world;
                 let assets_manager = editor_args.assets_manager.clone();
@@ -303,7 +273,7 @@ impl Editor {
                                 "Game",
                             ] {
                                 if ui.button(v).clicked() {
-                                    let a: Mutex<Box<dyn EditorWindow>> = Mutex::new(match v {
+                                    let a: Box<dyn EditorWindow> = match v {
                                         "Scene" => Box::new(SceneWindow::new(self.vk.clone())),
                                         "Hierarchy" => Box::new(Hierarchy::new()),
                                         "Inspector" => Box::new(Inspector::new()),
@@ -313,7 +283,7 @@ impl Editor {
                                         _ => {
                                             unreachable!()
                                         }
-                                    });
+                                    };
                                     unsafe { self.dock.push_to_focused_leaf(a) };
                                     ui.close_menu();
                                 }
@@ -338,24 +308,26 @@ impl Editor {
                     .show(egui_ctx, &mut tab_viewer);
             }
             if editor_args.playing_game != self.play_game {
-                if editor_args.playing_game {
-                    self.dock.set_active_tab(NodeIndex::root(), TabIndex(1));
-                } else {
-                    self.dock.set_active_tab(NodeIndex::root(), TabIndex(0));
+                if let Some((node_idx, t_idx)) = self.dock.iter_mut().enumerate().find_map(|(n_idx, node)| {
+                    if let egui_dock::Node::Leaf { tabs, .. } = node {
+                        tabs.iter().enumerate().find_map(|(tab_idx, tab)| {
+                            if (editor_args.playing_game && tab.get_name() == "Game")
+                                || (!editor_args.playing_game && tab.get_name() == "Scene")
+                            {
+                                Some((NodeIndex(n_idx), TabIndex(tab_idx)))
+                            } else {
+                                None
+                            }
+                        })
+                    } else {
+                        None
+                    }
+                }) {
+                    self.dock.set_active_tab(node_idx, t_idx);
                 }
             }
             self.play_game = editor_args.playing_game;
             editor_args.playing_game
-
-            // egui::Window::new("Project")
-            //     .default_size([200.0, 600.0])
-            //     .vscroll(true)
-            //     .show(&egui_ctx, |ui: &mut egui::Ui| {
-            //         render_dir(ui, cur_dir, &world.sys.lock());
-            //         // for entry in WalkDir::new(".") {
-            //         //     ui.label(format!("{}", entry.unwrap().path().display()));
-            //         // }
-            //     });
         }
     }
 }
