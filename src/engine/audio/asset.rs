@@ -77,6 +77,12 @@ impl AudioAsset {
     }
 }
 impl Inspectable_ for AudioAsset {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::World) -> bool {
         ui.horizontal(|ui| {
             ui.label(&self.file);

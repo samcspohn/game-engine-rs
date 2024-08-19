@@ -17,9 +17,17 @@ use super::EditorWindow;
 pub(crate) struct GameObjectInspector {
     // world: &'a Mutex<World>,
 }
-pub static mut _selected: Option<i32> = None;
+
+pub static mut _SELECTED: Option<i32> = None;
 
 impl Inspectable_ for GameObjectInspector {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         // let mut world = world.lock();
         let mut rmv: Option<(i32, u64, i32)> = None;
@@ -29,7 +37,7 @@ impl Inspectable_ for GameObjectInspector {
         let resp = ui.scope(|ui| {
             egui::ScrollArea::both().auto_shrink([false,true]).show(ui, |ui| {
 
-                if let Some(t_id) = unsafe { _selected } { // TODO: fix: if object is destroyed in play, fix panic on "stop"
+                if let Some(t_id) = unsafe { _SELECTED } { // TODO: fix: if object is destroyed in play, fix panic on "stop"
                     if let Some(_t) = world.transforms.get(t_id) {
                         let ent = _t.entity();
                         egui::CollapsingHeader::new("Transform")
@@ -138,7 +146,7 @@ impl Inspectable_ for GameObjectInspector {
         if let Some((g, c_type, id)) = rmv {
             world.remove_component(g, c_type, id)
         }
-        if unsafe { _selected.is_some() } {
+        if unsafe { _SELECTED.is_some() } {
             let mut component_init: Option<(u64, i32)> = None;
 
             ui.menu_button("add component", |ui| {
@@ -146,7 +154,7 @@ impl Inspectable_ for GameObjectInspector {
                     let mut c = c.1.write();
                     let resp = ui.add(egui::Button::new(c.get_name()));
                     if resp.clicked() {
-                        if let Some(t_id) = unsafe { _selected } {
+                        if let Some(t_id) = unsafe { _SELECTED } {
                             let c_id = c.new_default(t_id);
                             let key = c.get_id();
                             component_init = Some((key, c_id));
@@ -155,7 +163,7 @@ impl Inspectable_ for GameObjectInspector {
                     }
                 }
             });
-            if let (Some(t_id), Some((key, c_id))) = (unsafe { _selected }, component_init) {
+            if let (Some(t_id), Some((key, c_id))) = (unsafe { _SELECTED }, component_init) {
                 // let g = GameObject { t: t_id };
                 world.add_component_id(t_id, key, c_id)
             }

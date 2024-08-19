@@ -55,6 +55,12 @@ impl Asset<RSFile, (Arc<AtomicBool>)> for RSFile {
     }
 }
 impl Inspectable_ for RSFile {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         ui.add(egui::Label::new(self.path.as_str()));
         true
@@ -126,6 +132,12 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
 }
 
 impl Inspectable_ for Lib {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         // ui.add(egui::Label::new(self.path));
         true

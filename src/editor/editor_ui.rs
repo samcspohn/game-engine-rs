@@ -1,5 +1,5 @@
 use crate::{
-    editor::{editor_ui::entity_inspector::_selected, inspectable::Inspectable_},
+    editor::{editor_ui::entity_inspector::_SELECTED, inspectable::Inspectable_},
     engine::{
         input::Input,
         prelude::VulkanManager,
@@ -123,6 +123,13 @@ impl Inspectable_ for ModelInspector {
     fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) -> bool {
         ui.add(egui::Label::new(self.file.as_str()));
         true
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 

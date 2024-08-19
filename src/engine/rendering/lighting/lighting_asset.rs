@@ -63,6 +63,13 @@ impl LightTemplate {
     }
 }
 impl Inspectable_ for LightTemplate {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::world::World) -> bool{
         ui.horizontal(|ui| {
             ui.label("color");

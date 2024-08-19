@@ -41,6 +41,14 @@ impl Inspectable_ for Texture {
             false
         }
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 impl Asset<Texture, (Arc<Device>, Arc<Queue>, Arc<StandardMemoryAllocator>)> for Texture {
     fn from_file(

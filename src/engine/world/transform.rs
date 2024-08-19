@@ -169,6 +169,9 @@ impl<'a> Transform<'a> {
     pub fn entity(&self) -> &mut Entity {
         unsafe { &mut *unsafe { &*TRANSFORMS }.entity[self.id as usize].get() }
     }
+    pub fn get_matrix(&self) -> glm::Mat4 {
+        unsafe { &*TRANSFORMS }.get_matrix(self.id)
+    }
 }
 
 pub struct TransformIter<'a> {
@@ -358,6 +361,12 @@ pub struct Transforms {
 
 #[allow(dead_code)]
 impl Transforms {
+    pub fn get_matrix(&self, t: i32) -> glm::Mat4 {
+        let pos = self.get_position(t);
+        let rot = self.get_rotation(t);
+        let scl = self.get_scale(t);
+        glm::scaling(&scl) * glm::quat_to_mat4(&rot) * glm::translation(&pos)
+    }
     pub fn active(&self) -> usize {
         self.meta.len() - self.avail.len()
         // self.count as usize

@@ -521,7 +521,14 @@ impl Inspectable_ for ModelRenderer {
             .for_each(|(i, x)| {
                 ui.add(egui::Label::new(format!("{}: {}", x.name, i)));
             });
-            true
+        true
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 

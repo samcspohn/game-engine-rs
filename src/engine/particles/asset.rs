@@ -111,6 +111,13 @@ where
     });
 }
 impl Inspectable_ for ParticleTemplate {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
     fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) -> bool {
         field(ui, "color", |ui| {
             if ui

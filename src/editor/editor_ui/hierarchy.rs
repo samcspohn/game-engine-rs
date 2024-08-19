@@ -11,7 +11,7 @@ use puffin_egui::puffin;
 
 use crate::{
     editor::editor_ui::{
-        entity_inspector::{self, _selected},
+        entity_inspector::{self, _SELECTED},
         GameObjectContextMenu, TransformDrag, DRAGGED_TRANSFORM, TRANSFORM_DRAG,
     },
     engine::{
@@ -58,7 +58,7 @@ impl EditorWindow for Hierarchy {
             if resp.clicked() {
                 let e = world.create();
                 unsafe {
-                    _selected = Some(e);
+                    _SELECTED = Some(e);
                     self._selected_transforms.clear();
                     self._selected_transforms.insert(e, true);
                 }
@@ -263,7 +263,7 @@ impl EditorWindow for Hierarchy {
                             root,
                             ui,
                             &mut count,
-                            unsafe { &mut _selected },
+                            unsafe { &mut _SELECTED },
                         );
                     });
                 // }
@@ -321,13 +321,13 @@ impl EditorWindow for Hierarchy {
             };
             if e >= 0 {
                 unsafe {
-                    _selected = Some(e);
+                    _SELECTED = Some(e);
                     self._selected_transforms.clear();
                     self._selected_transforms.insert(e, true);
                 }
             } else {
                 unsafe {
-                    _selected = None;
+                    _SELECTED = None;
                     self._selected_transforms.clear();
                 }
             }

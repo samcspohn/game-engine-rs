@@ -9,6 +9,8 @@ use crate::engine::world::{transform::Transform, Sys, World};
 
 pub trait Inspectable_ {
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool; // return false if invalidated
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 pub struct Ins<'a, T>(pub &'a mut T);
 pub trait Inpsect {

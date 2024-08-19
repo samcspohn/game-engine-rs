@@ -13,7 +13,7 @@ use puffin_egui::puffin;
 
 use crate::{
     editor::editor_ui::{
-        entity_inspector::{self, _selected},
+        entity_inspector::{self, _SELECTED},
         GameObjectContextMenu, TransformDrag,
     },
     engine::{
