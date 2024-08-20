@@ -9,7 +9,8 @@ use crate::{
 };
 use egui_gizmo::{Gizmo, GizmoMode};
 use egui_winit_vulkano::Gui;
-use nalgebra_glm::Mat4;
+use nalgebra_glm::{Mat4, Vec3};
+use nalgebra_glm as glm;
 use parking_lot::Mutex;
 use vulkano::pipeline::graphics::viewport;
 
@@ -64,9 +65,8 @@ impl EditorWindow for SceneWindow {
         id: egui::Id,
         gui: &mut Gui,
     ) {
-        let viewport = rec;
         let mut projection = Mat4::identity();
-        let mut view = Mat4::identity();
+        // let mut view = Mat4::identity();
         self.cam.camera.get(|c| {
             c.is_visible = true;
             c.update(
@@ -79,8 +79,14 @@ impl EditorWindow for SceneWindow {
                 1,
             );
             projection = c.camera_view_data.front().map(|cvd| cvd.proj).unwrap();
-            view = c.camera_view_data.front().map(|cvd| cvd.view).unwrap();
+            // view = c.camera_view_data.front().map(|cvd| cvd.view).unwrap();
+
+            // view = c.data
         });
+        // self.cam.
+        let target = self.cam.pos + glm::quat_rotate_vec3(&self.cam.rot, &-Vec3::z());
+        let up = glm::quat_rotate_vec3(&self.cam.rot, &Vec3::y());
+        let view = glm::look_at_rh(&self.cam.pos, &target, &up);
         let snapping = ui.input(|input| input.modifiers.ctrl);
 
         // self.gizmo.(GizmoConfig {
@@ -92,30 +98,7 @@ impl EditorWindow for SceneWindow {
         //     snapping,
         //     ..Default::default()
         // });
-        if let Some(ref mut i) = inspectable {
-            let mut i = i.lock();
-            let a: &dyn Inspectable_ = &*i;
-            if let Some(i) = a.as_any().downcast_ref::<GameObjectInspector>() {
-                let mut model = Mat4::identity();
-                if let Some(ref selected) = unsafe { _SELECTED } {
-                    let transform = unsafe { &*TRANSFORMS }.get(*selected);
-                    if let Some(t) = transform {
-                        model = t.get_matrix();
 
-                        let gizmo = Gizmo::new("scene_gizmo")
-                            .view_matrix(view)
-                            .projection_matrix(projection)
-                            .model_matrix(model)
-                            .mode(GizmoMode::Translate);
-
-                        if let Some(result) = gizmo.interact(ui) {
-                            let translation = nalgebra_glm::Vec3::new(result.translation.x, result.translation.y, result.translation.z);
-                            t.translate(translation);
-                        }
-                    }
-                }
-            }
-        }
         // .viewport(egui::emath::Rect::from(viewport))
         // .orientation();
 
@@ -144,7 +127,11 @@ impl EditorWindow for SceneWindow {
                 // }
             }
         });
+
+        // ui.available_rect_before_wrap();
         let a = ui.available_size();
+        // let viewport = Rect::from_min_size(a.min, a.size());
+        let viewport = ui.available_rect_before_wrap();
         self.window_dims = [a[0] as u32, a[1] as u32];
         self.cam
             .camera
@@ -157,6 +144,39 @@ impl EditorWindow for SceneWindow {
             }
         });
         ui.image(self.image, a);
+
+        // if let Some(ref mut i) = inspectable {
+        //     let mut i = i.lock();
+        //     let a: &dyn Inspectable_ = &*i;
+        //     if let Some(i) = a.as_any().downcast_ref::<GameObjectInspector>() {
+        let mut model = Mat4::identity();
+        if let Some(ref selected) = unsafe { _SELECTED } {
+            let transform = unsafe { &*TRANSFORMS }.get(*selected);
+            if let Some(t) = transform {
+                model = t.get_matrix();
+
+                let gizmo = Gizmo::new("scene_gizmo")
+                    .viewport(viewport)
+                    .snapping(snapping)
+                    .view_matrix(view)
+                    .projection_matrix(projection)
+                    .model_matrix(model)
+                    .mode(GizmoMode::Translate);
+
+                // ui.allocate_ui_at_rect(viewport, |ui| {
+                    if let Some(result) = gizmo.interact(ui) {
+                        let translation = nalgebra_glm::Vec3::new(
+                            result.translation.x,
+                            result.translation.y,
+                            result.translation.z,
+                        );
+                        t.translate(translation);
+                    }
+                // });
+            }
+        }
+        // }
+        // }
     }
 
     fn get_name(&self) -> &str {
