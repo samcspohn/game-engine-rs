@@ -35,8 +35,13 @@
 		},
 		{
 			"type":"shell",
-			"command": "./find_dlls.bat",
+			"command": "./find_dlls.bat release",
 			"label": "find assimp",
+		},
+		{
+			"type":"shell",
+			"command": "./find_dlls.bat debug",
+			"label": "find assimp debug",
 		}
 	]
 }

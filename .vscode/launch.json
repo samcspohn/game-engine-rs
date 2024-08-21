@@ -11,11 +11,23 @@
             "program": "${workspaceFolder}/target/debug/game-engine-rs",
             "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "rust: cargo build --bin game-engine-rs",
             "env": {
                 "PATH": "${workspaceFolder}/target/debug/deps;${env:PATH}",
                 // Switch `nightly` to `stable` if you're using Rust stable
             },
+            "preLaunchTask": "find assimp debug",
+            "cargo": {
+                "args": [
+                    "build",
+                    // "-Z=unstable-options",
+                    // "--out-dir=${workspaceFolder}/artifacts",
+                    "--bin=game-engine-rs"
+                ],
+                "filter": {
+                    "kind": "bin"
+                }
+            },
+
         },
         {
             "type": "lldb",
@@ -25,7 +37,7 @@
             "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
             // "env": {"RUSTFLAGS": "-Z unstable-options"},
-            // "preLaunchTask": "find assimp",
+            "preLaunchTask": "find assimp",
             "env": {
                 "PATH": "${workspaceFolder}/target/release/deps;${env:PATH}",
                 // Switch `nightly` to `stable` if you're using Rust stable

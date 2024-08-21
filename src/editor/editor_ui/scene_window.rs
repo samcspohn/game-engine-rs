@@ -66,7 +66,7 @@ impl EditorWindow for SceneWindow {
         gui: &mut Gui,
     ) {
         let mut projection = Mat4::identity();
-        // let mut view = Mat4::identity();
+        let mut view = Mat4::identity();
         self.cam.camera.get(|c| {
             c.is_visible = true;
             c.update(
@@ -79,14 +79,14 @@ impl EditorWindow for SceneWindow {
                 1,
             );
             projection = c.camera_view_data.front().map(|cvd| cvd.proj).unwrap();
-            // view = c.camera_view_data.front().map(|cvd| cvd.view).unwrap();
-
+            view = c.camera_view_data.front().map(|cvd| cvd.view).unwrap();
+            projection.column_mut(1)[1] *= -1.;
             // view = c.data
         });
         // self.cam.
-        let target = self.cam.pos + glm::quat_rotate_vec3(&self.cam.rot, &-Vec3::z());
-        let up = glm::quat_rotate_vec3(&self.cam.rot, &Vec3::y());
-        let view = glm::look_at_rh(&self.cam.pos, &target, &up);
+        // let target = self.cam.pos + glm::quat_rotate_vec3(&self.cam.rot, &Vec3::z());
+        // let up = glm::quat_rotate_vec3(&self.cam.rot, &Vec3::y());
+        // let view = glm::look_at_rh(&self.cam.pos, &target, &up);
         let snapping = ui.input(|input| input.modifiers.ctrl);
 
         // self.gizmo.(GizmoConfig {
@@ -170,7 +170,7 @@ impl EditorWindow for SceneWindow {
                             result.translation.y,
                             result.translation.z,
                         );
-                        t.translate(translation);
+                        t.move_child(translation);
                     }
                 // });
             }
