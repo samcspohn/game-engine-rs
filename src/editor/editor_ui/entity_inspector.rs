@@ -9,7 +9,7 @@ use crate::{
 };
 use egui_winit_vulkano::Gui;
 use glm::{Quat, Vec3};
-use nalgebra_glm as glm;
+use nalgebra_glm::{self as glm, vec3};
 use parking_lot::Mutex;
 
 use super::EditorWindow;
@@ -19,7 +19,8 @@ pub(crate) struct GameObjectInspector {
 }
 
 pub static mut _SELECTED: Option<i32> = None;
-
+pub static mut ROTATION_EULER: Option<Vec3> = None;
+pub static mut QUAT_PTR: Option<*mut Quat> = None;
 impl Inspectable_ for GameObjectInspector {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -31,8 +32,7 @@ impl Inspectable_ for GameObjectInspector {
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         // let mut world = world.lock();
         let mut rmv: Option<(i32, u64, i32)> = None;
-        static mut ROTATION_EULER: Option<Vec3> = None;
-        static mut QUAT_PTR: Option<*mut Quat> = None;
+
         let mut ret = true;
         let resp = ui.scope(|ui| {
             egui::ScrollArea::both().auto_shrink([false,true]).show(ui, |ui| {
@@ -76,7 +76,7 @@ impl Inspectable_ for GameObjectInspector {
                                             let x = ui.drag_angle(&mut rot.z);
                                             let y = ui.drag_angle(&mut rot.y);
                                             let z = ui.drag_angle(&mut rot.x);
-                                            _t.set_rotation(&euler_to_quat(&rot));
+                                            _t.set_rotation(&euler_to_quat(&vec3(rot.z,rot.y,rot.x)));
                                         }
                                     });
                                 });

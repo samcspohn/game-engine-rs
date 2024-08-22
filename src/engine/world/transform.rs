@@ -365,7 +365,7 @@ impl Transforms {
         let pos = self.get_position(t);
         let rot = self.get_rotation(t);
         let scl = self.get_scale(t);
-        glm::scaling(&scl) * glm::quat_to_mat4(&rot) * glm::translation(&pos)
+        glm::translation(&pos) * glm::quat_to_mat4(&rot) * glm::scaling(&scl)
     }
     pub fn active(&self) -> usize {
         self.meta.len() - self.avail.len()
@@ -720,7 +720,7 @@ impl Transforms {
     }
 
     fn forward(&self, t: i32) -> glm::Vec3 {
-        unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &glm::Vec3::z()) }
+        unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &-glm::Vec3::z()) }
     }
     fn right(&self, t: i32) -> glm::Vec3 {
         unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &glm::Vec3::x()) }
