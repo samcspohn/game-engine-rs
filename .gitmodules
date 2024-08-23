@@ -3,4 +3,4 @@
 	url = https://github.com/samcspohn/test_project_rs.git
 [submodule "transform-gizmo"]
 	path = transform-gizmo
-	url = https://github.com/urholaukkarinen/transform-gizmo.git
+	url = https://github.com/samcspohn/transform-gizmo.git
