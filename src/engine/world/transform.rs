@@ -11,7 +11,7 @@ use deepmesa::collections::{
 };
 use force_send_sync::SendSync;
 use glm::{quat_cross_vec, quat_rotate_vec3, vec3, Quat, Vec3};
-use nalgebra_glm as glm;
+use nalgebra_glm::{self as glm, vec4, Mat4, Vec4};
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, MutexGuard};
 use rayon::prelude::*;
@@ -22,10 +22,7 @@ use num_integer::Roots;
 use crate::{
     editor::editor_ui::DRAGGED_TRANSFORM,
     engine::{
-        prelude::Inspectable_,
-        prelude::{Inpsect, Ins},
-        project::asset_manager::drop_target,
-        world::nalgebra::Isometry3,
+        particles::shaders::cs::p, prelude::{Inpsect, Ins, Inspectable_}, project::asset_manager::drop_target, world::nalgebra::Isometry3
     },
 };
 use serde::{
@@ -198,6 +195,9 @@ fn div_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
 }
 fn mul_vec3(a: &Vec3, b: &Vec3) -> Vec3 {
     glm::vec3(a.x * b.x, a.y * b.y, a.z * b.z)
+}
+fn mul_vec4(a: &Vec4, b: &Vec4) -> Vec4 {
+    glm::vec4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w)
 }
 // fn quat_x_vec(q: &Quat,v: &Vec3) -> Vec3 {
 //     let quat_vec = glm::vec3(q.coords.w, q.coords.x, q.coords.y);
@@ -855,21 +855,46 @@ impl Transforms {
         *scl = mul_vec3(&s, &scl);
         self.u_scl(t);
         let pos = self.get_position(t);
+        // let local_scl = glm::quat_rotate_vec3(&glm::quat_inverse(&self.get_rotation(t)), &s);
+        let rot = self.get_rotation(t);
+        // let inv_rot = glm::quat_inverse(&rot);
+        let rot = &glm::quat_to_mat4(&rot);
         for child_id in unsafe { (*self.meta[t as usize].get()).children.iter() } {
             let child = self.get(*child_id).unwrap();
-            self.scale_child(&child, &pos, &s);
+            self.scale_child(&child, &pos, &pos, &s, rot);
         }
     }
-    fn scale_child(&self, t: &Transform, p: &Vec3, s: &Vec3) {
+    fn scale_child(&self, t: &Transform, p: &Vec3, prev_p: &Vec3, s: &Vec3, rot: &Mat4) {
         let scl = unsafe { &mut *self.scales[t.id as usize].get() };
-        let posi = unsafe { &mut *self.positions[t.id as usize].get() };
+        let pos = unsafe { &mut *self.positions[t.id as usize].get() };
 
-        *posi = mul_vec3(&(*posi - p), s) + p;
+        let p_ = *pos - prev_p;
+        let p_ = vec4(p_.x, p_.y, p_.z, 1.0);
+        let inverse = glm::inverse(&rot);
+        let p_ = inverse * p_;
+        // let p_ = glm::quat_rotate_vec3(&inv_rot, &p_);
+        let p_ = mul_vec4(&p_, &vec4(s.x, s.y, s.z, 1.0));
+        let p_ = rot * p_;
+        // let p_ = glm::quat_rotate_vec3(&rot, &p_);
+        let prev_p = *pos;
+        *pos = p_.xyz() + p;
+
+        // if *s == vec3(1.0,1.0,1.0) {
+        //     println!("scale is the same");
+        //     assert!(prev_p == *pos);
+        // }
+        // *posi = (*posi - p).magnitude() * local_scl + p;
+
+        // *posi = mul_vec3(&(*posi - p), s) + p;
+
+        let rot = self.get_rotation(t.id);
+        // let inv_rot = glm::quat_inverse(&rot);
+        let rot = &glm::quat_to_mat4(&rot);
         self.u_pos(t.id);
         *scl = mul_vec3(s, &scl);
         self.u_scl(t.id);
         for child in t.get_children() {
-            self.scale_child(&child, p, s);
+            self.scale_child(&child, &pos, &prev_p, s, &rot);
         }
     }
 
