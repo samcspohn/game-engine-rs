@@ -720,7 +720,7 @@ impl Transforms {
     }
 
     fn forward(&self, t: i32) -> glm::Vec3 {
-        unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &-glm::Vec3::z()) }
+        unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &glm::Vec3::z()) }
     }
     fn right(&self, t: i32) -> glm::Vec3 {
         unsafe { quat_rotate_vec3(&*self.rotations[t as usize].get(), &glm::Vec3::x()) }
