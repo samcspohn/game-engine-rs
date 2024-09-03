@@ -61,7 +61,7 @@ impl _ColliderType {
                                     .map(|f| point![f.position[0], f.position[1], f.position[2]])
                                     .collect();
                                 let indices = model.model.meshes[0]
-                                    .indeces
+                                    .indices
                                     .chunks(3)
                                     .map(|f| [f[0], f[1], f[2]])
                                     .collect::<Vec<[u32; 3]>>();
@@ -174,7 +174,7 @@ impl Component for _Collider {
                                             })
                                             .collect();
                                         let indices = model.model.meshes[0]
-                                            .indeces
+                                            .indices
                                             .chunks(3)
                                             .map(|f| [f[0], f[1], f[2]])
                                             .collect::<Vec<[u32; 3]>>();

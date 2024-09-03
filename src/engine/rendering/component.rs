@@ -88,7 +88,7 @@ impl Component for Renderer {
                             .map(|mesh| {
                                 let id = rm.shr_data.write().indirect.emplace(
                                     DrawIndexedIndirectCommand {
-                                        index_count: mesh.indeces.len() as u32,
+                                        index_count: mesh.indices.len() as u32,
                                         instance_count: 0,
                                         first_index: 0,
                                         vertex_offset: 0,

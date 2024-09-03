@@ -103,7 +103,7 @@ pub struct Mesh {
     pub vertices: Vec<_Vertex>, // TODO: change to [f32;3]
     pub normals: Vec<Normal>,
     pub uvs: Vec<UV>,
-    pub indeces: Vec<u32>,
+    pub indices: Vec<u32>,
     // pub bone_ids: Vec<smallvec::SmallVec<[u16; 4]>>,
     pub vertex_bones: Vec<IVec2>,
     pub bone_weight_offsets: Vec<u32>,
@@ -465,7 +465,7 @@ impl Mesh {
         return Some(Mesh {
             vertices,
             uvs,
-            indeces: indices,
+            indices,
             normals,
             vertex_bones,
             bone_weight_offsets,
