@@ -155,7 +155,7 @@ pub struct CameraData {
     rend: RenderPipeline,
     particle_render_pipeline: ParticleRenderPipeline,
     particle_debug_pipeline: ParticleDebugPipeline,
-    debug: DebugSystem,
+    pub debug: DebugSystem,
     light_debug: Arc<GraphicsPipeline>,
     _render_pass: Arc<RenderPass>,
     viewport: Viewport,
@@ -968,18 +968,18 @@ impl CameraData {
                 // );
                 // self.debug
                 //     .append_frustum(unsafe { FRUSTUM.clone() }, vec4(0., 1.0, 1.0, 1.0));
-                let point = unsafe { CAM_POS + CAM_FORW * 30.0 };
-                for p in unsafe { &FRUSTUM.planes } {
-                    let dir = normalize(&glm::vec3(p[0], p[1], p[2]));
-                    let orig = dir * -p[3];
-                    let v = point - orig;
-                    let dist = v.x * dir.x + v.y * dir.y + v.z * dir.z;
-                    let point = point - dist * dir;
-                    let point = point - (glm::dot(&dir, &point) - p[3]) * dir;
-                    self.debug
-                        .append_arrow(dir, point, 8.0, vec4(1.0, 1.0, 0.0, 1.0));
-                }
-                // self.debug.draw(builder, &cvd);
+                // let point = unsafe { CAM_POS + CAM_FORW * 30.0 };
+                // for p in unsafe { &FRUSTUM.planes } {
+                //     let dir = normalize(&glm::vec3(p[0], p[1], p[2]));
+                //     let orig = dir * -p[3];
+                //     let v = point - orig;
+                //     let dist = v.x * dir.x + v.y * dir.y + v.z * dir.z;
+                //     let point = point - dist * dir;
+                //     let point = point - (glm::dot(&dir, &point) - p[3]) * dir;
+                //     self.debug
+                //         .append_arrow(dir, point, 8.0, vec4(1.0, 1.0, 0.0, 1.0));
+                // }
+                self.debug.draw(builder, &cvd);
 
                 if (particle_debug) {
                     particles.debug_particles(
