@@ -5,7 +5,7 @@ An engine written for high performance game applications.
 - unity like ecs/behaviour scripting paradigm with **MUCH** better performance by default and without using an interface like Unity's Dots/burst compiler
 - extremely scalable performance for multithreaded cpus
 - level editor with the ability to expose component fields (to be considerably improved in the future)
-- 
+
 ![Editor](images/editor.png)
 
 ## Requirements
