@@ -10,6 +10,7 @@ An engine written for high performance game applications.
 
 ## Requirements
 - rust
+- c/c++ compiler
 - make
 - cmake
 - ninja
