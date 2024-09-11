@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use glm::{vec3, Vec3};
+use id::*;
 use nalgebra_glm as glm;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -13,11 +14,9 @@ use vulkano::{
 use crate::engine::{
     prelude::*,
     project::asset_manager::{Asset, AssetManager},
-    rendering::{vulkan_manager::VulkanManager, pipeline::fs},
+    rendering::{pipeline::fs, vulkan_manager::VulkanManager},
     storage::_Storage,
 };
-use component_derive::ComponentID;
-
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -27,10 +26,10 @@ pub struct Attenuation {
     exponential: f32,
     brightness: f32,
 }
-#[derive(AssetID, Clone, Serialize, Deserialize)]
+#[derive(ID, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LightTemplate {
-    color: [f32;3],
+    color: [f32; 3],
     atten: Attenuation,
     id: i32,
 }
@@ -64,8 +63,14 @@ impl LightTemplate {
     }
 }
 impl Inspectable_ for LightTemplate {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::world::World) {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::world::World) -> bool{
         ui.horizontal(|ui| {
             ui.label("color");
             ui.color_edit_button_rgb(&mut self.color);
@@ -78,7 +83,13 @@ impl Inspectable_ for LightTemplate {
         Ins(&mut self.atten.constant).inspect("constant", ui, &world.sys);
         Ins(&mut self.atten.linear).inspect("linear", ui, &world.sys);
         Ins(&mut self.atten.exponential).inspect("exponential", ui, &world.sys);
-        *(world.sys.lighting_system.light_templates.lock().get_mut(&self.id)) = self.gen_light();
+        *(world
+            .sys
+            .lighting_system
+            .light_templates
+            .lock()
+            .get_mut(&self.id)) = self.gen_light();
+        true
     }
 }
 pub type Param = (Arc<Mutex<_Storage<fs::lightTemplate>>>);

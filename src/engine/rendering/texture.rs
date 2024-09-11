@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use component_derive::AssetID;
 use egui::TextureId;
+use id::{ID, ID_trait};
 use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
@@ -24,8 +24,8 @@ use crate::{
 
 pub type TextureManager =
     AssetManager<(Arc<Device>, Arc<Queue>, Arc<StandardMemoryAllocator>), Texture>;
-use crate::engine::project::asset_manager::_AssetID;
-#[derive(AssetID)]
+
+#[derive(ID)]
 pub struct Texture {
     pub file: String,
     pub image: Arc<ImageView<ImmutableImage>>,
@@ -33,11 +33,21 @@ pub struct Texture {
     ui_id: Option<TextureId>,
 }
 impl Inspectable_ for Texture {
-    fn inspect(&mut self, _ui: &mut egui::Ui, _world: &mut World) {
+    fn inspect(&mut self, _ui: &mut egui::Ui, _world: &mut World) -> bool {
         if let Some(id) = &self.ui_id {
             _ui.image(*id, egui::vec2(200., 200.));
+            true
         } else {
+            false
         }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 impl Asset<Texture, (Arc<Device>, Arc<Queue>, Arc<StandardMemoryAllocator>)> for Texture {

@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use id::*;
 use lazy_static::lazy_static;
 use nalgebra_glm::{vec2, Vec2};
 use parking_lot::Mutex;
@@ -28,10 +29,8 @@ use super::{
     particle_textures::ParticleTextures,
     shaders::cs::{self, particle_template},
 };
-use crate::engine::project::asset_manager::_AssetID;
-use component_derive::AssetID;
 
-#[derive(AssetID, Clone, Serialize, Deserialize)]
+#[derive(ID, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ParticleTemplate {
     color: [f32; 4],
@@ -112,7 +111,14 @@ where
     });
 }
 impl Inspectable_ for ParticleTemplate {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) -> bool {
         field(ui, "color", |ui| {
             if ui
                 .color_edit_button_rgba_premultiplied(&mut self.color)
@@ -208,6 +214,7 @@ impl Inspectable_ for ParticleTemplate {
         {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
         }
+        true
     }
 }
 

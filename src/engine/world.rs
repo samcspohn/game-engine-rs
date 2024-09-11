@@ -4,6 +4,7 @@ pub mod transform;
 
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
+use id::ID_trait;
 use kira::manager::{backend::DefaultBackend, AudioManager, AudioManagerSettings};
 use nalgebra_glm::{quat_euler_angles, Quat, Vec3};
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -29,7 +30,7 @@ use std::{
 use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
 use self::{
-    component::{Component, System, _ComponentID},
+    component::{Component, System},
     entity::{
         Entity, EntityBuilder, EntityParBuilder, Unlocked, _EntityBuilder, _EntityParBuilder,
     },
@@ -134,8 +135,8 @@ pub struct World {
     pub(crate) to_instantiate_count_trans: AtomicI32,
     v: VecCache<i32>,
     pub(crate) gpu_work: GPUWork,
-    input: Input,
-    time: Time,
+    pub(crate) input: Input,
+    pub(crate) time: Time,
 }
 
 //  T_ = 'static
@@ -298,7 +299,7 @@ impl World {
     //         panic!("no type key?")
     //     }
     // }
-    pub fn get_components<T: 'static + Component + _ComponentID, U>(&self, g_id: i32, func: U)
+    pub fn get_components<T: 'static + Component + ID_trait, U>(&self, g_id: i32, func: U)
     where
         U: FnOnce(Vec<&Mutex<T>>),
     {
@@ -382,7 +383,7 @@ impl World {
             + Send
             + Sync
             + Component
-            + _ComponentID
+            + ID_trait
             + Default
             + Clone
             + Serialize
@@ -418,7 +419,7 @@ impl World {
             + Send
             + Sync
             + Component
-            + _ComponentID
+            + ID_trait
             + Default
             + Clone
             + Serialize
@@ -852,7 +853,7 @@ impl World {
     //         }
     //     }
     // }
-    pub fn get_component_storage<T: 'static + Send + Sync + Component + _ComponentID, U, I>(
+    pub fn get_component_storage<T: 'static + Send + Sync + Component + ID_trait, U, I>(
         &self,
         func: U,
     ) -> I
@@ -921,15 +922,15 @@ impl World {
     }
     pub fn update_cameras(
         &mut self,
-    ) -> Vec<(Option<Arc<Mutex<CameraData>>>, Option<CameraViewData>)> {
-        let mut ret = Vec::new();
+    ) {
+        // let mut ret = Vec::new();
         self.get_component_storage::<Camera, _, _>(|camera_storage| {
             camera_storage.for_each(|t_id, cam| {
-                let cvd = cam._update(&self.transforms.get(t_id).unwrap());
-                ret.push((cam.get_data(), cvd))
+                cam._update(&self.transforms.get(t_id).unwrap());
+                // ret.push(cvd)
             })
         });
-        ret
+        // ret
     }
     pub(crate) fn editor_update(&mut self) {
         let sys = &self.sys;
@@ -963,19 +964,19 @@ impl World {
         }
         render_jobs
     }
-    pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
-        self.get_component_storage::<Camera, _, _>(|camera_storage| {
-            let mut main_cam_id = -1;
-            let mut cam_datas = Vec::new();
-            camera_storage.for_each(|t_id, cam| {
-                main_cam_id = t_id;
-                if let Some(data) = cam.get_data() {
-                    cam_datas.push(data);
-                }
-            });
-            (main_cam_id, cam_datas)
-        })
-    }
+    // pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
+    //     self.get_component_storage::<Camera, _, _>(|camera_storage| {
+    //         let mut main_cam_id = -1;
+    //         let mut cam_datas = Vec::new();
+    //         camera_storage.for_each(|t_id, cam| {
+    //             main_cam_id = t_id;
+    //             if let Some(data) = cam.get_data() {
+    //                 cam_datas.push(data);
+    //             }
+    //         });
+    //         (main_cam_id, cam_datas)
+    //     })
+    // }
     pub(crate) fn get_emitter_len(&self) -> usize {
         self.get_component_storage::<ParticleEmitter, _, _>(|x| x.len())
     }

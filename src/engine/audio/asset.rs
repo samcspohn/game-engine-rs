@@ -2,12 +2,11 @@ use std::mem::MaybeUninit;
 use std::ptr::null;
 use std::sync::Arc;
 
-use crate::engine::project::asset_manager::_AssetID;
 use crate::engine::{
     prelude::Inspectable_,
     project::asset_manager::{Asset, AssetManager},
 };
-use component_derive::AssetID;
+use id::{ID_trait, ID};
 use kira::{
     manager::{backend::DefaultBackend, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
@@ -17,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 pub type Param = Arc<Mutex<kira::manager::AudioManager>>;
 
-#[derive(AssetID, Serialize, Deserialize)]
+#[derive(ID, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AudioAsset {
     file: String,
@@ -78,13 +77,20 @@ impl AudioAsset {
     }
 }
 impl Inspectable_ for AudioAsset {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::World) {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut crate::engine::World) -> bool {
         ui.horizontal(|ui| {
             ui.label(&self.file);
             if ui.button("play").clicked() {
                 self.play();
             }
         });
+        true
         // unsafe {
         //     let dur = self.d.assume_init_ref().duration().as_secs_f64();
         //     let settings = &mut self.d.assume_init_mut().settings;

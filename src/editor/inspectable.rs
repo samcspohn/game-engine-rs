@@ -8,7 +8,9 @@ use crate::engine::world::{transform::Transform, Sys, World};
 // }
 
 pub trait Inspectable_ {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World);
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool; // return false if invalidated
+    fn as_any(&self) -> &dyn std::any::Any;
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 pub struct Ins<'a, T>(pub &'a mut T);
 pub trait Inpsect {
@@ -52,8 +54,12 @@ impl<'a> Inpsect for Ins<'a, glm::Vec2> {
         let mut changed = false;
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
-            changed |= ui.add(egui::DragValue::new(&mut self.0.x).speed(0.1)).changed();
-            changed |= ui.add(egui::DragValue::new(&mut self.0.y).speed(0.1)).changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut self.0.x).speed(0.1))
+                .changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut self.0.y).speed(0.1))
+                .changed();
         })
         .response
         .changed()
@@ -64,22 +70,34 @@ impl<'a> Inpsect for Ins<'a, glm::Vec3> {
         let mut changed = false;
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
-            changed |= ui.add(egui::DragValue::new(&mut self.0.x).speed(0.1)).changed();
-            changed |= ui.add(egui::DragValue::new(&mut self.0.y).speed(0.1)).changed();
-            changed |= ui.add(egui::DragValue::new(&mut self.0.z).speed(0.1)).changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut self.0.x).speed(0.1))
+                .changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut self.0.y).speed(0.1))
+                .changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut self.0.z).speed(0.1))
+                .changed();
         });
         changed
     }
 }
 
-impl<'a> Inpsect for Ins<'a, [f32;3]> {
+impl<'a> Inpsect for Ins<'a, [f32; 3]> {
     fn inspect(&mut self, name: &str, ui: &mut egui::Ui, _sys: &Sys) -> bool {
         let mut changed = false;
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(name));
-            changed |= ui.add(egui::DragValue::new(&mut self.0[0]).speed(0.1)).changed();
-            changed |= ui.add(egui::DragValue::new(&mut self.0[1]).speed(0.1)).changed();
-            changed |= ui.add(egui::DragValue::new(&mut self.0[2]).speed(0.1)).changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut self.0[0]).speed(0.1))
+                .changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut self.0[1]).speed(0.1))
+                .changed();
+            changed |= ui
+                .add(egui::DragValue::new(&mut self.0[2]).speed(0.1))
+                .changed();
         });
         changed
     }

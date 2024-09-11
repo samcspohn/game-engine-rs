@@ -23,16 +23,11 @@ use crate::{
         time::Time,
         transform_compute::{self, cs::transform, TransformCompute},
         utils::PrimaryCommandBuffer,
-        world::{
-            component::{Component, _ComponentID},
-            transform::Transform,
-            Sys, World,
-        },
+        world::{component::Component, transform::Transform, Sys, World},
     },
 };
 // use lazy_static::lazy::Lazy;
 
-use component_derive::{AssetID, ComponentID};
 use crossbeam::queue::SegQueue;
 use nalgebra_glm as glm;
 use once_cell::sync::Lazy;
@@ -44,16 +39,24 @@ use vulkano::{
     buffer::{
         allocator::SubbufferAllocator, view::BufferView, Buffer, BufferContents, BufferCreateInfo,
         Subbuffer,
-    }, command_buffer::{
+    },
+    command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         CopyBufferInfo, DispatchIndirectCommand, PrimaryAutoCommandBuffer,
-    }, descriptor_set::{
+    },
+    descriptor_set::{
         allocator::StandardDescriptorSetAllocator,
         layout::{
             DescriptorSetLayout, DescriptorSetLayoutCreateInfo, DescriptorSetLayoutCreationError,
         },
         PersistentDescriptorSet, WriteDescriptorSet,
-    }, device::Device, format::Format, image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount}, memory::allocator::{MemoryUsage, StandardMemoryAllocator}, padded::Padded, pipeline::{
+    },
+    device::Device,
+    format::Format,
+    image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
+    memory::allocator::{MemoryUsage, StandardMemoryAllocator},
+    padded::Padded,
+    pipeline::{
         graphics::{
             color_blend::ColorBlendState,
             depth_stencil::{CompareOp, DepthState, DepthStencilState},
@@ -65,7 +68,11 @@ use vulkano::{
         },
         layout::PipelineLayoutCreateInfo,
         ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout, StateMode,
-    }, render_pass::{RenderPass, Subpass}, sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo}, sync::{self, FlushError, GpuFuture}, DeviceSize
+    },
+    render_pass::{RenderPass, Subpass},
+    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
+    sync::{self, FlushError, GpuFuture},
+    DeviceSize,
 };
 // use super::cs::{{emitter_init, particle_template}, self};
 
@@ -78,8 +85,6 @@ lazy_static! {
         .get::<i32>("MAX_PARTICLES")
         .unwrap();
 }
-
-use crate::engine::project::asset_manager::_AssetID;
 
 use super::{
     asset::{ParticleTemplateManager, TEMPLATE_UPDATE},
@@ -837,7 +842,6 @@ impl ParticlesSystem {
             MAX_PARTICLES: max_particles,
         };
         let uniform_sub_buffer = self.vk.allocate(uniform_data);
-
 
         let descriptor_set = self.get_descriptors2(transform.clone(), uniform_sub_buffer);
 

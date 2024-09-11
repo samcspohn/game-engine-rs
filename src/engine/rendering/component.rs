@@ -1,4 +1,4 @@
-use component_derive::ComponentID;
+use id::*;
 use parking_lot::{Mutex, RwLock};
 use puffin_egui::puffin;
 use std::{
@@ -15,11 +15,7 @@ use crate::{
         project::asset_manager::AssetInstance,
         storage::_Storage,
         transform_compute::TransformCompute,
-        world::{
-            component::{Component, _ComponentID},
-            transform::Transform,
-            Sys,
-        },
+        world::{component::Component, transform::Transform, Sys},
     },
 };
 // use bytemuck::{Pod, Zeroable};
@@ -47,7 +43,7 @@ use super::{
     vulkan_manager::VulkanManager,
 };
 
-#[derive(ComponentID, Default, Clone, Serialize, Deserialize)]
+#[derive(ID, Default, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Renderer {
     model_id: AssetInstance<ModelRenderer>,
@@ -92,7 +88,7 @@ impl Component for Renderer {
                             .map(|mesh| {
                                 let id = rm.shr_data.write().indirect.emplace(
                                     DrawIndexedIndirectCommand {
-                                        index_count: mesh.indeces.len() as u32,
+                                        index_count: mesh.indices.len() as u32,
                                         instance_count: 0,
                                         first_index: 0,
                                         vertex_offset: 0,
@@ -293,9 +289,9 @@ impl SharedRendererData {
                 ))
                 .unwrap();
         }
-        if !self.indirect.data.is_empty() {
-            self.indirect_buffer = vk.buffer_from_iter(self.indirect.data.clone());
-        }
+        // if !self.indirect.data.is_empty() { // don't need here
+        //     self.indirect_buffer = vk.buffer_from_iter(self.indirect.data.clone());
+        // }
 
         let mut offset_vec = Vec::new();
         let mut offset = 0;
@@ -311,7 +307,7 @@ impl SharedRendererData {
             }
         }
         if !offset_vec.is_empty() {
-            let offsets_buffer = vk.buffer_from_iter(offset_vec.clone());
+            // let offsets_buffer = vk.buffer_from_iter(offset_vec.clone()); // don't need here
 
             {
                 puffin::profile_scope!("update renderers: stage 0");
@@ -347,7 +343,7 @@ impl SharedRendererData {
                         WriteDescriptorSet::buffer(2, self.renderers_gpu.clone()),
                         WriteDescriptorSet::buffer(3, self.indirect_buffer.clone()),
                         WriteDescriptorSet::buffer(4, transform_compute.gpu_transforms.clone()),
-                        WriteDescriptorSet::buffer(5, offsets_buffer),
+                        WriteDescriptorSet::buffer(5, self.indirect_buffer.clone()),
                         WriteDescriptorSet::buffer(6, uniforms),
                     ],
                 )

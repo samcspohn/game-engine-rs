@@ -1,5 +1,5 @@
 use std::{default, time::Duration};
-
+use id::*;
 use glium::buffer::Content;
 use kira::{
     sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
@@ -16,7 +16,7 @@ use prelude::*;
 
 use super::asset::{AudioAsset, AudioManager};
 
-#[derive(ComponentID, Deserialize, Serialize, Default)]
+#[derive(ID, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct AudioSource {
     id: AssetInstance<AudioAsset>,
@@ -99,7 +99,7 @@ impl Component for AudioSource {
     // }
 }
 
-#[derive(ComponentID, Deserialize, Serialize, Default)]
+#[derive(ID, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct AudioListener {
     #[serde(skip_serializing, skip_deserializing)]

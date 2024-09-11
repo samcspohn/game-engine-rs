@@ -25,11 +25,13 @@ use glm::{quat_euler_angles, vec3, vec4, Vec3};
 use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
+use project::scene_manager::SceneManager;
 use puffin_egui::puffin;
 use rapier3d::{
     na::{ComplexField, UnitQuaternion},
     prelude::*,
 };
+use rendering::camera::CAMERA_LIST;
 use serde::{Deserialize, Serialize};
 
 use rayon::prelude::*;
@@ -72,7 +74,11 @@ use winit::{
 // use crate::{physics::Physics};
 
 use crate::{
-    editor::{self, editor_cam::EditorCam, editor_ui::EDITOR_WINDOW_DIM},
+    editor::{
+        self,
+        editor_cam::EditorCam,
+        editor_ui::{Editor, EditorArgs, EDITOR_WINDOW_DIM},
+    },
     engine::{
         audio::{
             asset::AudioManager,
@@ -107,7 +113,7 @@ use self::{
     project::{
         asset_manager::AssetsManager,
         file_watcher::{self, FileWatcher},
-        save_project, serialize, Project,
+        serialize, Project,
     },
     render_thread::RenderingData,
     rendering::{
@@ -245,6 +251,7 @@ pub struct Engine {
         Option<PhysicalSize<u32>>,
         bool,
     )>,
+    pub(crate) input_interrupt: Sender<i32>,
     pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) rendering_data: Sender<(
         bool,
@@ -255,7 +262,6 @@ pub struct Engine {
     phys_step_compl: Receiver<()>,
     // end of channels
     pub(crate) cam_data: Arc<Mutex<CameraData>>,
-    pub(crate) editor_cam: EditorCam,
     pub time: Time,
     pub perf: Arc<Perf>,
     pub(crate) vk: Arc<VulkanManager>,
@@ -268,6 +274,7 @@ pub struct Engine {
     pub(crate) compiler_process: Option<std::process::Child>,
     // pub(crate) working_scene: String,
     pub(crate) file_watcher: FileWatcher,
+    editor: Editor,
     pub(crate) gui: SendSync<Gui>,
     pub(crate) tex_id: Option<TextureId>,
     pub(crate) image_view: Option<Arc<ImageView<ImmutableImage>>>,
@@ -287,6 +294,7 @@ impl Engine {
     pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
         // let mut cam_data = CameraData::new(vk.clone(), 2);
         let (input_snd, input_rcv) = crossbeam::channel::bounded(1);
+        let (input_interrupt_snd, input_interrupt_rcv) = crossbeam::channel::bounded(1);
         let (vk_snd, vk_rcv) = crossbeam::channel::bounded(1);
 
         let input_thread = Arc::new({
@@ -325,7 +333,7 @@ impl Engine {
                 );
 
                 vk_snd.send((vk.clone(), proxy, gui, render_pass)).unwrap();
-                input_thread::input_thread(event_loop, vk, input_snd);
+                input_thread::input_thread(event_loop, vk, input_snd, input_interrupt_rcv);
             })
         });
         let (vk, proxy, gui, render_pass) = vk_rcv.recv().unwrap();
@@ -382,6 +390,7 @@ impl Engine {
             world.lock().sys.audio_manager.m.clone(),
             &["mp3", "wav", "ogg", "flac"],
         )));
+        let scene_manager = Arc::new(Mutex::new(SceneManager::new((), &["scene"])));
 
         unsafe {
             if !game_mode {
@@ -395,7 +404,8 @@ impl Engine {
                 particles_system.particle_template_manager.clone(),
             );
             assets_manager.add_asset_manager("light", light_manager.clone());
-            assets_manager.add_asset_manager("audio", audio_manager.clone())
+            assets_manager.add_asset_manager("audio", audio_manager.clone());
+            assets_manager.add_asset_manager("scene", scene_manager.clone());
         }
 
         let mut viewport = Viewport {
@@ -424,7 +434,7 @@ impl Engine {
             let mut world = world.lock();
             world.register::<Renderer>(false, false, false);
             world.register::<ParticleEmitter>(false, false, false);
-            world.register::<Camera>(false, false, false);
+            world.register::<Camera>(true, false, false);
             world.register::<_Collider>(false, false, false);
             world.register::<_RigidBody>(false, false, false);
             world.register::<Light>(false, false, false);
@@ -492,6 +502,7 @@ impl Engine {
             perf,
             shared_render_data: rm,
             input: input_rcv,
+            input_interrupt: input_interrupt_snd,
             rendering_data: rendering_snd,
             rendering_complete: rendering_rcv2,
             phys_upd_start: phys_snd,
@@ -506,12 +517,7 @@ impl Engine {
                 render_pass,
                 // previous_frame_end: Some(sync::now(vk.device.clone()).boxed()),
             },
-            vk,
-            editor_cam: editor::editor_cam::EditorCam {
-                rot: glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()),
-                pos: Vec3::zeros(),
-                speed: 30f32,
-            },
+            // editor_cam: editor::editor_cam::EditorCam::new(vk.clone()),
             time: Time::default(),
             particles_system,
             lighting_system,
@@ -523,6 +529,7 @@ impl Engine {
             physics_thread,
             compiler_process: None,
             file_watcher,
+            editor: Editor::new(vk.clone()),
             tex_id: None,
             image_view: None,
             game_mode,
@@ -530,6 +537,7 @@ impl Engine {
             update_editor_window: true,
             event_loop_proxy: proxy,
             engine_dir: engine_dir.as_path().to_str().unwrap().to_string(),
+            vk,
         }
         //     event_loop,
         // )
@@ -657,6 +665,7 @@ impl Engine {
 
     pub fn update_sim(&mut self) -> bool {
         let full_frame_time = self.perf.node("full frame time");
+        self.input_interrupt.send(0);
         let (events, input, window_size, should_exit) = self.input.recv().unwrap();
         for event in events {
             self.gui.update(&event);
@@ -674,7 +683,7 @@ impl Engine {
         let mut world = self.world.lock();
         world.begin_frame(input.clone(), self.time.clone());
         // let world_sim = self.perf.node("world _update");
-        let cvd = if (self.game_mode | self.playing_game) {
+        if (self.game_mode | self.playing_game) {
             puffin::profile_scope!("game loop");
             {
                 puffin::profile_scope!("world update");
@@ -711,7 +720,7 @@ impl Engine {
                 }
             }
             // let mut world = self.world.lock();
-            world.update_cameras()
+            // world.update_cameras()
         } else {
             // let mut world = self.world.lock();
 
@@ -721,23 +730,9 @@ impl Engine {
 
             world.do_defered();
             world.init_colls_rbs(&self.perf);
-            // self.phys_upd_start
-            //     .send((false, world.sys.physics.clone()))
-            //     .unwrap(); // update physics transforms/ add/remove colliders/rigid bodies
-            // self.phys_upd_compl.recv().unwrap();
-
-            self.editor_cam.update(&input, &self.time);
-            let cvd = self.cam_data.lock().update(
-                self.editor_cam.pos,
-                self.editor_cam.rot,
-                0.01f32,
-                10_000f32,
-                70f32,
-                false,
-                1,
-            );
-            vec![(Some(self.cam_data.clone()), Some(cvd))]
         };
+        world.update_cameras();
+        
         // let mut world = self.world.lock();
 
         // drop(world_sim);
@@ -749,31 +744,35 @@ impl Engine {
         let emitter_inits = world.sys.particles_system.emitter_inits.get_vec();
         let emitter_deinits = world.sys.particles_system.emitter_deinits.get_vec();
         let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
-        let (main_cam_id, mut cam_datas) = world.get_cam_datas();
+        // let (main_cam_id, mut cam_datas) = world.get_cam_datas();
         let render_jobs = world.render();
 
-        let cd = if (self.game_mode | self.playing_game) && cam_datas.len() > 0 {
-            cam_datas[0].clone()
-        } else {
-            let cd = self.cam_data.clone();
-            cd
-        };
+        // let cd = if (self.game_mode | self.playing_game) && cam_datas.len() > 0 {
+        //     cam_datas[0].clone()
+        // } else {
+        //     let cd = self.cam_data.clone();
+        //     cd
+        // };
         if !self.game_mode {}
-        let mut _cd = cd.lock();
+        // let mut _cd = cd.lock();
         let _gui = self.perf.node("_ gui");
         let dimensions = *EDITOR_WINDOW_DIM.lock();
         let mut _playing_game = false;
         self.gui.immediate_ui(|gui| {
             let ctx = gui.context();
-            _playing_game = editor::editor_ui::editor_ui(
-                &mut world,
-                &mut self.fps_queue,
+            _playing_game = self.editor.editor_ui(
+                EditorArgs {
+                    world: &mut world,
+                    project: &mut self.project,
+                    assets_manager: self.assets_manager.clone(),
+                    file_watcher: &self.file_watcher,
+                    playing_game: self.game_mode | self.playing_game,
+                },
                 &ctx,
-                self.tex_id.unwrap_or_default(),
-                self.assets_manager.clone(),
-                &self.file_watcher,
+                gui,
+                // self.tex_id.unwrap_or_default(),
                 self.game_mode | self.playing_game,
-            );
+            )
         });
         if _playing_game && _playing_game != self.playing_game {
             // save current state of scene before play
@@ -789,10 +788,11 @@ impl Engine {
             fs::remove_file("temp_scene");
         }
 
-        if !(self.game_mode | self.playing_game) {
-            cam_datas = vec![cd.clone()];
-            // let cd = self.cam_data.clone();
-        };
+        // if !(self.game_mode | self.playing_game) {
+        //     cam_datas = vec![cd.clone()];
+        //     // let cd = self.cam_data.clone();
+        // };
+
         let transform_extent = world.transforms.last_active();
 
         let transforms_buf = {
@@ -801,7 +801,6 @@ impl Engine {
                 .write()
                 .alloc_buffers(transform_extent as DeviceSize)
         };
-
 
         let vk = self.vk.clone();
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -822,53 +821,53 @@ impl Engine {
                 job.unwrap()(&mut builder, vk.clone());
             }
         }
-        let light_len = world.get_component_storage::<Light, _ ,_>(|l| l.len());
+        let light_len = world.get_component_storage::<Light, _, _>(|l| l.len());
 
         let skeletons = {
             let skeletons = self.perf.node("compute skeletons");
             self.assets_manager.get_manager2(|model: &ModelManager| {
                 world
-                .sys
-                .skeletons_manager
-                .write()
-                .iter()
-                .map(|(id, skeletons)| {
-                    (*id, {
-                        let model_renderer = model.assets_id.get(id).unwrap().lock();
-                        let num_bones = model_renderer.model.bone_info.len();
-                        let len = num_bones * skeletons.data.len();
-                        let mut a: Vec<[[f32; 4]; 3]> = Vec::with_capacity(len);
-                        unsafe {
-                            a.set_len(len);
-                        }
-                        let c: Subbuffer<[[[f32; 4]; 3]]> = vk.allocate_unsized(len as u64);
-                        {
-                            let mut _c = c.write().unwrap();
-                            skeletons
-                                .data
-                                .par_iter()
-                                .zip_eq(skeletons.valid.par_iter())
-                                .zip_eq(_c.par_chunks_mut(num_bones))
-                                // .enumerate()
-                                .for_each(|(((skel, v), g))| {
-                                    if v.load(std::sync::atomic::Ordering::Relaxed) {
-                                        // let g = unsafe { &mut *__c.get() };
-                                        let d = skel.lock().get_skeleton(
-                                            &model_renderer.model,
-                                            self.time.time,
-                                            g,
-                                        );
-                                    }
-                                });
-                        }
-                        c
+                    .sys
+                    .skeletons_manager
+                    .write()
+                    .iter()
+                    .map(|(id, skeletons)| {
+                        (*id, {
+                            let model_renderer = model.assets_id.get(id).unwrap().lock();
+                            let num_bones = model_renderer.model.bone_info.len();
+                            let len = num_bones * skeletons.data.len();
+                            let mut a: Vec<[[f32; 4]; 3]> = Vec::with_capacity(len);
+                            unsafe {
+                                a.set_len(len);
+                            }
+                            let c: Subbuffer<[[[f32; 4]; 3]]> = vk.allocate_unsized(len as u64);
+                            {
+                                let mut _c = c.write().unwrap();
+                                skeletons
+                                    .data
+                                    .par_iter()
+                                    .zip_eq(skeletons.valid.par_iter())
+                                    .zip_eq(_c.par_chunks_mut(num_bones))
+                                    // .enumerate()
+                                    .for_each(|(((skel, v), g))| {
+                                        if v.load(std::sync::atomic::Ordering::Relaxed) {
+                                            // let g = unsafe { &mut *__c.get() };
+                                            let d = skel.lock().get_skeleton(
+                                                &model_renderer.model,
+                                                self.time.time,
+                                                g,
+                                            );
+                                        }
+                                    });
+                            }
+                            c
+                        })
                     })
-                })
-                .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>>()
+                    .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>>()
             })
         };
 
-        drop(_cd);
+        // drop(_cd);
         drop(world);
         drop(_gui);
         self.file_watcher.get_updates(self.assets_manager.clone());
@@ -908,8 +907,6 @@ impl Engine {
             )
         };
         drop(_get_gui_commands);
-
-        let cam_datas = cvd;
 
         let particle_init_data = (emitter_len, emitter_inits, emitter_deinits, particle_bursts);
 
@@ -972,7 +969,7 @@ impl Engine {
                 }) => {
                     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
                     self.rendering_data.send((false, None)).unwrap();
-                    self.event_loop_proxy.send_event(EngineEvent::Send);
+                    // self.event_loop_proxy.send_event(EngineEvent::Send);
                     return should_exit;
                 }
                 Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
@@ -1002,15 +999,6 @@ impl Engine {
         }
 
         let mut rm = self.shared_render_data.write();
-        // let clean_up = self.perf.node("previous frame end clean up finished");
-        // previous_frame_end.as_mut().unwrap().cleanup_finished();
-        // drop(clean_up);
-        // rayon::scope(|s| {
-        //     let mut a = 0;
-        //     s.spawn(|s| {
-        //         a = 1;
-        //     });
-        // });
 
         self.transform_compute
             .write()
@@ -1071,15 +1059,16 @@ impl Engine {
         );
 
         let render_cameras = self.perf.node("render camera(s)");
-        let mut game_image = None;
-        for cam in cam_datas {
-            if let (Some(cam), Some(cvd)) = cam {
-                let dims = if self.game_mode {
-                    framebuffers[0].0.dimensions().width_height()
-                } else {
-                    *EDITOR_WINDOW_DIM.lock()
-                };
-                cam.lock().resize(dims, vk.clone());
+        // let mut game_image = None;
+        let mut camera_list = CAMERA_LIST.cameras.lock();
+        for (_, cam) in camera_list.iter_mut() {
+            if let Some(cvd) = cam.camera_view_data.pop_front() {
+                // let dims = if self.game_mode {
+                //     framebuffers[0].0.dimensions().width_height()
+                // } else {
+                //     *EDITOR_WINDOW_DIM.lock()
+                // };
+                // cam.resize(dims, vk.clone());
                 self.lighting_compute.write().update_lights_2(
                     &mut builder,
                     self.lighting_system.lights.lock().clone(),
@@ -1089,7 +1078,7 @@ impl Engine {
                     light_len as i32,
                 );
                 let lc = self.lighting_compute.read();
-                game_image = cam.lock().render(
+                let img = cam.render(
                     vk.clone(),
                     &mut builder,
                     &self.transform_compute.read(),
@@ -1117,60 +1106,21 @@ impl Engine {
                     &skeletons,
                     // debug,
                 );
-            }
-        }
-        drop(render_cameras);
-        // resize editor window
-        if editor_window_image.is_none()
-            || editor_size
-                != [
-                    editor_window_image.as_ref().unwrap().dimensions().width(),
-                    editor_window_image.as_ref().unwrap().dimensions().height(),
-                ]
-        {
-            let image = ImmutableImage::from_iter(
-                &vk.mem_alloc,
-                (0..(editor_size[0] * editor_size[1])).map(|_| [0u8; 4]),
-                ImageDimensions::Dim2d {
-                    width: editor_size[0],
-                    height: editor_size[1],
-                    array_layers: 1,
-                },
-                MipmapsCount::Log2,
-                Format::R8G8B8A8_UNORM,
-                &mut builder,
-            )
-            .unwrap();
-            let img_view = ImageView::new_default(image.clone()).unwrap();
-            *editor_window_image = Some(image.clone());
-
-            if let Some(tex_id) = self.tex_id {
-                self.gui.unregister_user_image(tex_id);
-            }
-
-            let t = self.gui.register_user_image_view(
-                img_view.clone(),
-                SamplerCreateInfo {
-                    lod: 0.0..=LOD_CLAMP_NONE,
-                    mip_lod_bias: -0.2,
-                    address_mode: [SamplerAddressMode::Repeat; 3],
-                    ..Default::default()
-                },
-            );
-            self.tex_id = Some(t);
-
-            self.image_view = Some(img_view);
-        }
-        // copy editor image
-        if !self.game_mode {
-            if let Some(image) = &editor_window_image {
-                if let Some(game_image) = &game_image {
-                    builder
-                        .copy_image(CopyImageInfo::images(game_image.clone(), image.clone()))
-                        .unwrap();
+                if cam.texture_id.is_none() {
+                    let t_id = self.gui.register_user_image_view(
+                        cam.view.clone(),
+                        SamplerCreateInfo {
+                            lod: 0.0..=LOD_CLAMP_NONE,
+                            mip_lod_bias: -0.2,
+                            address_mode: [SamplerAddressMode::Repeat; 3],
+                            ..Default::default()
+                        },
+                    );
+                    cam.texture_id = Some(t_id)
                 }
             }
         }
+        drop(render_cameras);
 
         /////////////////////////////////////////////////////////
 
@@ -1255,14 +1205,6 @@ impl Engine {
         }
         builder.end_render_pass().unwrap();
 
-        if self.game_mode {
-            if let Some(game_image) = &game_image {
-                let image = framebuffers[image_num as usize].0.clone();
-                builder
-                    .blit_image(BlitImageInfo::images(game_image.clone(), image))
-                    .unwrap();
-            }
-        }
 
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();
@@ -1329,9 +1271,10 @@ impl Engine {
 
         self.update_editor_window = window_size.is_some();
         self.playing_game = _playing_game;
-        if !should_exit {
-            self.event_loop_proxy.send_event(EngineEvent::Send);
-        }
+        // if !should_exit {
+        //     self.input_interrupt.send(1)
+        //     // self.event_loop_proxy.send_event(EngineEvent::Send);
+        // }
         should_exit
     }
     pub fn end(mut self) {
@@ -1346,7 +1289,8 @@ impl Engine {
         Arc::into_inner(self.rendering_thread).unwrap().join();
 
         // join input thread
-        self.event_loop_proxy.send_event(EngineEvent::Quit);
+        self.input_interrupt.send(1);
+        // self.event_loop_proxy.send_event(EngineEvent::Quit);
         Arc::into_inner(self.input_thread).unwrap().join();
         if let Some(compiling) = &mut self.compiler_process {
             compiling.kill();

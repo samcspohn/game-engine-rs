@@ -17,7 +17,11 @@ impl AudioSystem {
         let m = Arc::new(Mutex::new(
             AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()).unwrap(),
         ));
-        let scene = Arc::new(Mutex::new(m.lock().add_spatial_scene(SpatialSceneSettings::default()).unwrap()));
+        let scene = Arc::new(Mutex::new(
+            m.lock()
+                .add_spatial_scene(SpatialSceneSettings::default())
+                .unwrap(),
+        ));
         Self { m, scene }
     }
 }

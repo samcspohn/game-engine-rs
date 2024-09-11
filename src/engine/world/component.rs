@@ -177,7 +177,3 @@ pub trait Component {
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
     // fn as_any(&self) -> &dyn Any;
 }
-
-pub trait _ComponentID {
-    const ID: u64;
-}

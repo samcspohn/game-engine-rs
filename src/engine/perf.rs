@@ -111,7 +111,6 @@ impl Perf {
                 q.push(d)
             }
         }
-
     }
 
     pub fn print(&self) {

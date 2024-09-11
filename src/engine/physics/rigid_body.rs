@@ -1,6 +1,6 @@
 use std::{cell::SyncUnsafeCell, mem::transmute, sync::Arc};
 
-// use component_derive::ComponentID;
+
 use super::collider::_ColliderType;
 use crate::engine::project::asset_manager::AssetInstance;
 use crate::engine::{prelude::*, world::NewRigidBody};
@@ -9,7 +9,7 @@ use nalgebra_glm::{quat_euler_angles, vec3, Quat, Vec3};
 use rapier3d::{na::UnitQuaternion, prelude::*};
 use serde::{Deserialize, Serialize};
 
-#[derive(ComponentID, Clone, Default, Deserialize, Serialize)]
+#[derive(ID, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 #[repr(C)]
 pub struct _RigidBody {

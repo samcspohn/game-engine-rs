@@ -1,5 +1,7 @@
 /target
-/component-derive/target
+/id/target
+/id_internal/target
+/id_macro/target
 /.vscode/settings.json
 /runtime
 Cargo.lock

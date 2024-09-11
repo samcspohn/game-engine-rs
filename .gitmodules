@@ -1,3 +1,6 @@
 [submodule "test_project_rs"]
 	path = test_project_rs
 	url = https://github.com/samcspohn/test_project_rs.git
+[submodule "transform-gizmo"]
+	path = transform-gizmo
+	url = https://github.com/samcspohn/transform-gizmo.git

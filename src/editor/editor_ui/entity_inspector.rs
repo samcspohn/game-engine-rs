@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     editor::inspectable::Inspectable_,
     engine::{
@@ -5,25 +7,37 @@ use crate::{
         world::{entity, World},
     },
 };
+use egui_winit_vulkano::Gui;
 use glm::{Quat, Vec3};
-use nalgebra_glm as glm;
+use nalgebra_glm::{self as glm, vec3};
 use parking_lot::Mutex;
+
+use super::EditorWindow;
 
 pub(crate) struct GameObjectInspector {
     // world: &'a Mutex<World>,
 }
-pub static mut _selected: Option<i32> = None;
 
+pub static mut _SELECTED: Option<i32> = None;
+pub static mut ROTATION_EULER: Option<Vec3> = None;
+pub static mut QUAT_PTR: Option<*mut Quat> = None;
 impl Inspectable_ for GameObjectInspector {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         // let mut world = world.lock();
         let mut rmv: Option<(i32, u64, i32)> = None;
-        static mut ROTATION_EULER: Option<Vec3> = None;
-        static mut QUAT_PTR: Option<*mut Quat> = None;
+
+        let mut ret = true;
         let resp = ui.scope(|ui| {
             egui::ScrollArea::both().auto_shrink([false,true]).show(ui, |ui| {
 
-                if let Some(t_id) = unsafe { _selected } { // TODO: fix: if object is destroyed in play, fix panic on "stop"
+                if let Some(t_id) = unsafe { _SELECTED } { // TODO: fix: if object is destroyed in play, fix panic on "stop"
                     if let Some(_t) = world.transforms.get(t_id) {
                         let ent = _t.entity();
                         egui::CollapsingHeader::new("Transform")
@@ -62,7 +76,7 @@ impl Inspectable_ for GameObjectInspector {
                                             let x = ui.drag_angle(&mut rot.z);
                                             let y = ui.drag_angle(&mut rot.y);
                                             let z = ui.drag_angle(&mut rot.x);
-                                            _t.set_rotation(&euler_to_quat(&rot));
+                                            _t.set_rotation(&euler_to_quat(&vec3(rot.z,rot.y,rot.x)));
                                         }
                                     });
                                 });
@@ -120,7 +134,11 @@ impl Inspectable_ for GameObjectInspector {
                                 }
                             }
                         }
+                    } else {
+                        ret = false;
                     }
+                } else {
+                    ret = false;
                 }
             });
         });
@@ -128,7 +146,7 @@ impl Inspectable_ for GameObjectInspector {
         if let Some((g, c_type, id)) = rmv {
             world.remove_component(g, c_type, id)
         }
-        if unsafe { _selected.is_some() } {
+        if unsafe { _SELECTED.is_some() } {
             let mut component_init: Option<(u64, i32)> = None;
 
             ui.menu_button("add component", |ui| {
@@ -136,7 +154,7 @@ impl Inspectable_ for GameObjectInspector {
                     let mut c = c.1.write();
                     let resp = ui.add(egui::Button::new(c.get_name()));
                     if resp.clicked() {
-                        if let Some(t_id) = unsafe { _selected } {
+                        if let Some(t_id) = unsafe { _SELECTED } {
                             let c_id = c.new_default(t_id);
                             let key = c.get_id();
                             component_init = Some((key, c_id));
@@ -145,10 +163,64 @@ impl Inspectable_ for GameObjectInspector {
                     }
                 }
             });
-            if let (Some(t_id), Some((key, c_id))) = (unsafe { _selected }, component_init) {
+            if let (Some(t_id), Some((key, c_id))) = (unsafe { _SELECTED }, component_init) {
                 // let g = GameObject { t: t_id };
                 world.add_component_id(t_id, key, c_id)
             }
         }
+        ret
+    }
+}
+
+pub struct Inspector {
+    inspectable: Option<Arc<Mutex<dyn Inspectable_>>>,
+}
+
+impl Inspector {
+    pub fn new() -> Inspector {
+        Inspector { inspectable: None }
+    }
+}
+
+pub(super) static mut LAST_ACTIVE: *const Inspector = std::ptr::null();
+impl EditorWindow for Inspector {
+    fn update(
+        &mut self,
+        editor_args: &mut super::EditorArgs,
+        inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
+        is_focused: bool,
+    ) {
+        if is_focused {
+            unsafe {
+                LAST_ACTIVE = self;
+            }
+        }
+        if unsafe { LAST_ACTIVE == self } {
+            // if is_focused {
+            if inspectable.is_some() {
+                self.inspectable = inspectable.take();
+            }
+            // }
+        }
+    }
+    fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        editor_args: &mut super::EditorArgs,
+        inspectable: &mut Option<Arc<Mutex<dyn Inspectable_>>>,
+        rec: egui::Rect,
+        id: egui::Id,
+        gui: &mut Gui,
+    ) {
+        if let Some(ins) = &mut self.inspectable {
+            if !ins.lock().inspect(ui, editor_args.world) {
+                self.inspectable = None;
+            }
+        } else {
+        }
+    }
+
+    fn get_name(&self) -> &str {
+        "Inspector"
     }
 }

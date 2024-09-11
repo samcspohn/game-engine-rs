@@ -6,7 +6,7 @@ use std::{
     mem::transmute,
     ops::Sub,
     rc::Rc,
-    sync::Arc,
+    sync::Arc, u16::MAX,
 };
 
 // use ai::import::Importer;
@@ -14,13 +14,13 @@ use std::{
 // use bytemuck::{Pod, Zeroable};
 use crate::engine::{
     particles::shaders::cs::b,
-    prelude::{Component, Inpsect, Ins, _ComponentID},
+    prelude::{Component, Inpsect, Ins},
     project::asset_manager::AssetInstance,
 };
-use component_derive::{AssetID, ComponentID};
 use force_send_sync::SendSync;
 use glium::buffer::Content;
 use glm::{float_bits_to_int, IVec2};
+use id::*;
 use parking_lot::{Mutex, RwLock};
 
 // use std::mem::size_of;
@@ -103,10 +103,11 @@ pub struct Mesh {
     pub vertices: Vec<_Vertex>, // TODO: change to [f32;3]
     pub normals: Vec<Normal>,
     pub uvs: Vec<UV>,
-    pub indeces: Vec<u32>,
+    pub indices: Vec<u32>,
     // pub bone_ids: Vec<smallvec::SmallVec<[u16; 4]>>,
     pub vertex_bones: Vec<IVec2>,
     pub bone_weight_offsets: Vec<u32>,
+    pub aabb: (Vec3, Vec3),
 
     pub vertex_buffer: Subbuffer<[_Vertex]>,
     pub uvs_buffer: Subbuffer<[UV]>,
@@ -324,7 +325,16 @@ impl Mesh {
         if skip {
             return None;
         }
+        let mut max = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+        let mut min = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
         for v in mesh.vertices.iter() {
+            max.x = max.x.max(v.x);
+            max.y = max.y.max(v.y);
+            max.z = max.z.max(v.z);
+            min.x = min.x.min(v.x);
+            min.y = min.y.min(v.y);
+            min.z = min.z.min(v.z);
+            
             vertices.push(_Vertex {
                 position: [v.x, v.y, v.z],
             });
@@ -459,13 +469,17 @@ impl Mesh {
             //     println!("{}, {:?}", diff_path, texture);
             // }
         }
-
+        let aabb = (
+            min,
+            max,
+        );
+        println!("aabb: {:?}", aabb);
         // }
 
         return Some(Mesh {
             vertices,
             uvs,
-            indeces: indices,
+            indices,
             normals,
             vertex_bones,
             bone_weight_offsets,
@@ -476,6 +490,7 @@ impl Mesh {
             texture,
             bone_weights_buffer,
             bone_weights_offsets_counts_buf: bone_weights_offsets_counts_buffer,
+            aabb,
         });
         // }
 
@@ -483,10 +498,8 @@ impl Mesh {
     }
 }
 
-use crate::engine::project::asset_manager::_AssetID;
-
 use super::{component::buffer_usage_all, texture::TextureManager};
-#[derive(AssetID)]
+#[derive(ID)]
 pub struct ModelRenderer {
     pub file: String,
     pub model: Model,
@@ -512,7 +525,7 @@ impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)> for 
 }
 
 impl Inspectable_ for ModelRenderer {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
+    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) -> bool {
         ui.add(egui::Label::new(self.file.as_str()));
         ui.separator();
         self.model
@@ -522,7 +535,15 @@ impl Inspectable_ for ModelRenderer {
             .enumerate()
             .for_each(|(i, x)| {
                 ui.add(egui::Label::new(format!("{}: {}", x.name, i)));
-            })
+            });
+        true
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 

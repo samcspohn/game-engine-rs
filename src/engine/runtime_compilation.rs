@@ -1,12 +1,11 @@
 use std::sync::atomic::AtomicBool;
 use std::{fs, process::Command, sync::Arc, time::Duration};
 
-use component_derive::AssetID;
+use id::*;
 use lazy_static::lazy_static;
 use libloading::Library;
 use parking_lot::Mutex;
 
-use crate::engine::project::asset_manager::_AssetID;
 use crate::{
     editor::inspectable::Inspectable_,
     engine::{
@@ -20,7 +19,7 @@ use crate::{
 
 use super::project::serialize::serialize;
 
-#[derive(AssetID)]
+#[derive(ID)]
 pub struct RSFile {
     path: String,
 }
@@ -56,13 +55,20 @@ impl Asset<RSFile, (Arc<AtomicBool>)> for RSFile {
     }
 }
 impl Inspectable_ for RSFile {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         ui.add(egui::Label::new(self.path.as_str()));
+        true
     }
 }
 pub type RSManager = AssetManager<(Arc<AtomicBool>), RSFile>;
 
-#[derive(AssetID)]
+#[derive(ID)]
 pub struct Lib {}
 
 impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
@@ -99,18 +105,21 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
         let so_file = format!("runtime/lib{}.{}", id, ext);
         if let Ok(_) = fs::copy(file, &so_file) {
             // LOAD NEW LIB
-            let lib = unsafe { libloading::Library::new(&so_file).unwrap() };
-            let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> =
-                unsafe { lib.get(b"register").unwrap() };
+            if let Ok(lib) = unsafe { libloading::Library::new(&so_file) } {
+                let func = unsafe { lib.get(b"register") };
 
-            // let mut world = params.lock();
-            world.clear();
-            unsafe {
-                func(&mut world);
+                if func.is_ok() {
+                    let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> = func.unwrap();
+                    // let mut world = params.lock();
+                    world.clear();
+                    unsafe {
+                        func(&mut world);
+                    }
+                    serialize::deserialize(&mut world, "temp_scene");
+                    fs::remove_file("temp_scene");
+                    *LIB.lock() = Some(lib);
+                }
             }
-            serialize::deserialize(&mut world, "temp_scene");
-            fs::remove_file("temp_scene");
-            *LIB.lock() = Some(lib);
         }
 
         Lib {}
@@ -123,8 +132,15 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
 }
 
 impl Inspectable_ for Lib {
-    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
         // ui.add(egui::Label::new(self.path));
+        true
     }
 }
 pub type LibManager = AssetManager<(Arc<Mutex<World>>), Lib>;
