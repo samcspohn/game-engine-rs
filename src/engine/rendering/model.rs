@@ -658,7 +658,11 @@ fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
                 let end = x[1].value;
                 let end = quat(end.x, end.y, end.z, end.w);
 
-                interpolate(&start, &end, factor as f32).normalize()
+                // interpolate(&start, &end, factor as f32).normalize()
+let a = start.lerp(&end,factor as f32);
+let v = vec3(a.i,a.j,a.k).normalize();
+let a = quat(v.x,v.y,v.z,a.w).normalize()
+a
                 // start.lerp(&end, factor as f32).normalize()
                 // start
                 // let delta = end - start;
