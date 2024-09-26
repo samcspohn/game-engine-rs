@@ -1,3 +1,4 @@
+use egui::epaint::tessellator::path;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
@@ -43,7 +44,7 @@ impl Project {
     pub fn load_project(
         &self,
         file_watcher: &mut FileWatcher,
-        world: Arc<Mutex<World>>,
+        world: &mut World,
         assets_manager: Arc<AssetsManager>,
     ) {
         if let Ok(s) = std::fs::read_to_string("project.yaml") {
@@ -52,7 +53,7 @@ impl Project {
                 file_watcher.files = project.files;
                 assets_manager.deserialize(&project.assets);
             }
-            serialize::deserialize(&mut world.lock(), &self.working_scene);
+            serialize::deserialize(world, &self.working_scene);
         }
     }
 }

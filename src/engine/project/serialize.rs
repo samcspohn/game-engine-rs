@@ -76,6 +76,9 @@ pub fn serialize(world: &World, scene_file: &str) {
     for c in t_r.get_meta().children.iter() {
         root.t_c.push(serialize_c(*c, world, &transforms));
     }
+    if scene_file == "" {
+        return;
+    }
     std::fs::write(scene_file, serde_yaml::to_string(&root).unwrap()).unwrap();
 }
 

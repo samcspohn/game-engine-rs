@@ -113,7 +113,7 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
                     // let mut world = params.lock();
                     world.clear();
                     unsafe {
-                        func(&mut world);
+                        func(&mut world); // windows issue loading lib
                     }
                     serialize::deserialize(&mut world, "temp_scene");
                     fs::remove_file("temp_scene");

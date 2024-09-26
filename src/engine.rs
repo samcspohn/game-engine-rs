@@ -31,7 +31,7 @@ use rapier3d::{
     na::{ComplexField, UnitQuaternion},
     prelude::*,
 };
-use rendering::camera::CAMERA_LIST;
+use rendering::{camera::CAMERA_LIST, component::RendererManager};
 use serde::{Deserialize, Serialize};
 
 use rayon::prelude::*;
@@ -242,6 +242,7 @@ pub struct Engine {
     // pub(crate) light_bounding: RwLock<LightBounding>,
     pub(crate) particles_system: Arc<ParticlesSystem>,
     pub(crate) lighting_system: Arc<LightingSystem>,
+    pub(crate) rendering_system: Arc<RwLock<RendererManager>>,
     pub(crate) playing_game: bool,
     // pub(crate) event_loop: EventLoop<()>,
     // channels
@@ -290,6 +291,11 @@ pub struct EnginePtr {
 unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
 
+fn init_systems(vk: &Arc<VulkanManager>, texture_manager: Arc<Mutex<TextureManager>>) -> (Arc<ParticlesSystem>, Arc<LightingSystem>) {
+    let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
+    let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
+    (particles_system, lighting_system)
+}
 impl Engine {
     pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
         // let mut cam_data = CameraData::new(vk.clone(), 2);
@@ -360,8 +366,10 @@ impl Engine {
         texture_manager.lock().from_file("default/particle.png");
         assert!(env::set_current_dir(&Path::new(project_dir)).is_ok());
 
-        let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
-        let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
+        // let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
+        // let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
+        let (particles_system, lighting_system) = init_systems(&vk, texture_manager.clone());
+        let renderer_manager = Arc::new(RwLock::new(RendererManager::new(vk.clone())));
         let light_manager = Arc::new(Mutex::new(LightTemplateManager::new(
             (lighting_system.light_templates.clone()),
             &["lgt"],
@@ -369,6 +377,7 @@ impl Engine {
         let world = Arc::new(Mutex::new(World::new(
             particles_system.clone(),
             lighting_system.clone(),
+            renderer_manager.clone(),
             vk.clone(),
             assets_manager.clone(),
         )));
@@ -376,7 +385,6 @@ impl Engine {
             TRANSFORMS = &mut world.lock().transforms;
             TRANSFORM_MAP = &mut world.lock().transform_map;
         }
-
         #[cfg(target_os = "windows")]
         let dylib_ext = ["dll"];
         #[cfg(not(target_os = "windows"))]
@@ -521,6 +529,7 @@ impl Engine {
             time: Time::default(),
             particles_system,
             lighting_system,
+            rendering_system: renderer_manager,
             fps_queue,
             frame_time,
             running,
@@ -762,11 +771,15 @@ impl Engine {
             let ctx = gui.context();
             _playing_game = self.editor.editor_ui(
                 EditorArgs {
+                    engine_dir: self.engine_dir.clone(),
                     world: &mut world,
                     project: &mut self.project,
                     assets_manager: self.assets_manager.clone(),
-                    file_watcher: &self.file_watcher,
+                    file_watcher: &mut self.file_watcher,
                     playing_game: self.game_mode | self.playing_game,
+                    particle_system: &self.particles_system,
+                    light_system: &self.lighting_system,
+                    // render_system: &mut self.rendering_system.write(),
                 },
                 &ctx,
                 gui,

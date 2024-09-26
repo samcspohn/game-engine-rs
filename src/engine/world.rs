@@ -115,7 +115,7 @@ pub struct World {
     pub transforms: Transforms,
     pub mesh_map: HashMap<i32, ColliderBuilder>,
     pub proc_mesh_id: i32,
-    pub(super) transform_map: HashMap<i32, i32>,
+    pub(crate) transform_map: HashMap<i32, i32>,
     // pub(super) dragged_transform: i32,
     pub(crate) components: HashMap<
         u64,
@@ -154,12 +154,14 @@ impl World {
     pub fn new(
         particles: Arc<ParticlesSystem>,
         lighting: Arc<LightingSystem>,
+        renderer_manager: Arc<RwLock<RendererManager>>,
         vk: Arc<VulkanManager>,
         assets_manager: Arc<AssetsManager>,
     ) -> World {
         let mut trans = Transforms::new();
         let root = trans.new_root();
-        World {
+
+        let mut w = World {
             phys_time: 0f32,
             phys_step: 1. / 30.,
             transforms: trans,
@@ -171,7 +173,7 @@ impl World {
             root,
             sys: Sys {
                 audio_manager: AudioSystem::new(),
-                renderer_manager: Arc::new(RwLock::new(RendererManager::new(vk.clone()))),
+                renderer_manager,
                 skeletons_manager: Arc::new(RwLock::new(HashMap::new())),
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
@@ -197,7 +199,12 @@ impl World {
             gpu_work: SegQueue::new(),
             input: Input::default(),
             time: Time::default(),
-        }
+        };
+        // unsafe {
+        //     TRANSFORMS = &mut w.transforms;
+        //     TRANSFORM_MAP = &mut w.transform_map;
+        // }
+        w
     }
     pub fn instantiate(&self, parent: i32) -> EntityBuilder {
         EntityBuilder::new(parent, &self)
@@ -920,9 +927,7 @@ impl World {
         }
         // self.update_cameras();
     }
-    pub fn update_cameras(
-        &mut self,
-    ) {
+    pub fn update_cameras(&mut self) {
         // let mut ret = Vec::new();
         self.get_component_storage::<Camera, _, _>(|camera_storage| {
             camera_storage.for_each(|t_id, cam| {
@@ -980,7 +985,15 @@ impl World {
     pub(crate) fn get_emitter_len(&self) -> usize {
         self.get_component_storage::<ParticleEmitter, _, _>(|x| x.len())
     }
-
+    // pub fn regen(&mut self) {
+    //     *self = Self::new(
+    //         self.sys.particles_system.clone(),
+    //         self.sys.lighting_system.clone(),
+    //         self.sys.renderer_manager.clone(),
+    //         self.sys.vk.clone(),
+    //         self.sys.assets_manager.clone(),
+    //     );
+    // }
     pub fn clear(&mut self) {
         self.destroy(self.root);
         let mut tperf = Perf::new();

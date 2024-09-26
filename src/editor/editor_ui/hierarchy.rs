@@ -62,6 +62,9 @@ impl EditorWindow for Hierarchy {
                     self._selected_transforms.clear();
                     self._selected_transforms.insert(e, true);
                 }
+                *inspectable = Some(Arc::new(Mutex::new(
+                    entity_inspector::GameObjectInspector {},
+                )));
                 println!("add game object");
                 ui.close_menu();
             }
@@ -319,12 +322,16 @@ impl EditorWindow for Hierarchy {
                     -1
                 }
             };
+            
             if e >= 0 {
                 unsafe {
                     _SELECTED = Some(e);
                     self._selected_transforms.clear();
                     self._selected_transforms.insert(e, true);
                 }
+                *inspectable = Some(Arc::new(Mutex::new(
+                    entity_inspector::GameObjectInspector {},
+                )));
             } else {
                 unsafe {
                     _SELECTED = None;
