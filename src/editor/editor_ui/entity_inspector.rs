@@ -34,6 +34,8 @@ impl Inspectable_ for GameObjectInspector {
         let mut rmv: Option<(i32, u64, i32)> = None;
 
         let mut ret = true;
+        ui.label(format!("GameObject {}", *unsafe { _SELECTED.as_ref().unwrap() }));
+        ui.separator();
         let resp = ui.scope(|ui| {
             egui::ScrollArea::both().auto_shrink([false,true]).show(ui, |ui| {
 

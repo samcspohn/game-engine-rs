@@ -109,11 +109,15 @@ impl Asset<Lib, (Arc<Mutex<World>>)> for Lib {
                 let func = unsafe { lib.get(b"register") };
 
                 if func.is_ok() {
+                    println!("func ok");
                     let func: libloading::Symbol<unsafe extern "C" fn(&mut World)> = func.unwrap();
+                    println!("func unwrapped");
                     // let mut world = params.lock();
                     world.clear();
                     unsafe {
+                        println!("calling func");
                         func(&mut world); // windows issue loading lib
+                        println!("func called");
                     }
                     serialize::deserialize(&mut world, "temp_scene");
                     fs::remove_file("temp_scene");

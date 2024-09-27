@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -25,14 +25,14 @@ use crate::{
 use super::{EditorArgs, EditorWindow};
 
 pub(super) struct Hierarchy {
-    _selected_transforms: HashMap<i32, bool>,
+    _selected_transforms: HashSet<i32>,
     context_menu: Option<GameObjectContextMenu>,
     // inspectable: Option<Arc<Mutex<dyn Inspectable_>>>,
     fps_queue: VecDeque<f32>,
 }
 impl Hierarchy {
     pub fn new() -> Self {
-        Self { _selected_transforms: HashMap::new(), context_menu: None, fps_queue: VecDeque::new() }
+        Self { _selected_transforms: HashSet::new(), context_menu: None, fps_queue: VecDeque::new() }
     }
 }
 
@@ -46,6 +46,7 @@ impl EditorWindow for Hierarchy {
         id: egui::Id,
         gui: &mut Gui,
     ) {
+
         let mut world = &mut editor_args.world;
         self.fps_queue.push_back(world.time.dt);
         if self.fps_queue.len() > 100 {
@@ -60,7 +61,7 @@ impl EditorWindow for Hierarchy {
                 unsafe {
                     _SELECTED = Some(e);
                     self._selected_transforms.clear();
-                    self._selected_transforms.insert(e, true);
+                    self._selected_transforms.insert(e);
                 }
                 *inspectable = Some(Arc::new(Mutex::new(
                     entity_inspector::GameObjectInspector {},
@@ -80,7 +81,7 @@ impl EditorWindow for Hierarchy {
                     t: Transform,
                     ui: &mut egui::Ui,
                     count: &mut i32,
-                    selected: &mut Option<i32>,
+                    // selected: &mut Option<i32>,
                 ) {
                     let id = ui.make_persistent_id(format!("{}", t.id));
                     egui::collapsing_header::CollapsingState::load_with_default_open(
@@ -91,15 +92,15 @@ impl EditorWindow for Hierarchy {
                     .show_header(ui, |ui| {
                         ui.horizontal(|ui| {
                             let label = egui::SelectableLabel::new(
-                                *_self._selected_transforms.get(&t.id).unwrap_or(&false),
+                                _self._selected_transforms.contains(&t.id),
                                 format!("game object {}", t.id),
                             );
                             let resp = ui.add(label);
 
                             if resp.clicked() {
                                 _self._selected_transforms.clear();
-                                _self._selected_transforms.insert(t.id, true);
-                                *selected = Some(t.id);
+                                _self._selected_transforms.insert(t.id);
+                                unsafe { _SELECTED  = Some(t.id); }
                                 *inspectable = Some(Arc::new(Mutex::new(
                                     entity_inspector::GameObjectInspector {},
                                 )));
@@ -235,7 +236,7 @@ impl EditorWindow for Hierarchy {
 
                         for child in t.get_children() {
                             // let child = transforms.get_transform(*child_id);
-                            transform_hierarchy_ui(_self, inspectable, child, ui, count, selected);
+                            transform_hierarchy_ui(_self, inspectable, child, ui, count);
                             *count += 1;
                             if *count > 10_000 {
                                 return;
@@ -266,7 +267,7 @@ impl EditorWindow for Hierarchy {
                             root,
                             ui,
                             &mut count,
-                            unsafe { &mut _SELECTED },
+                            // unsafe { &mut _SELECTED },
                         );
                     });
                 // }
@@ -327,7 +328,7 @@ impl EditorWindow for Hierarchy {
                 unsafe {
                     _SELECTED = Some(e);
                     self._selected_transforms.clear();
-                    self._selected_transforms.insert(e, true);
+                    self._selected_transforms.insert(e);
                 }
                 *inspectable = Some(Arc::new(Mutex::new(
                     entity_inspector::GameObjectInspector {},
@@ -339,6 +340,14 @@ impl EditorWindow for Hierarchy {
                 }
             }
             self.context_menu = None;
+        }
+
+
+        if let Some(s) = unsafe { _SELECTED.as_ref() } {
+            if !self._selected_transforms.contains(s) {
+                self._selected_transforms.clear();
+                self._selected_transforms.insert(*s);
+            }
         }
     }
     

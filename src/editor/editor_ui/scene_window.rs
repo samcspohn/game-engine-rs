@@ -338,7 +338,9 @@ impl EditorWindow for SceneWindow {
         // });
         let bvh = ncollide3d::partitioning::BVT::new_balanced(bvs);
 
-        if ui.input(|r| r.pointer.primary_released()) {
+        if ui.input(|r| {
+            r.pointer.primary_released() && viewport.contains(r.pointer.hover_pos().unwrap())
+        }) {
             if let Some(ray) = self.pointer_ray(ui, &(projection * view), &viewport) {
                 let mut collector_hit = Vec::new();
 
@@ -400,18 +402,28 @@ impl EditorWindow for SceneWindow {
 
         ui.input(|input| {
             if !input.pointer.secondary_down() {
+                let curr_gizmo_mode = self.gizmo_mode;
                 if input.key_released(Key::T) {
                     self.gizmo_mode = GizmoMode::Translate;
                 } else if input.key_released(Key::R) {
                     self.gizmo_mode = GizmoMode::Rotate;
                 } else if input.key_released(Key::S) {
                     self.gizmo_mode = GizmoMode::Scale;
-                }
-
-                if input.key_released(Key::L) {
+                } else if input.key_released(Key::L) {
                     self.orientation = egui_gizmo::GizmoOrientation::Local;
                 } else if input.key_released(Key::G) {
                     self.orientation = egui_gizmo::GizmoOrientation::Global;
+                }
+
+                if self.gizmo_mode == curr_gizmo_mode
+                    && (input.key_released(Key::T)
+                        || input.key_released(Key::R)
+                        || input.key_released(Key::S))
+                {
+                    self.orientation = match self.orientation {
+                        egui_gizmo::GizmoOrientation::Local => egui_gizmo::GizmoOrientation::Global,
+                        egui_gizmo::GizmoOrientation::Global => egui_gizmo::GizmoOrientation::Local,
+                    };
                 }
             }
         });
