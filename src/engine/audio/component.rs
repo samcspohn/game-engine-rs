@@ -11,7 +11,7 @@ use kira::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::engine::{prelude, project::asset_manager::AssetInstance};
+use crate::engine::{prelude, project::asset_manager::AssetInstance, world::component::Update};
 use prelude::*;
 
 use super::asset::{AudioAsset, AudioManager};
@@ -75,6 +75,30 @@ impl Component for AudioSource {
             }
         });
     }
+    // fn update(&mut self, transform: &Transform, sys: &System, world: &crate::engine::World) {
+    //     if let (Some(mut sound), Some(mut emitter)) = (self.data.as_mut(), self.emitter.as_mut()) {
+    //         let pos: [f32; 3] = transform.get_position().into();
+    //         emitter
+    //             .set_position(
+    //                 pos,
+    //                 Tween {
+    //                     start_time: kira::StartTime::Immediate,
+    //                     duration: Duration::from_secs_f32(sys.time.dt),
+    //                     ..Default::default()
+    //                 },
+    //             )
+    //             .unwrap();
+    //     } else {
+    //         self.on_start(transform, sys);
+    //     }
+    // }
+    // fn deinit(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
+    //     if let (Some(mut sound), Some(mut emitter)) = (self.data.as_mut(), self.emitter.as_mut()) {
+    //         sound
+    //     }
+    // }
+}
+impl Update for AudioSource {
     fn update(&mut self, transform: &Transform, sys: &System, world: &crate::engine::World) {
         if let (Some(mut sound), Some(mut emitter)) = (self.data.as_mut(), self.emitter.as_mut()) {
             let pos: [f32; 3] = transform.get_position().into();
@@ -92,11 +116,6 @@ impl Component for AudioSource {
             self.on_start(transform, sys);
         }
     }
-    // fn deinit(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
-    //     if let (Some(mut sound), Some(mut emitter)) = (self.data.as_mut(), self.emitter.as_mut()) {
-    //         sound
-    //     }
-    // }
 }
 
 #[derive(ID, Deserialize, Serialize, Default)]
@@ -127,6 +146,24 @@ impl Component for AudioListener {
             self.l = Some(listener);
         }
     }
+    // fn update(&mut self, transform: &Transform, sys: &System, world: &crate::engine::World) {
+    //     if let Some(mut listener) = self.l.as_mut() {
+    //         let pos: [f32; 3] = transform.get_position().into();
+    //         let rot: [f32; 4] = transform.get_rotation().coords.into();
+    //         let t = Tween {
+    //             start_time: kira::StartTime::Immediate,
+    //             duration: Duration::from_secs_f32(sys.time.dt),
+    //             ..Default::default()
+    //         };
+    //         listener.set_position(pos, t.clone()).unwrap();
+    //         listener.set_orientation(rot, t).unwrap()
+    //     } else {
+    //         self.on_start(transform, sys);
+    //     }
+    // }
+}
+
+impl Update for AudioListener {
     fn update(&mut self, transform: &Transform, sys: &System, world: &crate::engine::World) {
         if let Some(mut listener) = self.l.as_mut() {
             let pos: [f32; 3] = transform.get_position().into();

@@ -7,6 +7,7 @@ use force_send_sync::SendSync;
 use id::ID_trait;
 use kira::manager::{backend::DefaultBackend, AudioManager, AudioManagerSettings};
 use nalgebra_glm::{quat_euler_angles, Quat, Vec3};
+use ncollide3d::na::storage;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rapier3d::prelude::vector;
 use rapier3d::prelude::*;
@@ -21,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cell::{RefCell, SyncUnsafeCell},
     collections::HashMap,
+    mem::transmute,
     sync::{
         atomic::{AtomicI32, Ordering},
         Arc,
@@ -28,6 +30,8 @@ use std::{
     time::Instant,
 };
 use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
+
+use crate::engine::{storage::{late_update_storage, update_storage}, transform_compute::cs::s};
 
 use self::{
     component::{Component, System},
@@ -55,7 +59,10 @@ use super::{
         model::{ModelRenderer, Skeleton},
         vulkan_manager::VulkanManager,
     },
-    storage::{Storage, StorageBase, _Storage},
+    storage::{
+        Storage, StorageBase, _Storage, storage_has_editor_update, storage_has_late_update,
+        storage_has_on_render, storage_has_update, StorageTrait,
+    },
     time::Time,
     utils::GPUWork,
     Defer, RenderJobData,
@@ -108,6 +115,8 @@ impl Sys {
         a
     }
 }
+// trait StorageUpdateTrait: StorageBase + StorageEditorUpdate + Send + Sync {}
+// impl<T: StorageBase + StorageEditorUpdate + Send + Sync> StorageUpdateTrait for T {}
 
 pub struct World {
     pub phys_time: f32,
@@ -123,6 +132,26 @@ pub struct World {
             AtomicI32,
             Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
         ),
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) components_update: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) components_late_update: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) components_render: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) components_editor_update: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
         nohash_hasher::BuildNoHashHasher<i32>,
     >,
     pub(crate) components_names:
@@ -169,6 +198,10 @@ impl World {
             proc_mesh_id: -1,
             transform_map: HashMap::new(),
             components: HashMap::default(),
+            components_update: HashMap::default(),
+            components_late_update: HashMap::default(),
+            components_render: HashMap::default(),
+            components_editor_update: HashMap::default(),
             components_names: HashMap::new(),
             root,
             sys: Sys {
@@ -402,16 +435,72 @@ impl World {
         has_render: bool,
     ) {
         let key = T::ID;
-        let data = Storage::<T>::new(has_update, has_late_update, has_render);
-        let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
-            Arc::new(RwLock::new(Box::new(data)));
-        self.components
-            .insert(key, (AtomicI32::new(0), component_storage.clone()));
-
-        self.components_names.insert(
-            component_storage.read().get_name().to_string(),
-            component_storage.clone(),
+        let data = Box::new(Storage::<T>::new(has_update, has_late_update, has_render));
+        let component_storage = Arc::new(RwLock::new(data as Box<dyn StorageBase + Send + Sync>));
+        self.components.insert(
+            key,
+            (AtomicI32::new(0), unsafe {
+                transmute(component_storage.clone())
+            }),
         );
+
+        self.components_names
+            .insert(component_storage.read().get_name().to_string(), unsafe {
+                transmute(component_storage.clone())
+            });
+
+        // if (|| {
+        //     let cs = component_storage.read();
+        //     cs.as_any()
+        //         .downcast_ref::<Box<dyn StorageUpdateTrait>>()
+        //         .is_some()
+        // })() {
+        //     self.components_update
+        //         .insert(key, unsafe { transmute(component_storage.clone()) });
+        // }
+        // if (|| {
+        //     let cs = component_storage.read();
+        //     cs.as_any()
+        //         .downcast_ref::<Box<dyn StorageLateUpdate>>()
+        //         .is_some()
+        // })() {
+        //     self.components_late_update
+        //         .insert(key, unsafe { transmute(component_storage.clone()) });
+        // }
+        // if (|| {
+        //     let cs = component_storage.read();
+        //     cs.as_any()
+        //         .downcast_ref::<Box<dyn StorageOnRender>>()
+        //         .is_some()
+        // })() {
+        //     self.components_render
+        //         .insert(key, unsafe { transmute(component_storage.clone()) });
+        // }
+        // if (|| {
+        //     let cs = component_storage.read();
+        //     cs.as_any()
+        //         .downcast_ref::<Box<dyn StorageEditorUpdate>>()
+        //         .is_some()
+        // })() {
+        //     self.components_editor_update
+        //         .insert(key, unsafe { transmute(component_storage.clone()) });
+        // }
+        if storage_has_update::<T>() {
+            self.components_update
+                .insert(key, component_storage.clone());
+        }
+        if storage_has_late_update::<T>() {
+            self.components_late_update
+                .insert(key, component_storage.clone());
+        }
+        if storage_has_on_render::<T>() {
+            self.components_render
+                .insert(key, component_storage.clone());
+        }
+        if storage_has_editor_update::<T>() {
+            self.components_editor_update
+                .insert(key, component_storage.clone());
+        }
     }
     pub fn re_init(&mut self) {
         unsafe {
@@ -438,6 +527,10 @@ impl World {
         self.components.remove(&key);
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
+        self.components_editor_update.remove(&key);
+        self.components_late_update.remove(&key);
+        self.components_render.remove(&key);
+        self.components_update.remove(&key);
     }
     pub fn init_colls_rbs(&self, perf: &Perf) {
         let mut phys = self.sys.physics.lock();
@@ -908,20 +1001,24 @@ impl World {
                 new_rigid_bodies: &sys.new_rigid_bodies,
             };
             {
+                use crate::engine::world::component::Update;
                 let world_update = perf.node("world update");
-                self.components.iter().for_each(|(_, stor)| {
-                    let mut stor = stor.1.read();
+                self.components_update.iter().for_each(|(_, stor)| {
+                    let stor = stor.read();
                     let world_update = perf.node(&format!("world update: {}", stor.get_name()));
-                    stor.update(&self.transforms, &sys, &self);
+                    update_storage(&**stor, &self.transforms, &sys, &self);
+                    // stor.update(&self.transforms, &sys, &self);
                 });
             }
             {
+                use crate::engine::world::component::LateUpdate;
                 let world_update = perf.node("world late_update");
-                self.components.iter().for_each(|(_, stor)| {
-                    let mut stor = stor.1.read();
+                self.components_late_update.iter().for_each(|(_, stor)| {
+                    let stor = stor.read();
                     let world_update =
                         perf.node(&format!("world late update: {}", stor.get_name()));
-                    stor.late_update(&self.transforms, &sys);
+                        late_update_storage(&**stor, &self.transforms, &sys);
+                    // stor.late_update(&self.transforms, &sys);
                 });
             }
         }
@@ -956,16 +1053,15 @@ impl World {
             particle_system: &sys.particles_system,
             new_rigid_bodies: &sys.new_rigid_bodies,
         };
-        for (_, stor) in self.components.iter() {
-            stor.1
-                .write()
+        for (_, stor) in self.components_editor_update.iter() {
+            stor.write()
                 .editor_update(&self.transforms, &sys, &self.input);
         }
     }
     pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>> {
         let mut render_jobs = vec![];
-        for (_, stor) in self.components.iter() {
-            stor.1.write().on_render(&mut render_jobs);
+        for (_, stor) in self.components_render.iter() {
+            stor.write().on_render(&mut render_jobs);
         }
         render_jobs
     }

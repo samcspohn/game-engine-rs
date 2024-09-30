@@ -52,7 +52,7 @@ use crate::{
         time::Time,
         transform_compute::{cs::Data, TransformCompute},
         world::{
-            component::Component,
+            component::{Component, EditorUpdate, Update},
             transform::{Transform, TransformBuf, TransformData},
             Sys,
         },
@@ -421,6 +421,34 @@ impl Component for Camera {
 
         // Ins(&mut self.samples).inspect("samples", ui, sys);
     }
+    // fn editor_update(&mut self, transform: &Transform, sys: &crate::engine::prelude::System) {
+    //     if unsafe {
+    //         MAIN_CAMERA
+    //             .as_ref()
+    //             .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
+    //             .unwrap_or(false)
+    //     } {
+    //         self.main_cam = false;
+    //     }
+    // }
+    // fn update(
+    //     &mut self,
+    //     transform: &Transform,
+    //     sys: &crate::engine::prelude::System,
+    //     world: &crate::engine::world::World,
+    // ) {
+    //     if unsafe {
+    //         MAIN_CAMERA
+    //             .as_ref()
+    //             .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
+    //             .unwrap_or(false)
+    //     } {
+    //         self.main_cam = false;
+    //     }
+    // }
+}
+
+impl EditorUpdate for Camera {
     fn editor_update(&mut self, transform: &Transform, sys: &crate::engine::prelude::System) {
         if unsafe {
             MAIN_CAMERA
@@ -431,6 +459,8 @@ impl Component for Camera {
             self.main_cam = false;
         }
     }
+}
+impl Update for Camera {
     fn update(
         &mut self,
         transform: &Transform,
@@ -447,6 +477,7 @@ impl Component for Camera {
         }
     }
 }
+
 impl Camera {
     // pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
     //     self.data.as_ref().map(|data| data.get(f).clone())

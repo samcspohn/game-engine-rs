@@ -49,6 +49,8 @@ use crate::{
         RenderJobData,
     },
 };
+
+use super::world::component::{EditorUpdate, OnRender, Update};
 // struct Chunk {
 //     verts: Vec<model::Vertex>,
 //     normals: Vec<model::Normal>,
@@ -447,6 +449,39 @@ impl Component for TerrainEng {
         Ins(&mut self.terrain_size).inspect("terrain_size", ui, sys);
         // });
     }
+   
+    // fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
+    //     self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
+    //     self.generate(&transform, sys);
+    // }
+    // fn editor_update(&mut self, transform: &Transform, sys: &System) {
+    //     self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
+    //     self.generate(&transform, sys);
+    // }
+    fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
+        let chunks = self.chunks.lock();
+        for x in chunks.iter() {
+            for (_z, col) in x.1 {
+                sys.physics.lock().remove_collider(*col);
+            }
+        }
+    }
+}
+
+impl Update for TerrainEng {
+    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
+        self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
+        self.generate(&transform, sys);
+    }
+}
+impl EditorUpdate for TerrainEng {
+    fn editor_update(&mut self, transform: &Transform, sys: &System) {
+        self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
+        self.generate(&transform, sys);
+    }
+}
+
+impl OnRender for TerrainEng {
     fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
         let _chunks = self.chunks.clone();
         // static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
@@ -547,22 +582,6 @@ impl Component for TerrainEng {
             })
         } else {
             Box::new(move |_rd: &mut RenderJobData| {})
-        }
-    }
-    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
-        self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
-        self.generate(&transform, sys);
-    }
-    fn editor_update(&mut self, transform: &Transform, sys: &System) {
-        self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);
-        self.generate(&transform, sys);
-    }
-    fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
-        let chunks = self.chunks.lock();
-        for x in chunks.iter() {
-            for (_z, col) in x.1 {
-                sys.physics.lock().remove_collider(*col);
-            }
         }
     }
 }

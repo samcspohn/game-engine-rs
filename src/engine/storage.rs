@@ -3,6 +3,7 @@ use std::{
     cell::SyncUnsafeCell,
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap},
+    mem::transmute,
     ops::Div,
     ptr::slice_from_raw_parts,
     sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
@@ -12,6 +13,7 @@ use bitvec::vec::BitVec;
 use crossbeam::{epoch::Atomic, queue::SegQueue};
 use force_send_sync::SendSync;
 use id::ID_trait;
+use ncollide3d::na::storage;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 use segvec::SegVec;
@@ -19,12 +21,15 @@ use serde::{Deserialize, Serialize};
 use thincollections::thin_vec::ThinVec;
 use vulkano::padded::Padded;
 
+use crate::engine::world::component::Update;
+
 use super::{
     atomic_vec::AtomicVec,
     input::Input,
     perf::Perf,
+    transform_compute::cs::s,
     world::{
-        component::{Component, System},
+        component::{Component, EditorUpdate, LateUpdate, OnRender, System},
         entity::Entity,
         transform::{CacheVec, Transform, Transforms, VecCache},
         Sys, World,
@@ -84,14 +89,18 @@ pub trait StorageBase {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn update(&self, transforms: &Transforms, sys: &System, world: &World);
-    fn late_update(&self, transforms: &Transforms, sys: &System);
-    fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>);
+    // fn late_update(&self, transforms: &Transforms, sys: &System);
+    // fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
+    // fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn remove(&self, i: i32);
+    #[inline]
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys);
+    #[inline]
     fn init(&self, transform: &Transform, i: i32, sys: &Sys);
+    #[inline]
     fn on_start(&self, transform: &Transform, i: i32, sys: &System);
+    #[inline]
     fn on_destroy(&self, transform: &Transform, i: i32, sys: &System);
     fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &Sys);
     fn get_name(&self) -> &'static str;
@@ -145,10 +154,12 @@ impl Avail {
     }
 }
 
+// trait ComponentBounds<'a, T> {}
+
 #[repr(C)]
 pub struct Storage<T> {
     pub data: SegVec<(SyncUnsafeCell<i32>, Mutex<T>)>,
-    pub valid: SegVec<SyncUnsafeCell<Padded<bool,3>>>,
+    pub valid: SegVec<SyncUnsafeCell<Padded<bool, 3>>>,
     new_ids_cache: VecCache<i32>,
     new_offsets_cache: VecCache<i32>,
     avail: Avail,
@@ -167,6 +178,8 @@ impl<
             + Default
             + Clone
             + Serialize
+            + ?Sized
+            // + AsAny
             + for<'a> Deserialize<'a>,
     > Storage<T>
 {
@@ -245,7 +258,7 @@ impl<
             if unsafe { **self.valid[i].get() } {
                 let mut d = self.data[i].1.lock();
                 let t_id = unsafe { *self.data[i].0.get() };
-                f(t_id,&mut d);
+                f(t_id, &mut d);
             }
         });
         // let data = unsafe { &*slice_from_raw_parts(self.data.as_ptr(), last) };
@@ -295,7 +308,8 @@ impl<
             let c = c + self.len();
             self.data
                 .resize_with(c, || (SyncUnsafeCell::new(-1), Mutex::new(T::default())));
-            self.valid.resize_with(c, || SyncUnsafeCell::new(Padded(false)));
+            self.valid
+                .resize_with(c, || SyncUnsafeCell::new(Padded(false)));
         }
     }
     pub fn insert(&mut self, transform: i32, d: T) -> i32 {
@@ -391,6 +405,31 @@ impl<
             has_render,
         }
     }
+    fn update(&self, transforms: &Transforms, sys: &System, world: &World) {
+
+        if let Some(s) = self.as_any().downcast_ref::<&dyn StorageBase>().unwrap().as_any().downcast_ref::<Storage<UpdateTrait>>() {
+            s.par_for_each(|t_id, d| {
+                if let Some(trans) = transforms.get(t_id) {
+                    d.update(&trans, &sys, world);
+                } else {
+                    panic!("transform {} is invalid", t_id);
+                }
+            });
+        }
+
+        // if !self.has_update {
+        //     return;
+        // }
+        // if storage_has_update::<T>() {
+        //     self.par_for_each(|t_id, d| {
+        //         if let Some(trans) = transforms.get(t_id) {
+        //             (d as &mut dyn Update).update(&trans, &sys, world);
+        //         } else {
+        //             panic!("transform {} is invalid", t_id);
+        //         }
+        //     });
+        // }
+    }
 }
 
 impl<
@@ -402,6 +441,7 @@ impl<
             + Default
             + Clone
             + Serialize
+            // + AsAny
             + for<'a> Deserialize<'a>,
     > StorageBase for Storage<T>
 {
@@ -412,16 +452,19 @@ impl<
         self as &mut dyn Any
     }
     fn update(&self, transforms: &Transforms, sys: &System, world: &World) {
-        if !self.has_update {
-            return;
-        }
-        self.par_for_each(|t_id, d| {
-            if let Some(trans) = transforms.get(t_id) {
-                d.update(&trans, &sys, world);
-            } else {
-                panic!("transform {} is invalid", t_id);
-            }
-        });
+        self.update(transforms, sys, world);
+        // if !self.has_update {
+        //     return;
+        // }
+        // if storage_has_update::<T>() {
+        //     self.par_for_each(|t_id, d| {
+        //         if let Some(trans) = transforms.get(t_id) {
+        //             (d as &mut dyn Update).update(&trans, &sys, world);
+        //         } else {
+        //             panic!("transform {} is invalid", t_id);
+        //         }
+        //     });
+        // }
         // (0..last).into_par_iter().for_each(|i| {
         //     if unsafe { *self.valid[i].get() } {
         //         let mut d = self.data[i].1.lock();
@@ -433,15 +476,18 @@ impl<
         //     }
         // });
     }
-    fn late_update(&self, transforms: &Transforms, sys: &System) {
-        if !self.has_late_update {
-            return;
-        }
-        self.par_for_each(|t_id, d| {
-            let trans = transforms.get(t_id).unwrap();
-            d.late_update(&trans, &sys);
-        })
-    }
+    // fn late_update(&self, transforms: &Transforms, sys: &System) {
+    //     if !self.has_late_update {
+    //         return;
+    //     }
+    //     if storage_has_late_update::<T>() {
+    //         // if let Some(_) = T::as_any(&T::default()).downcast_ref::<dyn LateUpdate>() {
+    //         self.par_for_each(|t_id, d| {
+    //             let trans = transforms.get(t_id).unwrap();
+    //             (d as &mut dyn LateUpdate).late_update(&trans, &sys);
+    //         })
+    //     }
+    // }
     fn remove(&self, i: i32) {
         self._erase(i);
     }
@@ -498,24 +544,31 @@ impl<
         self.insert(transform, d)
     }
 
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>) {
-        if !self.has_render {
-            return;
-        }
-        self.for_each(|t_id, d| {
-            render_jobs.push(d.on_render(t_id));
-        });
-    }
+    // fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>) {
+    //     if !self.has_render {
+    //         return;
+    //     }
+    //     if let Some(_) = T::as_any(&T::default()).downcast_ref::<OnRender>() {
+    //         self.for_each(|t_id, d| {
+    //             render_jobs.push(d.on_render(t_id));
+    //         });
+    //     }
+    //     // self.for_each(|t_id, d| {
+    //     //     render_jobs.push(d.on_render(t_id));
+    //     // });
+    // }
 
-    fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input) {
-        if !self.has_update {
-            return;
-        }
-        self.par_for_each(|t_id, d| {
-            let trans = transforms.get(t_id).unwrap();
-            d.editor_update(&trans, &sys);
-        });
-    }
+    // fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input) {
+    //     if !self.has_update {
+    //         return;
+    //     }
+    //     if let Some(a) = T::as_any(&T::default()).downcast_ref::<Update>() {
+    //         self.par_for_each(|t_id, d| {
+    //             let trans = transforms.get(t_id).unwrap();
+    //             d.editor_update(&trans, &sys);
+    //         });
+    //     }
+    // }
     fn get_id(&self) -> u64 {
         T::ID
     }
@@ -528,5 +581,369 @@ impl<
 
     fn len(&self) -> usize {
         self.data.len()
+    }
+}
+
+pub trait StorageTrait: StorageBase + Send + Sync {}
+impl<T: StorageBase + Send + Sync> StorageTrait for T {}
+
+// pub trait AsAny {
+//     fn as_any(&self) -> &dyn Any;
+//     fn as_any_mut(&mut self) -> &mut dyn Any;
+// }
+
+// impl<T: 'static + Sized> AsAny for Storage<T> {
+//     fn as_any(&self) -> &dyn Any {
+//         self as &dyn Any
+//     }
+//     fn as_any_mut(&mut self) -> &mut dyn Any {
+//         self as &mut dyn Any
+//     }
+// }
+
+pub fn storage_has_update<T: ?Sized>() -> bool {
+    use std::cell::Cell;
+    use std::marker::PhantomData;
+
+    struct IsQuxTest<'a, T: ?Sized> {
+        is_qux: &'a Cell<bool>,
+        _marker: PhantomData<T>,
+    }
+    impl<T: ?Sized> Clone for IsQuxTest<'_, T> {
+        fn clone(&self) -> Self {
+            self.is_qux.set(false);
+            IsQuxTest {
+                is_qux: self.is_qux,
+                _marker: PhantomData,
+            }
+        }
+    }
+    impl<T: ?Sized + Update> Copy for IsQuxTest<'_, T> {}
+
+    let is_qux = Cell::new(true);
+    _ = [IsQuxTest::<T> {
+        is_qux: &is_qux,
+        _marker: PhantomData,
+    }]
+    .clone();
+
+    is_qux.get()
+}
+pub fn storage_has_late_update<T: ?Sized>() -> bool {
+    use std::cell::Cell;
+    use std::marker::PhantomData;
+
+    struct IsQuxTest<'a, T: ?Sized> {
+        is_qux: &'a Cell<bool>,
+        _marker: PhantomData<T>,
+    }
+    impl<T: ?Sized> Clone for IsQuxTest<'_, T> {
+        fn clone(&self) -> Self {
+            self.is_qux.set(false);
+            IsQuxTest {
+                is_qux: self.is_qux,
+                _marker: PhantomData,
+            }
+        }
+    }
+    impl<T: ?Sized + LateUpdate> Copy for IsQuxTest<'_, T> {}
+
+    let is_qux = Cell::new(true);
+    _ = [IsQuxTest::<T> {
+        is_qux: &is_qux,
+        _marker: PhantomData,
+    }]
+    .clone();
+
+    is_qux.get()
+}
+pub fn storage_has_on_render<T: ?Sized>() -> bool {
+    use std::cell::Cell;
+    use std::marker::PhantomData;
+
+    struct IsQuxTest<'a, T: ?Sized> {
+        is_qux: &'a Cell<bool>,
+        _marker: PhantomData<T>,
+    }
+    impl<T: ?Sized> Clone for IsQuxTest<'_, T> {
+        fn clone(&self) -> Self {
+            self.is_qux.set(false);
+            IsQuxTest {
+                is_qux: self.is_qux,
+                _marker: PhantomData,
+            }
+        }
+    }
+    impl<T: ?Sized + OnRender> Copy for IsQuxTest<'_, T> {}
+
+    let is_qux = Cell::new(true);
+    _ = [IsQuxTest::<T> {
+        is_qux: &is_qux,
+        _marker: PhantomData,
+    }]
+    .clone();
+
+    is_qux.get()
+}
+pub fn storage_has_editor_update<T: ?Sized>() -> bool {
+    use std::cell::Cell;
+    use std::marker::PhantomData;
+
+    struct IsQuxTest<'a, T: ?Sized> {
+        is_qux: &'a Cell<bool>,
+        _marker: PhantomData<T>,
+    }
+    impl<T: ?Sized> Clone for IsQuxTest<'_, T> {
+        fn clone(&self) -> Self {
+            self.is_qux.set(false);
+            IsQuxTest {
+                is_qux: self.is_qux,
+                _marker: PhantomData,
+            }
+        }
+    }
+    impl<T: ?Sized + EditorUpdate> Copy for IsQuxTest<'_, T> {}
+
+    let is_qux = Cell::new(true);
+    _ = [IsQuxTest::<T> {
+        is_qux: &is_qux,
+        _marker: PhantomData,
+    }]
+    .clone();
+
+    is_qux.get()
+}
+
+// pub trait StorageLateUpdate {
+//     fn late_update(&self, transforms: &Transforms, sys: &System);
+// }
+// pub trait StorageUpdate {
+//     fn update(&self, transforms: &Transforms, sys: &System, world: &World);
+// }
+
+// pub trait StorageEditorUpdate {
+//     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
+// }
+
+// pub trait StorageOnRender {
+//     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>);
+// }
+
+// impl<
+//         T: 'static
+//             + Component
+//             + ID_trait
+//             + Send
+//             + Sync
+//             + Default
+//             + Clone
+//             + Serialize
+//             // + AsAny
+//             + for<'a> Deserialize<'a>
+//             + LateUpdate,
+//     > StorageLateUpdate for Storage<T>
+// {
+//     fn late_update(&self, transforms: &Transforms, sys: &System) {
+//         self.par_for_each(|t_id, d| {
+//             let trans = transforms.get(t_id).unwrap();
+//             d.late_update(&trans, &sys);
+//         })
+//     }
+// }
+// pub trait StorageLateUpdateTrait: StorageBase + StorageLateUpdate + Send + Sync {}
+// impl<T: StorageBase + StorageLateUpdate + Send + Sync> StorageLateUpdateTrait for T {}
+
+// impl<
+//         T: 'static
+//             + Component
+//             + ID_trait
+//             + Send
+//             + Sync
+//             + Default
+//             + Clone
+//             + Serialize
+//             // + AsAny
+//             + for<'a> Deserialize<'a>
+//             + Update,
+//     > StorageUpdate for Storage<T>
+// {
+//     fn update(&self, transforms: &Transforms, sys: &System, world: &World) {
+//         self.par_for_each(|t_id, d| {
+//             if let Some(trans) = transforms.get(t_id) {
+//                 d.update(&trans, &sys, world);
+//             } else {
+//                 panic!("transform {} is invalid", t_id);
+//             }
+//         });
+//     }
+// }
+
+// pub trait StorageUpdateTrait: StorageBase + StorageUpdate + Send + Sync {}
+// impl<T: StorageBase + StorageUpdate + Send + Sync> StorageUpdateTrait for T {}
+
+// impl<
+//         T: 'static
+//             + Component
+//             + ID_trait
+//             + Send
+//             + Sync
+//             + Default
+//             + Clone
+//             + Serialize
+//             // + AsAny
+//             + for<'a> Deserialize<'a>
+//             + EditorUpdate,
+//     > StorageEditorUpdate for Storage<T>
+// {
+//     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input) {
+//         self.par_for_each(|t_id, d| {
+//             let trans = transforms.get(t_id).unwrap();
+//             d.editor_update(&trans, &sys);
+//         });
+//     }
+// }
+// pub trait StorageEditorUpdateTrait: StorageBase + StorageEditorUpdate + Send + Sync {}
+// impl<T: StorageBase + StorageEditorUpdate + Send + Sync> StorageEditorUpdateTrait for T {}
+
+// impl<
+//         T: 'static
+//             + Component
+//             + ID_trait
+//             + Send
+//             + Sync
+//             + Default
+//             + Clone
+//             + Serialize
+//             // + AsAny
+//             + for<'a> Deserialize<'a>
+//             + OnRender,
+//     > StorageOnRender for Storage<T>
+// {
+//     fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>) {
+//         self.for_each(|t_id, d| {
+//             render_jobs.push(d.on_render(t_id));
+//         });
+//     }
+// }
+// pub trait StorageOnRenderTrait: StorageBase + StorageOnRender + Send + Sync {}
+// impl<T: StorageBase + StorageOnRender + Send + Sync> StorageOnRenderTrait for T {}
+
+pub trait ComponentTraits:
+    'static + Component + ID_trait + Send + Sync + Default + Clone + Serialize + for<'a> Deserialize<'a>
+{
+}
+impl<
+        T: 'static
+            + Component
+            + ID_trait
+            + Send
+            + Sync
+            + Default
+            + Clone
+            + Serialize
+            + for<'a> Deserialize<'a>,
+    > ComponentTraits for T
+{
+}
+pub trait UpdateTrait: ComponentTraits + Update {}
+impl<T: ComponentTraits + Update> UpdateTrait for T {}
+
+pub trait LateUpdateTrait: ComponentTraits + LateUpdate {}
+impl<T: ComponentTraits + LateUpdate> LateUpdateTrait for T {}
+
+pub trait OnRenderTrait: ComponentTraits + OnRender {}
+impl<T: ComponentTraits + OnRender> OnRenderTrait for T {}
+
+pub trait EditorUpdateTrait: ComponentTraits + EditorUpdate {}
+impl<T: ComponentTraits + EditorUpdate> EditorUpdateTrait for T {}
+
+
+// pub fn update_storage<T: ComponentTraits>(
+//     s: &dyn StorageBase,
+//     transforms: &Transforms,
+//     sys: &System,
+//     world: &World,
+// ) {
+//     if let Some(s) = s.as_any().downcast_ref::<Storage<T>>() {
+//         s.par_for_each(|t_id, d| {
+//             if let Some(trans) = transforms.get(t_id) {
+//                 d.as_any().update(&trans, sys, world);
+//                 // d.update(&trans, &sys, world);
+//             } else {
+//                 panic!("transform {} is invalid", t_id);
+//             }
+//         });
+//     }
+// }
+
+pub fn late_update_storage<
+    T: 'static
+        + Component
+        + ID_trait
+        + Send
+        + Sync
+        + Default
+        + Clone
+        + Serialize
+        + LateUpdate
+        // + AsAny
+        + for<'a> Deserialize<'a>,
+>(
+    s: &dyn StorageBase,
+    transforms: &Transforms,
+    sys: &System,
+) {
+    if let Some(s) = s.as_any().downcast_ref::<Storage<T>>() {
+        s.par_for_each(|t_id, d| {
+            if let Some(trans) = transforms.get(t_id) {
+                d.late_update(&trans, &sys);
+            } else {
+                panic!("transform {} is invalid", t_id);
+            }
+        });
+    }
+}
+
+pub fn on_render_storage<
+    T: 'static
+        + Component
+        + ID_trait
+        + Send
+        + Sync
+        + Default
+        + Clone
+        + Serialize
+        + OnRender
+        // + AsAny
+        + for<'a> Deserialize<'a>,
+>(
+    s: &mut dyn StorageBase,
+    render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
+) {
+    if let Some(s) = s.as_any_mut().downcast_mut::<Storage<T>>() {
+        s.on_render(render_jobs);
+    }
+}
+
+pub fn editor_update_storage<
+    T: 'static
+        + Component
+        + ID_trait
+        + Send
+        + Sync
+        + Default
+        + Clone
+        + Serialize
+        + EditorUpdate
+        // + AsAny
+        + for<'a> Deserialize<'a>,
+>(
+    s: &mut dyn StorageBase,
+    transforms: &Transforms,
+    sys: &System,
+    input: &Input,
+) {
+    if let Some(s) = s.as_any_mut().downcast_mut::<Storage<T>>() {
+        s.editor_update(transforms, sys, input);
     }
 }

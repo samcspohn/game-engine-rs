@@ -164,16 +164,37 @@ impl<'a> System<'a> {
 
 pub trait Component {
     // fn assign_transform(&mut self, t: Transform);
+    #[inline]
     fn init(&mut self, transform: &Transform, id: i32, sys: &Sys) {}
+    #[inline]
     fn deinit(&mut self, transform: &Transform, _id: i32, sys: &Sys) {}
+    #[inline]
     fn on_start(&mut self, transform: &Transform, sys: &System) {}
+    #[inline]
     fn on_destroy(&mut self, transform: &Transform, sys: &System) {} // TODO implement call
-    fn update(&mut self, transform: &Transform, sys: &System, world: &World) {}
-    fn late_update(&mut self, transform: &Transform, sys: &System) {}
-    fn editor_update(&mut self, transform: &Transform, sys: &System) {}
-    fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
-        Box::new(|_rd: &mut RenderJobData| {})
-    }
+
+    // fn update(&mut self, transform: &Transform, sys: &System, world: &World) {}
+    // fn late_update(&mut self, transform: &Transform, sys: &System) {}
+    // fn editor_update(&mut self, transform: &Transform, sys: &System) {}
+    // fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
+    //     Box::new(|_rd: &mut RenderJobData| {})
+    // }
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
     // fn as_any(&self) -> &dyn Any;
+}
+
+pub trait Update {
+    fn update(&mut self, transform: &Transform, sys: &System, world: &World);
+}
+
+pub trait LateUpdate {
+    fn late_update(&mut self, transform: &Transform, sys: &System);
+}
+
+pub trait EditorUpdate {
+    fn editor_update(&mut self, transform: &Transform, sys: &System);
+}
+
+pub trait OnRender {
+    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync>;
 }

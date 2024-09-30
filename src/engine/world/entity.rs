@@ -137,6 +137,7 @@ impl<'a> EntityBuilder<'a> {
             + Default
             + Clone
             + Serialize
+            // + AsAny
             + for<'b> Deserialize<'b>,
     >(
         mut self,
@@ -254,6 +255,7 @@ impl<'a> EntityParBuilder<'a> {
             + Default
             + Clone
             + Serialize
+            // + AsAny
             + for<'b> Deserialize<'b>,
     >(
         mut self,
