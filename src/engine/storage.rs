@@ -3,10 +3,14 @@ use std::{
     cell::SyncUnsafeCell,
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap},
+    marker::PhantomData,
     mem::transmute,
     ops::Div,
     ptr::slice_from_raw_parts,
-    sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 use bitvec::vec::BitVec;
@@ -14,7 +18,7 @@ use crossbeam::{epoch::Atomic, queue::SegQueue};
 use force_send_sync::SendSync;
 use id::ID_trait;
 use ncollide3d::na::storage;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;
 use segvec::SegVec;
 use serde::{Deserialize, Serialize};
@@ -154,8 +158,6 @@ impl Avail {
     }
 }
 
-// trait ComponentBounds<'a, T> {}
-
 #[repr(C)]
 pub struct Storage<T> {
     pub data: SegVec<(SyncUnsafeCell<i32>, Mutex<T>)>,
@@ -169,20 +171,7 @@ pub struct Storage<T> {
     has_render: bool,
     has_late_update: bool,
 }
-impl<
-        T: 'static
-            + Component
-            + ID_trait
-            + Send
-            + Sync
-            + Default
-            + Clone
-            + Serialize
-            + ?Sized
-            // + AsAny
-            + for<'a> Deserialize<'a>,
-    > Storage<T>
-{
+impl<T: ComponentTraits> Storage<T> {
     // pub fn iter(&self) -> impl Iterator<Item = &(SyncUnsafeCell<i32>, Mutex<T>)> {
     //     let a = self
     //         .data
@@ -407,15 +396,15 @@ impl<
     }
     fn update(&self, transforms: &Transforms, sys: &System, world: &World) {
 
-        if let Some(s) = self.as_any().downcast_ref::<&dyn StorageBase>().unwrap().as_any().downcast_ref::<Storage<UpdateTrait>>() {
-            s.par_for_each(|t_id, d| {
-                if let Some(trans) = transforms.get(t_id) {
-                    d.update(&trans, &sys, world);
-                } else {
-                    panic!("transform {} is invalid", t_id);
-                }
-            });
-        }
+        // if let Some(s) = self.as_any().downcast_ref::<&dyn StorageBase>().unwrap().as_any().downcast_ref::<Storage<UpdateTrait>>() {
+        //     s.par_for_each(|t_id, d| {
+        //         if let Some(trans) = transforms.get(t_id) {
+        //             d.update(&trans, &sys, world);
+        //         } else {
+        //             panic!("transform {} is invalid", t_id);
+        //         }
+        //     });
+        // }
 
         // if !self.has_update {
         //     return;
@@ -714,6 +703,143 @@ pub fn storage_has_editor_update<T: ?Sized>() -> bool {
     is_qux.get()
 }
 
+
+pub trait StorageUpdaterBase {
+    fn update(&self, transforms: &Transforms, sys: &System, world: &World);
+}
+pub fn new_storage_updater<T: ComponentTraits + Update>(
+    storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>,
+) -> Arc<dyn StorageUpdaterBase + 'static + Send + Sync> {
+    Arc::new(StorageUpdater::<T>::new(storage))
+}
+
+
+pub struct StorageUpdater<T> {
+    storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>,
+    p: PhantomData<T>,
+}
+
+impl<T: ComponentTraits + Update> StorageUpdaterBase for StorageUpdater<T> {
+    fn update(&self, transforms: &Transforms, sys: &System, world: &World) {
+        let storage = self.storage.read();
+        let stor = unsafe { storage.as_any().downcast_ref_unchecked::<Storage<T>>() };
+        stor.par_for_each(|t_id, d| {
+            if let Some(trans) = transforms.get(t_id) {
+                d.update(&trans, &sys, world);
+            } else {
+                panic!("transform {} is invalid", t_id);
+            }
+        });
+    }
+}
+impl <T: ComponentTraits + Update> StorageUpdater<T> {
+    pub fn new(storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>) -> Self {
+        Self {
+            storage,
+            p: PhantomData,
+        }
+    }
+}
+
+pub trait StorageLateUpdaterBase {
+    fn late_update(&self, transforms: &Transforms, sys: &System);
+}
+
+pub fn new_storage_late_updater<T: ComponentTraits + LateUpdate>(
+    storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>,
+) -> Arc<dyn StorageLateUpdaterBase + 'static + Send + Sync> {
+    Arc::new(StorageLateUpdater::<T>::new(storage))
+}
+pub struct StorageLateUpdater<T> {
+    storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>,
+    p: PhantomData<T>,
+}
+impl<T: ComponentTraits + LateUpdate> StorageLateUpdaterBase for StorageLateUpdater<T> {
+    fn late_update(&self, transforms: &Transforms, sys: &System) {
+        let storage = self.storage.read();
+        let stor = unsafe { storage.as_any().downcast_ref_unchecked::<Storage<T>>() };
+        stor.par_for_each(|t_id, d| {
+            if let Some(trans) = transforms.get(t_id) {
+                d.late_update(&trans, &sys);
+            } else {
+                panic!("transform {} is invalid", t_id);
+            }
+        });
+    }
+}
+impl<T: ComponentTraits + LateUpdate> StorageLateUpdater<T> {
+    pub fn new(storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>) -> Self {
+        Self {
+            storage,
+            p: PhantomData,
+        }
+    }
+}
+
+pub trait StorageEditorUpdaterBase {
+    fn editor_update(&self, transforms: &Transforms, sys: &System, input: &Input);
+}
+pub fn new_storage_editor_updater<T: ComponentTraits + EditorUpdate>(
+    storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>,
+) -> Arc<dyn StorageEditorUpdaterBase + 'static + Send + Sync> {
+    Arc::new(StorageEditorUpdater::<T>::new(storage))
+}
+pub struct StorageEditorUpdater<T> {
+    storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>,
+    p: PhantomData<T>,
+}
+
+impl<T: ComponentTraits + EditorUpdate> StorageEditorUpdaterBase for StorageEditorUpdater<T> {
+    fn editor_update(&self, transforms: &Transforms, sys: &System, input: &Input) {
+        let storage = self.storage.read();
+        let stor = unsafe { storage.as_any().downcast_ref_unchecked::<Storage<T>>() };
+        stor.par_for_each(|t_id, d| {
+            if let Some(trans) = transforms.get(t_id) {
+                d.editor_update(&trans, &sys);
+            } else {
+                panic!("transform {} is invalid", t_id);
+            }
+        });
+    }
+}
+impl<T: ComponentTraits + EditorUpdate> StorageEditorUpdater<T> {
+    pub fn new(storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>) -> Self {
+        Self {
+            storage,
+            p: PhantomData,
+        }
+    }
+}
+
+pub trait StorageOnRenderBase {
+    fn on_render(&self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>);
+}
+pub fn new_storage_on_render<T: ComponentTraits + OnRender>(
+    storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>,
+) -> Arc<dyn StorageOnRenderBase + 'static + Send + Sync> {
+    Arc::new(StorageOnRender::<T>::new(storage))
+}
+pub struct StorageOnRender<T> {
+    storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>,
+    p: PhantomData<T>,
+}
+impl<T: ComponentTraits + OnRender> StorageOnRenderBase for StorageOnRender<T> {
+    fn on_render(&self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>) {
+        let storage = self.storage.read();
+        let stor = unsafe { storage.as_any().downcast_ref_unchecked::<Storage<T>>() };
+        stor.for_each(|t_id, d| {
+            render_jobs.push(d.on_render(t_id));
+        });
+    }
+}
+impl<T: ComponentTraits + OnRender> StorageOnRender<T> {
+    pub fn new(storage: Arc<RwLock<Box<dyn StorageBase + 'static + Send + Sync>>>) -> Self {
+        Self {
+            storage,
+            p: PhantomData,
+        }
+    }
+}
 // pub trait StorageLateUpdate {
 //     fn late_update(&self, transforms: &Transforms, sys: &System);
 // }
@@ -857,7 +983,6 @@ impl<T: ComponentTraits + OnRender> OnRenderTrait for T {}
 pub trait EditorUpdateTrait: ComponentTraits + EditorUpdate {}
 impl<T: ComponentTraits + EditorUpdate> EditorUpdateTrait for T {}
 
-
 // pub fn update_storage<T: ComponentTraits>(
 //     s: &dyn StorageBase,
 //     transforms: &Transforms,
@@ -876,74 +1001,74 @@ impl<T: ComponentTraits + EditorUpdate> EditorUpdateTrait for T {}
 //     }
 // }
 
-pub fn late_update_storage<
-    T: 'static
-        + Component
-        + ID_trait
-        + Send
-        + Sync
-        + Default
-        + Clone
-        + Serialize
-        + LateUpdate
-        // + AsAny
-        + for<'a> Deserialize<'a>,
->(
-    s: &dyn StorageBase,
-    transforms: &Transforms,
-    sys: &System,
-) {
-    if let Some(s) = s.as_any().downcast_ref::<Storage<T>>() {
-        s.par_for_each(|t_id, d| {
-            if let Some(trans) = transforms.get(t_id) {
-                d.late_update(&trans, &sys);
-            } else {
-                panic!("transform {} is invalid", t_id);
-            }
-        });
-    }
-}
+// pub fn late_update_storage<
+//     T: 'static
+//         + Component
+//         + ID_trait
+//         + Send
+//         + Sync
+//         + Default
+//         + Clone
+//         + Serialize
+//         + LateUpdate
+//         // + AsAny
+//         + for<'a> Deserialize<'a>,
+// >(
+//     s: &dyn StorageBase,
+//     transforms: &Transforms,
+//     sys: &System,
+// ) {
+//     if let Some(s) = s.as_any().downcast_ref::<Storage<T>>() {
+//         s.par_for_each(|t_id, d| {
+//             if let Some(trans) = transforms.get(t_id) {
+//                 d.late_update(&trans, &sys);
+//             } else {
+//                 panic!("transform {} is invalid", t_id);
+//             }
+//         });
+//     }
+// }
 
-pub fn on_render_storage<
-    T: 'static
-        + Component
-        + ID_trait
-        + Send
-        + Sync
-        + Default
-        + Clone
-        + Serialize
-        + OnRender
-        // + AsAny
-        + for<'a> Deserialize<'a>,
->(
-    s: &mut dyn StorageBase,
-    render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
-) {
-    if let Some(s) = s.as_any_mut().downcast_mut::<Storage<T>>() {
-        s.on_render(render_jobs);
-    }
-}
+// pub fn on_render_storage<
+//     T: 'static
+//         + Component
+//         + ID_trait
+//         + Send
+//         + Sync
+//         + Default
+//         + Clone
+//         + Serialize
+//         + OnRender
+//         // + AsAny
+//         + for<'a> Deserialize<'a>,
+// >(
+//     s: &mut dyn StorageBase,
+//     render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
+// ) {
+//     if let Some(s) = s.as_any_mut().downcast_mut::<Storage<T>>() {
+//         s.on_render(render_jobs);
+//     }
+// }
 
-pub fn editor_update_storage<
-    T: 'static
-        + Component
-        + ID_trait
-        + Send
-        + Sync
-        + Default
-        + Clone
-        + Serialize
-        + EditorUpdate
-        // + AsAny
-        + for<'a> Deserialize<'a>,
->(
-    s: &mut dyn StorageBase,
-    transforms: &Transforms,
-    sys: &System,
-    input: &Input,
-) {
-    if let Some(s) = s.as_any_mut().downcast_mut::<Storage<T>>() {
-        s.editor_update(transforms, sys, input);
-    }
-}
+// pub fn editor_update_storage<
+//     T: 'static
+//         + Component
+//         + ID_trait
+//         + Send
+//         + Sync
+//         + Default
+//         + Clone
+//         + Serialize
+//         + EditorUpdate
+//         // + AsAny
+//         + for<'a> Deserialize<'a>,
+// >(
+//     s: &mut dyn StorageBase,
+//     transforms: &Transforms,
+//     sys: &System,
+//     input: &Input,
+// ) {
+//     if let Some(s) = s.as_any_mut().downcast_mut::<Storage<T>>() {
+//         s.editor_update(transforms, sys, input);
+//     }
+// }

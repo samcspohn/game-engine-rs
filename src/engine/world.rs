@@ -12,11 +12,10 @@ use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockW
 use rapier3d::prelude::vector;
 use rapier3d::prelude::*;
 use rayon::{
-    prelude::{
+    iter::Update, prelude::{
         IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
         IntoParallelRefMutIterator, ParallelIterator,
-    },
-    Scope,
+    }, Scope
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -60,8 +59,7 @@ use super::{
         vulkan_manager::VulkanManager,
     },
     storage::{
-        Storage, StorageBase, _Storage, storage_has_editor_update, storage_has_late_update,
-        storage_has_on_render, storage_has_update, StorageTrait,
+        Storage, StorageBase, _Storage, new_storage_editor_updater, new_storage_late_updater, new_storage_on_render, new_storage_updater, storage_has_editor_update, storage_has_late_update, storage_has_on_render, storage_has_update, StorageEditorUpdaterBase, StorageLateUpdaterBase, StorageOnRenderBase, StorageTrait, StorageUpdaterBase
     },
     time::Time,
     utils::GPUWork,
@@ -136,22 +134,22 @@ pub struct World {
     >,
     pub(crate) components_update: HashMap<
         u64,
-        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        Arc<dyn StorageUpdaterBase + 'static + Sync + Send>,
         nohash_hasher::BuildNoHashHasher<i32>,
     >,
     pub(crate) components_late_update: HashMap<
         u64,
-        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        Arc<dyn StorageLateUpdaterBase + 'static + Sync + Send>,
         nohash_hasher::BuildNoHashHasher<i32>,
     >,
     pub(crate) components_render: HashMap<
         u64,
-        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        Arc<dyn StorageOnRenderBase + 'static + Sync + Send>,
         nohash_hasher::BuildNoHashHasher<i32>,
     >,
     pub(crate) components_editor_update: HashMap<
         u64,
-        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        Arc<dyn StorageEditorUpdaterBase + 'static + Sync + Send>,
         nohash_hasher::BuildNoHashHasher<i32>,
     >,
     pub(crate) components_names:
@@ -487,19 +485,19 @@ impl World {
         // }
         if storage_has_update::<T>() {
             self.components_update
-                .insert(key, component_storage.clone());
+                .insert(key, new_storage_updater(component_storage.clone()));
         }
         if storage_has_late_update::<T>() {
             self.components_late_update
-                .insert(key, component_storage.clone());
+                .insert(key, new_storage_late_updater(component_storage.clone()));
         }
         if storage_has_on_render::<T>() {
             self.components_render
-                .insert(key, component_storage.clone());
+                .insert(key, new_storage_on_render(component_storage.clone()));
         }
         if storage_has_editor_update::<T>() {
             self.components_editor_update
-                .insert(key, component_storage.clone());
+                .insert(key, new_storage_editor_updater(component_storage.clone()));
         }
     }
     pub fn re_init(&mut self) {
@@ -1004,9 +1002,10 @@ impl World {
                 use crate::engine::world::component::Update;
                 let world_update = perf.node("world update");
                 self.components_update.iter().for_each(|(_, stor)| {
-                    let stor = stor.read();
-                    let world_update = perf.node(&format!("world update: {}", stor.get_name()));
-                    update_storage(&**stor, &self.transforms, &sys, &self);
+                    stor.update(&self.transforms, &sys, &self);
+                    // let stor = stor.read();
+                    // let world_update = perf.node(&format!("world update: {}", stor.get_name()));
+                    // update_storage(&**stor, &self.transforms, &sys, &self);
                     // stor.update(&self.transforms, &sys, &self);
                 });
             }
@@ -1014,10 +1013,11 @@ impl World {
                 use crate::engine::world::component::LateUpdate;
                 let world_update = perf.node("world late_update");
                 self.components_late_update.iter().for_each(|(_, stor)| {
-                    let stor = stor.read();
-                    let world_update =
-                        perf.node(&format!("world late update: {}", stor.get_name()));
-                        late_update_storage(&**stor, &self.transforms, &sys);
+                    stor.late_update(&self.transforms, &sys);
+                    // let stor = stor.read();
+                    // let world_update =
+                    //     perf.node(&format!("world late update: {}", stor.get_name()));
+                    //     late_update_storage(&**stor, &self.transforms, &sys);
                     // stor.late_update(&self.transforms, &sys);
                 });
             }
@@ -1054,14 +1054,16 @@ impl World {
             new_rigid_bodies: &sys.new_rigid_bodies,
         };
         for (_, stor) in self.components_editor_update.iter() {
-            stor.write()
-                .editor_update(&self.transforms, &sys, &self.input);
+            stor.editor_update(&self.transforms, &sys, &self.input);
+            // stor.write()
+            //     .editor_update(&self.transforms, &sys, &self.input);
         }
     }
     pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>> {
         let mut render_jobs = vec![];
         for (_, stor) in self.components_render.iter() {
-            stor.write().on_render(&mut render_jobs);
+            stor.on_render(&mut render_jobs);
+            // stor.write().on_render(&mut render_jobs);
         }
         render_jobs
     }
