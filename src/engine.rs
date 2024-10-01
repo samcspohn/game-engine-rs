@@ -442,7 +442,7 @@ impl Engine {
             let mut world = world.lock();
             world.register::<Renderer>(false, false, false);
             world.register::<ParticleEmitter>(false, false, false);
-            world.register::<Camera>(true, false, false);
+            world.register::<Camera>(false, false, false);
             world.register::<_Collider>(false, false, false);
             world.register::<_RigidBody>(false, false, false);
             world.register::<Light>(false, false, false);

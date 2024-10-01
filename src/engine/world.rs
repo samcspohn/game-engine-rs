@@ -2,6 +2,7 @@ pub mod component;
 pub mod entity;
 pub mod transform;
 
+use component::__Component;
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
 use id::ID_trait;
@@ -41,7 +42,7 @@ use super::{
     atomic_vec::{self, AtomicVec},
     audio::system::AudioSystem,
     input::Input,
-    particles::{component::ParticleEmitter, particles::ParticlesSystem},
+    particles::{component::ParticleEmitter, particles::ParticlesSystem, shaders::cs::p},
     perf::Perf,
     physics::{
         collider::{PhysMesh, _Collider, _ColliderType},
@@ -125,6 +126,26 @@ pub struct World {
         ),
         nohash_hasher::BuildNoHashHasher<i32>,
     >,
+    pub(crate) component_updates: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) component_late_updates: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) component_editor_updates: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) component_on_render: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
     pub(crate) components_names:
         HashMap<String, Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>>,
     pub(crate) root: i32,
@@ -169,6 +190,10 @@ impl World {
             proc_mesh_id: -1,
             transform_map: HashMap::new(),
             components: HashMap::default(),
+            component_updates: HashMap::default(),
+            component_late_updates: HashMap::default(),
+            component_editor_updates: HashMap::default(),
+            component_on_render: HashMap::default(),
             components_names: HashMap::new(),
             root,
             sys: Sys {
@@ -412,6 +437,25 @@ impl World {
             component_storage.read().get_name().to_string(),
             component_storage.clone(),
         );
+        println!("{} registered", std::any::type_name::<T>());
+        // check to see if T overrides the default update function
+        if T::update as usize != <T as Component>::update as usize {
+            println!("{} has update", std::any::type_name::<T>());
+            self.component_updates
+                .insert(key, component_storage.clone());
+            self.component_editor_updates
+                .insert(key, component_storage.clone());
+        }
+        if T::late_update as usize != <T as Component>::late_update as usize {
+            println!("{} has late update", std::any::type_name::<T>());
+            self.component_late_updates
+                .insert(key, component_storage.clone());
+        }
+        if T::on_render as usize != <T as Component>::on_render as usize {
+            println!("{} has on render", std::any::type_name::<T>());
+            self.component_on_render
+                .insert(key, component_storage.clone());
+        }
     }
     pub fn re_init(&mut self) {
         unsafe {
@@ -438,6 +482,10 @@ impl World {
         self.components.remove(&key);
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
+        self.component_updates.remove(&key);
+        self.component_late_updates.remove(&key);
+        self.component_editor_updates.remove(&key);
+        self.component_on_render.remove(&key);
     }
     pub fn init_colls_rbs(&self, perf: &Perf) {
         let mut phys = self.sys.physics.lock();
@@ -909,16 +957,22 @@ impl World {
             };
             {
                 let world_update = perf.node("world update");
-                self.components.iter().for_each(|(_, stor)| {
-                    let mut stor = stor.1.read();
+                self.component_updates.iter().for_each(|(_, stor)| {
+                    let mut stor = stor.read();
+                    if stor.len() == 0 {
+                        return;
+                    }
                     let world_update = perf.node(&format!("world update: {}", stor.get_name()));
                     stor.update(&self.transforms, &sys, &self);
                 });
             }
             {
                 let world_update = perf.node("world late_update");
-                self.components.iter().for_each(|(_, stor)| {
-                    let mut stor = stor.1.read();
+                self.component_late_updates.iter().for_each(|(_, stor)| {
+                    let mut stor = stor.read();
+                    if stor.len() == 0 {
+                        return;
+                    }
                     let world_update =
                         perf.node(&format!("world late update: {}", stor.get_name()));
                     stor.late_update(&self.transforms, &sys);
@@ -956,16 +1010,15 @@ impl World {
             particle_system: &sys.particles_system,
             new_rigid_bodies: &sys.new_rigid_bodies,
         };
-        for (_, stor) in self.components.iter() {
-            stor.1
-                .write()
+        for (_, stor) in self.component_editor_updates.iter() {
+            stor.write()
                 .editor_update(&self.transforms, &sys, &self.input);
         }
     }
     pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>> {
         let mut render_jobs = vec![];
-        for (_, stor) in self.components.iter() {
-            stor.1.write().on_render(&mut render_jobs);
+        for (_, stor) in self.component_on_render.iter() {
+            stor.write().on_render(&mut render_jobs);
         }
         render_jobs
     }

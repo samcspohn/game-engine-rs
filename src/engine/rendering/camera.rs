@@ -421,37 +421,21 @@ impl Component for Camera {
 
         // Ins(&mut self.samples).inspect("samples", ui, sys);
     }
-    fn editor_update(&mut self, transform: &Transform, sys: &crate::engine::prelude::System) {
-        if unsafe {
-            MAIN_CAMERA
-                .as_ref()
-                .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
-                .unwrap_or(false)
-        } {
-            self.main_cam = false;
-        }
-    }
-    fn update(
-        &mut self,
-        transform: &Transform,
-        sys: &crate::engine::prelude::System,
-        world: &crate::engine::world::World,
-    ) {
-        if unsafe {
-            MAIN_CAMERA
-                .as_ref()
-                .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
-                .unwrap_or(false)
-        } {
-            self.main_cam = false;
-        }
-    }
 }
 impl Camera {
     // pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
     //     self.data.as_ref().map(|data| data.get(f).clone())
     // }
     pub fn _update(&mut self, transform: &Transform) {
+        if unsafe {
+            MAIN_CAMERA
+                .as_ref()
+                .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
+                .unwrap_or(false)
+        } {
+            self.main_cam = false;
+        }
+
         if let Some(cam_data) = &self.data {
             // let mut cvd = CameraViewData::default();
             cam_data.get(|cam_data: &mut CameraData| {

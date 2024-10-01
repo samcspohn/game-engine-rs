@@ -177,3 +177,9 @@ pub trait Component {
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
     // fn as_any(&self) -> &dyn Any;
 }
+
+pub struct __Component {}
+
+impl Component for __Component {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, _ui: &mut egui::Ui, _sys: &Sys) {}
+}
