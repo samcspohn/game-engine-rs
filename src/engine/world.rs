@@ -422,12 +422,9 @@ impl World {
             + for<'a> Deserialize<'a>,
     >(
         &mut self,
-        has_update: bool,
-        has_late_update: bool,
-        has_render: bool,
     ) {
         let key = T::ID;
-        let data = Storage::<T>::new(has_update, has_late_update, has_render);
+        let data = Storage::<T>::new();
         let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
             Arc::new(RwLock::new(Box::new(data)));
         self.components
@@ -445,6 +442,7 @@ impl World {
                 .insert(key, component_storage.clone());
         }
         if T::editor_update as usize != __Component::editor_update as usize {
+            println!("{} has editor update", std::any::type_name::<T>());
             self.component_editor_updates
                 .insert(key, component_storage.clone());
         }

@@ -443,16 +443,15 @@ impl Engine {
 
         {
             let mut world = world.lock();
-            world.register::<Renderer>(false, false, false);
-            world.register::<ParticleEmitter>(false, false, false);
-            world.register::<Camera>(false, false, false);
-            world.register::<_Collider>(false, false, false);
-            world.register::<_RigidBody>(false, false, false);
-            world.register::<Light>(false, false, false);
-            world.register::<AudioSource>(true, false, false);
-            world.register::<AudioListener>(true, false, false);
-            //
-            world.register::<terrain_eng::TerrainEng>(true, false, true);
+            world.register::<Renderer>();
+            world.register::<ParticleEmitter>();
+            world.register::<Camera>();
+            world.register::<_Collider>();
+            world.register::<_RigidBody>();
+            world.register::<Light>();
+            world.register::<AudioSource>();
+            world.register::<AudioListener>();
+            world.register::<terrain_eng::TerrainEng>();
         };
 
         let rm = {
