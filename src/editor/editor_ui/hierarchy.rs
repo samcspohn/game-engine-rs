@@ -336,10 +336,39 @@ impl EditorWindow for Hierarchy {
             } else {
                 unsafe {
                     _SELECTED = None;
+                    if let Some(i) = inspectable {
+                        if let Some(i) = i.lock().as_any_mut().downcast_mut::<entity_inspector::GameObjectInspector>() {
+                            _SELECTED = None;
+                        }
+                    }
                     self._selected_transforms.clear();
                 }
             }
             self.context_menu = None;
+        }
+        if editor_args.shortcuts.get_key_shortcut("Duplicate", editor_args.input) {
+            if let Some(s) = unsafe { _SELECTED.as_ref() } {
+                let e = world.copy_game_object(*s);
+                unsafe {
+                    _SELECTED = Some(e);
+                    self._selected_transforms.clear();
+                    self._selected_transforms.insert(e);
+                }
+            }
+        }
+        if editor_args.shortcuts.get_key_shortcut("Delete", editor_args.input) {
+            if let Some(s) = unsafe { _SELECTED.as_ref() } {
+                world.destroy(*s);
+                unsafe {
+                    _SELECTED = None;
+                    if let Some(i) = inspectable {
+                        if let Some(i) = i.lock().as_any_mut().downcast_mut::<entity_inspector::GameObjectInspector>() {
+                            _SELECTED = None;
+                        }
+                    }
+                    self._selected_transforms.clear();
+                }
+            }
         }
 
 

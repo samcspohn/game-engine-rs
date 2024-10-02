@@ -46,7 +46,7 @@ use crate::{
             transform::Transform,
             Sys, World,
         },
-        RenderJobData,
+        RenderData,
     },
 };
 // struct Chunk {
@@ -447,7 +447,7 @@ impl Component for TerrainEng {
         Ins(&mut self.terrain_size).inspect("terrain_size", ui, sys);
         // });
     }
-    fn on_render(&mut self, t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
+    fn on_render(&mut self, t_id: i32, rd: &mut RenderData) {
         let _chunks = self.chunks.clone();
         // static mut COMMAND_BUFFER: Option<SecondaryAutoCommandBuffer> = None;
         let _cur_chunks = self.cur_chunks.load(Ordering::Relaxed);
@@ -461,93 +461,93 @@ impl Component for TerrainEng {
             let uvs_buffer = tcrd.uvs_buffer.clone();
             let index_buffer = tcrd.index_buffer.clone();
             let texture = tcrd.texture;
-            Box::new(move |rd: &mut RenderJobData| {
-                let RenderJobData {
-                    builder,
-                    // uniforms,
-                    gpu_transforms: _,
-                    lights: lighting,
-                    light_templates,
-                    mvp,
-                    view: _,
-                    proj: _,
-                    pipeline,
-                    viewport: _,
-                    texture_manager,
-                    vk,
-                    light_len,
-                    cam_pos,
-                    // light_buckets,
-                    // light_buckets_count,
-                    // light_ids,
-                    tiles,
-                    screen_dims,
-                    light_list,
-                    visible_lights,
-                    visible_lights_count,
-                } = rd;
-                let instance_data = vec![t_id];
-                // let mvp_data = vec![MVP {
-                //     mvp: (**proj * **view * glm::Mat4::identity()).into(),
-                // }];
+            // Box::new(move |rd: &mut RenderData| {
+            let RenderData {
+                builder,
+                // uniforms,
+                gpu_transforms: _,
+                lights: lighting,
+                light_templates,
+                mvp,
+                view: _,
+                proj: _,
+                pipeline,
+                viewport: _,
+                texture_manager,
+                vk,
+                light_len,
+                cam_pos,
+                // light_buckets,
+                // light_buckets_count,
+                // light_ids,
+                tiles,
+                screen_dims,
+                light_list,
+                visible_lights,
+                visible_lights_count,
+            } = rd;
+            let instance_data = vec![t_id];
+            // let mvp_data = vec![MVP {
+            //     mvp: (**proj * **view * glm::Mat4::identity()).into(),
+            // }];
 
-                static mut INSTANCE_BUFFER: Option<Subbuffer<[i32]>> = None;
-                if unsafe { INSTANCE_BUFFER.is_none() } {
-                    unsafe {
-                        INSTANCE_BUFFER = Some(vk.buffer_from_iter(instance_data));
-                    }
+            static mut INSTANCE_BUFFER: Option<Subbuffer<[i32]>> = None;
+            if unsafe { INSTANCE_BUFFER.is_none() } {
+                unsafe {
+                    INSTANCE_BUFFER = Some(vk.buffer_from_iter(instance_data));
                 }
+            }
 
-                let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
+            let layout = pipeline.pipeline.layout().set_layouts().get(0).unwrap();
 
-                let mut descriptors = Vec::new();
+            let mut descriptors = Vec::new();
 
-                // if let Some(mvp) = unsafe { &mvp_buffer } {
-                descriptors.push(WriteDescriptorSet::buffer(0, mvp.clone()));
-                // }
+            // if let Some(mvp) = unsafe { &mvp_buffer } {
+            descriptors.push(WriteDescriptorSet::buffer(0, mvp.clone()));
+            // }
 
-                if let Some(texture) = texture.as_ref() {
-                    if let Some(texture) = texture_manager.get_id(texture) {
-                        let texture = texture.lock();
-                        descriptors.push(WriteDescriptorSet::image_view_sampler(
-                            1,
-                            texture.image.clone(),
-                            texture.sampler.clone(),
-                        ));
-                    }
-                } else {
-                    panic!("no terrain texture");
+            if let Some(texture) = texture.as_ref() {
+                if let Some(texture) = texture_manager.get_id(texture) {
+                    let texture = texture.lock();
+                    descriptors.push(WriteDescriptorSet::image_view_sampler(
+                        1,
+                        texture.image.clone(),
+                        texture.sampler.clone(),
+                    ));
                 }
-                if let Some(i) = unsafe { &INSTANCE_BUFFER } {
-                    descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
-                }
-                let set = PersistentDescriptorSet::new(&vk.desc_alloc, layout.clone(), descriptors)
-                    .unwrap();
-                builder
-                    // .set_viewport(0, [viewport.clone()])
-                    // .bind_pipeline_graphics(pipeline.pipeline.clone())
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Graphics,
-                        pipeline.pipeline.layout().clone(),
-                        0,
-                        set,
-                    )
-                    .bind_vertex_buffers(
-                        0,
-                        (
-                            vertex_buffer.clone(),
-                            normals_buffer.clone(),
-                            uvs_buffer.clone(),
-                            // instance_buffer.clone(),
-                        ),
-                    )
-                    .bind_index_buffer(index_buffer.clone())
-                    .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-                    .unwrap();
-            })
-        } else {
-            Box::new(move |_rd: &mut RenderJobData| {})
+            } else {
+                panic!("no terrain texture");
+            }
+            if let Some(i) = unsafe { &INSTANCE_BUFFER } {
+                descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
+            }
+            let set =
+                PersistentDescriptorSet::new(&vk.desc_alloc, layout.clone(), descriptors).unwrap();
+            builder
+                // .set_viewport(0, [viewport.clone()])
+                // .bind_pipeline_graphics(pipeline.pipeline.clone())
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Graphics,
+                    pipeline.pipeline.layout().clone(),
+                    0,
+                    set,
+                )
+                .bind_vertex_buffers(
+                    0,
+                    (
+                        vertex_buffer.clone(),
+                        normals_buffer.clone(),
+                        uvs_buffer.clone(),
+                        // instance_buffer.clone(),
+                    ),
+                )
+                .bind_index_buffer(index_buffer.clone())
+                .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
+                .unwrap();
         }
+        // } else {
+        //     Box::new(move |_rd: &mut RenderData| {})
+        // }
     }
     fn update(&mut self, transform: &Transform, sys: &System, world: &World) {
         self.prev_chunks = self.cur_chunks.load(Ordering::Relaxed);

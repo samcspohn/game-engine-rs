@@ -2,15 +2,14 @@ use crate::{
     editor::{editor_ui::entity_inspector::_SELECTED, inspectable::Inspectable_},
     engine::{
         audio::component::{AudioListener, AudioSource},
-        particles::component::ParticleEmitter,
-        particles::particles::ParticlesSystem,
+        input::Input,
+        particles::{component::ParticleEmitter, particles::ParticlesSystem},
         physics::{collider::_Collider, rigid_body::_RigidBody},
         prelude::VulkanManager,
         project::{asset_manager::AssetsManager, file_watcher::FileWatcher, serialize, Project},
-        rendering::component::Renderer,
         rendering::{
             camera::Camera,
-            component::RendererManager,
+            component::{Renderer, RendererManager},
             lighting::lighting::{Light, LightingSystem},
         },
         world::{
@@ -45,6 +44,7 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
+use winit::event::VirtualKeyCode;
 
 use egui_dock::{DockArea, NodeIndex, Style, TabIndex, Tree};
 
@@ -53,10 +53,12 @@ mod console;
 mod entity_inspector;
 mod game_window;
 mod hierarchy;
+mod key_shortcuts;
 mod project;
 mod scene_window;
 mod top_menu;
 mod util;
+
 enum TransformDrag {
     DragToTransform(i32, i32),
     DragBetweenTransform(i32, i32, bool),
@@ -150,6 +152,7 @@ pub struct Editor {
     play_game: bool,
     scene_window: NodeIndex,
     game_window: NodeIndex,
+    pub keyboard_shortcuts: Arc<key_shortcuts::KeyShortcuts>,
 }
 
 pub struct EditorArgs<'a> {
@@ -160,6 +163,8 @@ pub struct EditorArgs<'a> {
     pub file_watcher: &'a mut FileWatcher,
     pub particle_system: &'a Arc<ParticlesSystem>,
     pub light_system: &'a Arc<LightingSystem>,
+    pub shortcuts: Arc<key_shortcuts::KeyShortcuts>,
+    pub input: &'a Input,
     // pub render_system: &'a mut RendererManager,
     pub playing_game: bool,
 }
@@ -178,6 +183,31 @@ impl Editor {
         let [c, _] = tree.split_right(a, 0.8, vec![ins]);
         let [_, _] = tree.split_below(b, 0.5, vec![Box::new(ProjectWindow::new())]);
         let [_, _] = tree.split_below(c, 0.7, vec![Box::new(ConsoleWindow::new())]);
+        let mut shortcuts = key_shortcuts::KeyShortcuts::new();
+        shortcuts.add_key_shortcut("Play", VirtualKeyCode::F5, vec![]);
+        shortcuts.add_key_shortcut("Stop", VirtualKeyCode::F5, vec![VirtualKeyCode::LShift]);
+        //
+        shortcuts.add_key_shortcut("Save", VirtualKeyCode::S, vec![VirtualKeyCode::LControl]);
+        shortcuts.add_key_shortcut(
+            "New Scene",
+            VirtualKeyCode::N,
+            vec![VirtualKeyCode::LControl],
+        );
+        shortcuts.add_key_shortcut(
+            "Open Scene",
+            VirtualKeyCode::O,
+            vec![VirtualKeyCode::LControl],
+        );
+        //
+        shortcuts.add_key_shortcut("Copy", VirtualKeyCode::C, vec![VirtualKeyCode::LControl]);
+        shortcuts.add_key_shortcut("Paste", VirtualKeyCode::V, vec![VirtualKeyCode::LControl]);
+        shortcuts.add_key_shortcut("Delete", VirtualKeyCode::Delete, vec![]);
+        shortcuts.add_key_shortcut(
+            "Duplicate",
+            VirtualKeyCode::D,
+            vec![VirtualKeyCode::LControl],
+        );
+
         Self {
             vk,
             editor_window_dim: [1920, 1080],
@@ -189,6 +219,64 @@ impl Editor {
             play_game: false,
             scene_window: NodeIndex(1),
             game_window: NodeIndex(2),
+            keyboard_shortcuts: Arc::new(shortcuts),
+        }
+    }
+    fn save(editor_args: &mut EditorArgs) {
+        while editor_args.project.working_scene == "" {
+            let files = FileDialog::new()
+                .add_filter("scene", &["scene"])
+                .set_directory(std::env::current_dir().unwrap())
+                .save_file();
+            if let Some(file) = files {
+                let file = file
+                    .strip_prefix(std::env::current_dir().unwrap())
+                    .unwrap()
+                    .as_os_str()
+                    .to_str()
+                    .unwrap();
+                editor_args.project.working_scene = file.into();
+            }
+        }
+        serialize::serialize(&editor_args.world, &editor_args.project.working_scene);
+        editor_args.project.save_project(
+            &editor_args.file_watcher,
+            &editor_args.world,
+            editor_args.assets_manager.clone(),
+        );
+    }
+    fn open(editor_args: &mut EditorArgs) {
+        let files = FileDialog::new()
+            .add_filter("scene", &["scene"])
+            .set_directory(std::env::current_dir().unwrap())
+            .pick_file();
+        if let Some(file) = files {
+            let file = file
+                .strip_prefix(std::env::current_dir().unwrap())
+                .unwrap()
+                .as_os_str()
+                .to_str()
+                .unwrap();
+            serialize::deserialize(editor_args.world, file);
+            editor_args.project.working_scene = file.into();
+        }
+    }
+    fn new_scene(editor_args: &mut EditorArgs) {
+        let files = FileDialog::new()
+            .add_filter("scene", &["scene"])
+            .set_directory(std::env::current_dir().unwrap())
+            .save_file();
+        if let Some(file) = files {
+            let file = file
+                .strip_prefix(std::env::current_dir().unwrap())
+                .unwrap()
+                .as_os_str()
+                .to_str()
+                .unwrap();
+            serialize::serialize_new(file);
+            serialize::deserialize(editor_args.world, file);
+            // utils::path_format(file);
+            editor_args.project.working_scene = file.into();
         }
     }
     pub fn editor_ui(
@@ -266,7 +354,10 @@ impl Editor {
                                         // let engine_dir = std::fs::canonicalize(&editor_args.engine_dir).unwrap();
                                         println!("{:?}", editor_args.engine_dir);
                                         let project_dir = std::env::current_dir().unwrap();
-                                        assert!(env::set_current_dir(&Path::new(&editor_args.engine_dir)).is_ok()); // procedurally generate cube/move cube to built in assets
+                                        assert!(env::set_current_dir(&Path::new(
+                                            &editor_args.engine_dir
+                                        ))
+                                        .is_ok()); // procedurally generate cube/move cube to built in assets
                                         let com = Command::new(
                                             format!(
                                                 "{}/target/release/game-engine-rs.exe",
@@ -276,8 +367,10 @@ impl Editor {
                                         )
                                         .arg(folder)
                                         .spawn();
-                                        assert!(env::set_current_dir(&Path::new(&project_dir)).is_ok());
-    
+                                        assert!(
+                                            env::set_current_dir(&Path::new(&project_dir)).is_ok()
+                                        );
+
                                         // let project = Project::default();
                                         // editor_args.file_watcher.files = project.files.clone();
                                         // unsafe { editor_args.assets_manager.clear() };
@@ -287,14 +380,14 @@ impl Editor {
                                         // editor_args.light_system.regen();
                                         // editor_args.particle_system.regen();
                                         // editor_args.render_system.regen();
-    
+
                                         // editor_args.world.regen();
                                         // unsafe {
                                         //     TRANSFORMS = &mut editor_args.world.transforms;
                                         //     TRANSFORM_MAP = &mut editor_args.world.transform_map;
                                         // }
                                         // {
-    
+
                                         //     let world = &mut editor_args.world;
                                         //     world.register::<Renderer>(false, false, false);
                                         //     world.register::<ParticleEmitter>(false, false, false);
@@ -323,7 +416,7 @@ impl Editor {
                                             ROTATION_EULER = None;
                                             QUAT_PTR = None;
                                         }
-    
+
                                         // let mut project = Project::new(folder.into());
                                         // project.save_project(
                                         //     file_watcher,
@@ -339,15 +432,15 @@ impl Editor {
                                         .set_directory(std::env::current_dir().unwrap())
                                         .pick_folder();
                                     if let Some(folder) = folder {
-                                        let folder = folder
-                                            .as_os_str()
-                                            .to_str()
-                                            .unwrap();
-                                         // let project = Project::default();
+                                        let folder = folder.as_os_str().to_str().unwrap();
+                                        // let project = Project::default();
                                         // let engine_dir = std::fs::canonicalize(&editor_args.engine_dir).unwrap();
                                         println!("{:?}", editor_args.engine_dir);
                                         let project_dir = std::env::current_dir().unwrap();
-                                        assert!(env::set_current_dir(&Path::new(&editor_args.engine_dir)).is_ok()); // procedurally generate cube/move cube to built in assets
+                                        assert!(env::set_current_dir(&Path::new(
+                                            &editor_args.engine_dir
+                                        ))
+                                        .is_ok()); // procedurally generate cube/move cube to built in assets
                                         let com = Command::new(
                                             format!(
                                                 "{}/target/release/game-engine-rs.exe",
@@ -357,7 +450,9 @@ impl Editor {
                                         )
                                         .arg(folder)
                                         .spawn();
-                                        assert!(env::set_current_dir(&Path::new(&project_dir)).is_ok());
+                                        assert!(
+                                            env::set_current_dir(&Path::new(&project_dir)).is_ok()
+                                        );
                                         // env::set_current_dir(folder).unwrap();
                                         // editor_args.project.load_project(
                                         //     editor_args.file_watcher,
@@ -368,70 +463,73 @@ impl Editor {
                                     ui.close_menu();
                                 }
                             });
-                           
+
                             ui.separator();
                             if ui.button("New scene").clicked() {
-                                let files = FileDialog::new()
-                                    .add_filter("scene", &["scene"])
-                                    .set_directory(std::env::current_dir().unwrap())
-                                    .save_file();
-                                if let Some(file) = files {
-                                    let file = file
-                                        .strip_prefix(std::env::current_dir().unwrap())
-                                        .unwrap()
-                                        .as_os_str()
-                                        .to_str()
-                                        .unwrap();
-                                    serialize::serialize_new(file);
-                                    serialize::deserialize(editor_args.world, file);
-                                    // utils::path_format(file);
-                                    editor_args.project.working_scene = file.into();
-                                }
+                                // let files = FileDialog::new()
+                                //     .add_filter("scene", &["scene"])
+                                //     .set_directory(std::env::current_dir().unwrap())
+                                //     .save_file();
+                                // if let Some(file) = files {
+                                //     let file = file
+                                //         .strip_prefix(std::env::current_dir().unwrap())
+                                //         .unwrap()
+                                //         .as_os_str()
+                                //         .to_str()
+                                //         .unwrap();
+                                //     serialize::serialize_new(file);
+                                //     serialize::deserialize(editor_args.world, file);
+                                //     // utils::path_format(file);
+                                //     editor_args.project.working_scene = file.into();
+                                // }
+                                Editor::new_scene(&mut editor_args);
                                 ui.close_menu();
                             }
                             if ui.button("Open").clicked() {
                                 // project?
-                                let files = FileDialog::new()
-                                    .add_filter("scene", &["scene"])
-                                    .set_directory(std::env::current_dir().unwrap())
-                                    .pick_file();
-                                if let Some(file) = files {
-                                    let file = file
-                                        .strip_prefix(std::env::current_dir().unwrap())
-                                        .unwrap()
-                                        .as_os_str()
-                                        .to_str()
-                                        .unwrap();
-                                    serialize::deserialize(editor_args.world, file);
-                                    editor_args.project.working_scene = file.into();
-                                }
+                                // let files = FileDialog::new()
+                                //     .add_filter("scene", &["scene"])
+                                //     .set_directory(std::env::current_dir().unwrap())
+                                //     .pick_file();
+                                // if let Some(file) = files {
+                                //     let file = file
+                                //         .strip_prefix(std::env::current_dir().unwrap())
+                                //         .unwrap()
+                                //         .as_os_str()
+                                //         .to_str()
+                                //         .unwrap();
+                                //     serialize::deserialize(editor_args.world, file);
+                                //     editor_args.project.working_scene = file.into();
+                                // }
+                                Editor::open(&mut editor_args);
                                 ui.close_menu();
                             }
                             if ui.button("Save").clicked() {
-                                while editor_args.project.working_scene == "" {
-                                    let files = FileDialog::new()
-                                        .add_filter("scene", &["scene"])
-                                        .set_directory(std::env::current_dir().unwrap())
-                                        .save_file();
-                                    if let Some(file) = files {
-                                        let file = file
-                                            .strip_prefix(std::env::current_dir().unwrap())
-                                            .unwrap()
-                                            .as_os_str()
-                                            .to_str()
-                                            .unwrap();
-                                        editor_args.project.working_scene = file.into();
-                                    }
-                                }
-                                serialize::serialize(
-                                    &editor_args.world,
-                                    &editor_args.project.working_scene,
-                                );
-                                editor_args.project.save_project(
-                                    &editor_args.file_watcher,
-                                    &editor_args.world,
-                                    assets_manager.clone(),
-                                );
+                                Editor::save(&mut editor_args);
+                                // while editor_args.project.working_scene == "" {
+                                //     let files = FileDialog::new()
+                                //         .add_filter("scene", &["scene"])
+                                //         .set_directory(std::env::current_dir().unwrap())
+                                //         .save_file();
+                                //     if let Some(file) = files {
+                                //         let file = file
+                                //             .strip_prefix(std::env::current_dir().unwrap())
+                                //             .unwrap()
+                                //             .as_os_str()
+                                //             .to_str()
+                                //             .unwrap();
+                                //         editor_args.project.working_scene = file.into();
+                                //     }
+                                // }
+                                // serialize::serialize(
+                                //     &editor_args.world,
+                                //     &editor_args.project.working_scene,
+                                // );
+                                // editor_args.project.save_project(
+                                //     &editor_args.file_watcher,
+                                //     &editor_args.world,
+                                //     assets_manager.clone(),
+                                // );
                                 // assets_manager.serialize();
                                 ui.close_menu();
                             }
@@ -458,6 +556,34 @@ impl Editor {
                     });
                 });
             }
+            if editor_args
+                .shortcuts
+                .get_key_shortcut("Play", &editor_args.input)
+            {
+                editor_args.playing_game = true;
+            } else if editor_args
+                .shortcuts
+                .get_key_shortcut("Stop", &editor_args.input)
+            {
+                editor_args.playing_game = false;
+            }
+            if editor_args
+                .shortcuts
+                .get_key_shortcut("Save", &editor_args.input)
+            {
+                Editor::save(&mut editor_args);
+            } else if editor_args
+                .shortcuts
+                .get_key_shortcut("Open", &editor_args.input)
+            {
+                Editor::open(&mut editor_args);
+            } else if editor_args
+                .shortcuts
+                .get_key_shortcut("New Scene", &editor_args.input)
+            {
+                Editor::new_scene(&mut editor_args);
+            }
+
             self.play_game = editor_args.playing_game;
 
             {

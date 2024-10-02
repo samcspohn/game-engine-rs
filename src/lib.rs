@@ -31,7 +31,7 @@ pub mod prelude {
             transform::{Transform, TransformRef, _Transform},
             Sys, World,
         },
-        RenderJobData,
+        RenderData,
     };
     pub use inspectable::{Inpsect, Ins};
     pub use lazy_static;

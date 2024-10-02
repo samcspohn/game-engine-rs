@@ -40,7 +40,7 @@ use crate::engine::{
     time::Time,
     utils::{GPUWork, PrimaryCommandBuffer},
     world::{transform::Transform, Sys, World},
-    Defer, RenderJobData,
+    Defer, RenderData,
 };
 
 use super::{NewCollider, NewRigidBody};
@@ -171,9 +171,7 @@ pub trait Component {
     fn update(&mut self, transform: &Transform, sys: &System, world: &World) {}
     fn late_update(&mut self, transform: &Transform, sys: &System) {}
     fn editor_update(&mut self, transform: &Transform, sys: &System) {}
-    fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
-        Box::new(|_rd: &mut RenderJobData| {})
-    }
+    fn on_render(&mut self, _t_id: i32, rd: &mut RenderData) {}
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
     // fn as_any(&self) -> &dyn Any;
 }

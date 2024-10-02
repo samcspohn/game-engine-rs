@@ -37,7 +37,7 @@ use super::{
     particles::shaders::cs::{burst, emitter_init},
     rendering::component::RendererData,
     utils::{GPUWork, SecondaryCommandBuffer},
-    Engine, RenderJobData,
+    Engine, RenderData,
 };
 
 // type GameComm<'a> = (

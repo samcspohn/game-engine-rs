@@ -161,7 +161,7 @@ pub(crate) mod prelude;
 mod render_thread;
 pub mod utils;
 #[repr(C)]
-pub struct RenderJobData<'a> {
+pub struct RenderData<'a> {
     pub builder: &'a mut AutoCommandBufferBuilder<
         PrimaryAutoCommandBuffer,
         Arc<StandardCommandBufferAllocator>,
@@ -291,7 +291,10 @@ pub struct EnginePtr {
 unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
 
-fn init_systems(vk: &Arc<VulkanManager>, texture_manager: Arc<Mutex<TextureManager>>) -> (Arc<ParticlesSystem>, Arc<LightingSystem>) {
+fn init_systems(
+    vk: &Arc<VulkanManager>,
+    texture_manager: Arc<Mutex<TextureManager>>,
+) -> (Arc<ParticlesSystem>, Arc<LightingSystem>) {
     let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
     let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
     (particles_system, lighting_system)
@@ -695,6 +698,22 @@ impl Engine {
         if (self.game_mode | self.playing_game) {
             puffin::profile_scope!("game loop");
             {
+                puffin::profile_scope!("defered");
+                {
+                    let world_do_defered = self.perf.node("world do_deffered");
+                    world.do_defered();
+                }
+                {
+                    let world_destroy = self.perf.node("world _destroy");
+                    world._destroy(&self.perf);
+                }
+                {
+                    let world_update = self.perf.node("world instantiate");
+                    world.defer_instantiate(&self.perf);
+                    // world.init_colls_rbs();
+                }
+            }
+            {
                 puffin::profile_scope!("world update");
                 if world.phys_time >= world.phys_step {
                     // skip if physics sim not complete
@@ -712,36 +731,21 @@ impl Engine {
                 world._update(&self.perf);
                 drop(world_update);
             }
-            {
-                puffin::profile_scope!("defered");
-                {
-                    let world_do_defered = self.perf.node("world do_deffered");
-                    world.do_defered();
-                }
-                {
-                    let world_destroy = self.perf.node("world _destroy");
-                    world._destroy(&self.perf);
-                }
-                {
-                    let world_update = self.perf.node("world instantiate");
-                    world.defer_instantiate(&self.perf);
-                    // world.init_colls_rbs();
-                }
-            }
+            
             // let mut world = self.world.lock();
             // world.update_cameras()
         } else {
             // let mut world = self.world.lock();
 
             world._destroy(&self.perf);
+            world.do_defered();
+            world.init_colls_rbs(&self.perf);
             // world.init_colls_rbs();
             world.editor_update(); // TODO: terrain update still breaking
 
-            world.do_defered();
-            world.init_colls_rbs(&self.perf);
         };
         world.update_cameras();
-        
+
         // let mut world = self.world.lock();
 
         // drop(world_sim);
@@ -754,7 +758,7 @@ impl Engine {
         let emitter_deinits = world.sys.particles_system.emitter_deinits.get_vec();
         let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
         // let (main_cam_id, mut cam_datas) = world.get_cam_datas();
-        let render_jobs = world.render();
+        // let render_jobs = world.render();
 
         // let cd = if (self.game_mode | self.playing_game) && cam_datas.len() > 0 {
         //     cam_datas[0].clone()
@@ -779,6 +783,8 @@ impl Engine {
                     playing_game: self.game_mode | self.playing_game,
                     particle_system: &self.particles_system,
                     light_system: &self.lighting_system,
+                    shortcuts: self.editor.keyboard_shortcuts.clone(),
+                    input: &input,
                     // render_system: &mut self.rendering_system.write(),
                 },
                 &ctx,
@@ -879,33 +885,6 @@ impl Engine {
                     .collect::<HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>>()
             })
         };
-
-        // drop(_cd);
-        drop(world);
-        drop(_gui);
-        self.file_watcher.get_updates(self.assets_manager.clone());
-
-        if self.recompile.load(Ordering::Relaxed) {
-            if let Some(compiling) = &mut self.compiler_process {
-                compiling.kill();
-            }
-            // self.compiler_thread
-            let mut args = vec!["build"];
-            args.push("--lib");
-            #[cfg(not(debug_assertions))]
-            {
-                println!("compiling for release");
-                args.push("-r");
-            }
-            // args.push("-r");
-            let com = Command::new("cargo")
-                .args(args.as_slice())
-                // .env("RUSTFLAGS", "-Z threads=16")
-                .spawn()
-                .unwrap();
-            self.compiler_process = Some(com);
-            self.recompile.store(false, Ordering::Relaxed);
-        }
 
         let _get_gui_commands = self.perf.node("_ get gui commands");
         let _window_size = if let Some(size) = &window_size {
@@ -1107,7 +1086,7 @@ impl Engine {
                     &mut rm,
                     &mut renderer_data,
                     self.assets_manager.clone(),
-                    &render_jobs,
+                    &mut world,
                     cvd,
                     &self.perf,
                     lc.light_list2.lock().clone(),
@@ -1134,6 +1113,32 @@ impl Engine {
             }
         }
         drop(render_cameras);
+        // drop(_cd);
+        drop(world);
+        drop(_gui);
+        self.file_watcher.get_updates(self.assets_manager.clone());
+
+        if self.recompile.load(Ordering::Relaxed) {
+            if let Some(compiling) = &mut self.compiler_process {
+                compiling.kill();
+            }
+            // self.compiler_thread
+            let mut args = vec!["build"];
+            args.push("--lib");
+            #[cfg(not(debug_assertions))]
+            {
+                println!("compiling for release");
+                args.push("-r");
+            }
+            // args.push("-r");
+            let com = Command::new("cargo")
+                .args(args.as_slice())
+                // .env("RUSTFLAGS", "-Z threads=16")
+                .spawn()
+                .unwrap();
+            self.compiler_process = Some(com);
+            self.recompile.store(false, Ordering::Relaxed);
+        }
 
         /////////////////////////////////////////////////////////
 
@@ -1217,7 +1222,6 @@ impl Engine {
             builder.execute_commands(gui_commands).unwrap();
         }
         builder.end_render_pass().unwrap();
-
 
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();

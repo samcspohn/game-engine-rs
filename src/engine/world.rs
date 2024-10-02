@@ -59,7 +59,7 @@ use super::{
     storage::{Storage, StorageBase, _Storage},
     time::Time,
     utils::GPUWork,
-    Defer, RenderJobData,
+    Defer, RenderData,
 };
 
 pub(crate) struct NewRigidBody {
@@ -439,19 +439,21 @@ impl World {
         );
         println!("{} registered", std::any::type_name::<T>());
         // check to see if T overrides the default update function
-        if T::update as usize != <T as Component>::update as usize {
+        if T::update as usize != __Component::update as usize {
             println!("{} has update", std::any::type_name::<T>());
             self.component_updates
                 .insert(key, component_storage.clone());
+        }
+        if T::editor_update as usize != __Component::editor_update as usize {
             self.component_editor_updates
                 .insert(key, component_storage.clone());
         }
-        if T::late_update as usize != <T as Component>::late_update as usize {
+        if T::late_update as usize != __Component::late_update as usize {
             println!("{} has late update", std::any::type_name::<T>());
             self.component_late_updates
                 .insert(key, component_storage.clone());
         }
-        if T::on_render as usize != <T as Component>::on_render as usize {
+        if T::on_render as usize != __Component::on_render as usize {
             println!("{} has on render", std::any::type_name::<T>());
             self.component_on_render
                 .insert(key, component_storage.clone());
@@ -1015,12 +1017,12 @@ impl World {
                 .editor_update(&self.transforms, &sys, &self.input);
         }
     }
-    pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>> {
-        let mut render_jobs = vec![];
+    pub fn render(&self, rd: &mut RenderData) {
+        // let mut render_jobs = vec![];
         for (_, stor) in self.component_on_render.iter() {
-            stor.write().on_render(&mut render_jobs);
+            stor.write().on_render(rd);
         }
-        render_jobs
+        // render_jobs
     }
     // pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
     //     self.get_component_storage::<Camera, _, _>(|camera_storage| {

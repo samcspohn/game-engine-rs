@@ -25,7 +25,7 @@ impl Input {
     // pub fn get_time(&self) -> &Time {
     //     &self.time
     // }
-    pub fn get_key(&self, key: &VirtualKeyCode) -> bool {
+    pub fn get_key(&self, key: &VirtualKeyCode) -> bool { // TODO: &VirtualKeyCode to VirtualKeyCode
         *self.key_downs.get(key).unwrap_or(&false)
     }
     pub fn get_key_press(&self, key: &VirtualKeyCode) -> bool {

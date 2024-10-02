@@ -29,7 +29,7 @@ use super::{
         transform::{CacheVec, Transform, Transforms, VecCache},
         Sys, World,
     },
-    RenderJobData,
+    RenderData,
 };
 
 pub struct _Storage<T> {
@@ -86,7 +86,7 @@ pub trait StorageBase {
     fn update(&self, transforms: &Transforms, sys: &System, world: &World);
     fn late_update(&self, transforms: &Transforms, sys: &System);
     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>);
+    fn on_render(&mut self, rd: &mut RenderData);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn remove(&self, i: i32);
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys);
@@ -181,7 +181,7 @@ impl<
     // }
     pub fn for_each<D>(&self, mut f: D)
     where
-        D: FnMut(i32, &mut T) + Send + Sync,
+        D: FnMut(i32, &mut T),
     {
         self.data.iter().zip(self.valid.iter()).for_each(|(d, v)| {
             if unsafe { **v.get() } {
@@ -498,12 +498,13 @@ impl<
         self.insert(transform, d)
     }
 
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>) {
+    fn on_render(&mut self, rd: &mut RenderData) {
         if !self.has_render {
             return;
         }
         self.for_each(|t_id, d| {
-            render_jobs.push(d.on_render(t_id));
+            d.on_render(t_id, rd);
+            // render_jobs.push(d.on_render(t_id));
         });
     }
 

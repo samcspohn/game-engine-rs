@@ -30,6 +30,9 @@ impl Inspectable_ for GameObjectInspector {
         self
     }
     fn inspect(&mut self, ui: &mut egui::Ui, world: &mut World) -> bool {
+        if unsafe { _SELECTED.is_none() } {
+            return false;
+        }
         // let mut world = world.lock();
         let mut rmv: Option<(i32, u64, i32)> = None;
 

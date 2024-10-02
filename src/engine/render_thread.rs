@@ -13,7 +13,7 @@ use super::{
     },
     utils::GPUWork,
     world::transform::TransformData,
-    Engine, EnginePtr, RenderJobData,
+    Engine, EnginePtr, RenderData,
 };
 use crate::{
     editor::{self, editor_ui::EDITOR_WINDOW_DIM},
@@ -55,7 +55,7 @@ pub struct RenderingData {
     pub renderer_data: RendererData,
     pub emitter_inits: (usize, Vec<emitter_init>, Vec<emitter_init>, Vec<burst>),
     pub gpu_work: GPUWork,
-    pub render_jobs: Vec<Box<dyn Fn(&mut RenderJobData<'_>) + Send + Sync>>,
+    pub render_jobs: Vec<Box<dyn Fn(&mut RenderData<'_>) + Send + Sync>>,
     pub _image_num: u32,
     pub gui_commands: SendSync<SecondaryAutoCommandBuffer>,
     pub engine_ptr: EnginePtr,
