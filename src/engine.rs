@@ -449,9 +449,9 @@ impl Engine {
             world.register::<_Collider>();
             world.register::<_RigidBody>();
             world.register::<Light>();
-            world.register::<AudioSource>();
-            world.register::<AudioListener>();
-            world.register::<terrain_eng::TerrainEng>();
+            world.register::<AudioSource>().update();
+            world.register::<AudioListener>().update();
+            world.register::<terrain_eng::TerrainEng>().update().editor_update().on_render();
         };
 
         let rm = {

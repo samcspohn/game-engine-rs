@@ -169,7 +169,49 @@ pub struct World {
 //     + Clone
 //     + Serialize
 //     + for<'a> Deserialize<'a>;
-
+pub struct Registation<'a, T> {
+    pub(crate) key: u64,
+    pub(crate) _phantom: std::marker::PhantomData<T>,
+    pub(crate) _world: &'a mut World,
+}
+impl<'a, T> Registation<'a, T>
+where
+    T: 'static
+        + Send
+        + Sync
+        + Component
+        + ID_trait
+        + Default
+        + Clone
+        + Serialize
+        + for<'b> Deserialize<'b>,
+{
+    pub fn new(world: &'a mut World) -> Self {
+        let key = T::ID;
+        // world.register::<T>();
+        Self {
+            key,
+            _phantom: std::marker::PhantomData,
+            _world: world,
+        }
+    }
+    pub fn update(mut self) -> Self {
+        self._world.component_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self
+    }
+    pub fn late_update(mut self) -> Self {
+        self._world.component_late_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self
+    }
+    pub fn on_render(mut self)  -> Self {
+        self._world.component_on_render.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self
+    }
+    pub fn editor_update(mut self) -> Self {
+        self._world.component_editor_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self
+    }
+}
 #[allow(dead_code)]
 impl World {
     pub fn new(
@@ -422,7 +464,7 @@ impl World {
             + for<'a> Deserialize<'a>,
     >(
         &mut self,
-    ) {
+    ) -> Registation<T> {
         let key = T::ID;
         let data = Storage::<T>::new();
         let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
@@ -434,28 +476,35 @@ impl World {
             component_storage.read().get_name().to_string(),
             component_storage.clone(),
         );
-        println!("{} registered", std::any::type_name::<T>());
-        // check to see if T overrides the default update function
-        if T::update as usize != __Component::update as usize {
-            println!("{} has update", std::any::type_name::<T>());
-            self.component_updates
-                .insert(key, component_storage.clone());
-        }
-        if T::editor_update as usize != __Component::editor_update as usize {
-            println!("{} has editor update", std::any::type_name::<T>());
-            self.component_editor_updates
-                .insert(key, component_storage.clone());
-        }
-        if T::late_update as usize != __Component::late_update as usize {
-            println!("{} has late update", std::any::type_name::<T>());
-            self.component_late_updates
-                .insert(key, component_storage.clone());
-        }
-        if T::on_render as usize != __Component::on_render as usize {
-            println!("{} has on render", std::any::type_name::<T>());
-            self.component_on_render
-                .insert(key, component_storage.clone());
-        }
+        
+        return Registation::new(self);
+
+        // println!("{} registered", std::any::type_name::<T>());
+        // // println!("T::update: {}", T::update as usize);
+        // // println!("T::editor_update: {}", T::editor_update as usize);
+        // // println!("T::late_update: {}", T::late_update as usize);
+        // // println!("T::on_render: {}", T::on_render as usize);
+        // // check to see if T overrides the default update function
+        // if T::update as usize != __Component::update as usize {
+        //     println!("{} has update", std::any::type_name::<T>());
+        //     self.component_updates
+        //         .insert(key, component_storage.clone());
+        // }
+        // if T::editor_update as usize != __Component::editor_update as usize {
+        //     println!("{} has editor update", std::any::type_name::<T>());
+        //     self.component_editor_updates
+        //         .insert(key, component_storage.clone());
+        // }
+        // if T::late_update as usize != __Component::late_update as usize {
+        //     println!("{} has late update", std::any::type_name::<T>());
+        //     self.component_late_updates
+        //         .insert(key, component_storage.clone());
+        // }
+        // if T::on_render as usize != __Component::on_render as usize {
+        //     println!("{} has on render", std::any::type_name::<T>());
+        //     self.component_on_render
+        //         .insert(key, component_storage.clone());
+        // }
     }
     pub fn re_init(&mut self) {
         unsafe {

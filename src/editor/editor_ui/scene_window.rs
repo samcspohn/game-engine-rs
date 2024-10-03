@@ -408,7 +408,7 @@ impl EditorWindow for SceneWindow {
             }
         }
         if ui.input(|r| {
-            r.pointer.is_decidedly_dragging()
+            !r.pointer.is_decidedly_dragging()
                 && r.pointer.primary_released()
                 && viewport.contains(r.pointer.hover_pos().unwrap())
         }) {
