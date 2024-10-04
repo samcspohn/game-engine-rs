@@ -28,7 +28,7 @@ impl Input {
     pub fn get_key(&self, key: &VirtualKeyCode) -> bool { // TODO: &VirtualKeyCode to VirtualKeyCode
         *self.key_downs.get(key).unwrap_or(&false)
     }
-    pub fn get_key_press(&self, key: &VirtualKeyCode) -> bool {
+    pub fn get_key_down(&self, key: &VirtualKeyCode) -> bool {
         *self.key_presses.get(key).unwrap_or(&false)
     }
     pub fn get_key_up(&self, key: &VirtualKeyCode) -> bool {

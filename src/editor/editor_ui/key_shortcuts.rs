@@ -33,6 +33,7 @@ impl KeyShortcuts {
                         return false;
                     }
                 }
+                println!("{} pressed", name);
                 return true;
             }
         }

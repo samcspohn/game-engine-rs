@@ -70,6 +70,7 @@ use winit::{
     dpi::{LogicalPosition, PhysicalSize},
     event::{Event, ModifiersState, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
+    window::Window,
 };
 // use crate::{physics::Physics};
 
@@ -187,6 +188,8 @@ pub struct RenderData<'a> {
     pub viewport: &'a Viewport,
     pub texture_manager: &'a TextureManager,
     pub vk: Arc<VulkanManager>,
+    pub playing_game: bool,
+    // pub hide_cursor: bool,
 }
 
 // pub struct ComponentRenderData {
@@ -451,7 +454,11 @@ impl Engine {
             world.register::<Light>();
             world.register::<AudioSource>().update();
             world.register::<AudioListener>().update();
-            world.register::<terrain_eng::TerrainEng>().update().editor_update().on_render();
+            world
+                .register::<terrain_eng::TerrainEng>()
+                .update()
+                .editor_update()
+                .on_render();
         };
 
         let rm = {
@@ -695,6 +702,7 @@ impl Engine {
         world.begin_frame(input.clone(), self.time.clone());
         // let world_sim = self.perf.node("world _update");
         if (self.game_mode | self.playing_game) {
+            self.vk.cursor_pos.lock().take();
             puffin::profile_scope!("game loop");
             {
                 puffin::profile_scope!("defered");
@@ -730,18 +738,18 @@ impl Engine {
                 world._update(&self.perf);
                 drop(world_update);
             }
-            
+
             // let mut world = self.world.lock();
             // world.update_cameras()
         } else {
-            // let mut world = self.world.lock();
-
+            *self.vk.grab_mode.lock() = winit::window::CursorGrabMode::None;
+            *self.vk.cursor_pos.lock() = None;
+            *self.vk.show_cursor.lock() = true;
             world._destroy(&self.perf);
             world.do_defered();
             world.init_colls_rbs(&self.perf);
             // world.init_colls_rbs();
             world.editor_update(); // TODO: terrain update still breaking
-
         };
         world.update_cameras();
 
@@ -805,6 +813,22 @@ impl Engine {
             serialize::deserialize(&mut world, "temp_scene");
             fs::remove_file("temp_scene");
         }
+        // if input.get_key_up(&VirtualKeyCode::F6) {
+        match self.vk.window().set_cursor_grab(*self.vk.grab_mode.lock()) {
+            Ok(_) => {}
+            Err(e) => {}
+        }
+        if let Some(pos) = *self.vk.cursor_pos.lock() {
+            match self.vk.window().set_cursor_position(pos) {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("{}", e);
+                }
+            }
+        }
+        self.vk
+            .window()
+            .set_cursor_visible(*self.vk.show_cursor.lock());
 
         // if !(self.game_mode | self.playing_game) {
         //     cam_datas = vec![cd.clone()];
@@ -919,7 +943,7 @@ impl Engine {
 
         if (input.get_key(&VirtualKeyCode::LControl)
             && input.get_key(&VirtualKeyCode::LAlt)
-            && input.get_key_press(&VirtualKeyCode::L))
+            && input.get_key_down(&VirtualKeyCode::L))
         {
             unsafe {
                 LIGHT_DEBUG = !LIGHT_DEBUG;
@@ -930,7 +954,7 @@ impl Engine {
 
         if (input.get_key(&VirtualKeyCode::LControl)
             && input.get_key(&VirtualKeyCode::LAlt)
-            && input.get_key_press(&VirtualKeyCode::P))
+            && input.get_key_down(&VirtualKeyCode::P))
         {
             unsafe {
                 PARTICLE_DEBUG = !PARTICLE_DEBUG;
@@ -1095,6 +1119,7 @@ impl Engine {
                     &input,
                     &self.time,
                     &skeletons,
+                    self.playing_game,
                     // debug,
                 );
                 if cam.texture_id.is_none() {

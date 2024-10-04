@@ -709,6 +709,7 @@ impl CameraData {
         input: &Input,
         time: &Time,
         skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>,
+        playing_game: bool,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {
         assets.get_manager2(|model_manager: &ModelManager| {
@@ -914,6 +915,7 @@ impl CameraData {
                     texture_manager: texture_manager,
                     vk: vk.clone(),
                     cam_pos: cvd.cam_pos,
+                    playing_game,
                 };
                 world.render(&mut rd);
                 // for job in render_jobs {

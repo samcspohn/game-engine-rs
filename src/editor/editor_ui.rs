@@ -466,71 +466,15 @@ impl Editor {
 
                             ui.separator();
                             if ui.button("New scene").clicked() {
-                                // let files = FileDialog::new()
-                                //     .add_filter("scene", &["scene"])
-                                //     .set_directory(std::env::current_dir().unwrap())
-                                //     .save_file();
-                                // if let Some(file) = files {
-                                //     let file = file
-                                //         .strip_prefix(std::env::current_dir().unwrap())
-                                //         .unwrap()
-                                //         .as_os_str()
-                                //         .to_str()
-                                //         .unwrap();
-                                //     serialize::serialize_new(file);
-                                //     serialize::deserialize(editor_args.world, file);
-                                //     // utils::path_format(file);
-                                //     editor_args.project.working_scene = file.into();
-                                // }
                                 Editor::new_scene(&mut editor_args);
                                 ui.close_menu();
                             }
                             if ui.button("Open").clicked() {
-                                // project?
-                                // let files = FileDialog::new()
-                                //     .add_filter("scene", &["scene"])
-                                //     .set_directory(std::env::current_dir().unwrap())
-                                //     .pick_file();
-                                // if let Some(file) = files {
-                                //     let file = file
-                                //         .strip_prefix(std::env::current_dir().unwrap())
-                                //         .unwrap()
-                                //         .as_os_str()
-                                //         .to_str()
-                                //         .unwrap();
-                                //     serialize::deserialize(editor_args.world, file);
-                                //     editor_args.project.working_scene = file.into();
-                                // }
                                 Editor::open(&mut editor_args);
                                 ui.close_menu();
                             }
                             if ui.button("Save").clicked() {
                                 Editor::save(&mut editor_args);
-                                // while editor_args.project.working_scene == "" {
-                                //     let files = FileDialog::new()
-                                //         .add_filter("scene", &["scene"])
-                                //         .set_directory(std::env::current_dir().unwrap())
-                                //         .save_file();
-                                //     if let Some(file) = files {
-                                //         let file = file
-                                //             .strip_prefix(std::env::current_dir().unwrap())
-                                //             .unwrap()
-                                //             .as_os_str()
-                                //             .to_str()
-                                //             .unwrap();
-                                //         editor_args.project.working_scene = file.into();
-                                //     }
-                                // }
-                                // serialize::serialize(
-                                //     &editor_args.world,
-                                //     &editor_args.project.working_scene,
-                                // );
-                                // editor_args.project.save_project(
-                                //     &editor_args.file_watcher,
-                                //     &editor_args.world,
-                                //     assets_manager.clone(),
-                                // );
-                                // assets_manager.serialize();
                                 ui.close_menu();
                             }
                         });
@@ -556,16 +500,36 @@ impl Editor {
                     });
                 });
             }
-            if editor_args
-                .shortcuts
-                .get_key_shortcut("Play", &editor_args.input)
+
+            self.play_game = editor_args.playing_game;
+
             {
-                editor_args.playing_game = true;
-            } else if editor_args
+                let mut tab_viewer = TabViewer {
+                    // image: frame_color,
+                    editor_args: &mut editor_args,
+                    active: _active,
+                    gui,
+                    // views: &mut self.views,
+                    inspectable: &mut self.inspectable,
+                };
+                DockArea::new(&mut self.dock)
+                    .style(Style::from_egui(egui_ctx.style().as_ref()))
+                    .show(egui_ctx, &mut tab_viewer);
+            }
+            if editor_args
                 .shortcuts
                 .get_key_shortcut("Stop", &editor_args.input)
             {
                 editor_args.playing_game = false;
+                // *self.vk.hide_cursor.lock() = false;
+                // *self.vk.cursor_pos.lock() = None;
+            }
+            else if editor_args
+                .shortcuts
+                .get_key_shortcut("Play", &editor_args.input)
+            {
+                editor_args.playing_game = true;
+                editor_args.world.begin_play();
             }
             if editor_args
                 .shortcuts
@@ -583,23 +547,20 @@ impl Editor {
             {
                 Editor::new_scene(&mut editor_args);
             }
-
-            self.play_game = editor_args.playing_game;
-
-            {
-                let mut tab_viewer = TabViewer {
-                    // image: frame_color,
-                    editor_args: &mut editor_args,
-                    active: _active,
-                    gui,
-                    // views: &mut self.views,
-                    inspectable: &mut self.inspectable,
-                };
-                DockArea::new(&mut self.dock)
-                    .style(Style::from_egui(egui_ctx.style().as_ref()))
-                    .show(egui_ctx, &mut tab_viewer);
-            }
+            // if !editor_args.playing_game {
+            //     match self
+            //         .vk
+            //         .window()
+            //         .set_cursor_grab(winit::window::CursorGrabMode::None)
+            //     {
+            //         Ok(_) => {}
+            //         Err(e) => {}
+            //     }
+            //     self.vk.window().set_cursor_visible(true);
+            //     // println!("stop game");
+            // }
             if editor_args.playing_game != self.play_game {
+
                 if let Some((node_idx, t_idx)) =
                     self.dock.iter_mut().enumerate().find_map(|(n_idx, node)| {
                         if let egui_dock::Node::Leaf { tabs, .. } = node {
@@ -620,6 +581,7 @@ impl Editor {
                     self.dock.set_active_tab(node_idx, t_idx);
                 }
             }
+
             self.play_game = editor_args.playing_game;
             editor_args.playing_game
         }
