@@ -47,7 +47,7 @@ impl Component for AudioSource {
     }
 
     fn on_start(&mut self, transform: &Transform, sys: &System) {
-        sys.assets.get_manager2(|audio: &AudioManager| {
+        sys.assets.get_manager(|audio: &AudioManager| {
             if let Some(sound_data) = audio.assets_id.get(&self.id.id) {
                 let pos: [f32; 3] = transform.get_position().into();
                 let emitter = sys
