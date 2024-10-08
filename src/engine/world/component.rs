@@ -164,9 +164,13 @@ impl<'a> System<'a> {
 
 pub trait Component {
     // fn assign_transform(&mut self, t: Transform);
+    #[inline]
     fn init(&mut self, transform: &Transform, id: i32, sys: &Sys) {}
+    #[inline]
     fn deinit(&mut self, transform: &Transform, _id: i32, sys: &Sys) {}
+    #[inline]
     fn on_start(&mut self, transform: &Transform, sys: &System) {}
+    #[inline]
     fn on_destroy(&mut self, transform: &Transform, sys: &System) {} // TODO implement call
     fn update(&mut self, transform: &Transform, sys: &System, world: &World) {}
     fn late_update(&mut self, transform: &Transform, sys: &System) {}

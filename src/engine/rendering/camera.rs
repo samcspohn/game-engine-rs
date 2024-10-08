@@ -140,7 +140,7 @@ impl CameraDataId {
 }
 
 impl Drop for CameraDataId {
-    fn drop(&mut self) {
+    fn drop(&mut self) { // lock up here
         let mut list = CAMERA_LIST.cameras.lock();
         let index = list.binary_search_by(|(id, cam)| id.cmp(&self.id)).unwrap();
         list.remove(index);

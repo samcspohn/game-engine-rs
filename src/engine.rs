@@ -701,6 +701,23 @@ impl Engine {
         let mut world = self.world.lock();
         world.begin_frame(input.clone(), self.time.clone());
         // let world_sim = self.perf.node("world _update");
+        // if input.get_key_up(&VirtualKeyCode::F6) {
+        match self.vk.window().set_cursor_grab(*self.vk.grab_mode.lock()) {
+            Ok(_) => {}
+            Err(e) => {}
+        }
+        if let Some(pos) = *self.vk.cursor_pos.lock() {
+            match self.vk.window().set_cursor_position(pos) {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("{}", e);
+                }
+            }
+        }
+        self.vk
+            .window()
+            .set_cursor_visible(*self.vk.show_cursor.lock());
+        
         if (self.game_mode | self.playing_game) {
             self.vk.cursor_pos.lock().take();
             puffin::profile_scope!("game loop");
@@ -813,22 +830,6 @@ impl Engine {
             serialize::deserialize(&mut world, "temp_scene");
             fs::remove_file("temp_scene");
         }
-        // if input.get_key_up(&VirtualKeyCode::F6) {
-        match self.vk.window().set_cursor_grab(*self.vk.grab_mode.lock()) {
-            Ok(_) => {}
-            Err(e) => {}
-        }
-        if let Some(pos) = *self.vk.cursor_pos.lock() {
-            match self.vk.window().set_cursor_position(pos) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("{}", e);
-                }
-            }
-        }
-        self.vk
-            .window()
-            .set_cursor_visible(*self.vk.show_cursor.lock());
 
         // if !(self.game_mode | self.playing_game) {
         //     cam_datas = vec![cd.clone()];

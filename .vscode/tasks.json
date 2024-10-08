@@ -40,6 +40,11 @@
 		},
 		{
 			"type":"shell",
+			"command": "find ./target/$1 -name \"libassimp.so.*\" -exec cp {} ./target/$1/deps \\;",
+			"label": "find assimp linux",
+		},
+		{
+			"type":"shell",
 			"command": "./find_dlls.bat debug",
 			"label": "find assimp debug",
 		}
