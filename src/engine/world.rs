@@ -102,13 +102,9 @@ pub struct Sys {
     pub to_remove_colliders: SegQueue<ColliderHandle>,
 }
 
-impl Sys {
-    pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
-        let b = &self.assets_manager;
-        let a = b.get_manager::<ModelRenderer>().clone();
-        a
-    }
-}
+// impl Sys {
+
+// }
 
 pub struct World {
     pub phys_time: f32,

@@ -70,19 +70,13 @@ impl Component for Renderer {
                 .collect::<Vec<i32>>()
         } else {
             let mut vec = Vec::new();
-            let ind_id =
-                unsafe {
-                    sys.get_model_manager()
-                        .lock()
-                        .as_any()
-                        .downcast_ref_unchecked::<ModelManager>()
-                }
-                .assets_id
-                .get(&self.model_id.id)
-                .and_then(|l| {
-                    let l = l.lock();
-                    let ids =
-                        l.model
+            let ind_id = sys.assets_manager.get_manager(|m: &ModelManager| {
+                m.assets_id
+                    .get(&self.model_id.id)
+                    .and_then(|l| {
+                        let l = l.lock();
+                        let ids = l
+                            .model
                             .meshes
                             .iter()
                             .map(|mesh| {
@@ -100,25 +94,22 @@ impl Component for Renderer {
                                 id
                             })
                             .collect();
-                    Some(ids)
-                })
-                .unwrap();
+                        Some(ids)
+                    })
+                    .unwrap()
+            });
             model_indirect.insert(self.model_id.id, vec);
             ind_id
         };
         drop(model_indirect);
-        let skeleton = unsafe {
-            sys.get_model_manager()
-                .lock()
-                .as_any()
-                .downcast_ref_unchecked::<ModelManager>()
-                .assets_id
+        let skeleton = sys.assets_manager.get_manager(|m: &ModelManager| {
+            m.assets_id
                 .get(&self.model_id.id)
                 .unwrap()
                 .lock()
                 .model
                 .has_skeleton
-        };
+        });
 
         if skeleton {
             self.skeleton = Some({
