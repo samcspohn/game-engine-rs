@@ -49,6 +49,8 @@ use crate::{
         RenderData,
     },
 };
+
+use super::{project::asset_manager::AssetManagerBase, rendering::texture::TextureManager};
 // struct Chunk {
 //     verts: Vec<model::Vertex>,
 //     normals: Vec<model::Normal>,
@@ -101,9 +103,7 @@ impl TerrainEng {
             self.tcrd = Some(Arc::new(TerrainChunkRenderData {
                 texture: Some(
                     sys.assets
-                        .get_manager::<Texture>()
-                        .lock()
-                        .from_file("res/grass.png"),
+                        .get_manager_mut(|t: &mut TextureManager| t.from_file("res/grass.png")),
                 ),
                 vertex_buffer: sys.vk.buffer_array(
                     (num_chunks * num_verts_chunk) as u64,

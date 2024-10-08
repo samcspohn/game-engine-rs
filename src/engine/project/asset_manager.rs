@@ -470,20 +470,29 @@ impl AssetsManager {
                 .as_any()
                 .downcast_ref_unchecked()
         })
-        //     .clone();
-        // let guard = lock.lock();
-        // let guard_cast: &AssetManager<P, T> = unsafe { guard.as_any().downcast_ref_unchecked() };
-        // func(&guard_cast)
     }
-    // pub fn get_manager_type<T: 'static>(
-    //     &self,
-    //     id: &AssetInstance<T>,
-    // ) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
-    //     unsafe { &*self.asset_managers_type.get() }
-    //         .get(&TypeId::of::<T>())
-    //         .unwrap()
-    //         .clone()
-    // }
+    pub fn get_manager_mut<
+    // A: 'static + AssetManagerBase,
+    T: 'static + ID_trait + Inspectable_ + Asset<T, P>,
+    P: 'static,
+    U,
+    Q,
+>(
+    &self,
+    func: U,
+) -> Q
+where
+    U: FnOnce(&mut AssetManager<P, T>) -> Q,
+{
+    func(unsafe {
+        (&*self.asset_managers_type.get())
+            .get(&T::ID)
+            .unwrap()
+            .lock()
+            .as_any_mut()
+            .downcast_mut_unchecked()
+    })
+}
     pub fn inspect_instance<T: 'static + ID_trait>(
         &self,
         name: &str,
