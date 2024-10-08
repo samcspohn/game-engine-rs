@@ -201,7 +201,7 @@ impl EditorWindow for SceneWindow {
             .world
             .sys
             .assets_manager
-            .get_manager2(|models: &ModelManager| {
+            .get_manager(|models: &ModelManager| {
                 let mut scene_collsion_mesh_map = SCENE_COLLISION_MESH_MAP.lock();
                 if scene_collsion_mesh_map.is_none() {
                     *scene_collsion_mesh_map = Some(std::collections::HashMap::new());
@@ -315,75 +315,7 @@ impl EditorWindow for SceneWindow {
                         }
                     })
             });
-
-        // println!("bvs: {:?}", bvs);
-        // println!("bvs len: {}", bvs.len());
-        // self.cam.camera.get(|c| {
-        //     c.debug.append_aabb(
-        //         vec3(-10., -10., -10.),
-        //         vec3(10., 10., 10.),
-        //         0.2,
-        //         vec4(0.0, 1.0, 0.0, 1.0),
-        //     );
-        //     for a in &bvs {
-        //         let min = a.1.mins();
-        //         let max = a.1.maxs();
-        //         c.debug.append_aabb(
-        //             vec3(min.x, min.y, min.z),
-        //             vec3(max.x, max.y, max.z),
-        //             0.2,
-        //             glm::vec4(1.0, 0.0, 0.0, 1.0),
-        //         );
-        //     }
-        // });
         let bvh = ncollide3d::partitioning::BVT::new_balanced(bvs);
-
-        if ui.input(|r| r.pointer.primary_released()) {
-            if let Some(ray) = self.pointer_ray(ui, &(projection * view), &viewport) {
-                let mut collector_hit = Vec::new();
-
-                let mut visitor_hit =
-                    RayInterferencesCollector::new(&ray, 10_000.0, &mut collector_hit);
-
-                bvh.visit(&mut visitor_hit);
-                let mut closest = None;
-                for (id, model_id, mesh_idx) in collector_hit.iter() {
-                    let scene_collision_mesh_map = SCENE_COLLISION_MESH_MAP.lock();
-                    if let Some(model) = scene_collision_mesh_map
-                        .as_ref()
-                        .and_then(|f| f.get(model_id))
-                        .and_then(|f| f.get(*mesh_idx))
-                    {
-                        let mesh = &model.1;
-                        let transform = unsafe { &*TRANSFORMS }.get(*id).unwrap();
-                        let inv_trans = transform.get_matrix().try_inverse().unwrap();
-                        let inv_rot_scl = (glm::quat_to_mat4(&transform.get_rotation())
-                            * glm::scaling(&transform.get_scale()))
-                        .try_inverse()
-                        .unwrap();
-
-                        let origin =
-                            inv_trans * vec4(ray.origin.x, ray.origin.y, ray.origin.z, 1.0);
-                        let dir = inv_rot_scl * vec4(ray.dir.x, ray.dir.y, ray.dir.z, 1.0);
-
-                        let ray = Ray::new(
-                            Point3::new(origin.x, origin.y, origin.z),
-                            Vector3::new(dir.x, dir.y, dir.z),
-                        );
-                        mesh.toi_with_ray(&Isometry::identity(), &ray, 10_000.0, false)
-                            .map(|toi| {
-                                closest = (closest.unwrap_or((*id, toi)).1 > toi)
-                                    .then(|| (*id, toi))
-                                    .or(Some(closest.unwrap_or((*id, toi))));
-                            });
-                    }
-                }
-                if let Some((id, toi)) = closest {
-                    unsafe { _SELECTED = Some(id) };
-                    inspectable.replace(Arc::new(Mutex::new(GameObjectInspector {})));
-                }
-            }
-        }
 
         self.window_dims = [a[0] as u32, a[1] as u32];
         self.cam
@@ -400,18 +332,28 @@ impl EditorWindow for SceneWindow {
 
         ui.input(|input| {
             if !input.pointer.secondary_down() {
+                let curr_gizmo_mode = self.gizmo_mode;
                 if input.key_released(Key::T) {
                     self.gizmo_mode = GizmoMode::Translate;
                 } else if input.key_released(Key::R) {
                     self.gizmo_mode = GizmoMode::Rotate;
                 } else if input.key_released(Key::S) {
                     self.gizmo_mode = GizmoMode::Scale;
-                }
-
-                if input.key_released(Key::L) {
+                } else if input.key_released(Key::L) {
                     self.orientation = egui_gizmo::GizmoOrientation::Local;
                 } else if input.key_released(Key::G) {
                     self.orientation = egui_gizmo::GizmoOrientation::Global;
+                }
+
+                if self.gizmo_mode == curr_gizmo_mode
+                    && (input.key_released(Key::T)
+                        || input.key_released(Key::R)
+                        || input.key_released(Key::S))
+                {
+                    self.orientation = match self.orientation {
+                        egui_gizmo::GizmoOrientation::Local => egui_gizmo::GizmoOrientation::Global,
+                        egui_gizmo::GizmoOrientation::Global => egui_gizmo::GizmoOrientation::Local,
+                    };
                 }
             }
         });
@@ -465,6 +407,77 @@ impl EditorWindow for SceneWindow {
                 }
             }
         }
+        if ui.input(|r| {
+            !r.pointer.is_decidedly_dragging()
+                && r.pointer.primary_released()
+                && viewport.contains(r.pointer.hover_pos().unwrap())
+        }) {
+            if let Some(ray) = self.pointer_ray(ui, &(projection * view), &viewport) {
+                let mut collector_hit = Vec::new();
+
+                let mut visitor_hit =
+                    RayInterferencesCollector::new(&ray, 10_000.0, &mut collector_hit);
+
+                bvh.visit(&mut visitor_hit);
+                let mut closest = None;
+                for (id, model_id, mesh_idx) in collector_hit.iter() {
+                    let scene_collision_mesh_map = SCENE_COLLISION_MESH_MAP.lock();
+                    if let Some(model) = scene_collision_mesh_map
+                        .as_ref()
+                        .and_then(|f| f.get(model_id))
+                        .and_then(|f| f.get(*mesh_idx))
+                    {
+                        let mesh = &model.1;
+                        let transform = unsafe { &*TRANSFORMS }.get(*id).unwrap();
+                        let inv_trans = transform.get_matrix().try_inverse().unwrap();
+                        let inv_rot_scl = (glm::quat_to_mat4(&transform.get_rotation())
+                            * glm::scaling(&transform.get_scale()))
+                        .try_inverse()
+                        .unwrap();
+
+                        let origin =
+                            inv_trans * vec4(ray.origin.x, ray.origin.y, ray.origin.z, 1.0);
+                        let dir = inv_rot_scl * vec4(ray.dir.x, ray.dir.y, ray.dir.z, 1.0);
+
+                        let ray = Ray::new(
+                            Point3::new(origin.x, origin.y, origin.z),
+                            Vector3::new(dir.x, dir.y, dir.z),
+                        );
+                        mesh.toi_with_ray(&Isometry::identity(), &ray, 10_000.0, false)
+                            .map(|toi| {
+                                closest = (closest.unwrap_or((*id, toi)).1 > toi)
+                                    .then(|| (*id, toi))
+                                    .or(Some(closest.unwrap_or((*id, toi))));
+                            });
+                    }
+                }
+                if let Some((id, toi)) = closest {
+                    unsafe { _SELECTED = Some(id) };
+                    inspectable.replace(Arc::new(Mutex::new(GameObjectInspector {})));
+                }
+            }
+        }
+
+        // println!("bvs: {:?}", bvs);
+        // println!("bvs len: {}", bvs.len());
+        // self.cam.camera.get(|c| {
+        //     c.debug.append_aabb(
+        //         vec3(-10., -10., -10.),
+        //         vec3(10., 10., 10.),
+        //         0.2,
+        //         vec4(0.0, 1.0, 0.0, 1.0),
+        //     );
+        //     for a in &bvs {
+        //         let min = a.1.mins();
+        //         let max = a.1.maxs();
+        //         c.debug.append_aabb(
+        //             vec3(min.x, min.y, min.z),
+        //             vec3(max.x, max.y, max.z),
+        //             0.2,
+        //             glm::vec4(1.0, 0.0, 0.0, 1.0),
+        //         );
+        //     }
+        // });
     }
 
     fn get_name(&self) -> &str {

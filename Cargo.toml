@@ -26,13 +26,6 @@ debug = true
 [profile.dev]
 opt-level = 1
 
-
-# [features]
-# serde-serialize = [ "nalgebra-glm/serde-serialize" ]
-
-[target.'cfg(windows)'.dependencies]
-mimalloc = { version = "*", default-features = false }
-
 [dependencies]
 thread-priority = "*"
 id = { path = "id" }

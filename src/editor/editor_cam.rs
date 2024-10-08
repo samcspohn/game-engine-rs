@@ -28,11 +28,11 @@ impl EditorCam {
     pub fn update(&mut self, input: &Input, time: &Time) {
         let speed = self.speed * time.dt;
         if !input.get_key(&VirtualKeyCode::LControl) && input.get_mouse_button(&2) {
-            if input.get_key_press(&VirtualKeyCode::R) {
+            if input.get_key_down(&VirtualKeyCode::R) {
                 self.speed *= 1.5;
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * -speed;
             }
-            if input.get_key_press(&VirtualKeyCode::F) {
+            if input.get_key_down(&VirtualKeyCode::F) {
                 self.speed /= 1.5;
                 // cam_pos += (glm::quat_to_mat4(&cam_rot) * vec4(0.0, 0.0, 1.0, 1.0)).xyz() * speed;
             }

@@ -2,6 +2,7 @@ pub mod component;
 pub mod entity;
 pub mod transform;
 
+use component::__Component;
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
 use id::ID_trait;
@@ -41,7 +42,7 @@ use super::{
     atomic_vec::{self, AtomicVec},
     audio::system::AudioSystem,
     input::Input,
-    particles::{component::ParticleEmitter, particles::ParticlesSystem},
+    particles::{component::ParticleEmitter, particles::ParticlesSystem, shaders::cs::p},
     perf::Perf,
     physics::{
         collider::{PhysMesh, _Collider, _ColliderType},
@@ -58,7 +59,7 @@ use super::{
     storage::{Storage, StorageBase, _Storage},
     time::Time,
     utils::GPUWork,
-    Defer, RenderJobData,
+    Defer, RenderData,
 };
 
 pub(crate) struct NewRigidBody {
@@ -115,7 +116,7 @@ pub struct World {
     pub transforms: Transforms,
     pub mesh_map: HashMap<i32, ColliderBuilder>,
     pub proc_mesh_id: i32,
-    pub(super) transform_map: HashMap<i32, i32>,
+    pub(crate) transform_map: HashMap<i32, i32>,
     // pub(super) dragged_transform: i32,
     pub(crate) components: HashMap<
         u64,
@@ -123,6 +124,26 @@ pub struct World {
             AtomicI32,
             Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
         ),
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) component_updates: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) component_late_updates: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) component_editor_updates: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
+        nohash_hasher::BuildNoHashHasher<i32>,
+    >,
+    pub(crate) component_on_render: HashMap<
+        u64,
+        Arc<RwLock<Box<dyn StorageBase + 'static + Sync + Send>>>,
         nohash_hasher::BuildNoHashHasher<i32>,
     >,
     pub(crate) components_names:
@@ -148,18 +169,62 @@ pub struct World {
 //     + Clone
 //     + Serialize
 //     + for<'a> Deserialize<'a>;
-
+pub struct Registation<'a, T> {
+    pub(crate) key: u64,
+    pub(crate) _phantom: std::marker::PhantomData<T>,
+    pub(crate) _world: &'a mut World,
+}
+impl<'a, T> Registation<'a, T>
+where
+    T: 'static
+        + Send
+        + Sync
+        + Component
+        + ID_trait
+        + Default
+        + Clone
+        + Serialize
+        + for<'b> Deserialize<'b>,
+{
+    pub fn new(world: &'a mut World) -> Self {
+        let key = T::ID;
+        // world.register::<T>();
+        Self {
+            key,
+            _phantom: std::marker::PhantomData,
+            _world: world,
+        }
+    }
+    pub fn update(mut self) -> Self {
+        self._world.component_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self
+    }
+    pub fn late_update(mut self) -> Self {
+        self._world.component_late_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self
+    }
+    pub fn on_render(mut self)  -> Self {
+        self._world.component_on_render.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self
+    }
+    pub fn editor_update(mut self) -> Self {
+        self._world.component_editor_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self
+    }
+}
 #[allow(dead_code)]
 impl World {
     pub fn new(
         particles: Arc<ParticlesSystem>,
         lighting: Arc<LightingSystem>,
+        renderer_manager: Arc<RwLock<RendererManager>>,
         vk: Arc<VulkanManager>,
         assets_manager: Arc<AssetsManager>,
     ) -> World {
         let mut trans = Transforms::new();
         let root = trans.new_root();
-        World {
+
+        let mut w = World {
             phys_time: 0f32,
             phys_step: 1. / 30.,
             transforms: trans,
@@ -167,11 +232,15 @@ impl World {
             proc_mesh_id: -1,
             transform_map: HashMap::new(),
             components: HashMap::default(),
+            component_updates: HashMap::default(),
+            component_late_updates: HashMap::default(),
+            component_editor_updates: HashMap::default(),
+            component_on_render: HashMap::default(),
             components_names: HashMap::new(),
             root,
             sys: Sys {
                 audio_manager: AudioSystem::new(),
-                renderer_manager: Arc::new(RwLock::new(RendererManager::new(vk.clone()))),
+                renderer_manager,
                 skeletons_manager: Arc::new(RwLock::new(HashMap::new())),
                 assets_manager,
                 physics: Arc::new(Mutex::new(Physics::new())),
@@ -197,7 +266,12 @@ impl World {
             gpu_work: SegQueue::new(),
             input: Input::default(),
             time: Time::default(),
-        }
+        };
+        // unsafe {
+        //     TRANSFORMS = &mut w.transforms;
+        //     TRANSFORM_MAP = &mut w.transform_map;
+        // }
+        w
     }
     pub fn instantiate(&self, parent: i32) -> EntityBuilder {
         EntityBuilder::new(parent, &self)
@@ -390,12 +464,9 @@ impl World {
             + for<'a> Deserialize<'a>,
     >(
         &mut self,
-        has_update: bool,
-        has_late_update: bool,
-        has_render: bool,
-    ) {
+    ) -> Registation<T> {
         let key = T::ID;
-        let data = Storage::<T>::new(has_update, has_late_update, has_render);
+        let data = Storage::<T>::new();
         let component_storage: Arc<RwLock<Box<dyn StorageBase + Send + Sync + 'static>>> =
             Arc::new(RwLock::new(Box::new(data)));
         self.components
@@ -405,6 +476,35 @@ impl World {
             component_storage.read().get_name().to_string(),
             component_storage.clone(),
         );
+        
+        return Registation::new(self);
+
+        // println!("{} registered", std::any::type_name::<T>());
+        // // println!("T::update: {}", T::update as usize);
+        // // println!("T::editor_update: {}", T::editor_update as usize);
+        // // println!("T::late_update: {}", T::late_update as usize);
+        // // println!("T::on_render: {}", T::on_render as usize);
+        // // check to see if T overrides the default update function
+        // if T::update as usize != __Component::update as usize {
+        //     println!("{} has update", std::any::type_name::<T>());
+        //     self.component_updates
+        //         .insert(key, component_storage.clone());
+        // }
+        // if T::editor_update as usize != __Component::editor_update as usize {
+        //     println!("{} has editor update", std::any::type_name::<T>());
+        //     self.component_editor_updates
+        //         .insert(key, component_storage.clone());
+        // }
+        // if T::late_update as usize != __Component::late_update as usize {
+        //     println!("{} has late update", std::any::type_name::<T>());
+        //     self.component_late_updates
+        //         .insert(key, component_storage.clone());
+        // }
+        // if T::on_render as usize != __Component::on_render as usize {
+        //     println!("{} has on render", std::any::type_name::<T>());
+        //     self.component_on_render
+        //         .insert(key, component_storage.clone());
+        // }
     }
     pub fn re_init(&mut self) {
         unsafe {
@@ -431,6 +531,10 @@ impl World {
         self.components.remove(&key);
         self.components_names
             .remove(std::any::type_name::<T>().split("::").last().unwrap());
+        self.component_updates.remove(&key);
+        self.component_late_updates.remove(&key);
+        self.component_editor_updates.remove(&key);
+        self.component_on_render.remove(&key);
     }
     pub fn init_colls_rbs(&self, perf: &Perf) {
         let mut phys = self.sys.physics.lock();
@@ -902,16 +1006,22 @@ impl World {
             };
             {
                 let world_update = perf.node("world update");
-                self.components.iter().for_each(|(_, stor)| {
-                    let mut stor = stor.1.read();
+                self.component_updates.iter().for_each(|(_, stor)| {
+                    let mut stor = stor.read();
+                    if stor.len() == 0 {
+                        return;
+                    }
                     let world_update = perf.node(&format!("world update: {}", stor.get_name()));
                     stor.update(&self.transforms, &sys, &self);
                 });
             }
             {
                 let world_update = perf.node("world late_update");
-                self.components.iter().for_each(|(_, stor)| {
-                    let mut stor = stor.1.read();
+                self.component_late_updates.iter().for_each(|(_, stor)| {
+                    let mut stor = stor.read();
+                    if stor.len() == 0 {
+                        return;
+                    }
                     let world_update =
                         perf.node(&format!("world late update: {}", stor.get_name()));
                     stor.late_update(&self.transforms, &sys);
@@ -920,9 +1030,7 @@ impl World {
         }
         // self.update_cameras();
     }
-    pub fn update_cameras(
-        &mut self,
-    ) {
+    pub fn update_cameras(&mut self) {
         // let mut ret = Vec::new();
         self.get_component_storage::<Camera, _, _>(|camera_storage| {
             camera_storage.for_each(|t_id, cam| {
@@ -951,18 +1059,17 @@ impl World {
             particle_system: &sys.particles_system,
             new_rigid_bodies: &sys.new_rigid_bodies,
         };
-        for (_, stor) in self.components.iter() {
-            stor.1
-                .write()
+        for (_, stor) in self.component_editor_updates.iter() {
+            stor.write()
                 .editor_update(&self.transforms, &sys, &self.input);
         }
     }
-    pub fn render(&self) -> Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>> {
-        let mut render_jobs = vec![];
-        for (_, stor) in self.components.iter() {
-            stor.1.write().on_render(&mut render_jobs);
+    pub fn render(&self, rd: &mut RenderData) {
+        // let mut render_jobs = vec![];
+        for (_, stor) in self.component_on_render.iter() {
+            stor.write().on_render(rd);
         }
-        render_jobs
+        // render_jobs
     }
     // pub(crate) fn get_cam_datas(&mut self) -> (i32, Vec<Arc<Mutex<CameraData>>>) {
     //     self.get_component_storage::<Camera, _, _>(|camera_storage| {
@@ -980,7 +1087,15 @@ impl World {
     pub(crate) fn get_emitter_len(&self) -> usize {
         self.get_component_storage::<ParticleEmitter, _, _>(|x| x.len())
     }
-
+    // pub fn regen(&mut self) {
+    //     *self = Self::new(
+    //         self.sys.particles_system.clone(),
+    //         self.sys.lighting_system.clone(),
+    //         self.sys.renderer_manager.clone(),
+    //         self.sys.vk.clone(),
+    //         self.sys.assets_manager.clone(),
+    //     );
+    // }
     pub fn clear(&mut self) {
         self.destroy(self.root);
         let mut tperf = Perf::new();

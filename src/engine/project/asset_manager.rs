@@ -449,15 +449,7 @@ impl AssetsManager {
     //         None
     //     }
     // }
-    pub fn get_manager<T: 'static + ID_trait>(
-        &self,
-    ) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
-        unsafe { &*self.asset_managers_type.get() }
-            .get(&T::ID)
-            .unwrap()
-            .clone()
-    }
-    pub fn get_manager2<
+    pub fn get_manager<
         // A: 'static + AssetManagerBase,
         T: 'static + ID_trait + Inspectable_ + Asset<T, P>,
         P: 'static,

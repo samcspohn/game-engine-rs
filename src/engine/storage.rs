@@ -29,7 +29,7 @@ use super::{
         transform::{CacheVec, Transform, Transforms, VecCache},
         Sys, World,
     },
-    RenderJobData,
+    RenderData,
 };
 
 pub struct _Storage<T> {
@@ -86,7 +86,7 @@ pub trait StorageBase {
     fn update(&self, transforms: &Transforms, sys: &System, world: &World);
     fn late_update(&self, transforms: &Transforms, sys: &System);
     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input);
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>);
+    fn on_render(&mut self, rd: &mut RenderData);
     fn copy(&mut self, t: i32, i: i32) -> i32;
     fn remove(&self, i: i32);
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys);
@@ -154,9 +154,6 @@ pub struct Storage<T> {
     avail: Avail,
     last: i32,
     extent: i32,
-    has_update: bool,
-    has_render: bool,
-    has_late_update: bool,
 }
 impl<
         T: 'static
@@ -181,7 +178,7 @@ impl<
     // }
     pub fn for_each<D>(&self, mut f: D)
     where
-        D: FnMut(i32, &mut T) + Send + Sync,
+        D: FnMut(i32, &mut T),
     {
         self.data.iter().zip(self.valid.iter()).for_each(|(d, v)| {
             if unsafe { **v.get() } {
@@ -377,7 +374,7 @@ impl<
             **self.valid[id as usize].get() = false;
         }
     }
-    pub fn new(has_update: bool, has_late_update: bool, has_render: bool) -> Storage<T> {
+    pub fn new() -> Storage<T> {
         Storage::<T> {
             data: SegVec::new(),
             valid: SegVec::new(),
@@ -386,9 +383,6 @@ impl<
             new_offsets_cache: VecCache::new(),
             last: -1,
             extent: 0,
-            has_update,
-            has_late_update,
-            has_render,
         }
     }
 }
@@ -412,9 +406,6 @@ impl<
         self as &mut dyn Any
     }
     fn update(&self, transforms: &Transforms, sys: &System, world: &World) {
-        if !self.has_update {
-            return;
-        }
         self.par_for_each(|t_id, d| {
             if let Some(trans) = transforms.get(t_id) {
                 d.update(&trans, &sys, world);
@@ -434,9 +425,6 @@ impl<
         // });
     }
     fn late_update(&self, transforms: &Transforms, sys: &System) {
-        if !self.has_late_update {
-            return;
-        }
         self.par_for_each(|t_id, d| {
             let trans = transforms.get(t_id).unwrap();
             d.late_update(&trans, &sys);
@@ -498,19 +486,14 @@ impl<
         self.insert(transform, d)
     }
 
-    fn on_render(&mut self, render_jobs: &mut Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>) {
-        if !self.has_render {
-            return;
-        }
+    fn on_render(&mut self, rd: &mut RenderData) {
         self.for_each(|t_id, d| {
-            render_jobs.push(d.on_render(t_id));
+            d.on_render(t_id, rd);
+            // render_jobs.push(d.on_render(t_id));
         });
     }
 
     fn editor_update(&mut self, transforms: &Transforms, sys: &System, input: &Input) {
-        if !self.has_update {
-            return;
-        }
         self.par_for_each(|t_id, d| {
             let trans = transforms.get(t_id).unwrap();
             d.editor_update(&trans, &sys);

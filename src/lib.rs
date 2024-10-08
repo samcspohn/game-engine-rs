@@ -31,7 +31,7 @@ pub mod prelude {
             transform::{Transform, TransformRef, _Transform},
             Sys, World,
         },
-        RenderJobData,
+        RenderData,
     };
     pub use inspectable::{Inpsect, Ins};
     pub use lazy_static;
@@ -40,11 +40,4 @@ pub mod prelude {
     pub use crate::engine::rendering::vulkan_manager::VulkanManager;
     pub use crate::{editor::inspectable, engine};
     // pub use crate::engine::utils;
-}
-#[cfg(target_os = "windows")]
-pub mod win_alloc {
-    pub use mimalloc::MiMalloc;
-
-    #[global_allocator]
-    static GLOBAL: MiMalloc = MiMalloc;
 }

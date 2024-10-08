@@ -31,7 +31,7 @@ use rapier3d::{
     na::{ComplexField, UnitQuaternion},
     prelude::*,
 };
-use rendering::camera::CAMERA_LIST;
+use rendering::{camera::CAMERA_LIST, component::RendererManager};
 use serde::{Deserialize, Serialize};
 
 use rayon::prelude::*;
@@ -70,6 +70,7 @@ use winit::{
     dpi::{LogicalPosition, PhysicalSize},
     event::{Event, ModifiersState, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
+    window::Window,
 };
 // use crate::{physics::Physics};
 
@@ -161,7 +162,7 @@ pub(crate) mod prelude;
 mod render_thread;
 pub mod utils;
 #[repr(C)]
-pub struct RenderJobData<'a> {
+pub struct RenderData<'a> {
     pub builder: &'a mut AutoCommandBufferBuilder<
         PrimaryAutoCommandBuffer,
         Arc<StandardCommandBufferAllocator>,
@@ -187,6 +188,8 @@ pub struct RenderJobData<'a> {
     pub viewport: &'a Viewport,
     pub texture_manager: &'a TextureManager,
     pub vk: Arc<VulkanManager>,
+    pub playing_game: bool,
+    // pub hide_cursor: bool,
 }
 
 // pub struct ComponentRenderData {
@@ -242,6 +245,7 @@ pub struct Engine {
     // pub(crate) light_bounding: RwLock<LightBounding>,
     pub(crate) particles_system: Arc<ParticlesSystem>,
     pub(crate) lighting_system: Arc<LightingSystem>,
+    pub(crate) rendering_system: Arc<RwLock<RendererManager>>,
     pub(crate) playing_game: bool,
     // pub(crate) event_loop: EventLoop<()>,
     // channels
@@ -290,6 +294,14 @@ pub struct EnginePtr {
 unsafe impl Send for EnginePtr {}
 unsafe impl Sync for EnginePtr {}
 
+fn init_systems(
+    vk: &Arc<VulkanManager>,
+    texture_manager: Arc<Mutex<TextureManager>>,
+) -> (Arc<ParticlesSystem>, Arc<LightingSystem>) {
+    let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
+    let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
+    (particles_system, lighting_system)
+}
 impl Engine {
     pub fn new(engine_dir: &PathBuf, project_dir: &str, game_mode: bool) -> Self {
         // let mut cam_data = CameraData::new(vk.clone(), 2);
@@ -360,8 +372,10 @@ impl Engine {
         texture_manager.lock().from_file("default/particle.png");
         assert!(env::set_current_dir(&Path::new(project_dir)).is_ok());
 
-        let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
-        let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
+        // let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
+        // let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
+        let (particles_system, lighting_system) = init_systems(&vk, texture_manager.clone());
+        let renderer_manager = Arc::new(RwLock::new(RendererManager::new(vk.clone())));
         let light_manager = Arc::new(Mutex::new(LightTemplateManager::new(
             (lighting_system.light_templates.clone()),
             &["lgt"],
@@ -369,6 +383,7 @@ impl Engine {
         let world = Arc::new(Mutex::new(World::new(
             particles_system.clone(),
             lighting_system.clone(),
+            renderer_manager.clone(),
             vk.clone(),
             assets_manager.clone(),
         )));
@@ -376,7 +391,6 @@ impl Engine {
             TRANSFORMS = &mut world.lock().transforms;
             TRANSFORM_MAP = &mut world.lock().transform_map;
         }
-
         #[cfg(target_os = "windows")]
         let dylib_ext = ["dll"];
         #[cfg(not(target_os = "windows"))]
@@ -432,16 +446,19 @@ impl Engine {
 
         {
             let mut world = world.lock();
-            world.register::<Renderer>(false, false, false);
-            world.register::<ParticleEmitter>(false, false, false);
-            world.register::<Camera>(true, false, false);
-            world.register::<_Collider>(false, false, false);
-            world.register::<_RigidBody>(false, false, false);
-            world.register::<Light>(false, false, false);
-            world.register::<AudioSource>(true, false, false);
-            world.register::<AudioListener>(true, false, false);
-            //
-            world.register::<terrain_eng::TerrainEng>(true, false, true);
+            world.register::<Renderer>();
+            world.register::<ParticleEmitter>();
+            world.register::<Camera>();
+            world.register::<_Collider>();
+            world.register::<_RigidBody>();
+            world.register::<Light>();
+            world.register::<AudioSource>().update();
+            world.register::<AudioListener>().update();
+            world
+                .register::<terrain_eng::TerrainEng>()
+                .update()
+                .editor_update()
+                .on_render();
         };
 
         let rm = {
@@ -521,6 +538,7 @@ impl Engine {
             time: Time::default(),
             particles_system,
             lighting_system,
+            rendering_system: renderer_manager,
             fps_queue,
             frame_time,
             running,
@@ -683,8 +701,42 @@ impl Engine {
         let mut world = self.world.lock();
         world.begin_frame(input.clone(), self.time.clone());
         // let world_sim = self.perf.node("world _update");
+        // if input.get_key_up(&VirtualKeyCode::F6) {
+        match self.vk.window().set_cursor_grab(*self.vk.grab_mode.lock()) {
+            Ok(_) => {}
+            Err(e) => {}
+        }
+        if let Some(pos) = *self.vk.cursor_pos.lock() {
+            match self.vk.window().set_cursor_position(pos) {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("{}", e);
+                }
+            }
+        }
+        self.vk
+            .window()
+            .set_cursor_visible(*self.vk.show_cursor.lock());
+        
         if (self.game_mode | self.playing_game) {
+            self.vk.cursor_pos.lock().take();
             puffin::profile_scope!("game loop");
+            {
+                puffin::profile_scope!("defered");
+                {
+                    let world_do_defered = self.perf.node("world do_deffered");
+                    world.do_defered();
+                }
+                {
+                    let world_destroy = self.perf.node("world _destroy");
+                    world._destroy(&self.perf);
+                }
+                {
+                    let world_update = self.perf.node("world instantiate");
+                    world.defer_instantiate(&self.perf);
+                    // world.init_colls_rbs();
+                }
+            }
             {
                 puffin::profile_scope!("world update");
                 if world.phys_time >= world.phys_step {
@@ -703,36 +755,21 @@ impl Engine {
                 world._update(&self.perf);
                 drop(world_update);
             }
-            {
-                puffin::profile_scope!("defered");
-                {
-                    let world_do_defered = self.perf.node("world do_deffered");
-                    world.do_defered();
-                }
-                {
-                    let world_destroy = self.perf.node("world _destroy");
-                    world._destroy(&self.perf);
-                }
-                {
-                    let world_update = self.perf.node("world instantiate");
-                    world.defer_instantiate(&self.perf);
-                    // world.init_colls_rbs();
-                }
-            }
+
             // let mut world = self.world.lock();
             // world.update_cameras()
         } else {
-            // let mut world = self.world.lock();
-
+            *self.vk.grab_mode.lock() = winit::window::CursorGrabMode::None;
+            *self.vk.cursor_pos.lock() = None;
+            *self.vk.show_cursor.lock() = true;
             world._destroy(&self.perf);
-            // world.init_colls_rbs();
-            world.editor_update(); // TODO: terrain update still breaking
-
             world.do_defered();
             world.init_colls_rbs(&self.perf);
+            // world.init_colls_rbs();
+            world.editor_update(); // TODO: terrain update still breaking
         };
         world.update_cameras();
-        
+
         // let mut world = self.world.lock();
 
         // drop(world_sim);
@@ -745,7 +782,7 @@ impl Engine {
         let emitter_deinits = world.sys.particles_system.emitter_deinits.get_vec();
         let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
         // let (main_cam_id, mut cam_datas) = world.get_cam_datas();
-        let render_jobs = world.render();
+        // let render_jobs = world.render();
 
         // let cd = if (self.game_mode | self.playing_game) && cam_datas.len() > 0 {
         //     cam_datas[0].clone()
@@ -762,11 +799,17 @@ impl Engine {
             let ctx = gui.context();
             _playing_game = self.editor.editor_ui(
                 EditorArgs {
+                    engine_dir: self.engine_dir.clone(),
                     world: &mut world,
                     project: &mut self.project,
                     assets_manager: self.assets_manager.clone(),
-                    file_watcher: &self.file_watcher,
+                    file_watcher: &mut self.file_watcher,
                     playing_game: self.game_mode | self.playing_game,
+                    particle_system: &self.particles_system,
+                    light_system: &self.lighting_system,
+                    shortcuts: self.editor.keyboard_shortcuts.clone(),
+                    input: &input,
+                    // render_system: &mut self.rendering_system.write(),
                 },
                 &ctx,
                 gui,
@@ -825,7 +868,7 @@ impl Engine {
 
         let skeletons = {
             let skeletons = self.perf.node("compute skeletons");
-            self.assets_manager.get_manager2(|model: &ModelManager| {
+            self.assets_manager.get_manager(|model: &ModelManager| {
                 world
                     .sys
                     .skeletons_manager
@@ -867,33 +910,6 @@ impl Engine {
             })
         };
 
-        // drop(_cd);
-        drop(world);
-        drop(_gui);
-        self.file_watcher.get_updates(self.assets_manager.clone());
-
-        if self.recompile.load(Ordering::Relaxed) {
-            if let Some(compiling) = &mut self.compiler_process {
-                compiling.kill();
-            }
-            // self.compiler_thread
-            let mut args = vec!["build"];
-            args.push("--lib");
-            #[cfg(not(debug_assertions))]
-            {
-                println!("compiling for release");
-                args.push("-r");
-            }
-            // args.push("-r");
-            let com = Command::new("cargo")
-                .args(args.as_slice())
-                // .env("RUSTFLAGS", "-Z threads=16")
-                .spawn()
-                .unwrap();
-            self.compiler_process = Some(com);
-            self.recompile.store(false, Ordering::Relaxed);
-        }
-
         let _get_gui_commands = self.perf.node("_ get gui commands");
         let _window_size = if let Some(size) = &window_size {
             *size
@@ -928,7 +944,7 @@ impl Engine {
 
         if (input.get_key(&VirtualKeyCode::LControl)
             && input.get_key(&VirtualKeyCode::LAlt)
-            && input.get_key_press(&VirtualKeyCode::L))
+            && input.get_key_down(&VirtualKeyCode::L))
         {
             unsafe {
                 LIGHT_DEBUG = !LIGHT_DEBUG;
@@ -939,7 +955,7 @@ impl Engine {
 
         if (input.get_key(&VirtualKeyCode::LControl)
             && input.get_key(&VirtualKeyCode::LAlt)
-            && input.get_key_press(&VirtualKeyCode::P))
+            && input.get_key_down(&VirtualKeyCode::P))
         {
             unsafe {
                 PARTICLE_DEBUG = !PARTICLE_DEBUG;
@@ -1094,7 +1110,7 @@ impl Engine {
                     &mut rm,
                     &mut renderer_data,
                     self.assets_manager.clone(),
-                    &render_jobs,
+                    &mut world,
                     cvd,
                     &self.perf,
                     lc.light_list2.lock().clone(),
@@ -1104,6 +1120,7 @@ impl Engine {
                     &input,
                     &self.time,
                     &skeletons,
+                    self.playing_game,
                     // debug,
                 );
                 if cam.texture_id.is_none() {
@@ -1121,6 +1138,32 @@ impl Engine {
             }
         }
         drop(render_cameras);
+        // drop(_cd);
+        drop(world);
+        drop(_gui);
+        self.file_watcher.get_updates(self.assets_manager.clone());
+
+        if self.recompile.load(Ordering::Relaxed) {
+            if let Some(compiling) = &mut self.compiler_process {
+                compiling.kill();
+            }
+            // self.compiler_thread
+            let mut args = vec!["build"];
+            args.push("--lib");
+            #[cfg(not(debug_assertions))]
+            {
+                println!("compiling for release");
+                args.push("-r");
+            }
+            // args.push("-r");
+            let com = Command::new("cargo")
+                .args(args.as_slice())
+                // .env("RUSTFLAGS", "-Z threads=16")
+                .spawn()
+                .unwrap();
+            self.compiler_process = Some(com);
+            self.recompile.store(false, Ordering::Relaxed);
+        }
 
         /////////////////////////////////////////////////////////
 
@@ -1204,7 +1247,6 @@ impl Engine {
             builder.execute_commands(gui_commands).unwrap();
         }
         builder.end_render_pass().unwrap();
-
 
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();

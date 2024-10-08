@@ -51,12 +51,13 @@ use crate::{
         rendering::{component::ur, debug, model::Skeleton},
         time::Time,
         transform_compute::{cs::Data, TransformCompute},
+        world::World,
         world::{
             component::Component,
             transform::{Transform, TransformBuf, TransformData},
             Sys,
         },
-        RenderJobData,
+        RenderData,
     },
 };
 
@@ -139,7 +140,7 @@ impl CameraDataId {
 }
 
 impl Drop for CameraDataId {
-    fn drop(&mut self) {
+    fn drop(&mut self) { // lock up here
         let mut list = CAMERA_LIST.cameras.lock();
         let index = list.binary_search_by(|(id, cam)| id.cmp(&self.id)).unwrap();
         list.remove(index);
@@ -421,37 +422,21 @@ impl Component for Camera {
 
         // Ins(&mut self.samples).inspect("samples", ui, sys);
     }
-    fn editor_update(&mut self, transform: &Transform, sys: &crate::engine::prelude::System) {
-        if unsafe {
-            MAIN_CAMERA
-                .as_ref()
-                .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
-                .unwrap_or(false)
-        } {
-            self.main_cam = false;
-        }
-    }
-    fn update(
-        &mut self,
-        transform: &Transform,
-        sys: &crate::engine::prelude::System,
-        world: &crate::engine::world::World,
-    ) {
-        if unsafe {
-            MAIN_CAMERA
-                .as_ref()
-                .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
-                .unwrap_or(false)
-        } {
-            self.main_cam = false;
-        }
-    }
 }
 impl Camera {
     // pub fn get_data(&self) -> Option<Arc<Mutex<CameraData>>> {
     //     self.data.as_ref().map(|data| data.get(f).clone())
     // }
     pub fn _update(&mut self, transform: &Transform) {
+        if unsafe {
+            MAIN_CAMERA
+                .as_ref()
+                .and_then(|id| self.data.as_ref().and_then(|my_id| Some(my_id.id != *id)))
+                .unwrap_or(false)
+        } {
+            self.main_cam = false;
+        }
+
         if let Some(cam_data) = &self.data {
             // let mut cvd = CameraViewData::default();
             cam_data.get(|cam_data: &mut CameraData| {
@@ -711,9 +696,10 @@ impl CameraData {
         renderer_pipeline: Arc<ComputePipeline>,
         offset_vec: Vec<i32>,
         rm: &mut RwLockWriteGuard<SharedRendererData>,
-        rd: &mut RendererData,
+        rrd: &mut RendererData,
         assets: Arc<AssetsManager>,
-        render_jobs: &Vec<Box<dyn Fn(&mut RenderJobData) + Send + Sync>>,
+        world: &mut World,
+        // render_jobs: &Vec<Box<dyn Fn(&mut RenderData) + Send + Sync>>,
         cvd: CameraViewData,
         perf: &Perf,
         light_list: Subbuffer<[u32]>,
@@ -723,10 +709,11 @@ impl CameraData {
         input: &Input,
         time: &Time,
         skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>,
+        playing_game: bool,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<dyn ImageAccess>> {
-        assets.get_manager2(|model_manager: &ModelManager| {
-            assets.get_manager2(|texture_manager: &TextureManager| {
+        assets.get_manager(|model_manager: &ModelManager| {
+            assets.get_manager(|texture_manager: &TextureManager| {
                 transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_buf);
 
                 if !offset_vec.is_empty() {
@@ -737,7 +724,7 @@ impl CameraData {
                         puffin::profile_scope!("update renderers: stage 1");
                         // stage 1
                         let uniforms = self.vk.allocate(ur::Data {
-                            num_jobs: rd.transforms_len,
+                            num_jobs: rrd.transforms_len,
                             stage: 1.into(),
                             view: cvd.view.into(),
                             // _dummy0: Default::default(),
@@ -794,7 +781,7 @@ impl CameraData {
                                     0, // Bind this descriptor set to index 0.
                                     update_renderers_set,
                                 )
-                                .dispatch([rd.transforms_len as u32 / 128 + 1, 1, 1])
+                                .dispatch([rrd.transforms_len as u32 / 128 + 1, 1, 1])
                                 .unwrap();
                         }
                     }
@@ -855,8 +842,8 @@ impl CameraData {
                 let render_models = perf.node("render models");
                 let mut offset = 0;
                 let max = rm.renderers_gpu.len();
-                for (_ind_id, m_id) in rd.indirect_model.iter() {
-                    if let Some(model_indr) = rd.model_indirect.get(m_id) {
+                for (_ind_id, m_id) in rrd.indirect_model.iter() {
+                    if let Some(model_indr) = rrd.model_indirect.get(m_id) {
                         for (i, indr) in model_indr.iter().enumerate() {
                             if indr.id == *_ind_id {
                                 if let Some(mr) = mm.assets_id.get(m_id) {
@@ -908,7 +895,7 @@ impl CameraData {
                 drop(render_models);
                 // }
                 let render_jobs_perf = perf.node("render jobs");
-                let mut rjd = RenderJobData {
+                let mut rd = RenderData {
                     builder,
                     // uniforms: Arc::new(Mutex::new(vk.sub_buffer_allocator())),
                     gpu_transforms: transform_compute.gpu_transforms.clone(),
@@ -928,10 +915,12 @@ impl CameraData {
                     texture_manager: texture_manager,
                     vk: vk.clone(),
                     cam_pos: cvd.cam_pos,
+                    playing_game,
                 };
-                for job in render_jobs {
-                    job(&mut rjd);
-                }
+                world.render(&mut rd);
+                // for job in render_jobs {
+                //     job(&mut rjd);
+                // }
                 drop(render_jobs_perf);
 
                 static mut CAM_POS: Vec3 = Vec3::new(0.0, 0.0, 0.0);

@@ -39,9 +39,9 @@ use vulkano::{
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
-    dpi::{LogicalSize, PhysicalSize},
+    dpi::{LogicalPosition, LogicalSize, PhysicalSize},
     event_loop::EventLoop,
-    window::{self, Window, WindowBuilder},
+    window::{self, CursorGrabMode, Window, WindowBuilder},
 };
 
 use crate::engine::EngineEvent;
@@ -66,6 +66,9 @@ pub struct VulkanManager {
     sub_alloc_unsized: Vec<SendSync<SubbufferAllocator>>,
     c: SyncUnsafeCell<usize>,
     query_counter: AtomicI32,
+    pub(crate) show_cursor: Mutex<bool>,
+    pub(crate)  cursor_pos: Mutex<Option<LogicalPosition<f32>>>,
+    pub(crate) grab_mode: Mutex<CursorGrabMode>,
     // a: ThinMap<std::ptr::>
 }
 
@@ -196,7 +199,16 @@ impl VulkanManager {
         );
         sub_alloc
     }
-    pub fn window(&self) -> &Window {
+    pub fn set_cursor_pos(&self, pos: LogicalPosition<f32>) {
+        *self.cursor_pos.lock() = Some(pos);
+    }
+    pub fn show_cursor(&self, show: bool) {
+        *self.show_cursor.lock() = show;
+    }
+    pub fn grab_mode(&self, mode: CursorGrabMode) {
+        *self.grab_mode.lock() = mode;
+    }
+    pub(crate) fn window(&self) -> &Window {
         unsafe {
             self.surface
                 .object()
@@ -413,6 +425,9 @@ impl VulkanManager {
                     .collect()
             },
             c: unsafe { SyncUnsafeCell::new(0) },
+            show_cursor: Mutex::new(false),
+            cursor_pos: Mutex::new(None),
+            grab_mode: Mutex::new(CursorGrabMode::None),
         })
     }
     pub fn new_query(&self) -> i32 {

@@ -40,7 +40,7 @@ use crate::engine::{
     time::Time,
     utils::{GPUWork, PrimaryCommandBuffer},
     world::{transform::Transform, Sys, World},
-    Defer, RenderJobData,
+    Defer, RenderData,
 };
 
 use super::{NewCollider, NewRigidBody};
@@ -63,11 +63,6 @@ pub struct System<'a> {
     pub(crate) new_rigid_bodies: &'a SegQueue<NewRigidBody>,
 }
 impl<'a> System<'a> {
-    pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
-        let b = &self.assets;
-        let a = b.get_manager::<ModelRenderer>().clone();
-        a
-    }
     pub fn enque_gpu_work<T: 'static>(&self, gpu_job: T)
     where
         T: FnOnce(&mut PrimaryCommandBuffer, Arc<VulkanManager>),
@@ -93,7 +88,7 @@ impl<'a> System<'a> {
         self.particle_system.particle_burts.push(burst);
     }
     pub fn play_sound(&self, template: &AssetInstance<AudioAsset>) {
-        self.assets.get_manager2(|audio_manager: &AudioManager| {
+        self.assets.get_manager(|audio_manager: &AudioManager| {
             self.audio.m.lock().play(unsafe {
                 audio_manager
                     .assets_id
@@ -164,16 +159,24 @@ impl<'a> System<'a> {
 
 pub trait Component {
     // fn assign_transform(&mut self, t: Transform);
+    #[inline]
     fn init(&mut self, transform: &Transform, id: i32, sys: &Sys) {}
+    #[inline]
     fn deinit(&mut self, transform: &Transform, _id: i32, sys: &Sys) {}
+    #[inline]
     fn on_start(&mut self, transform: &Transform, sys: &System) {}
+    #[inline]
     fn on_destroy(&mut self, transform: &Transform, sys: &System) {} // TODO implement call
     fn update(&mut self, transform: &Transform, sys: &System, world: &World) {}
     fn late_update(&mut self, transform: &Transform, sys: &System) {}
     fn editor_update(&mut self, transform: &Transform, sys: &System) {}
-    fn on_render(&mut self, _t_id: i32) -> Box<dyn Fn(&mut RenderJobData) + Send + Sync> {
-        Box::new(|_rd: &mut RenderJobData| {})
-    }
+    fn on_render(&mut self, _t_id: i32, rd: &mut RenderData) {}
     fn inspect(&mut self, transform: &Transform, id: i32, ui: &mut egui::Ui, sys: &Sys);
     // fn as_any(&self) -> &dyn Any;
+}
+
+pub struct __Component {}
+
+impl Component for __Component {
+    fn inspect(&mut self, _transform: &Transform, _id: i32, _ui: &mut egui::Ui, _sys: &Sys) {}
 }

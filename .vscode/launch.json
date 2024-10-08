@@ -37,10 +37,16 @@
             "args": ["./test_project_rs"],
             "cwd": "${workspaceFolder}",
             // "env": {"RUSTFLAGS": "-Z unstable-options"},
-            "preLaunchTask": "find assimp",
-            "env": {
-                "PATH": "${workspaceFolder}/target/release/deps;${env:PATH}",
-                // Switch `nightly` to `stable` if you're using Rust stable
+            "windows": {
+                "preLaunchTask": "find assimp",
+                "env": {
+                    "PATH": "${workspaceFolder}/target/release/deps;${env:PATH}",
+                    // Switch `nightly` to `stable` if you're using Rust stable
+                },
+            },
+            "linux": {
+                "preLaunchTask": "find assimp linux",
+                "env": { "LD_LIBRARY_PATH": "${workspaceFolder}/target/release/deps" },
             },
             // "preLaunchTask": "rust: cargo build -r --bin game-engine-rs",
             "cargo": {

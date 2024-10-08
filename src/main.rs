@@ -69,13 +69,6 @@ use winit::{
     window::Window,
 };
 
-#[cfg(target_os = "windows")]
-mod win_alloc {
-    use mimalloc::MiMalloc;
-
-    #[global_allocator]
-    static GLOBAL: MiMalloc = MiMalloc;
-}
 
 fn main() {
     println!("here");
