@@ -63,11 +63,6 @@ pub struct System<'a> {
     pub(crate) new_rigid_bodies: &'a SegQueue<NewRigidBody>,
 }
 impl<'a> System<'a> {
-    pub fn get_model_manager(&self) -> Arc<Mutex<dyn AssetManagerBase + Send + Sync>> {
-        let b = &self.assets;
-        let a = b.get_manager::<ModelRenderer>().clone();
-        a
-    }
     pub fn enque_gpu_work<T: 'static>(&self, gpu_job: T)
     where
         T: FnOnce(&mut PrimaryCommandBuffer, Arc<VulkanManager>),
@@ -93,7 +88,7 @@ impl<'a> System<'a> {
         self.particle_system.particle_burts.push(burst);
     }
     pub fn play_sound(&self, template: &AssetInstance<AudioAsset>) {
-        self.assets.get_manager2(|audio_manager: &AudioManager| {
+        self.assets.get_manager(|audio_manager: &AudioManager| {
             self.audio.m.lock().play(unsafe {
                 audio_manager
                     .assets_id

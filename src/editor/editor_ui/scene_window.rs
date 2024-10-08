@@ -201,7 +201,7 @@ impl EditorWindow for SceneWindow {
             .world
             .sys
             .assets_manager
-            .get_manager2(|models: &ModelManager| {
+            .get_manager(|models: &ModelManager| {
                 let mut scene_collsion_mesh_map = SCENE_COLLISION_MESH_MAP.lock();
                 if scene_collsion_mesh_map.is_none() {
                     *scene_collsion_mesh_map = Some(std::collections::HashMap::new());

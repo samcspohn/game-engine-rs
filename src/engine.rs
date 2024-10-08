@@ -868,7 +868,7 @@ impl Engine {
 
         let skeletons = {
             let skeletons = self.perf.node("compute skeletons");
-            self.assets_manager.get_manager2(|model: &ModelManager| {
+            self.assets_manager.get_manager(|model: &ModelManager| {
                 world
                     .sys
                     .skeletons_manager
