@@ -89,7 +89,7 @@ void main() {
             lights[id].radius = radius;
 
         } break;
-        case 6: {
+        case 6: { // generate light list
             if (gl_LocalInvocationID.x == 0) {
                 local_counter = 0;
             }
@@ -157,7 +157,7 @@ void main() {
             }
             atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
         } break;
-        case 4: {   // prefix sum
+        case 4: {   // prefix sum / sort
             const float num_tiles = _light_quadtree_offsets[MAX_LEVEL];
             const float num_threads = gl_WorkGroupSize.x;
 
@@ -197,90 +197,6 @@ void main() {
                 }
             }
             barrier();
-
-            // int _d = int(log2(128)) - 1;
-            // for (int d = 1; d <= _d; d++) {
-            //     if ((id + 1) % 2 << d == 0) {
-            //         local_offsets[id] += local_offsets[id - 2 << (d - 1)];
-            //     }
-            //     barrier();
-            // }
-            // barrier();
-            // if (id == 127) {
-            //     local_offsets[id] = 0;
-            // }
-            // barrier();
-            // for (int d = _d; d > 0; d--) {
-            //     if ((id + 1) % 2 << d == 0) {
-            //         uint temp = local_offsets[id];
-            //         local_offsets[id - 2 << (d - 1)] = local_offsets[id];
-            //         local_offsets[id] = temp + local_offsets[id - 2 << (d - 1)];
-            //     }
-            //     barrier();
-            // }
-
-            // int _d = int(log2(128)) - 1;
-            // for (int d = 0; d <= _d; d++) {
-            //     // if ((127 - id) % 2 << (d + 1) == 0) {
-            //         local_offsets[id + 2 << (d + 1) - 1] = local_offsets[id + 2 << d - 1] + local_offsets[id + 2 << (d + 1) - 1];
-            //     // }
-            //     barrier();
-            // }
-            // barrier();
-            // if (gl_LocalInvocationID.x == 127) {
-            //     local_offsets[127] = 0;
-            // }
-            // barrier();
-            // for (int d = _d; d >= 0; d--) {
-            //     // if ((127 - id) % 2 << (d + 1) == 0) {
-            //         uint temp = local_offsets[id + 2 << d - 1];
-            //         local_offsets[id + 2 << d - 1] = local_offsets[id + 2 << (d + 1) - 1];
-            //         local_offsets[id + 2 << (d + 1) - 1] = temp + local_offsets[id + 2 << (d + 1) - 1];
-            //     // }
-            //     barrier();
-            // }
-
-            // uint modulo = 2;
-            // while (modulo < 128) {
-            //     if ((127 - id) % modulo == 0) {
-            //         local_offsets[id] += local_offsets[id - modulo >> 1];
-            //     }
-            //     modulo <<= 1;
-            // }
-            // barrier();
-            // if(gl_LocalInvocationID.x == 127) {
-            //     local_offsets[127] = 0;
-            // }
-            // barrier();
-            // while(modulo > 1) {
-            //     if ((127 - id) % modulo == 0) {
-            //         uint temp = local_offsets[id - modulo >> 1];
-            //         local_offsets[id - modulo >> 1] = local_offsets[id];
-            //         local_offsets[id] += temp;
-            //     }
-            //     modulo >>= 1;
-            // }
-
-            // attrib: https://github.com/openglsuperbible/sb6code/blob/master/bin/media/shaders/prefixsum/prefixsum.cs.glsl
-            // uint id = gl_LocalInvocationID.x;
-            // uint rd_id;
-            // uint wr_id;
-            // uint mask;
-
-            // const uint steps = uint(log2(gl_WorkGroupSize.x)) + 1;
-            // uint step = 0;
-
-            // barrier();
-
-            // for (step = 0; step < steps; step++) {
-            //     mask = (1 << step) - 1;
-            //     rd_id = ((id >> step) << (step + 1)) + mask;
-            //     wr_id = rd_id + 1 + (id & mask);
-
-            //     local_offsets[wr_id] += local_offsets[rd_id];
-
-            //     barrier();
-            // }
             for (int i = start; i < end; ++i) {
                 tiles[i].offset += local_offsets[id];
                 light_offsets[i] = tiles[i].offset;
