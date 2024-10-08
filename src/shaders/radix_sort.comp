@@ -1,0 +1,62 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1) in;
+
+layout(set = 0, binding = 0) buffer InputBuffer {
+    uint data[];
+} inputBuffer;
+
+layout(set = 0, binding = 1) buffer OutputBuffer {
+    uint data[];
+} outputBuffer;
+
+layout(set = 0, binding = 2) buffer HistogramBuffer {
+    uint histogram[256];
+} histogramBuffer;
+
+layout(push_constant) uniform PushConstants {
+    uint elementCount;
+    uint bitShift;
+    uint pass;  // 0 for histogram, 1 for scatter
+} pushConstants;
+
+shared uint localHistogram[256];
+
+void main() {
+    uint localId = gl_LocalInvocationID.x;
+    uint globalId = gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;
+
+    switch (pushConstants.pass) {
+        case 0:  // Histogram pass
+            // Initialize local histogram
+            for (uint i = localId; i < 256; i += gl_WorkGroupSize.x) {
+                localHistogram[i] = 0;
+            }
+            barrier();
+
+            // Compute histogram
+            for (uint i = globalId; i < pushConstants.elementCount; i += gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupSize.x) {
+                uint value = inputBuffer.data[i];
+                uint digit = (value >> pushConstants.bitShift) & 0xFF;
+                atomicAdd(localHistogram[digit], 1);
+            }
+            barrier();
+
+            // Update global histogram
+            if (gl_GlobalInvocationID.y == 0) {
+                for (uint i = localId; i < 256; i += gl_WorkGroupSize.x) {
+                    atomicAdd(histogramBuffer.histogram[i], localHistogram[i]);
+                }
+            }
+            break;
+
+        case 1:  // Scatter pass
+            for (uint i = globalId; i < pushConstants.elementCount; i += gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupSize.x) {
+                uint value = inputBuffer.data[i];
+                uint digit = (value >> pushConstants.bitShift) & 0xFF;
+                uint index = atomicAdd(histogramBuffer.histogram[digit], 1);
+                outputBuffer.data[index] = value;
+            }
+            break;
+    }
+}
