@@ -2,8 +2,8 @@ use std::cell::SyncUnsafeCell;
 use std::sync::Arc;
 use std::{collections::HashMap, mem::transmute};
 
-use crate::engine::rendering::model::ModelManager;
 use crate::engine::project::asset_manager::AssetInstance;
+use crate::engine::rendering::model::{ModelManager, ModelRenderer};
 use crate::engine::world::NewCollider;
 use crate::engine::{prelude::*, project::asset_manager::drop_target};
 use force_send_sync::SendSync;
@@ -46,28 +46,50 @@ impl _ColliderType {
                 let mut mesh_map = sys.mesh_map.lock();
                 unsafe {
                     if !mesh_map.contains_key(&id) {
-                        let model_manager_mutex = sys.get_model_manager();
-                        let model_manager_lock = model_manager_mutex.lock();
-                        let model_manager = model_manager_lock
-                            .as_any()
-                            .downcast_ref::<ModelManager>()
-                            .unwrap();
-                        if let Some(_id) = model_manager.assets_id.get(&id) {
-                            unsafe {
-                                let model = model_manager.assets_id.get(id).unwrap().lock();
-                                let verts = model.model.meshes[0]
-                                    .vertices
-                                    .iter()
-                                    .map(|f| point![f.position[0], f.position[1], f.position[2]])
-                                    .collect();
-                                let indices = model.model.meshes[0]
-                                    .indices
-                                    .chunks(3)
-                                    .map(|f| [f[0], f[1], f[2]])
-                                    .collect::<Vec<[u32; 3]>>();
-                                mesh_map.insert(*id, ColliderBuilder::trimesh(verts, indices));
-                            }
-                        }
+                        // let model_manager_mutex = sys.get_model_manager();
+                        // let model_manager_lock = model_manager_mutex.lock();
+                        // let model_manager = model_manager_lock
+                        //     .as_any()
+                        //     .downcast_ref::<ModelManager>()
+                        //     .unwrap();
+                        sys.assets_manager
+                            .get_manager::<ModelRenderer, _, _, _>(|m| {
+                                if let Some(_id) = m.assets_id.get(&id) {
+                                    unsafe {
+                                        let model = m.assets_id.get(id).unwrap().lock();
+                                        let verts = model.model.meshes[0]
+                                            .vertices
+                                            .iter()
+                                            .map(|f| {
+                                                point![f.position[0], f.position[1], f.position[2]]
+                                            })
+                                            .collect();
+                                        let indices = model.model.meshes[0]
+                                            .indices
+                                            .chunks(3)
+                                            .map(|f| [f[0], f[1], f[2]])
+                                            .collect::<Vec<[u32; 3]>>();
+                                        mesh_map
+                                            .insert(*id, ColliderBuilder::trimesh(verts, indices));
+                                    }
+                                }
+                            });
+                        // if let Some(_id) = model_manager.assets_id.get(&id) {
+                        //     unsafe {
+                        //         let model = model_manager.assets_id.get(id).unwrap().lock();
+                        //         let verts = model.model.meshes[0]
+                        //             .vertices
+                        //             .iter()
+                        //             .map(|f| point![f.position[0], f.position[1], f.position[2]])
+                        //             .collect();
+                        //         let indices = model.model.meshes[0]
+                        //             .indices
+                        //             .chunks(3)
+                        //             .map(|f| [f[0], f[1], f[2]])
+                        //             .collect::<Vec<[u32; 3]>>();
+                        //         mesh_map.insert(*id, ColliderBuilder::trimesh(verts, indices));
+                        //     }
+                        // }
                     }
                 }
                 let mesh = mesh_map.get(id).unwrap();
@@ -137,55 +159,64 @@ impl Component for _Collider {
                 // let label = id.to_string();
                 let mut ret = false;
                 let drop_data = sys.assets_manager.drag_drop_data.lock().clone();
-                let model_manager_mutex = sys.get_model_manager();
-                let model_manager_lock = model_manager_mutex.lock();
-                let model_manager = model_manager_lock
-                    .as_any()
-                    .downcast_ref::<ModelManager>()
-                    .unwrap();
-                let label: String = match model_manager.assets_r.get(&id) {
-                    Some(file) => file.clone(),
-                    None => "".into(),
-                };
-                let can_accept_drop_data = match drop_data.rfind(".obj") {
-                    Some(_) => true,
-                    None => false,
-                };
-                ui.horizontal(|ui| {
-                    ui.add(egui::Label::new("mesh"));
-                    drop_target(ui, can_accept_drop_data, |ui| {
-                        let response = ui.add(egui::Label::new(label.as_str()));
-                        if response.hovered() && ui.input(|i| i.pointer.any_released()) {
-                            let model_file: String = drop_data.to_string();
+                // let model_manager_mutex = sys.get_model_manager();
+                // let model_manager_lock = model_manager_mutex.lock();
+                // let model_manager = model_manager_lock
+                //     .as_any()
+                //     .downcast_ref::<ModelManager>()
+                //     .unwrap();
+                sys.assets_manager
+                    .get_manager::<ModelRenderer, _, _, _>(|m| {
+                        let label: String = match m.assets_r.get(&id) {
+                            Some(file) => file.clone(),
+                            None => "".into(),
+                        };
+                        let can_accept_drop_data = match drop_data.rfind(".obj") {
+                            Some(_) => true,
+                            None => false,
+                        };
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Label::new("mesh"));
+                            drop_target(ui, can_accept_drop_data, |ui| {
+                                let response = ui.add(egui::Label::new(label.as_str()));
+                                if response.hovered() && ui.input(|i| i.pointer.any_released()) {
+                                    let model_file: String = drop_data.to_string();
 
-                            if let Some(_id) = model_manager.assets.get(&model_file) {
-                                *id = *_id;
-                                ret = true;
-                                unsafe {
-                                    let mut mesh_map = sys.mesh_map.lock();
-                                    if !mesh_map.contains_key(_id) {
-                                        let model =
-                                            model_manager.assets_id.get(_id).unwrap().lock();
-                                        let verts = model.model.meshes[0]
-                                            .vertices
-                                            .iter()
-                                            .map(|f| {
-                                                point![f.position[0], f.position[1], f.position[2]]
-                                            })
-                                            .collect();
-                                        let indices = model.model.meshes[0]
-                                            .indices
-                                            .chunks(3)
-                                            .map(|f| [f[0], f[1], f[2]])
-                                            .collect::<Vec<[u32; 3]>>();
-                                        mesh_map
-                                            .insert(*id, ColliderBuilder::trimesh(verts, indices));
+                                    if let Some(_id) = m.assets.get(&model_file) {
+                                        *id = *_id;
+                                        ret = true;
+                                        unsafe {
+                                            let mut mesh_map = sys.mesh_map.lock();
+                                            if !mesh_map.contains_key(_id) {
+                                                let model = m.assets_id.get(_id).unwrap().lock();
+                                                let verts = model.model.meshes[0]
+                                                    .vertices
+                                                    .iter()
+                                                    .map(|f| {
+                                                        point![
+                                                            f.position[0],
+                                                            f.position[1],
+                                                            f.position[2]
+                                                        ]
+                                                    })
+                                                    .collect();
+                                                let indices = model.model.meshes[0]
+                                                    .indices
+                                                    .chunks(3)
+                                                    .map(|f| [f[0], f[1], f[2]])
+                                                    .collect::<Vec<[u32; 3]>>();
+                                                mesh_map.insert(
+                                                    *id,
+                                                    ColliderBuilder::trimesh(verts, indices),
+                                                );
+                                            }
+                                        }
                                     }
                                 }
-                            }
-                        }
+                            });
+                        });
                     });
-                });
+
                 ret
             }
             _ColliderType::TriMeshUnint(_) => {
