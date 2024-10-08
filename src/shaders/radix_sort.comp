@@ -1,0 +1,96 @@
+#version 450
+// #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) buffer KeyBuffer { uint keys[]; };
+layout(set = 0, binding = 1) buffer PayloadBuffer { uint payloads[]; };
+layout(set = 0, binding = 2) buffer TempKeyBuffer { uint tempKeys[]; };
+layout(set = 0, binding = 3) buffer TempPayloadBuffer { uint tempPayloads[]; };
+layout(set = 0, binding = 4) buffer HistogramBuffer { uint histogram[256]; };
+layout(set = 0, binding = 5) buffer PrefixSumBuffer { uint prefixSum[256]; };
+
+layout(set = 0, binding = 6) uniform PushConstants {
+    uint numElements;
+    uint bitShift;
+    uint pass;
+} pc;
+
+shared uint localHistogram[256];
+shared uint sharedData[256];
+
+void main() {
+    uint localId = gl_LocalInvocationID.y * 16 + gl_LocalInvocationID.x;
+    uint globalId = gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + gl_GlobalInvocationID.x;
+
+    switch(pc.pass) {
+        case 0: // Histogram computation
+            if (localId < 256) {
+                localHistogram[localId] = 0;
+            }
+            barrier();
+            
+            if (globalId < pc.numElements) {
+                uint key = keys[globalId];
+                uint bucket = uint((key >> pc.bitShift) & 0xFFu);
+                atomicAdd(localHistogram[bucket], 1);
+            }
+            barrier();
+            
+            if (localId < 256) {
+                atomicAdd(histogram[localId], localHistogram[localId]);
+            }
+            break;
+
+        case 1: // Prefix sum computation
+            if (localId < 256) {
+                sharedData[localId] = histogram[localId];
+            }
+            barrier();
+
+            for (uint stride = 1; stride < 256; stride *= 2) {
+                if (localId % (2*stride) == (2*stride - 1) && localId < 256) {
+                    sharedData[localId] += sharedData[localId - stride];
+                }
+                barrier();
+            }
+
+            if (localId == 255) {
+                prefixSum[255] = sharedData[255];
+                sharedData[255] = 0;
+            }
+            barrier();
+
+            for (uint stride = 128; stride > 0; stride /= 2) {
+                if (localId % (2*stride) == (2*stride - 1) && localId < 256) {
+                    uint temp = sharedData[localId];
+                    sharedData[localId] += sharedData[localId - stride];
+                    sharedData[localId - stride] = temp;
+                }
+                barrier();
+            }
+
+            if (localId < 256) {
+                prefixSum[localId] = sharedData[localId];
+            }
+            break;
+
+        case 2: // Scatter elements
+            if (globalId < pc.numElements) {
+                uint key = keys[globalId];
+                uint bucket = uint((key >> pc.bitShift) & 0xFFu);
+                uint offset = atomicAdd(prefixSum[bucket], 1);
+                
+                tempKeys[offset] = key;
+                tempPayloads[offset] = payloads[globalId];
+            }
+            break;
+
+        case 3: // Copy back
+            if (globalId < pc.numElements) {
+                keys[globalId] = tempKeys[globalId];
+                payloads[globalId] = tempPayloads[globalId];
+            }
+            break;
+    }
+}

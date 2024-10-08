@@ -1,0 +1,46 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) buffer HistogramBuffer {
+    uint histogram[256];
+} histogramBuffer;
+
+shared uint temp[256];
+
+void main() {
+    uint localId = gl_LocalInvocationID.x;
+
+    // Load input into shared memory
+    temp[localId] = histogramBuffer.histogram[localId];
+    barrier();
+
+    // Upsweep phase (reduce)
+    for (uint stride = 1; stride < 256; stride *= 2) {
+        uint index = (localId + 1) * 2 * stride - 1;
+        if (index < 256) {
+            temp[index] += temp[index - stride];
+        }
+        barrier();
+    }
+
+    // Clear the last element
+    if (localId == 0) {
+        temp[255] = 0;
+    }
+    barrier();
+
+    // Downsweep phase (scan)
+    for (uint stride = 128; stride > 0; stride /= 2) {
+        uint index = (localId + 1) * 2 * stride - 1;
+        if (index < 256) {
+            uint t = temp[index];
+            temp[index] += temp[index - stride];
+            temp[index - stride] = t;
+        }
+        barrier();
+    }
+
+    // Write results back to global memory
+    histogramBuffer.histogram[localId] = temp[localId];
+}
