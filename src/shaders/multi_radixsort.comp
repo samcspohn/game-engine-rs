@@ -24,9 +24,15 @@ layout (push_constant, std430) uniform PushConstants {
 layout (std430, set = 1, binding = 0) buffer elements_in {
     uint g_elements_in[];
 };
+layout (std430, set = 1, binding = 3) buffer payloads_in {
+    uint g_payloads_in[];
+};
 
 layout (std430, set = 1, binding = 1) buffer elements_out {
     uint g_elements_out[];
+};
+layout (std430, set = 1, binding = 4) buffer payloads_out {
+    uint g_payloads_out[];
 };
 
 layout (std430, set = 1, binding = 2) buffer histograms {
@@ -92,10 +98,12 @@ void main() {
         barrier();
 
         uint element_in = 0;
+        uint payload_in = 0;
         uint binID = 0;
         uint binOffset = 0;
         if (elementId < g_num_elements) {
             element_in = g_elements_in[elementId];
+            payload_in = g_payloads_in[elementId];
             binID = uint(element_in >> g_shift) & uint(RADIX_SORT_BINS - 1);
             // offset for group
             binOffset = global_offsets[binID];
@@ -117,6 +125,7 @@ void main() {
                 count += full_count;
             }
             g_elements_out[binOffset + prefix] = element_in;
+            g_payloads_out[binOffset + prefix] = payload_in;
             if (prefix == count - 1) {
                 atomicAdd(global_offsets[binID], count);
             }
