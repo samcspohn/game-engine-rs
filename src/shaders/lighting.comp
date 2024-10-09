@@ -18,16 +18,25 @@ layout(set = 0, binding = 4) buffer tr { transform transforms[]; };
 layout(set = 0, binding = 6) buffer lt { lightTemplate templates[]; };
 layout(set = 0, binding = 7) buffer t { tile tiles[]; };
 
-layout(set = 0, binding = 8) buffer ll { ivec2 light_list[]; };
-layout(set = 0, binding = 9) buffer ll2 { uint light_list2[]; };
+layout(set = 0, binding = 8) buffer ltid { uint light_tile_ids[]; };
+layout(set = 0, binding = 15) buffer ll { uint light_ids[]; };
+// layout(set = 0, binding = 8) buffer ll { ivec2 light_list[]; };
+// layout(set = 0, binding = 9) buffer ll2 { int light_list2[]; };
 layout(set = 0, binding = 10) buffer lo { uint light_offsets[]; };
-layout(set = 0, binding = 11) buffer lc { uint light_list_counter; };
+
+struct PC {
+    uint light_list_counter;
+    uint num_workgroups;
+};
+layout(set = 0, binding = 11) buffer lc {
+    PC pc;
+};
 layout(set = 0, binding = 12) buffer vl { uint visible_lights[]; };
 layout(set = 0, binding = 13) buffer vlc { uint visible_lights_c; };
 layout(set = 0, binding = 14) buffer i { DispatchIndirectCommand indirect[]; };
 
 shared uint local_offsets[128 * 2];
-shared ivec2 local_indeces[128 * 4];
+shared uvec2 local_indeces[128 * 4];
 // shared uint local_counts[_light_quadtree_offsets[MAX_LEVEL]];
 shared uint local_counter;
 shared uint global_idx;
@@ -84,12 +93,13 @@ void main() {
             vec3 color = templates[lights[id].templ].color;
             attenuation att = templates[lights[id].templ].atten;
             float lightMax = max(max(color.r, color.g), color.b) * att.brightness;
-            float radius = (-att.linear + sqrt(att.linear * att.linear - 4 * att.exponential * (att.constant - (256.0 / 4.0) * lightMax))) / (2 * att.exponential);
+            float radius =
+                (-att.linear + sqrt(att.linear * att.linear - 4 * att.exponential * (att.constant - (256.0 / 4.0) * lightMax))) / (2 * att.exponential);
             lights[id].pos = pos;
             lights[id].radius = radius;
 
         } break;
-        case 6: { // generate light list
+        case 3: {   // generate light list
             if (gl_LocalInvocationID.x == 0) {
                 local_counter = 0;
             }
@@ -110,7 +120,7 @@ void main() {
             }
             atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
         } break;
-        case 3: {
+        case 4: {
             if (gl_WorkGroupID.x > visible_lights_c / gl_WorkGroupSize.x + 1) {   // dispatch indirect
                 return;
             }
@@ -138,77 +148,92 @@ void main() {
                 uint local_idx = atomicAdd(local_counter, a_c);
                 for (int i = 0; i < a_c; ++i) {
                     ivec3 _a = a[i];
-                    int tile_idx = get_tile(_a.x, _a.y, _a.z);
-                    local_indeces[local_idx + i] = ivec2(tile_idx, light_id);
+                    uint tile_idx = uint(get_tile(_a.x, _a.y, _a.z));
+                    local_indeces[local_idx + i] = uvec2(tile_idx, light_id);
                     atomicAdd(tiles[tile_idx].count, 1);
                 }
             }
 
             barrier();
             if (local_id == 0) {
-                global_idx = atomicAdd(light_list_counter, local_counter);
+                global_idx = atomicAdd(pc.light_list_counter, local_counter);
             }
             barrier();
             local_id = local_id * 4;
             for (int i = 0; i < 4; ++i) {
                 if (local_id + i < local_counter) {
-                    light_list[global_idx + local_id + i] = local_indeces[local_id + i];
-                }
-            }
-            atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
-        } break;
-        case 4: {   // prefix sum / sort
-            const float num_tiles = _light_quadtree_offsets[MAX_LEVEL];
-            const float num_threads = gl_WorkGroupSize.x;
-
-            // if (gl_LocalInvocationID.x == 0) {
-            //     uint total = tiles[0].count;
-            //     tiles[0].offset = 0;
-            //     light_offsets[0] = 0;
-            //     for (int i = 1; i < num_tiles; ++i) {
-            //         tiles[i].offset = total;
-            //         light_offsets[i] = total;
-            //         total += tiles[i].count;
-            //     }
-            // }
-            // return;
-            // 1364 tiles (max 32x32 tiles)
-            // 1 work group = 128 threads
-
-            uint local_id = gl_LocalInvocationID.x;
-            int start = int(local_id * (num_tiles / num_threads));
-            int end = int((local_id + 1) * (num_tiles / num_threads));
-
-            uint temp = tiles[start].count;
-            tiles[start].offset = 0;
-            for (int i = start + 1; i < end; ++i) {
-                tiles[i].offset = temp;
-                temp += tiles[i].count;
-            }
-            local_offsets[id] = temp;
-            barrier();
-            if (local_id == 0) {
-                uint temp = local_offsets[0];
-                local_offsets[0] = 0;
-                for (int i = 1; i < gl_WorkGroupSize.x; i++) {
-                    uint temp2 = local_offsets[i];
-                    local_offsets[i] = temp;
-                    temp += temp2;
+                    light_tile_ids[global_idx + local_id + i] = local_indeces[local_id + i].x;
+                    light_ids[global_idx + local_id + i] = local_indeces[local_id + i].y;
                 }
             }
             barrier();
-            for (int i = start; i < end; ++i) {
-                tiles[i].offset += local_offsets[id];
-                light_offsets[i] = tiles[i].offset;
+            if (gl_LocalInvocationID.x == 0) {
+                uint num_elements = global_idx + local_counter;
+                uint work_groups_x = uint(ceil(float(num_elements) / 256.0));
+                uint work_groups_y = 1;
+                uint total_work_groups = work_groups_x;
+                if (work_groups_x > 65535) {
+                    work_groups_y = uint(ceil(float(work_groups_x) / 65535.0));
+                    work_groups_x = 65535;
+                }
+                atomicMax(indirect[0].x, work_groups_x);
+                atomicMax(indirect[0].y, work_groups_y);
+                atomicMax(pc.num_workgroups, total_work_groups);
             }
 
         } break;
-        case 5: {   // reorder
-            if (id < light_list_counter) {
-                uint index = atomicAdd(light_offsets[light_list[id].x], 1);
-                light_list2[index] = light_list[id].y;
-            }
-        } break;
+        // case 4: {   // prefix sum / sort
+        //     const float num_tiles = _light_quadtree_offsets[MAX_LEVEL];
+        //     const float num_threads = gl_WorkGroupSize.x;
+
+        //     // if (gl_LocalInvocationID.x == 0) {
+        //     //     uint total = tiles[0].count;
+        //     //     tiles[0].offset = 0;
+        //     //     light_offsets[0] = 0;
+        //     //     for (int i = 1; i < num_tiles; ++i) {
+        //     //         tiles[i].offset = total;
+        //     //         light_offsets[i] = total;
+        //     //         total += tiles[i].count;
+        //     //     }
+        //     // }
+        //     // return;
+        //     // 1364 tiles (max 32x32 tiles)
+        //     // 1 work group = 128 threads
+
+        //     uint local_id = gl_LocalInvocationID.x;
+        //     int start = int(local_id * (num_tiles / num_threads));
+        //     int end = int((local_id + 1) * (num_tiles / num_threads));
+
+        //     uint temp = tiles[start].count;
+        //     tiles[start].offset = 0;
+        //     for (int i = start + 1; i < end; ++i) {
+        //         tiles[i].offset = temp;
+        //         temp += tiles[i].count;
+        //     }
+        //     local_offsets[id] = temp;
+        //     barrier();
+        //     if (local_id == 0) {
+        //         uint temp = local_offsets[0];
+        //         local_offsets[0] = 0;
+        //         for (int i = 1; i < gl_WorkGroupSize.x; i++) {
+        //             uint temp2 = local_offsets[i];
+        //             local_offsets[i] = temp;
+        //             temp += temp2;
+        //         }
+        //     }
+        //     barrier();
+        //     for (int i = start; i < end; ++i) {
+        //         tiles[i].offset += local_offsets[id];
+        //         light_offsets[i] = tiles[i].offset;
+        //     }
+
+        // } break;
+        // case 5: {   // reorder
+        //     if (id < light_list_counter) {
+        //         uint index = atomicAdd(light_offsets[light_list[id].x], 1);
+        //         light_list2[index] = light_list[id].y;
+        //     }
+        // } break;
         default:
             break;
         }

@@ -25,7 +25,9 @@ use vulkano::{
     render_pass::{RenderPass, Subpass},
 };
 
+use crate::engine::rendering::component::ur::r;
 use crate::engine::rendering::component::Indirect;
+use crate::engine::utils::radix_sort;
 use crate::engine::{
     prelude::{
         utils::{self, PrimaryCommandBuffer},
@@ -76,12 +78,15 @@ pub struct LightingCompute {
     vk: Arc<VulkanManager>,
     dummy_buffer: Subbuffer<[u8]>,
     pub(crate) tiles: Mutex<Subbuffer<[lt::tile]>>,
-    light_list: Mutex<Subbuffer<[[i32; 2]]>>,
+    light_list: Mutex<Subbuffer<[u32]>>,
+    light_tile_ids: Mutex<Subbuffer<[u32]>>,
     pub(crate) light_list2: Mutex<Subbuffer<[u32]>>,
+    light_tile_ids2: Mutex<Subbuffer<[u32]>>,
     light_offsets: Subbuffer<[u32]>,
-    light_counter: Subbuffer<u32>,
+    light_counter: Subbuffer<radix_sort::cs::PC>,
     pub(crate) visible_lights: Mutex<Subbuffer<[u32]>>,
     pub(crate) visible_lights_c: Subbuffer<u32>,
+    pub(crate) radix_sort: Arc<Mutex<crate::engine::utils::radix_sort::RadixSort>>,
 }
 pub const NUM_TILES: u64 = 64 * 64 + 32 * 32 + 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1;
 impl LightingCompute {
@@ -146,12 +151,17 @@ impl LightingCompute {
             // uniforms: Mutex::new(vk.sub_buffer_allocator()),
             dummy_buffer: vk.buffer_array(1, MemoryUsage::DeviceOnly),
             light_list: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
+            light_tile_ids: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
             light_list2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
+            light_tile_ids2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
             light_offsets: vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly),
             light_counter: vk.buffer(MemoryUsage::DeviceOnly),
             visible_lights: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
             visible_lights_c: vk.buffer(MemoryUsage::DeviceOnly),
             tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly)),
+            radix_sort: Arc::new(Mutex::new(
+                crate::engine::utils::radix_sort::RadixSort::new(vk.clone()),
+            )),
             vk: vk,
         }
     }
@@ -199,8 +209,9 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(6, light_templates.clone()),
                 WriteDescriptorSet::buffer(7, tiles.clone()),
                 WriteDescriptorSet::buffer(8, self.light_list.lock().clone()),
-                WriteDescriptorSet::buffer(9, self.light_list2.lock().clone()),
-                WriteDescriptorSet::buffer(10, self.light_offsets.clone()),
+                WriteDescriptorSet::buffer(15, self.light_tile_ids.lock().clone()),
+                // WriteDescriptorSet::buffer(9, self.light_list2.lock().clone()),
+                // WriteDescriptorSet::buffer(10, self.light_offsets.clone()),
                 WriteDescriptorSet::buffer(11, self.light_counter.clone()),
                 WriteDescriptorSet::buffer(12, self.visible_lights.lock().clone()),
                 WriteDescriptorSet::buffer(13, self.visible_lights_c.clone()),
@@ -299,7 +310,9 @@ impl LightingCompute {
     ) {
         {
             let mut light_list = self.light_list.lock();
+            let mut light_tile_ids = self.light_tile_ids.lock();
             let mut light_list2 = self.light_list2.lock();
+            let mut light_tile_ids2 = self.light_tile_ids2.lock();
             let mut visible_lights = self.visible_lights.lock();
             if (num_lights > visible_lights.len() as i32) {
                 let buf = self.vk.buffer_array(
@@ -312,7 +325,19 @@ impl LightingCompute {
                     (num_lights as u64).next_power_of_two() * 4,
                     MemoryUsage::DeviceOnly,
                 );
+                *light_tile_ids = buf;
+
+                let buf = self.vk.buffer_array(
+                    (num_lights as u64).next_power_of_two() * 4,
+                    MemoryUsage::DeviceOnly,
+                );
                 *light_list2 = buf;
+
+                let buf = self.vk.buffer_array(
+                    (num_lights as u64).next_power_of_two() * 4,
+                    MemoryUsage::DeviceOnly,
+                );
+                *light_tile_ids2 = buf;
 
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two(),
@@ -415,24 +440,49 @@ impl LightingCompute {
         // build_stage(builder, 32 * 32, 3);
         let light_jobs = (num_lights as u32).div_ceil(128).mul(128) as i32;
         builder.update_buffer(self.visible_lights_c.clone(), &0);
-        builder.update_buffer(self.light_counter.clone(), &0);
+        builder.update_buffer(
+            self.light_counter.clone(),
+            &radix_sort::cs::PC {
+                total_elements: 0,
+                num_workgroups: 0,
+            },
+        );
 
         build_stage(
             builder,
             num_lights,
             None,
             Some(indirect.clone().slice(0..1)),
-            6,
+            3,
         );
         build_stage(
             builder,
             -1,
             Some(indirect.clone().slice(0..1)),
             Some(indirect.clone().slice(1..2)),
-            3,
+            4,
         );
-        build_stage(builder, 128, None, None, 4);
-        build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 5);
+        // radix sort
+        {
+            let mut light_list = self.light_list.lock();
+            let mut light_tile_ids = self.light_tile_ids.lock();
+            let mut light_list2 = self.light_list2.lock();
+            let mut light_tile_ids2 = self.light_tile_ids2.lock();
+            // let mut visible_lights = self.visible_lights.lock();
+            self.radix_sort.lock().sort(
+                self.vk.clone(),
+                num_lights as u32,
+                indirect.clone().slice(1..2),
+                self.light_counter.clone(),
+                &mut *light_tile_ids,
+                &mut *light_list,
+                &mut *light_tile_ids2,
+                &mut *light_list2,
+                builder,
+            );
+        }
+        // build_stage(builder, 128, None, None, 4);
+        // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 5);
         // build_stage(builder, 32 * 32, 5);
 
         // let tiles_curr_len = { tiles.lock().len() };

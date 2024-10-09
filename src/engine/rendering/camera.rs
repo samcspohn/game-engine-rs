@@ -878,8 +878,6 @@ impl CameraData {
                                         indirect_buffer.clone(),
                                         cvd.cam_pos.clone(),
                                         light_list.clone(),
-                                        visible_lights.clone(),
-                                        visible_lights_count.clone(),
                                         skeletal_data.get(&m_id),
                                         mr.model.has_skeleton,
                                         empty.clone(),

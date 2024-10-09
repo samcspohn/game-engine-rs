@@ -265,8 +265,6 @@ impl RenderPipeline {
         indirect_buffer: Subbuffer<[DrawIndexedIndirectCommand]>,
         cam_pos: Vec3,
         light_list: Subbuffer<[u32]>,
-        visible_lights: Subbuffer<[u32]>,
-        visible_lights_count: Subbuffer<u32>,
         skeleton: Option<&Subbuffer<[[[f32; 4]; 3]]>>,
         has_skeleton: bool,
         empty: Subbuffer<[i32]>,
