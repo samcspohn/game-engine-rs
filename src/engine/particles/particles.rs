@@ -46,15 +46,13 @@ use vulkano::{
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator,
-        layout::{
-            DescriptorSetLayout, DescriptorSetLayoutCreateInfo, DescriptorSetLayoutCreationError,
-        },
-        PersistentDescriptorSet, WriteDescriptorSet,
+        layout::{DescriptorSetLayout, DescriptorSetLayoutCreateInfo},
+        DescriptorSet, WriteDescriptorSet,
     },
     device::Device,
     format::Format,
-    image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
-    memory::allocator::{MemoryUsage, StandardMemoryAllocator},
+    image::view::ImageView,
+    memory::allocator::{MemoryTypeFilter, StandardMemoryAllocator},
     padded::Padded,
     pipeline::{
         graphics::{
@@ -67,11 +65,10 @@ use vulkano::{
             viewport::ViewportState,
         },
         layout::PipelineLayoutCreateInfo,
-        ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout, StateMode,
+        ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout,
     },
     render_pass::{RenderPass, Subpass},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
-    sync::{self, FlushError, GpuFuture},
+    sync::{self, GpuFuture},
     DeviceSize,
 };
 // use super::cs::{{emitter_init, particle_template}, self};
@@ -155,9 +152,8 @@ impl ParticleRenderPipeline {
         let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
         let mut depth_stencil_state = DepthStencilState::simple_depth_test();
         depth_stencil_state.depth = Some(DepthState {
-            enable_dynamic: false,
-            write_enable: StateMode::Fixed(false),
-            compare_op: StateMode::Fixed(CompareOp::Less),
+            write_enable: false,
+            compare_op: CompareOp::Less,
         });
 
         let render_pipeline = GraphicsPipeline::start()
@@ -248,8 +244,8 @@ impl ParticlesSystem {
             sort_particles: vk.new_query(),
         };
         let max_particles: i32 = *_MAX_PARTICLES;
-        let particles =
-            vk.buffer_array::<[cs::particle]>(max_particles as u64, MemoryUsage::DeviceOnly);
+        let particles = vk
+            .buffer_array::<[cs::particle]>(max_particles as u64, MemoryTypeFilter::PREFER_DEVICE);
         // let particles = Buffer::new(&vk.mem_alloc, BufferCreateInfo{ usage: buffer_usage_all()
 
         // }, allocation_info, layout)
@@ -263,7 +259,7 @@ impl ParticlesSystem {
 
         let particle_template_ids = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
 
         let mut builder = AutoCommandBufferBuilder::primary(
@@ -285,7 +281,7 @@ impl ParticlesSystem {
         let copy_buffer = vk.buffer_from_iter(particle_positions_lifes);
         let particle_positions_lifes = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
 
         builder
@@ -297,14 +293,14 @@ impl ParticlesSystem {
 
         let particle_next = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
 
         // avail
         let copy_buffer = vk.buffer_from_iter(0..max_particles);
         let avail = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
         builder
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, avail.clone()))
@@ -314,14 +310,14 @@ impl ParticlesSystem {
         let copy_buffer = vk.buffer_from_iter((0..max_particles).map(|_| 0));
         let alive_b = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
         builder
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, alive_b.clone()))
             .unwrap();
         let alive = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
 
         // avail_count
@@ -351,11 +347,11 @@ impl ParticlesSystem {
         //     .unwrap();
 
         // emitters
-        let emitters = vk.buffer_array(1, MemoryUsage::DeviceOnly);
+        let emitters = vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE);
 
         // indirect
         let copy_buffer = vk.buffer_from_iter([DispatchIndirectCommand { x: 0, y: 1, z: 1 }]);
-        let indirect = vk.buffer_array(1, MemoryUsage::DeviceOnly);
+        let indirect = vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE);
         builder
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, indirect.clone()))
             .unwrap();
@@ -382,7 +378,7 @@ impl ParticlesSystem {
         let copy_buffer = vk.buffer_from_iter(particle_templates.lock().data.clone());
         let templates = vk.buffer_array(
             copy_buffer.len() as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
 
         builder
@@ -451,9 +447,10 @@ impl ParticlesSystem {
 
         // let uniforms = Mutex::new((0..2).map(|_| vk.sub_buffer_allocator()).collect());
         // let render_uniforms = Mutex::new(vk.sub_buffer_allocator());
-        let emitter_init_dummy = vk.buffer_array(1 as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
+        let emitter_init_dummy =
+            vk.buffer_array(1 as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
         let particle_burst_dummy =
-            vk.buffer_array(1 as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
+            vk.buffer_array(1 as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
         ParticlesSystem {
             sort: ParticleSort::new(vk.clone()),
             emitter_inits: AtomicVec::new(),
@@ -465,7 +462,7 @@ impl ParticlesSystem {
                 particles,
                 particle_next,
                 particle_positions_lifes,
-                // pos_life_compressed: vk.buffer_array(max_particles as u64, MemoryUsage::DeviceOnly),
+                // pos_life_compressed: vk.buffer_array(max_particles as u64, MemoryTypeFilter::PREFER_DEVICE),
                 particle_template_ids,
                 emitter_init_dummy,
                 particle_burst_dummy,
@@ -494,7 +491,7 @@ impl ParticlesSystem {
         &self,
         transform: Subbuffer<[transform]>,
         uniform_sub_buffer: Subbuffer<Data>,
-    ) -> Arc<PersistentDescriptorSet> {
+    ) -> Arc<DescriptorSet> {
         self.get_descriptors(
             transform,
             uniform_sub_buffer,
@@ -508,10 +505,10 @@ impl ParticlesSystem {
         uniform_sub_buffer: Subbuffer<Data>,
         emitter_inits: Subbuffer<impl ?Sized>,
         particle_bursts: Subbuffer<impl ?Sized>,
-    ) -> Arc<PersistentDescriptorSet> {
+    ) -> Arc<DescriptorSet> {
         let pb = &self.particle_buffers;
 
-        let descriptor_set = PersistentDescriptorSet::new(
+        let descriptor_set = DescriptorSet::new(
             &self.vk.desc_alloc,
             self.compute_pipeline
                 .layout()
@@ -605,7 +602,7 @@ impl ParticlesSystem {
         if copy_buffer.len() > pb.particle_templates.lock().len() {
             *pb.particle_templates.lock() = self.vk.buffer_array(
                 copy_buffer.len() as vulkano::DeviceSize,
-                MemoryUsage::DeviceOnly,
+                MemoryTypeFilter::PREFER_DEVICE,
             );
         }
         builder
@@ -620,9 +617,10 @@ impl ParticlesSystem {
         let pb = &self.particle_buffers;
         let max_len = num_emitters.next_power_of_two();
         if pb.emitters.lock().len() < max_len as u64 {
-            let emitters = self
-                .vk
-                .buffer_array(max_len as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
+            let emitters = self.vk.buffer_array(
+                max_len as vulkano::DeviceSize,
+                MemoryTypeFilter::PREFER_DEVICE,
+            );
 
             builder
                 .copy_buffer(CopyBufferInfo::buffers(
@@ -692,15 +690,10 @@ impl ParticlesSystem {
             return;
         };
         let len = emitter_deinits.len();
-
-        // let emitter_deinits = self
-        //     .vk
-        //     .buffer_from_iter(emitter_deinits, MemoryUsage::Upload);
-
         let emitter_deinits = self.vk.buffer_from_iter(emitter_deinits);
         // let emitter_deinits = self
         //     .vk
-        //     .buffer_array::<[emitter_init]>(len as vulkano::DeviceSize, MemoryUsage::DeviceOnly); // TODO: cache
+        //     .buffer_array::<[emitter_init]>(len as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE); // TODO: cache
 
         // builder
         //     .copy_buffer(CopyBufferInfo::buffers(
@@ -755,7 +748,7 @@ impl ParticlesSystem {
         let emitter_inits = self.vk.buffer_from_iter(emitter_inits);
         // let emitter_inits = self
         //     .vk
-        //     .buffer_array::<[emitter_init]>(len as vulkano::DeviceSize, MemoryUsage::DeviceOnly); // TODO: cache
+        //     .buffer_array::<[emitter_init]>(len as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE); // TODO: cache
 
         // builder
         //     .copy_buffer(CopyBufferInfo::buffers(copy_buffer, emitter_inits.clone()))
@@ -950,7 +943,7 @@ impl ParticlesSystem {
         //     uniform_sub_buffer
         // };
         let pt = self.particle_textures.lock();
-        let set = PersistentDescriptorSet::new(
+        let set = DescriptorSet::new(
             &self.vk.desc_alloc,
             particle_debug_pipeline
                 .arc
@@ -1059,7 +1052,7 @@ impl ParticlesSystem {
         //     uniform_sub_buffer
         // };
         let pt = self.particle_textures.lock();
-        let set = PersistentDescriptorSet::new_variable(
+        let set = DescriptorSet::new_variable(
             &self.vk.desc_alloc,
             particle_render_pipeline
                 .arc

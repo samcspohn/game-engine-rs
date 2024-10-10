@@ -4,8 +4,8 @@ use glium::buffer::Content;
 use nalgebra_glm::{Vec3, Vec4};
 use vulkano::{
     buffer::Subbuffer,
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    memory::allocator::MemoryUsage,
+    descriptor_set::{DescriptorSet, WriteDescriptorSet},
+    memory::allocator::MemoryTypeFilter,
     padded::Padded,
     pipeline::{
         graphics::{
@@ -155,7 +155,7 @@ impl DebugSystem {
             frustums_to_draw: Vec::new(),
             arrows_to_draw: Vec::new(),
             aabb_to_draw: Vec::new(),
-            // frustums_buffer: vk.buffer_array(1, MemoryUsage::DeviceOnly),
+            // frustums_buffer: vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE),
             vk,
         }
     }
@@ -199,7 +199,7 @@ impl DebugSystem {
                 view: cvd.view.into(),
                 proj: cvd.proj.into(),
             });
-            let set = PersistentDescriptorSet::new(
+            let set = DescriptorSet::new(
                 &self.vk.desc_alloc,
                 self.shader1.layout().set_layouts().get(0).unwrap().clone(),
                 [
@@ -243,7 +243,7 @@ impl DebugSystem {
                     proj: cvd.proj.into(),
                     cam_pos: cvd.cam_pos.into(),
                 });
-                let set = PersistentDescriptorSet::new(
+                let set = DescriptorSet::new(
                     &self.vk.desc_alloc,
                     self.shader3.layout().set_layouts().get(0).unwrap().clone(),
                     [
@@ -290,7 +290,7 @@ impl DebugSystem {
                 proj: cvd.proj.into(),
                 cam_pos: cvd.cam_pos.into(),
             });
-            let set = PersistentDescriptorSet::new(
+            let set = DescriptorSet::new(
                 &self.vk.desc_alloc,
                 self.shader2.layout().set_layouts().get(0).unwrap().clone(),
                 [

@@ -47,7 +47,7 @@ use crate::{
 };
 use vulkano::{
     buffer::{subbuffer::BufferWriteGuard, Buffer, BufferContents, Subbuffer},
-    memory::allocator::{MemoryAllocator, MemoryUsage, StandardMemoryAllocator},
+    memory::allocator::{MemoryAllocator, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::graphics::vertex_input::Vertex,
 };
 use vulkano::{device::Device, impl_vertex};
@@ -395,7 +395,7 @@ impl Mesh {
         };
         let bone_weights_offsets_counts_buffer =
             if bone_weight_offsets.len() == 0 || vertex_weights.len() == 0 {
-                vk.buffer_array(1, MemoryUsage::DeviceOnly)
+                vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)
             } else {
                 vk.buffer_from_iter(
                     bone_weight_offsets
@@ -409,7 +409,7 @@ impl Mesh {
                 )
             };
         // let bone_weights_counts_buf = if vertex_weights.len() == 0 {
-        //     vk.buffer_array(1, MemoryUsage::DeviceOnly)
+        //     vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)
         // } else {
         //     vk.buffer_from_iter(
         //         vertex_weights

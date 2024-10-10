@@ -27,10 +27,10 @@ use vulkano::{
         Features, Queue, QueueCreateInfo, QueueFlags,
     },
     format::Format,
-    image::{ImageUsage, SwapchainImage},
-    instance::{Instance, InstanceCreateInfo},
+    image::{Image, ImageUsage},
+    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
     memory::allocator::{
-        AllocationCreateInfo, MemoryAllocator, MemoryUsage, StandardMemoryAllocator,
+        AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter, StandardMemoryAllocator
     },
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
@@ -41,7 +41,7 @@ use vulkano_win::VkSurfaceBuild;
 use winit::{
     dpi::{LogicalPosition, LogicalSize, PhysicalSize},
     event_loop::EventLoop,
-    window::{self, CursorGrabMode, Window, WindowBuilder},
+    window::{self, CursorGrabMode, Window},
 };
 
 use crate::engine::EngineEvent;
@@ -55,11 +55,11 @@ pub struct VulkanManager {
     pub queue: Arc<Queue>,
     pub surface: Arc<Surface>,
     pub swapchain: SyncUnsafeCell<Arc<Swapchain>>,
-    pub images: Vec<Arc<SwapchainImage>>,
+    pub images: Vec<Arc<Image>>,
     pub instance: Arc<Instance>,
     // pub event_loop: EventLoop<()>,
     pub mem_alloc: Arc<StandardMemoryAllocator>,
-    pub desc_alloc: Arc<StandardDescriptorSetAllocator>,
+    // pub desc_alloc: Arc<StandardDescriptorSetAllocator>,
     pub comm_alloc: Arc<StandardCommandBufferAllocator>,
     pub query_pool: Mutex<HashMap<i32, Arc<QueryPool>, nohash_hasher::BuildNoHashHasher<i32>>>,
     sub_alloc: Vec<SendSync<SubbufferAllocator>>,
@@ -102,7 +102,7 @@ impl VulkanManager {
         // *ub.write().unwrap() = d;
         // ub
     }
-    pub fn buffer<T>(&self, usage: MemoryUsage) -> Subbuffer<T>
+    pub fn buffer<T>(&self, memory_type_filter: MemoryTypeFilter) -> Subbuffer<T>
     where
         T: BufferContents + Sized,
     {
@@ -113,14 +113,14 @@ impl VulkanManager {
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage,
+                memory_type_filter,
                 ..Default::default()
             },
         )
         .unwrap();
         buf
     }
-    pub fn buffer_array<T>(&self, size: u64, usage: MemoryUsage) -> Subbuffer<T>
+    pub fn buffer_array<T>(&self, size: u64, memory_type_filter: MemoryTypeFilter) -> Subbuffer<T>
     where
         T: BufferContents + ?Sized,
     {
@@ -131,7 +131,7 @@ impl VulkanManager {
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage,
+                memory_type_filter,
                 ..Default::default()
             },
             size,
@@ -150,7 +150,7 @@ impl VulkanManager {
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
             d,
@@ -171,7 +171,7 @@ impl VulkanManager {
                 ..Default::default()
             },
             AllocationCreateInfo {
-                usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
             iter,
@@ -235,21 +235,23 @@ impl VulkanManager {
             InstanceCreateInfo {
                 enabled_extensions: required_extensions,
                 // Enable enumerating devices that use non-conformant vulkan implementations. (ex. MoltenVK)
-                enumerate_portability: true,
+                flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
                 ..Default::default()
             },
         )
         .unwrap();
 
         // let event_loop = EventLoop::new();
-        let surface = WindowBuilder::new()
-            // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-            .with_inner_size(PhysicalSize {
-                width: 1920,
-                height: 1080,
-            })
-            .build_vk_surface(event_loop, instance.clone())
-            .unwrap();
+        // let surface = WindowBuilder::new()
+        //     // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+        //     .with_inner_size(PhysicalSize {
+        //         width: 1920,
+        //         height: 1080,
+        //     })
+        //     .build_vk_surface(event_loop, instance.clone())
+        //     .unwrap();
+        let window = Arc::new(event_loop.create_window(Window::default_attributes())).unwrap();
+        let surface = Surface::from_window(instance.clone(), window).unwrap();
 
         let device_extensions = DeviceExtensions {
             khr_swapchain: true,
@@ -326,7 +328,7 @@ impl VulkanManager {
 
         // let img_count = swapchain.image_count();
         let mem_alloc = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-        let desc_alloc = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
+        // let desc_alloc = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
         let comm_alloc = Arc::new(StandardCommandBufferAllocator::new(
             device.clone(),
             Default::default(),
@@ -394,7 +396,7 @@ impl VulkanManager {
             swapchain: SyncUnsafeCell::new(swapchain),
             images,
             mem_alloc: mem_alloc.clone(),
-            desc_alloc,
+            // desc_alloc,
             comm_alloc,
             query_pool: Mutex::new(HashMap::default()),
             query_counter: AtomicI32::new(0),

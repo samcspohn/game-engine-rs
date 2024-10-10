@@ -32,19 +32,14 @@ use vulkano::{
         SecondaryAutoCommandBuffer, SubpassContents,
     },
     format::Format,
-    image::{
-        view::ImageView, ImageAccess, ImageDimensions, ImmutableImage, MipmapsCount, StorageImage,
-        SwapchainImage,
-    },
-    memory::allocator::MemoryUsage,
+    image::view::ImageView,
+    memory::allocator::MemoryTypeFilter,
     pipeline::graphics::viewport::Viewport,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
-    sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
     swapchain::{
-        acquire_next_image, AcquireError, SwapchainAcquireFuture, SwapchainCreateInfo,
-        SwapchainCreationError, SwapchainPresentInfo,
+        acquire_next_image, SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
     },
-    sync::{self, FlushError, GpuFuture},
+    sync::{self, GpuFuture},
 };
 
 #[repr(C)]
@@ -63,30 +58,30 @@ pub struct RenderingData {
     pub editor_size: [u32; 2], // pub image: Arc<ImageView<StorageImage>>,
 }
 
-/// This method is called once during initialization, then again whenever the window is resized
-pub(super) fn window_size_dependent_setup(
-    images: &[Arc<SwapchainImage>],
-    render_pass: Arc<RenderPass>,
-    viewport: &mut Viewport,
-) -> Vec<Arc<Framebuffer>> {
-    let dimensions = images[0].dimensions().width_height();
-    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-    images
-        .iter()
-        .map(|image| {
-            let view = ImageView::new_default(image.clone()).unwrap();
-            // let color_view = ImageView::new_default(color.arc.clone()).unwrap();
-            Framebuffer::new(
-                render_pass.clone(),
-                FramebufferCreateInfo {
-                    attachments: vec![view],
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-        })
-        .collect::<Vec<_>>()
-}
+// /// This method is called once during initialization, then again whenever the window is resized
+// pub(super) fn window_size_dependent_setup(
+//     images: &[Arc<Image>],
+//     render_pass: Arc<RenderPass>,
+//     viewport: &mut Viewport,
+// ) -> Vec<Arc<Framebuffer>> {
+//     let dimensions = images[0].dimensions().width_height();
+//     viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+//     images
+//         .iter()
+//         .map(|image| {
+//             let view = ImageView::new_default(image.clone()).unwrap();
+//             // let color_view = ImageView::new_default(color.arc.clone()).unwrap();
+//             Framebuffer::new(
+//                 render_pass.clone(),
+//                 FramebufferCreateInfo {
+//                     attachments: vec![view],
+//                     ..Default::default()
+//                 },
+//             )
+//             .unwrap()
+//         })
+//         .collect::<Vec<_>>()
+// }
 
 pub(super) fn render_fn(rd: RendererData) {}
 pub(super) fn render_thread(
@@ -121,10 +116,6 @@ pub(super) fn render_thread(
             match future {
                 Ok(future) => {
                     previous_frame_end = Some(future.boxed());
-                }
-                Err(FlushError::OutOfDate) => {
-                    recreate_swapchain = true;
-                    previous_frame_end = Some(sync::now(vk.device.clone()).boxed());
                 }
                 Err(e) => {
                     println!("failed to flush future: {e}");

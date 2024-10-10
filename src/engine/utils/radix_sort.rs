@@ -4,7 +4,7 @@ use crate::engine::rendering::vulkan_manager::VulkanManager;
 
 use super::PrimaryCommandBuffer;
 use vulkano::{
-    buffer::Subbuffer, command_buffer::DispatchIndirectCommand, descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet}, memory::allocator::MemoryUsage, pipeline::{ComputePipeline, Pipeline, PipelineBindPoint}, shader::ShaderModule
+    buffer::Subbuffer, command_buffer::DispatchIndirectCommand, descriptor_set::{DescriptorSet, WriteDescriptorSet}, memory::allocator::MemoryTypeFilter, pipeline::{ComputePipeline, Pipeline, PipelineBindPoint}, shader::ShaderModule
 };
 
 pub mod cs1 {
@@ -60,8 +60,8 @@ impl RadixSort {
         )
         .expect("Failed to create compute shader");
 
-        let histogram_buffer = vk.buffer_array(256, MemoryUsage::DeviceOnly);
-        // let prefix_sum_buffer = vk.buffer_array(256, MemoryUsage::DeviceOnly);
+        let histogram_buffer = vk.buffer_array(256, MemoryTypeFilter::PREFER_DEVICE);
+        // let prefix_sum_buffer = vk.buffer_array(256, MemoryTypeFilter::PREFER_DEVICE);
         Self {
             histograms_pipeline,
             radix_pipeline,
@@ -69,8 +69,8 @@ impl RadixSort {
             // work_group_offset_buffer: prefix_sum_buffer,
         }
     }
-    // fn get_descriptors(&self, vk: Arc<VulkanManager>) -> Arc<PersistentDescriptorSet> {
-    //     PersistentDescriptorSet::new(
+    // fn get_descriptors(&self, vk: Arc<VulkanManager>) -> Arc<DescriptorSet> {
+    //     DescriptorSet::new(
     //         &vk.desc_alloc,
     //         self.pipeline
     //             .layout()
@@ -100,7 +100,7 @@ impl RadixSort {
 
         let num_global_counts = max_elements.div_ceil(256 * 4).next_power_of_two().mul(256);
         if num_global_counts > self.histograms.len() as u32 {
-            self.histograms = vk.buffer_array(num_global_counts as u64, MemoryUsage::DeviceOnly);
+            self.histograms = vk.buffer_array(num_global_counts as u64, MemoryTypeFilter::PREFER_DEVICE);
         }
         
         for shift in (0..32).step_by(8) {
@@ -112,7 +112,7 @@ impl RadixSort {
                 g_shift: shift,
             };
             let push_constants = vk.allocate(push_constants);
-            let descriptor_set = PersistentDescriptorSet::new(
+            let descriptor_set = DescriptorSet::new(
                 &vk.desc_alloc,
                 self.histograms_pipeline
                 .layout()
@@ -139,7 +139,7 @@ impl RadixSort {
             builder.dispatch_indirect(indirect.clone()).unwrap();
 
             // radix sort
-            let descriptor_set = PersistentDescriptorSet::new(
+            let descriptor_set = DescriptorSet::new(
                 &vk.desc_alloc,
                 self.radix_pipeline
                     .layout()

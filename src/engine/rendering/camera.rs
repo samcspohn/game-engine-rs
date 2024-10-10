@@ -15,28 +15,14 @@ use std::{
     sync::{atomic::AtomicI32, Arc},
 };
 use vulkano::{
-    buffer::Subbuffer,
-    command_buffer::{
+    buffer::Subbuffer, command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, DrawIndirectCommand,
         PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
-    },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
-    format::{ClearValue, Format},
-    image::{
-        view::ImageView, AttachmentImage, ImageAccess, ImageDimensions, ImageUsage,
-        ImageViewAbstract, SampleCount, StorageImage,
-    },
-    memory::allocator::MemoryUsage,
-    padded::Padded,
-    pipeline::{
+    }, descriptor_set::{DescriptorSet, WriteDescriptorSet}, format::{ClearValue, Format}, image::{view::ImageView, Image}, memory::allocator::MemoryTypeFilter, padded::Padded, pipeline::{
         graphics::viewport::Viewport, ComputePipeline, GraphicsPipeline, Pipeline,
         PipelineBindPoint,
-    },
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
-    sync::GpuFuture,
+    }, render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass}, sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE}, sync::GpuFuture
 };
-use winit::event::VirtualKeyCode;
 
 use crate::{
     editor::inspectable::{Inpsect, Ins},
@@ -140,7 +126,8 @@ impl CameraDataId {
 }
 
 impl Drop for CameraDataId {
-    fn drop(&mut self) { // lock up here
+    fn drop(&mut self) {
+        // lock up here
         let mut list = CAMERA_LIST.cameras.lock();
         let index = list.binary_search_by(|(id, cam)| id.cmp(&self.id)).unwrap();
         list.remove(index);
@@ -158,7 +145,7 @@ pub struct CameraData {
     particle_debug_pipeline: ParticleDebugPipeline,
     pub debug: DebugSystem,
     light_debug: Arc<GraphicsPipeline>,
-    _render_pass: Arc<RenderPass>,
+    // _render_pass: Arc<RenderPass>,
     viewport: Viewport,
     framebuffer: Arc<Framebuffer>,
     pub texture_id: Option<egui::TextureId>,
@@ -513,115 +500,141 @@ impl CameraData {
             _ => SampleCount::Sample1,
         };
         let use_msaa = num_samples != 1;
-        let render_pass = if use_msaa {
-            vulkano::single_pass_renderpass!(
-                vk.device.clone(),
-                attachments: {
-                    intermediary: {
-                        load: Clear,
-                        store: DontCare,
-                        format: Format::R8G8B8A8_UNORM,
-                        samples: num_samples,
-                    },
-                    depth: {
-                        load: Clear,
-                        store: DontCare,
-                        format: Format::D32_SFLOAT,
-                        samples: num_samples,
-                    },
-                    color: {
-                        load: DontCare,
-                        store: Store,
-                        format: Format::R8G8B8A8_UNORM,
-                        // Same here, this has to match.
-                        samples: 1,
-                    },
-                },
-                pass:
-                    { color: [intermediary], depth_stencil: {depth}, resolve: [color] }
-            )
-            .unwrap()
-        } else {
-            // vulkano::single_pass_renderpass!(
-            //     vk.device.clone(),
-            //     attachments: {
-            //         color: {
-            //             load: DontCare,
-            //             store: Store,
-            //             format: Format::R8G8B8A8_UNORM,
-            //             // Same here, this has to match.
-            //             samples: 1,
-            //         },
-            //         depth: {
-            //             load: Clear,
-            //             store: DontCare,
-            //             format: Format::D32_SFLOAT,
-            //             samples: 1,
-            //         },
-            //         // garbage: {
-            //         //     load: DontCare,
-            //         //     store: DontCare,
-            //         //     format: Format::R8_UNORM,
-            //         //     // Same here, this has to match.
-            //         //     samples: 1,
-            //         // }
-            //     },
-            //     pass:
-            //         { color: [color], depth_stencil: {depth}}
-            // )
-            // .unwrap()
+        // let render_pass = if use_msaa {
+        // vulkano::single_pass_renderpass!(
+        //     vk.device.clone(),
+        //     attachments: {
+        //         intermediary: {
+        //             load_op: Clear,
+        //             store_op: DontCare,
+        //             format: Format::R8G8B8A8_UNORM,
+        //             samples: num_samples,
+        //         },
+        //         // depth: {
+        //         //     load_op: Clear,
+        //         //     store_op: DontCare,
+        //         //     format: Format::D32_SFLOAT,
+        //         //     samples: num_samples,
+        //         // },
+        //         color: {
+        //             load_op: DontCare,
+        //             store_op: Store,
+        //             format: Format::R8G8B8A8_UNORM,
+        //             // Same here, this has to match.
+        //             samples: 1,
+        //         },
+        //     },
+        //     pass:
+        //         { color: [intermediary], color_resolve: [color], depth_stencil: {} }
+        // )
+        // .unwrap()
+        //     let render_pass = vulkano::single_pass_renderpass!(
+        //         vk.device.clone(),
+        //         attachments: {
+        //             // The first framebuffer attachment is the intermediary image.
+        //             intermediary: {
+        //                 format: Format::R8G8B8A8_UNORM,
+        //                 // This has to match the image definition.
+        //                 samples: num_samples,
+        //                 load_op: Clear,
+        //                 store_op: DontCare,
+        //             },
+        //             depth: {
 
-            vulkano::ordered_passes_renderpass!(
-                vk.device.clone(),
-                attachments: {
-                    color: {
-                        load: Clear,
-                        store: Store,
-                        format: Format::R8G8B8A8_UNORM,
-                        samples: 1,
-                    },
-                    depth: {
-                        load: Clear,
-                        store: DontCare,
-                        format: Format::D32_SFLOAT,
-                        samples: 1,
-                    }
-                },
-                passes: [
-                    { color: [color], depth_stencil: {depth}, input: [] }
-                ]
-            )
-            .unwrap()
-        };
+        //             },
+
+        //             // The second framebuffer attachment is the final image.
+        //             color: {
+        //                 format: Format::R8G8B8A8_UNORM,
+        //                 // Same here, this has to match.
+        //                 samples: 1,
+        //                 load_op: DontCare,
+        //                 store_op: Store,
+        //             },
+        //         },
+        //         pass: {
+        //             // When drawing, we have only one output which is the intermediary image.
+        //             //
+        //             // At the end of the pass, each color attachment will be *resolved* into the image
+        //             // given under `color_resolve`. In other words, here, at the end of the pass, the
+        //             // `intermediary` attachment will be copied to the attachment named `color`.
+        //             //
+        //             // For depth/stencil attachments, there is also a `depth_stencil_resolve` field.
+        //             // When you specify this, you must also specify at least one of the
+        //             // `depth_resolve_mode` and `stencil_resolve_mode` fields.
+        //             // We don't need that here, so it's skipped.
+        //             color: [intermediary],
+        //             color_resolve: [color],
+        //             depth_stencil: {},
+        //         },
+        //     )
+        //     .unwrap()
+        // } else {
+        //     // vulkano::single_pass_renderpass!(
+        //     //     vk.device.clone(),
+        //     //     attachments: {
+        //     //         color: {
+        //     //             load: DontCare,
+        //     //             store: Store,
+        //     //             format: Format::R8G8B8A8_UNORM,
+        //     //             // Same here, this has to match.
+        //     //             samples: 1,
+        //     //         },
+        //     //         depth: {
+        //     //             load: Clear,
+        //     //             store: DontCare,
+        //     //             format: Format::D32_SFLOAT,
+        //     //             samples: 1,
+        //     //         },
+        //     //         // garbage: {
+        //     //         //     load: DontCare,
+        //     //         //     store: DontCare,
+        //     //         //     format: Format::R8_UNORM,
+        //     //         //     // Same here, this has to match.
+        //     //         //     samples: 1,
+        //     //         // }
+        //     //     },
+        //     //     pass:
+        //     //         { color: [color], depth_stencil: {depth}}
+        //     // )
+        //     // .unwrap()
+
+        //     vulkano::ordered_passes_renderpass!(
+        //         vk.device.clone(),
+        //         attachments: {
+        //             color: {
+        //                 load_op: Clear,
+        //                 store: Store,
+        //                 format: Format::R8G8B8A8_UNORM,
+        //                 samples: 1,
+        //             },
+        //             depth: {
+        //                 load_op: Clear,
+        //                 store: DontCare,
+        //                 format: Format::D32_SFLOAT,
+        //                 samples: 1,
+        //             }
+        //         },
+        //         passes: [
+        //             { color: [color], depth_stencil: {depth}, input: [] }
+        //         ]
+        //     )
+        //     .unwrap()
+        // };
         // let render_pass = ;
         let mut viewport = Viewport {
-            origin: [0.0, 0.0],
-            dimensions: [1.0, -1.0],
-            depth_range: 0.0..1.0,
+            offset: [0.0, 0.0],
+            extent: [1.0, -1.0],
+            depth_range: 0.0..=1.0,
         };
 
         let (framebuffer, image, view): (
             Arc<Framebuffer>,
-            Arc<dyn ImageAccess>,
-            Arc<dyn ImageViewAbstract>,
-        ) = if use_msaa {
-            window_size_dependent_setup_msaa(
-                [1920, 1080],
-                render_pass.clone(),
-                &mut viewport,
-                vk.clone(),
-                samples,
-            )
-        } else {
-            window_size_dependent_setup(
-                [1024, 1024],
-                render_pass.clone(),
-                &mut viewport,
-                vk.clone(),
-            )
-        };
+            Arc<Image>,
+            Arc<ImageView>,
+        ) = window_size_dependent_setup(&vk.images);
         // let subpass = Subpass::from(render_pass, 0).unwrap();
-        let rend = RenderPipeline::new(render_pass.clone(), [1920, 1080], 0, vk.clone());
+        let rend = RenderPipeline::new(0, vk.clone());
 
         Self {
             rend,
@@ -629,7 +642,7 @@ impl CameraData {
             particle_debug_pipeline: ParticleDebugPipeline::new(vk.clone(), render_pass.clone()),
             light_debug: LightingCompute::new_pipeline(vk.clone(), render_pass.clone()),
             debug: DebugSystem::new(vk.clone(), render_pass.clone()),
-            _render_pass: render_pass,
+            // _render_pass: render_pass,
             viewport,
             framebuffer,
             texture_id: None,
@@ -637,7 +650,7 @@ impl CameraData {
             view,
             camera_view_data: VecDeque::new(), // swapchain,
             samples,
-            // tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly)),
+            // tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE)),
             vk,
             is_active: true,
             is_visible: false,
@@ -646,22 +659,9 @@ impl CameraData {
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>, gui: &mut Gui) {
         if self.framebuffer.extent() != dimensions {
-            if self.samples == SampleCount::Sample1 {
-                (self.framebuffer, self.image, self.view) = window_size_dependent_setup(
-                    dimensions,
-                    self._render_pass.clone(),
-                    &mut self.viewport,
-                    vk,
-                )
-            } else {
-                (self.framebuffer, self.image, self.view) = window_size_dependent_setup_msaa(
-                    dimensions,
-                    self._render_pass.clone(),
-                    &mut self.viewport,
-                    vk,
-                    self.samples,
-                )
-            }
+            (self.framebuffer, self.image, self.view) = window_size_dependent_setup(
+                &vk.images,
+            );
             if let Some(tex) = self.texture_id.as_ref() {
                 gui.unregister_user_image(*tex);
             }
@@ -746,7 +746,7 @@ impl CameraData {
                         }
                         let update_renderers_set = {
                             puffin::profile_scope!("update renderers: stage 1: descriptor set");
-                            PersistentDescriptorSet::new(
+                            DescriptorSet::new(
                                 &vk.desc_alloc,
                                 renderer_pipeline
                                     .layout()
@@ -997,7 +997,7 @@ impl CameraData {
                 );
 
                 if (light_debug) {
-                    let set = PersistentDescriptorSet::new(
+                    let set = DescriptorSet::new(
                         &self.vk.desc_alloc,
                         self.light_debug
                             .layout()
@@ -1026,118 +1026,134 @@ impl CameraData {
         })
     }
 }
-/// This method is called once during initialization, then again whenever the window is resized
-fn window_size_dependent_setup_msaa(
-    dimensions: [u32; 2],
-    render_pass: Arc<RenderPass>,
-    viewport: &mut Viewport,
-    vk: Arc<VulkanManager>,
-    samples: SampleCount,
-) -> (
-    Arc<Framebuffer>,
-    Arc<dyn ImageAccess>,
-    Arc<dyn ImageViewAbstract>,
-) {
-    viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
-    viewport.origin[1] = -viewport.dimensions[1];
-    let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient_multisampled(
-            &vk.mem_alloc,
-            dimensions,
-            samples,
-            Format::D32_SFLOAT,
-        )
-        .unwrap(),
-    )
-    .unwrap();
+// /// This method is called once during initialization, then again whenever the window is resized
+// fn window_size_dependent_setup_msaa(
+//     dimensions: [u32; 2],
+//     render_pass: Arc<RenderPass>,
+//     viewport: &mut Viewport,
+//     vk: Arc<VulkanManager>,
+//     samples: SampleCount,
+// ) -> (
+//     Arc<Framebuffer>,
+//     Arc<dyn ImageAccess>,
+//     Arc<dyn ImageViewAbstract>,
+// ) {
+//     viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
+//     viewport.origin[1] = -viewport.dimensions[1];
+//     let depth_buffer = ImageView::new_default(
+//         AttachmentImage::transient_multisampled(
+//             &vk.mem_alloc,
+//             dimensions,
+//             samples,
+//             Format::D32_SFLOAT,
+//         )
+//         .unwrap(),
+//     )
+//     .unwrap();
 
-    let intermediary = AttachmentImage::transient_multisampled(
-        &vk.mem_alloc,
-        dimensions,
-        samples,
-        Format::R8G8B8A8_UNORM,
-    )
-    .unwrap();
-    let intermediary = ImageView::new_default(intermediary.clone()).unwrap();
+//     let intermediary = AttachmentImage::transient_multisampled(
+//         &vk.mem_alloc,
+//         dimensions,
+//         samples,
+//         Format::R8G8B8A8_UNORM,
+//     )
+//     .unwrap();
+//     let intermediary = ImageView::new_default(intermediary.clone()).unwrap();
 
-    let image = StorageImage::new(
-        &vk.mem_alloc,
-        ImageDimensions::Dim2d {
-            width: dimensions[0],
-            height: dimensions[1],
-            array_layers: 1,
-        },
-        Format::R8G8B8A8_UNORM,
-        Some(vk.queue.queue_family_index()),
-    )
-    .unwrap();
-    let view = ImageView::new_default(image.clone()).unwrap();
+//     let image = StorageImage::new(
+//         &vk.mem_alloc,
+//         ImageDimensions::Dim2d {
+//             width: dimensions[0],
+//             height: dimensions[1],
+//             array_layers: 1,
+//         },
+//         Format::R8G8B8A8_UNORM,
+//         Some(vk.queue.queue_family_index()),
+//     )
+//     .unwrap();
+//     let view = ImageView::new_default(image.clone()).unwrap();
 
-    let frame_buf = if samples == SampleCount::Sample1 {
-        Framebuffer::new(
-            render_pass.clone(),
-            FramebufferCreateInfo {
-                attachments: vec![view.clone(), depth_buffer],
-                ..Default::default()
-            },
-        )
-        .unwrap()
-    } else {
-        Framebuffer::new(
-            render_pass.clone(),
-            FramebufferCreateInfo {
-                attachments: vec![intermediary, depth_buffer, view.clone()],
-                ..Default::default()
-            },
-        )
-        .unwrap()
-    };
+//     let frame_buf = if samples == SampleCount::Sample1 {
+//         Framebuffer::new(
+//             render_pass.clone(),
+//             FramebufferCreateInfo {
+//                 attachments: vec![view.clone(), depth_buffer],
+//                 ..Default::default()
+//             },
+//         )
+//         .unwrap()
+//     } else {
+//         Framebuffer::new(
+//             render_pass.clone(),
+//             FramebufferCreateInfo {
+//                 attachments: vec![intermediary, depth_buffer, view.clone()],
+//                 ..Default::default()
+//             },
+//         )
+//         .unwrap()
+//     };
 
-    (frame_buf, image, view)
-}
+//     (frame_buf, image, view)
+// }
 
-/// This method is called once during initialization, then again whenever the window is resized
+// /// This method is called once during initialization, then again whenever the window is resized
+// fn window_size_dependent_setup(
+//     dimensions: [u32; 2],
+//     render_pass: Arc<RenderPass>,
+//     viewport: &mut Viewport,
+//     vk: Arc<VulkanManager>,
+// ) -> (
+//     Arc<Framebuffer>,
+//     Arc<dyn ImageAccess>,
+//     Arc<dyn ImageViewAbstract>,
+// ) {
+//     viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
+//     viewport.origin[1] = -viewport.dimensions[1];
+//     let depth_buffer = ImageView::new_default(
+//         AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::D32_SFLOAT).unwrap(),
+//     )
+//     .unwrap();
+//     // let garbage = ImageView::new_default(
+//     //     AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::R8_UNORM).unwrap(),
+//     // )
+//     // .unwrap();
+
+//     let image = AttachmentImage::with_usage(
+//         &vk.mem_alloc,
+//         dimensions,
+//         Format::R8G8B8A8_UNORM,
+//         ImageUsage::SAMPLED
+//             | ImageUsage::STORAGE
+//             | ImageUsage::COLOR_ATTACHMENT
+//             | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
+//     )
+//     .unwrap();
+//     let view = ImageView::new_default(image.clone()).unwrap();
+//     let frame_buf = Framebuffer::new(
+//         render_pass.clone(),
+//         FramebufferCreateInfo {
+//             attachments: vec![view.clone(), depth_buffer.clone()],
+//             ..Default::default()
+//         },
+//     )
+//     .unwrap();
+
+//     (frame_buf, image, view)
+//     // (fb, images)
+// }
+
+/// This function is called once during initialization, then again whenever the window is resized.
+///
+///  -> (
+//     Arc<Framebuffer>,
+//     Arc<dyn ImageAccess>,
+//     Arc<dyn ImageViewAbstract>,
+// )
 fn window_size_dependent_setup(
-    dimensions: [u32; 2],
-    render_pass: Arc<RenderPass>,
-    viewport: &mut Viewport,
-    vk: Arc<VulkanManager>,
-) -> (
-    Arc<Framebuffer>,
-    Arc<dyn ImageAccess>,
-    Arc<dyn ImageViewAbstract>,
-) {
-    viewport.dimensions = [dimensions[0] as f32, -(dimensions[1] as f32)];
-    viewport.origin[1] = -viewport.dimensions[1];
-    let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::D32_SFLOAT).unwrap(),
-    )
-    .unwrap();
-    // let garbage = ImageView::new_default(
-    //     AttachmentImage::transient(&vk.mem_alloc, dimensions, Format::R8_UNORM).unwrap(),
-    // )
-    // .unwrap();
-
-    let image = AttachmentImage::with_usage(
-        &vk.mem_alloc,
-        dimensions,
-        Format::R8G8B8A8_UNORM,
-        ImageUsage::SAMPLED
-            | ImageUsage::STORAGE
-            | ImageUsage::COLOR_ATTACHMENT
-            | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
-    )
-    .unwrap();
-    let view = ImageView::new_default(image.clone()).unwrap();
-    let frame_buf = Framebuffer::new(
-        render_pass.clone(),
-        FramebufferCreateInfo {
-            attachments: vec![view.clone(), depth_buffer.clone()],
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    (frame_buf, image, view)
-    // (fb, images)
+    images: &[Arc<Image>],
+) -> (Arc<dyn ImageAccess>, Vec<Arc<ImageView>>) {
+    images
+        .iter()
+        .map(|image| ImageView::new_default(image.clone()).unwrap())
+        .collect::<Vec<_>>()
 }

@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, BufferUsage, Subbuffer},
-    memory::allocator::MemoryUsage,
+    memory::allocator::MemoryTypeFilter,
     DeviceSize,
 };
 

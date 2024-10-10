@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
-use super::time::Time;
-use winit::event::{
-    DeviceEvent, DeviceId, ElementState, Event, KeyboardInput, ModifiersState, MouseButton,
-    MouseScrollDelta, TouchPhase, VirtualKeyCode, WindowEvent,
-};
+use super::{particles::shaders::cs::p, time::Time};
+use egui::Key;
+use winit::{event::{
+    DeviceEvent, DeviceId, ElementState, Event, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent
+}, keyboard::KeyCode, platform::modifier_supplement::KeyEventExtModifierSupplement};
 
 #[derive(Default, Clone)]
 pub struct Input {
     // focused: bool,
-    pub(crate) key_downs: HashMap<VirtualKeyCode, bool>,
-    pub(crate) key_presses: HashMap<VirtualKeyCode, bool>,
-    pub(crate) key_ups: HashMap<VirtualKeyCode, bool>,
+    pub(crate) key_downs: HashMap<KeyCode, bool>,
+    pub(crate) key_presses: HashMap<KeyCode, bool>,
+    pub(crate) key_ups: HashMap<KeyCode, bool>,
     pub(crate) mouse_x: f64,
     pub(crate) mouse_y: f64,
     pub(crate) mouse_whl_vert: f32,
@@ -25,13 +25,14 @@ impl Input {
     // pub fn get_time(&self) -> &Time {
     //     &self.time
     // }
-    pub fn get_key(&self, key: &VirtualKeyCode) -> bool { // TODO: &VirtualKeyCode to VirtualKeyCode
+    pub fn get_key(&self, key: &KeyCode) -> bool {
+        // TODO: &VirtualKeyCode to VirtualKeyCode
         *self.key_downs.get(key).unwrap_or(&false)
     }
-    pub fn get_key_down(&self, key: &VirtualKeyCode) -> bool {
+    pub fn get_key_down(&self, key: &KeyCode) -> bool {
         *self.key_presses.get(key).unwrap_or(&false)
     }
-    pub fn get_key_up(&self, key: &VirtualKeyCode) -> bool {
+    pub fn get_key_up(&self, key: &KeyCode) -> bool {
         *self.key_ups.get(key).unwrap_or(&false)
     }
     pub fn get_mouse_delta(&self) -> (f64, f64) {
@@ -98,7 +99,6 @@ impl Input {
         device_id: DeviceId,
         state: ElementState,
         button: MouseButton,
-        modifiers: ModifiersState,
     ) {
         match state {
             ElementState::Pressed => {
@@ -108,6 +108,8 @@ impl Input {
                         MouseButton::Middle => 1,
                         MouseButton::Right => 2,
                         MouseButton::Other(x) => x as u32,
+                        MouseButton::Back => todo!(),
+                        MouseButton::Forward => todo!(),
                     },
                     true,
                 );
@@ -119,6 +121,8 @@ impl Input {
                         MouseButton::Middle => 1,
                         MouseButton::Right => 2,
                         MouseButton::Other(x) => x as u32,
+                        MouseButton::Back => todo!(),
+                        MouseButton::Forward => todo!(),
                     },
                     false,
                 );
@@ -130,7 +134,6 @@ impl Input {
         device_id: DeviceId,
         delta: MouseScrollDelta,
         phase: TouchPhase,
-        modifiers: ModifiersState,
     ) {
         match delta {
             MouseScrollDelta::LineDelta(x, y) => {
@@ -143,29 +146,56 @@ impl Input {
     pub(crate) fn process_keyboard(
         &mut self,
         device_id: DeviceId,
-        input: KeyboardInput,
+        input: KeyEvent,
         is_synthetic: bool,
     ) {
+        // let KeyEvent {
+        //     physical_key,
+        //     logical_key,
+        //     text,
+        //     location,
+        //     state,
+        //     repeat,
+        // } = input;
+        match input.physical_key {
+            winit::keyboard::PhysicalKey::Code(key) => 
+                match input.state {
+                    ElementState::Pressed => {
+                        self.key_downs.insert(key, true);
+                        self.key_presses.insert(key, true);
+                    },
+                    ElementState::Released => {
+                        self.key_downs.remove(&key);
+                        self.key_ups.remove(&key);
+                        self.key_ups.insert(key, true);
+                    },
+                }
+            ,
+            winit::keyboard::PhysicalKey::Unidentified(key) => {
+                println!("Unidentified key: {:?}", key);
+            },
+        }
+        
         // if let WindowEvent::KeyboardInput { input: x, .. } = event {
-        match input {
-            KeyboardInput {
-                state: ElementState::Released,
-                virtual_keycode: Some(key),
-                ..
-            } => {
-                self.key_downs.insert(key, false);
-                self.key_ups.insert(key, true);
-            }
-            KeyboardInput {
-                state: ElementState::Pressed,
-                virtual_keycode: Some(key),
-                ..
-            } => {
-                self.key_presses.insert(key, true);
-                self.key_downs.insert(key, true);
-            }
-            _ => {}
-        };
+        // match input {
+            // KeyboardInput {
+            //     state: ElementState::Released,
+            //     virtual_keycode: Some(key),
+            //     ..
+            // } => {
+            //     self.key_downs.insert(key, false);
+            //     self.key_ups.insert(key, true);
+            // }
+            // KeyboardInput {
+            //     state: ElementState::Pressed,
+            //     virtual_keycode: Some(key),
+            //     ..
+            // } => {
+            //     self.key_presses.insert(key, true);
+            //     self.key_downs.insert(key, true);
+            // }
+            // _ => {}
+        // };
         // }
     }
     // pub(crate) fn process_event<T>(&mut self, event: Event<T>) {

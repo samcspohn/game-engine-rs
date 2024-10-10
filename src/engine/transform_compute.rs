@@ -22,11 +22,15 @@ use vulkano::{
         PrimaryAutoCommandBuffer,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
     },
     device::Device,
-    memory::allocator::{MemoryUsage, StandardMemoryAllocator},
-    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    memory::allocator::{MemoryTypeFilter, StandardMemoryAllocator},
+    pipeline::{
+        compute::ComputePipelineCreateInfo, layout::PipelineDescriptorSetLayoutCreateInfo,
+        ComputePipeline, Pipeline, PipelineBindPoint, PipelineLayout,
+        PipelineShaderStageCreateInfo,
+    },
     DeviceSize,
 };
 
@@ -63,10 +67,10 @@ impl TransformCompute {
 
         let num_transforms = 2;
         let gpu_transforms =
-            vk.buffer_array(num_transforms as vulkano::DeviceSize, MemoryUsage::Upload);
+            vk.buffer_array(num_transforms as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
         let mvp = vk.buffer_array(
             num_transforms as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
 
         TransformCompute {
@@ -81,17 +85,25 @@ impl TransformCompute {
             // cycle: 0,
             update_data: (None, None, None),
             // uniforms: Mutex::new(vk.sub_buffer_allocator()),
-            compute: vulkano::pipeline::ComputePipeline::new(
-                vk.device.clone(),
-                cs::load(vk.device.clone())
+            compute: {
+                let cs = cs::load(vk.device.clone())
                     .unwrap()
                     .entry_point("main")
-                    .unwrap(),
-                &(),
-                None,
-                |_| {},
-            )
-            .expect("Failed to create compute shader"),
+                    .unwrap();
+                let stage = PipelineShaderStageCreateInfo::new(cs);
+                let layout = PipelineLayout::new(
+                    vk.device.clone(),
+                    PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
+                        .into_pipeline_layout_create_info(vk.device.clone()),
+                )
+                .unwrap();
+                ComputePipeline::new(
+                    vk.device.clone(),
+                    None,
+                    ComputePipelineCreateInfo::stage_layout(stage, layout),
+                )
+                .unwrap()
+            },
             vk: vk.clone(),
         }
     }
@@ -168,8 +180,7 @@ impl TransformCompute {
         //     // self.uniforms.from_data(uniform_data).unwrap()
         // };
 
-        let descriptor_set = PersistentDescriptorSet::new(
-            &self.vk.desc_alloc,
+        let descriptor_set = DescriptorSet::new(
             self.compute
                 .layout()
                 .set_layouts()
@@ -220,7 +231,7 @@ impl TransformCompute {
         if self.gpu_transforms.len() < len as u64 {
             let device_local_buffer = self
                 .vk
-                .buffer_array(max_len as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
+                .buffer_array(max_len as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
             let copy_buffer = self.gpu_transforms.clone();
 
             self.gpu_transforms = device_local_buffer;
@@ -233,7 +244,7 @@ impl TransformCompute {
 
             let device_local_buffer = self
                 .vk
-                .buffer_array(max_len as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
+                .buffer_array(max_len as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
 
             let copy_buffer = self.mvp.clone();
 
@@ -276,8 +287,7 @@ impl TransformCompute {
         //     ub
         // };
 
-        let descriptor_set = PersistentDescriptorSet::new(
-            &self.vk.desc_alloc,
+        let descriptor_set = DescriptorSet::new(
             self.compute
                 .layout()
                 .set_layouts()

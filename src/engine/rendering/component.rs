@@ -31,10 +31,10 @@ use vulkano::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CopyBufferInfo,
         DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
     },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    descriptor_set::{DescriptorSet, WriteDescriptorSet},
     device::DeviceOwned,
-    memory::allocator::{MemoryAllocator, MemoryUsage},
-    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    memory::allocator::{MemoryAllocator, MemoryTypeFilter},
+    pipeline::{compute::ComputePipelineCreateInfo, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, Pipeline, PipelineBindPoint, PipelineLayout, PipelineShaderStageCreateInfo},
     shader::ShaderModule,
 };
 
@@ -268,8 +268,8 @@ impl SharedRendererData {
 
             let copy_buffer = self.transform_ids_gpu.clone();
             unsafe {
-                self.transform_ids_gpu = vk.buffer_array(max_len as u64, MemoryUsage::DeviceOnly);
-                self.renderers_gpu = vk.buffer_array(max_len as u64, MemoryUsage::DeviceOnly);
+                self.transform_ids_gpu = vk.buffer_array(max_len as u64, MemoryTypeFilter::PREFER_DEVICE);
+                self.renderers_gpu = vk.buffer_array(max_len as u64, MemoryTypeFilter::PREFER_DEVICE);
             }
 
             // let copy = CopyBufferInfo::buffers(copy_buffer, rm.transform_ids_gpu.clone());
@@ -319,7 +319,7 @@ impl SharedRendererData {
                 // *uniforms.write().unwrap() = data;
                 let uniforms = self.vk.allocate(data);
 
-                let update_renderers_set = PersistentDescriptorSet::new(
+                let update_renderers_set = DescriptorSet::new(
                     &vk.desc_alloc,
                     renderer_pipeline
                         .layout()
@@ -397,14 +397,33 @@ impl RendererManager {
         let shader = ur::load(vk.device.clone()).unwrap();
 
         // Create compute-pipeline for applying compute shader to vertices.
-        let pipeline = vulkano::pipeline::ComputePipeline::new(
-            vk.device.clone(),
-            shader.entry_point("main").unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("Failed to create compute shader");
+        // let pipeline = vulkano::pipeline::ComputePipeline::new(
+        //     vk.device.clone(),
+        //     shader.entry_point("main").unwrap(),
+        //     &(),
+        //     None,
+        //     |_| {},
+        // )
+        // .expect("Failed to create compute shader");
+
+        let pipeline = {
+            let cs = shader
+                .entry_point("main")
+                .unwrap();
+            let stage = PipelineShaderStageCreateInfo::new(cs);
+            let layout = PipelineLayout::new(
+                vk.device.clone(),
+                PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
+                    .into_pipeline_layout_create_info(vk.device.clone()),
+            )
+            .unwrap();
+            ComputePipeline::new(
+                vk.device.clone(),
+                None,
+                ComputePipelineCreateInfo::stage_layout(stage, layout),
+            )
+            .unwrap()
+        };
 
         RendererManager {
             model_indirect: RwLock::new(BTreeMap::new()),

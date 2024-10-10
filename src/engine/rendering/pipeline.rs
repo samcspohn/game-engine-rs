@@ -8,26 +8,27 @@ use vulkano::{
         DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
     },
     device::{Device, Queue},
     format::{self, Format},
-    image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
+    image::{sampler::Sampler, view::ImageView, Image},
     impl_vertex,
     memory::allocator::StandardMemoryAllocator,
     pipeline::{
         graphics::{
+            color_blend::{ColorBlendAttachmentState, ColorBlendState},
             depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
             multisample::MultisampleState,
             rasterization::{CullMode, RasterizationState},
-            vertex_input::{BuffersDefinition, Vertex},
+            subpass::PipelineRenderingCreateInfo,
+            vertex_input::{BuffersDefinition, Vertex, VertexDefinition, VertexInputState},
             viewport::ViewportState,
-        },
-        GraphicsPipeline, Pipeline, PipelineBindPoint,
+            GraphicsPipelineCreateInfo,
+        }, layout::PipelineDescriptorSetLayoutCreateInfo, DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout, PipelineShaderStageCreateInfo
     },
     render_pass::{RenderPass, Subpass},
-    sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo},
     shader::ShaderModule,
 };
 
@@ -41,7 +42,7 @@ use self::fs::light;
 use super::{
     lighting::lighting_compute::lt::{self, tile},
     model::{Mesh, Normal, _Vertex, UV},
-    texture::TextureManager,
+    texture::{self, TextureManager},
 };
 
 pub mod vs {
@@ -85,7 +86,7 @@ pub struct RenderPipeline {
     _fs: Arc<ShaderModule>,
     pub pipeline: Arc<GraphicsPipeline>,
     // pub uniforms: SubbufferAllocator,
-    pub def_texture: Arc<ImageView<ImmutableImage>>,
+    pub def_texture: Arc<ImageView<Image>>,
     pub def_sampler: Arc<Sampler>,
     vk: Arc<VulkanManager>,
 }
@@ -104,44 +105,108 @@ struct VertU32_2 {
 }
 impl RenderPipeline {
     pub fn new(
-        render_pass: Arc<RenderPass>,
-        _dimensions: [u32; 2],
         sub_pass_index: u32,
         vk: Arc<VulkanManager>,
         // use_msaa: bool,
     ) -> RenderPipeline {
-        let subpass = Subpass::from(render_pass, sub_pass_index).unwrap();
         let vs = vs::load(vk.device.clone()).unwrap();
         let fs = fs::load(vk.device.clone()).unwrap();
-        let pipeline = GraphicsPipeline::start()
-            .vertex_input_state(
-                BuffersDefinition::new()
-                    .vertex::<_Vertex>()
-                    .vertex::<Normal>()
-                    .vertex::<UV>(), // .instance::<Id>(),
-                                     // .vertex::<VertU32>()
-                                     // .vertex::<VertU32_2>(),
-            )
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .input_assembly_state(InputAssemblyState::new())
-            // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-            //     Viewport {
-            //         origin: [0.0, 0.0],
-            //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-            //         depth_range: 0.0..1.0,
-            //     },
-            // ]))
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .multisample_state(MultisampleState {
-                rasterization_samples: subpass.num_samples().unwrap(),
-                ..Default::default()
-            })
-            .render_pass(subpass)
-            .build(vk.device.clone())
-            .unwrap();
+
+        let vertex_input_state = [
+            _Vertex::per_vertex(),
+            Normal::per_vertex(),
+            UV::per_vertex(),
+        ]
+        .definition(&vs)
+        .unwrap();
+        // VertexInputState::new().attribute(0, _Vertex::per_vertex().definition(&vs)).attribute(1, Normal::per_vertex().definition(&vs)).attribute(2, UV::per_vertex().definition(&vs));
+
+        let stages = [
+            PipelineShaderStageCreateInfo::new(vs),
+            PipelineShaderStageCreateInfo::new(fs),
+        ];
+        let layout = PipelineLayout::new(
+            vk.device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(vk.device.clone())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let subpass = PipelineRenderingCreateInfo {
+            color_attachment_formats: vec![Some(vk.swapchain().image_format())],
+            ..Default::default()
+        };
+        let pipeline = GraphicsPipeline::new(
+            vk.device.clone(),
+            None,
+            GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(ViewportState::default()),
+                rasterization_state: Some(RasterizationState::default().cull_mode(CullMode::Back)),
+                multisample_state: Some(MultisampleState::default()),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    subpass.color_attachment_formats.len() as u32,
+                    ColorBlendAttachmentState::default(),
+                )),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                subpass: Some(subpass.into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            },
+        )
+        .unwrap();
+        // let pipeline = GraphicsPipeline::start()
+        //     .vertex_input_state(
+        //         BuffersDefinition::new()
+        //             .vertex::<_Vertex>()
+        //             .vertex::<Normal>()
+        //             .vertex::<UV>(), // .instance::<Id>(),
+        //                              // .vertex::<VertU32>()
+        //                              // .vertex::<VertU32_2>(),
+        //     )
+        //     .vertex_shader(vs.ent // let dimensions = ImageDimensions::Dim2d {
+        //             //     width: img.width(),
+        //             //     height: img.height(),
+        //             //     array_layers: 1,
+        //             // };
+        //             let img_format = match img.color() {
+        //                 // image::ColorType::L8(_) => Format::R8_SNORM,
+        //                 image::ColorType::Rgb8 => Format::R8G8B8_SRGB,
+        //                 // image::ColorType::Palette(_) => Format::R8_SINT,
+        //                 // image::ColorType::GrayA(_) => Format::R8G8_SNORM,
+        //                 image::ColorType::Rgba8 => Format::R8G8B8A8_SRGB,
+        //                 _ => Format::R8_SNORM,
+        //             };
+
+        //             let pixels: Vec<u8> = if img_format == Format::R8G8B8_SRGB {
+        //                 img.as_bytes()
+        //                     .chunks(3)
+        //                     .flat_map(|p| [p[0], p[1], p[2], 1u8])
+        //                     .collect()
+        //             } else {
+        //                 img.as_bytes().iter().map(|u| *u).collect()
+        //             };ry_point("main").unwrap(), ())
+        //     .input_assembly_state(InputAssemblyState::new())
+        //     // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
+        //     //     Viewport {
+        //     //         origin: [0.0, 0.0],
+        //     //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+        //     //         depth_range: 0.0..1.0,
+        //     //     },
+        //     // ]))
+        //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        //     .fragment_shader(fs.entry_point("main").unwrap(), ())
+        //     .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
+        //     .depth_stencil_state(DepthStencilState::simple_depth_test())
+        //     .multisample_state(MultisampleState {
+        //         rasterization_samples: subpass.num_samples().unwrap(),
+        //         ..Default::default()
+        //     })
+        //     .render_pass(subpass)
+        //     .build(vk.device.clone())
+        //     .unwrap();
         // let pipeline = if use_msaa {
         //     pipeline.multisample_state(MultisampleState {
         //         rasterization_samples: subpass.num_samples().unwrap(),
@@ -159,36 +224,37 @@ impl RenderPipeline {
         )
         .unwrap();
 
-        let def_texture = {
-            let dimensions = ImageDimensions::Dim2d {
-                width: 1,
-                height: 1,
-                array_layers: 1,
-            };
-            let image_data = vec![255_u8, 255, 255, 255];
-            let image = ImmutableImage::from_iter(
-                &vk.mem_alloc,
-                image_data,
-                dimensions,
-                MipmapsCount::One,
-                Format::R8G8B8A8_SRGB,
-                &mut builder,
-            )
-            .unwrap();
-            ImageView::new_default(image).unwrap()
-        };
-        let _ = builder.build().unwrap().execute(vk.queue.clone()).unwrap();
+        let (def_texture, def_sampler) = texture::texture_from_bytes(vk.clone(), &vec![255_u8, 255, 255, 255], 1, 1);
+        // let def_texture = {
+        //     let dimensions = ImageDimensions::Dim2d {
+        //         width: 1,
+        //         height: 1,
+        //         array_layers: 1,
+        //     };
+        //     let image_data = vec![255_u8, 255, 255, 255];
+        //     let image = ImmutableImage::from_iter(
+        //         &vk.mem_alloc,
+        //         image_data,
+        //         dimensions,
+        //         MipmapsCount::One,
+        //         Format::R8G8B8A8_SRGB,
+        //         &mut builder,
+        //     )
+        //     .unwrap();
+        //     ImageView::new_default(image).unwrap()
+        // };
+        // let _ = builder.build().unwrap().execute(vk.queue.clone()).unwrap();
 
-        let def_sampler = Sampler::new(
-            vk.device.clone(),
-            SamplerCreateInfo {
-                mag_filter: Filter::Linear,
-                min_filter: Filter::Linear,
-                address_mode: [SamplerAddressMode::Repeat; 3],
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        // let def_sampler = Sampler::new(
+        //     vk.device.clone(),
+        //     SamplerCreateInfo {
+        //         mag_filter: Filter::Linear,
+        //         min_filter: Filter::Linear,
+        //         address_mode: [SamplerAddressMode::Repeat; 3],
+        //         ..Default::default()
+        //     },
+        // )
+        // .unwrap();
 
         RenderPipeline {
             _vs: vs,
@@ -320,8 +386,7 @@ impl RenderPipeline {
         ));
         // descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
 
-        if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
-        {
+        if let Ok(set) = DescriptorSet::new(&desc_allocator, layout.clone(), descriptors) {
             builder
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,

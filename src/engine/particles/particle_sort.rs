@@ -8,17 +8,15 @@ use vulkano::{
         CopyBufferInfo, DispatchIndirectCommand, DrawIndirectCommand, PrimaryAutoCommandBuffer,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
     },
     device::{Device, Queue},
-    memory::allocator::{MemoryUsage, StandardMemoryAllocator},
+    memory::allocator::{MemoryTypeFilter, StandardMemoryAllocator},
     padded::Padded,
     pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
-    sync::{self, FlushError, GpuFuture},
+    sync::{self, GpuFuture},
     DeviceSize,
 };
-use winit::event::VirtualKeyCode;
-
 use crate::engine::{
     input::Input,
     perf::{self, Perf},
@@ -55,20 +53,20 @@ impl ParticleSort {
 
         let a1 = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
         let a2 = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
-            MemoryUsage::DeviceOnly,
+            MemoryTypeFilter::PREFER_DEVICE,
         );
-        let buckets = vk.buffer_array(65536 as vulkano::DeviceSize, MemoryUsage::DeviceOnly);
+        let buckets = vk.buffer_array(65536 as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
         let avail_count = vk.buffer_from_data(0u32);
         // indirect
         let indirect = (0..2)
             .map(|_| {
                 let copy_buffer =
                     vk.buffer_from_iter([DispatchIndirectCommand { x: 0, y: 1, z: 1 }]);
-                let indirect = vk.buffer_array(1, MemoryUsage::DeviceOnly);
+                let indirect = vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE);
                 builder
                     .copy_buffer(CopyBufferInfo::buffers(copy_buffer, indirect.clone()))
                     .unwrap();
@@ -83,7 +81,7 @@ impl ParticleSort {
             first_vertex: 0,
             first_instance: 0,
         }]);
-        let draw = vk.buffer_array(1 as DeviceSize, MemoryUsage::DeviceOnly);
+        let draw = vk.buffer_array(1 as DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
         builder
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, draw.clone()))
             .unwrap();
@@ -206,7 +204,7 @@ impl ParticleSort {
             uniform_data.num_jobs = num_jobs;
             uniform_data.stage = stage.into();
             let uniform_sub_buffer = self.vk.allocate(uniform_data);
-            let descriptor_set = PersistentDescriptorSet::new(
+            let descriptor_set = DescriptorSet::new(
                 desc_allocator,
                 layout.clone(),
                 [

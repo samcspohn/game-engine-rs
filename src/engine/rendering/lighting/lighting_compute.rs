@@ -8,8 +8,8 @@ use rapier3d::na::ComplexField;
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, Subbuffer},
     command_buffer::{CopyBufferInfo, DispatchIndirectCommand, DrawIndirectCommand},
-    descriptor_set::{self, DescriptorSet, PersistentDescriptorSet, WriteDescriptorSet},
-    memory::allocator::MemoryUsage,
+    descriptor_set::{self, DescriptorSet, WriteDescriptorSet},
+    memory::allocator::MemoryTypeFilter,
     padded::Padded,
     pipeline::{
         graphics::{
@@ -102,7 +102,6 @@ impl LightingCompute {
         let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
         let mut depth_stencil_state = DepthStencilState::simple_depth_test();
         depth_stencil_state.depth = Some(DepthState {
-            enable_dynamic: false,
             write_enable: StateMode::Fixed(false),
             compare_op: StateMode::Fixed(CompareOp::Less),
         });
@@ -149,16 +148,16 @@ impl LightingCompute {
             )
             .expect("Failed to create compute shader"),
             // uniforms: Mutex::new(vk.sub_buffer_allocator()),
-            dummy_buffer: vk.buffer_array(1, MemoryUsage::DeviceOnly),
-            light_list: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
-            light_tile_ids: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
-            light_list2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
-            light_tile_ids2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
-            light_offsets: vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly),
-            light_counter: vk.buffer(MemoryUsage::DeviceOnly),
-            visible_lights: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
-            visible_lights_c: vk.buffer(MemoryUsage::DeviceOnly),
-            tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly)),
+            dummy_buffer: vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE),
+            light_list: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
+            light_tile_ids: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
+            light_list2: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
+            light_tile_ids2: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
+            light_offsets: vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE),
+            light_counter: vk.buffer(MemoryTypeFilter::PREFER_DEVICE),
+            visible_lights: Mutex::new(vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)),
+            visible_lights_c: vk.buffer(MemoryTypeFilter::PREFER_DEVICE),
+            tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE)),
             radix_sort: Arc::new(Mutex::new(
                 crate::engine::utils::radix_sort::RadixSort::new(vk.clone()),
             )),
@@ -176,7 +175,7 @@ impl LightingCompute {
         light_templates: Subbuffer<[fs::lightTemplate]>,
         tiles: Subbuffer<[V]>,
         indirect: Subbuffer<[W]>,
-    ) -> Arc<PersistentDescriptorSet> {
+    ) -> Arc<DescriptorSet> {
         // let visble_lights = self.visible_lights.lock();
         let uniforms = self.vk.allocate(cs::Data {
             num_jobs: num_jobs as i32,
@@ -192,7 +191,7 @@ impl LightingCompute {
         //     ub
         //     // self.uniforms.from_data(uniform_data).unwrap()
         // };
-        PersistentDescriptorSet::new(
+        DescriptorSet::new(
             &self.vk.desc_alloc,
             self.pipeline
                 .layout()
@@ -317,31 +316,31 @@ impl LightingCompute {
             if (num_lights > visible_lights.len() as i32) {
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two() * 4,
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *light_list = buf;
 
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two() * 4,
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *light_tile_ids = buf;
 
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two() * 4,
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *light_list2 = buf;
 
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two() * 4,
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *light_tile_ids2 = buf;
 
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two(),
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *visible_lights = buf;
             }
@@ -360,7 +359,7 @@ impl LightingCompute {
         //     ub
         //     // self.uniforms.from_data(uniform_data).unwrap()
         // };
-        let set = PersistentDescriptorSet::new(
+        let set = DescriptorSet::new(
             &self.vk.desc_alloc,
             self.pipeline2
                 .layout()
@@ -491,7 +490,7 @@ impl LightingCompute {
         // if tiles_curr_len != tiles_should_be_len {
         //     let buf = self.vk.buffer_array(
         //         tiles_should_be_len,
-        //         MemoryUsage::DeviceOnly,
+        //         MemoryTypeFilter::PREFER_DEVICE,
         //     );
         //     *tiles.lock() = buf;
         // }

@@ -26,9 +26,9 @@ use vulkano::{
         CommandBufferInheritanceRenderingInfo, CommandBufferUsage, CopyBufferInfo,
         PrimaryCommandBufferAbstract,
     },
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    descriptor_set::{DescriptorSet, WriteDescriptorSet},
     device::Device,
-    memory::allocator::MemoryUsage,
+    memory::allocator::MemoryTypeFilter,
     pipeline::{Pipeline, PipelineBindPoint},
     sync::GpuFuture,
 };
@@ -107,19 +107,19 @@ impl TerrainEng {
                 ),
                 vertex_buffer: sys.vk.buffer_array(
                     (num_chunks * num_verts_chunk) as u64,
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 ),
                 normals_buffer: sys.vk.buffer_array(
                     (num_chunks * num_verts_chunk) as u64,
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 ),
                 uvs_buffer: sys.vk.buffer_array(
                     (num_chunks * num_verts_chunk) as u64,
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 ),
                 index_buffer: sys.vk.buffer_array(
                     (num_chunks * ((terrain_size - 1) * (terrain_size - 1)) * 6) as u64,
-                    MemoryUsage::DeviceOnly,
+                    MemoryTypeFilter::PREFER_DEVICE,
                 ),
             }));
         }
@@ -524,7 +524,7 @@ impl Component for TerrainEng {
                 descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
             }
             let set =
-                PersistentDescriptorSet::new(&vk.desc_alloc, layout.clone(), descriptors).unwrap();
+                DescriptorSet::new(layout.clone(), descriptors).unwrap();
             builder
                 // .set_viewport(0, [viewport.clone()])
                 // .bind_pipeline_graphics(pipeline.pipeline.clone())

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, BufferUsage, Subbuffer},
     command_buffer::{BufferCopy, CopyBufferInfo},
-    memory::allocator::MemoryUsage,
+    memory::allocator::MemoryTypeFilter,
     DeviceSize,
 };
 
@@ -41,7 +41,7 @@ impl LightingSystem {
     pub fn new(vk: Arc<VulkanManager>) -> Self {
         Self {
             light_templates: Arc::new(Mutex::new(_Storage::new())),
-            lights: Mutex::new(vk.buffer_array(1, MemoryUsage::Download)),
+            lights: Mutex::new(vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE)),
             // lights_buffer: Arc::new(Mutex::new(
             //     vk.sub_buffer_allocator_with_usage(BufferUsage::STORAGE_BUFFER),
             // )),
@@ -63,7 +63,7 @@ impl LightingSystem {
         if light_len > lights.len() as usize {
             let buf = self.vk.buffer_array(
                 light_len.next_power_of_two() as DeviceSize,
-                MemoryUsage::Download,
+                MemoryTypeFilter::PREFER_DEVICE,
             );
             builder
                 .copy_buffer(CopyBufferInfo::buffers(lights.clone(), buf.clone()))

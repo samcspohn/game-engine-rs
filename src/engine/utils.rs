@@ -45,6 +45,7 @@ pub fn path_format(entry: &std::path::PathBuf) -> String {
 }
 
 pub mod radix_sort;
+pub mod pipeline;
 // fn mat3_quat(m: &Mat3) -> Quat {
 //     let m00 = m[0];
 //     let m01 = m[1];
