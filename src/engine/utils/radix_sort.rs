@@ -16,7 +16,7 @@ pub mod cs1 {
 pub mod cs2 {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/multi_radixsort_v1.2.comp",
+        path: "src/shaders/multi_radixsort_v1.0.comp",
     }
 }
 

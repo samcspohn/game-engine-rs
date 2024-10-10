@@ -1,255 +1,128 @@
-// extern crate assimp;
+#version 460
+#extension GL_GOOGLE_include_directive: enable
 
-use std::{ops::Sub, sync::Arc};
+#define WORKGROUP_SIZE 256
+#define RADIX_SORT_BINS 256
+#define SUBGROUP_SIZE 32
 
-// use ai::import::Importer;
-// use assimp as ai;
-// use bytemuck::{Pod, Zeroable};
-use component_derive::AssetID;
-use parking_lot::{Mutex, RwLock};
+layout (local_size_x = WORKGROUP_SIZE) in;
 
-// use std::mem::size_of;
-use nalgebra_glm as glm;
-use russimp::{material::TextureType, scene::PostProcess};
-// use rapier3d::na::Norm;
-use crate::{
-    editor::inspectable::Inspectable_,
-    engine::{
-        project::asset_manager::{self, Asset, AssetManagerBase},
-        world::World,
-        VulkanManager,
-    },
+layout (std430, set = 0, binding = 0) buffer elements_in {
+    uint g_elements_in[];
 };
-use vulkano::{
-    buffer::{Buffer, BufferContents, Subbuffer},
-    memory::allocator::{MemoryAllocator, MemoryUsage, StandardMemoryAllocator},
-    pipeline::graphics::vertex_input::Vertex,
+layout (std430, set = 0, binding = 1) buffer payloads_in {
+    uint g_payloads_in[];
 };
-use vulkano::{device::Device, impl_vertex};
 
-mod mesh;
-// impl_vertex!(glm::Vec3, position);
+layout (std430, set = 0, binding = 2) buffer elements_out {
+    uint g_elements_out[];
+};
+layout (std430, set = 0, binding = 3) buffer payloads_out {
+    uint g_payloads_out[];
+};
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, BufferContents, Vertex)]
-pub struct _Vertex {
-    #[format(R32G32B32_SFLOAT)]
-    pub position: [f32; 3],
-}
-// impl_vertex!(Vertex, position);
+layout (std430, set = 0, binding = 4) buffer histograms {
+    uint g_histograms[];
+};
 
-impl Sub for _Vertex {
-    type Output = Self;
+layout (set = 0, binding = 5) uniform PushConstants {
+    uint g_shift;
+    uint g_num_blocks_per_workgroup;
+};
 
-    fn sub(self, other: Self) -> Self::Output {
-        Self {
-            position: [
-                self.position[0] - other.position[0],
-                self.position[1] - other.position[1],
-                self.position[2] - other.position[2],
-            ],
+struct PC {
+    uint g_num_elements;
+    uint g_num_workgroups;
+};
+layout (set = 0, binding = 6) buffer stuff {
+    PC pc;
+};
+
+layout (std430, set = 1, binding = 2) buffer histograms {
+    uint g_histograms[];
+};
+
+shared uint sums[RADIX_SORT_BINS];
+shared uint global_offsets[RADIX_SORT_BINS];
+
+struct BinFlags {
+    uint flags[WORKGROUP_SIZE / 32];
+};
+shared BinFlags bin_flags[RADIX_SORT_BINS];
+
+void main() {
+    uint gID = gl_GlobalInvocationID.x;
+    uint lID = gl_LocalInvocationID.x;
+    uint wID = gl_WorkGroupID.x;
+
+    uint local_histogram = 0;
+    uint prefix_sum = 0;
+    uint histogram_count = 0;
+
+    if (lID < RADIX_SORT_BINS) {
+        uint count = 0;
+        for (uint j = 0; j < pc.g_num_workgroups; j++) {
+            const uint t = g_histograms[RADIX_SORT_BINS * j + lID];
+            local_histogram = (j == wID) ? count : local_histogram;
+            count += t;
         }
+        histogram_count = count;
+        sums[lID] = histogram_count;
     }
-}
+    barrier();
 
-impl _Vertex {
-    pub fn to_vec3(&self) -> glm::Vec3 {
-        glm::vec3(self.position[0], self.position[1], self.position[2])
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, BufferContents, Vertex)]
-pub struct UV {
-    #[format(R32G32_SFLOAT)]
-    pub uv: [f32; 2],
-}
-// impl_vertex!(UV, uv);
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, BufferContents, Vertex)]
-pub struct Normal {
-    #[format(R32G32B32_SFLOAT)]
-    pub normal: [f32; 3],
-}
-
-// impl_vertex!(Normal, normal);
-
-#[derive(Clone)]
-pub struct Mesh {
-    pub vertices: Vec<_Vertex>, // TODO: change to [f32;3]
-    pub normals: Vec<Normal>,
-    pub uvs: Vec<UV>,
-    pub indeces: Vec<u32>,
-
-    pub vertex_buffer: Subbuffer<[_Vertex]>,
-    pub uvs_buffer: Subbuffer<[UV]>,
-    pub index_buffer: Subbuffer<[u32]>,
-    pub normals_buffer: Subbuffer<[Normal]>,
-    pub texture: Option<i32>,
-}
-
-impl Mesh {
-    pub fn new_procedural(
-        vertices: Vec<_Vertex>,
-        normals: Vec<Normal>,
-        indeces: Vec<u32>,
-        uvs: Vec<UV>,
-        vk: &VulkanManager,
-    ) -> Mesh {
-        let vertex_buffer = vk.buffer_from_iter(vertices.clone());
-        let uvs_buffer = vk.buffer_from_iter(uvs.clone());
-        let normals_buffer = vk.buffer_from_iter(normals.clone());
-        let index_buffer = vk.buffer_from_iter(indeces.clone());
-
-        Mesh {
-            vertices,
-            uvs,
-            indeces,
-            normals,
-            vertex_buffer,
-            uvs_buffer,
-            normals_buffer,
-            index_buffer,
-            texture: None,
+    if (lID < RADIX_SORT_BINS) {
+        uint sum = 0;
+        for (uint i = 0; i <= lID; i++) {
+            sum += sums[i];
         }
+        global_offsets[lID] = sum - sums[lID] + local_histogram;
     }
+    barrier();
 
-    pub fn load_model(
-        path: &str,
-        texture_manager: Arc<Mutex<TextureManager>>,
-        vk: &VulkanManager,
-    ) -> Vec<Mesh> {
-        let _path = std::path::Path::new(path);
-        let model = russimp::scene::Scene::from_file(
-            path,
-            vec![
-                PostProcess::CalculateTangentSpace,
-                PostProcess::Triangulate,
-                PostProcess::JoinIdenticalVertices,
-                PostProcess::SortByPrimitiveType,
-            ],
-        );
-        // println!("model stats: {:?}", model);
-        // let model = tobj::load_obj(path, &(tobj::GPU_LOAD_OPTIONS));
-        let (scene) = model.expect(format!("Failed to load OBJ file: {}", path).as_str());
-        let mut _meshes = Vec::new();
-        for mesh in scene.meshes.iter() {
-            let mut vertices = Vec::new();
-            let mut indices = Vec::new();
-            let mut normals = Vec::new();
-            let mut uvs = Vec::new();
+    const uint flags_bin = lID / 32;
+    const uint flags_bit = 1 << (lID % 32);
 
-            // let mesh = &m.mesh;
+    for (uint index = 0; index < g_num_blocks_per_workgroup; index++) {
+        uint elementId = wID * g_num_blocks_per_workgroup * WORKGROUP_SIZE + index * WORKGROUP_SIZE + lID;
 
-            for face in mesh.faces.iter() {
-                indices.push(face.0[0]);
-                indices.push(face.0[1]);
-                indices.push(face.0[2]);
+        if (lID < RADIX_SORT_BINS) {
+            for (int i = 0; i < WORKGROUP_SIZE / 32; i++) {
+                bin_flags[lID].flags[i] = 0U;
             }
-            for v in mesh.vertices.iter() {
-                vertices.push(_Vertex {
-                    position: [v.x, v.y, v.z],
-                });
-            }
-
-            for n in mesh.normals.iter() {
-                normals.push(Normal {
-                    normal: [n.x, n.y, n.z],
-                });
-            }
-
-            for uv in mesh.texture_coords.iter() {
-                if let Some(uv) = uv {
-                    uvs.push(UV {
-                        uv: [uv[0].x, uv[1].y],
-                    }); // TODO: support multiple uvs
-                }
-            }
-
-            let vertex_buffer = vk.buffer_from_iter(vertices.clone());
-            let uvs_buffer = vk.buffer_from_iter(uvs.clone());
-            let normals_buffer = vk.buffer_from_iter(normals.clone());
-            let index_buffer = vk.buffer_from_iter(indices.clone());
-
-            let mut texture = None;
-            // for mat in materials.iter() {
-            // println!("materials: {:?}", scene.materials);
-            if let Some(mat) = scene.materials.get(mesh.material_index as usize) {
-                for (_type, tex) in &mat.textures {
-                    println!("diffuse path: {:?}, {}", _type, tex.borrow().filename);
-                    if *_type == TextureType::Diffuse {
-                        let diff_path: &str =
-                            &(_path.parent().unwrap().to_str().unwrap().to_string()
-                                + "/"
-                                + &tex.borrow().filename);
-                        println!("diffuse path: {}", diff_path);
-                        texture = Some(texture_manager.lock().from_file(diff_path));
-                        println!("{}, {:?}", diff_path, texture);
-                    }
-                }
-                // if let Some(diffuse) = mat.textures {
-                //     let diff_path: &str =
-                //         &(_path.parent().unwrap().to_str().unwrap().to_string()
-                //             + "/"
-                //             + m.diffuse_texture.as_ref().unwrap());
-                //     texture = Some(texture_manager.lock().from_file(diff_path));
-                //     println!("{}, {:?}", diff_path, texture);
-                // }
-            }
-
-            // }
-
-            _meshes.push(Mesh {
-                vertices,
-                uvs,
-                indeces: indices,
-                normals,
-                vertex_buffer,
-                uvs_buffer,
-                normals_buffer,
-                index_buffer,
-                texture,
-            })
         }
+        barrier();
 
-        _meshes
-    }
-}
-
-use crate::engine::project::asset_manager::_AssetID;
-
-use super::{component::buffer_usage_all, texture::TextureManager};
-#[derive(AssetID)]
-pub struct ModelRenderer {
-    pub file: String,
-    pub meshes: Vec<Mesh>,
-    pub count: u32,
-}
-
-impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)> for ModelRenderer {
-    fn from_file(
-        file: &str,
-        params: &(Arc<Mutex<TextureManager>>, Arc<VulkanManager>),
-    ) -> ModelRenderer {
-        let meshes = Mesh::load_model(file, params.0.clone(), &params.1);
-        ModelRenderer {
-            file: file.into(),
-            meshes,
-            count: 1,
+        uint element_in = 0;
+        uint payload_in = 0;
+        uint binID = 0;
+        uint binOffset = 0;
+        if (elementId < pc.g_num_elements) {
+            element_in = g_elements_in[elementId];
+            payload_in = g_payloads_in[elementId];
+            binID = uint(element_in >> g_shift) & uint(RADIX_SORT_BINS - 1);
+            binOffset = global_offsets[binID];
+            atomicAdd(bin_flags[binID].flags[flags_bin], flags_bit);
         }
-    }
+        barrier();
 
-    fn reload(&mut self, file: &str, params: &(Arc<Mutex<TextureManager>>, Arc<VulkanManager>)) {
-        let _mesh = Mesh::load_model(file, params.0.clone(), &params.1);
+        if (elementId < pc.g_num_elements) {
+            uint prefix = 0;
+            uint count = 0;
+            for (uint i = 0; i < WORKGROUP_SIZE / 32; i++) {
+                const uint bits = bin_flags[binID].flags[i];
+                const uint full_count = bitCount(bits);
+                const uint partial_count = bitCount(bits & (flags_bit - 1));
+                prefix += (i < flags_bin) ? full_count : 0U;
+                prefix += (i == flags_bin) ? partial_count : 0U;
+                count += full_count;
+            }
+            g_elements_out[binOffset + prefix] = element_in;
+            g_payloads_out[binOffset + prefix] = payload_in;
+            if (prefix == count - 1) {
+                atomicAdd(global_offsets[binID], count);
+            }
+        }
+        barrier();
     }
 }
-
-impl Inspectable_ for ModelRenderer {
-    fn inspect(&mut self, ui: &mut egui::Ui, _world: &mut World) {
-        ui.add(egui::Label::new(self.file.as_str()));
-    }
-}
-
-pub type ModelManager =
-    asset_manager::AssetManager<(Arc<Mutex<TextureManager>>, Arc<VulkanManager>), ModelRenderer>;
