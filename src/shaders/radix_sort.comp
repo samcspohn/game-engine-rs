@@ -45,66 +45,77 @@ void main() {
     uint global_id = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x;
     uint local_id = gl_LocalInvocationID.x;
     uint group_id = gl_WorkGroupID.x + gl_WorkGroupID.y * gl_NumWorkGroups.x;
+    
+    // Initialize local counts and offsets
+    if (local_id < 256) {
+        local_counts[local_id] = 0;
+        local_offsets[local_id] = 0;
+    }
+    barrier();
 
-    switch (push_constants.stage) {
-        case 0: // Local counting
-            if (local_id < 256) {
-                local_counts[local_id] = 0;
-            }
-            barrier();
+    // Local counting
+    if (global_id < pc.total_elements) {
+        uint key = input_key_buffer.keys[global_id];
+        uint radix = (key >> (8 * push_constants.pass)) & 0xFF;
+        atomicAdd(local_counts[radix], 1);
+    }
+    barrier();
 
-            if (global_id < pc.total_elements) {
-                uint key = input_key_buffer.keys[global_id];
-                uint radix = (key >> (8 * push_constants.pass)) & 0xFF;
-                atomicAdd(local_counts[radix], 1);
-            }
-            break;
+    // Compute local offsets (prefix sum within work group)
+    if (local_id < 256) {
+        uint sum = 0;
+        for (uint i = 0; i < local_id; i++) {
+            sum += local_counts[i];
+        }
+        local_offsets[local_id] = sum;
+    }
+    barrier();
 
-        case 1: // Compute local offsets and update global counts
-            if (local_id < 256) {
-                uint sum = 0;
-                for (uint i = 0; i < local_id; i++) {
-                    sum += local_counts[i];
-                }
-                local_offsets[local_id] = sum;
+    // Update global counts
+    if (local_id < 256) {
+        atomicAdd(global_count_buffer.counts[local_id * pc.num_workgroups + group_id], local_counts[local_id]);
+    }
+    barrier();
 
-                atomicAdd(global_count_buffer.counts[local_id * pc.num_workgroups + group_id], local_counts[local_id]);
-            }
-            break;
+    // Wait for all work groups to finish counting
+    memoryBarrierBuffer();
+    barrier();
 
-        case 2: // Compute global offsets
-            if (group_id == 0 && local_id < 256) {
-                uint global_offset = 0;
-                for (uint i = 0; i < pc.num_workgroups; i++) {
-                    uint wg_count = global_count_buffer.counts[local_id * pc.num_workgroups + i];
-                    global_count_buffer.counts[local_id * pc.num_workgroups + i] = global_offset;
-                    global_offset += wg_count;
-                }
-            }
-            break;
+    // Compute global offsets (only in the first work group)
+    if (group_id == 0 && local_id < 256) {
+        uint global_offset = 0;
+        for (uint i = 0; i < pc.num_workgroups; i++) {
+            uint wg_count = global_count_buffer.counts[local_id * pc.num_workgroups + i];
+            global_count_buffer.counts[local_id * pc.num_workgroups + i] = global_offset;
+            global_offset += wg_count;
+        }
+    }
+    barrier();
 
-        case 3: // Compute work group offset
-            if (local_id == 0) {
-                uint wg_offset = 0;
-                for (uint i = 0; i < 256; i++) {
-                    wg_offset += global_count_buffer.counts[i * pc.num_workgroups + group_id];
-                }
-                wg_offset_buffer.offsets[group_id] = wg_offset;
-            }
-            break;
+    // Wait for global offsets computation
+    memoryBarrierBuffer();
+    barrier();
 
-        case 4: // Scatter elements
-            if (global_id < pc.total_elements) {
-                uint key = input_key_buffer.keys[global_id];
-                uint payload = input_payload_buffer.payloads[global_id];
-                uint radix = (key >> (8 * push_constants.pass)) & 0xFF;
-                uint global_offset = global_count_buffer.counts[radix * push_constants.num_workgroups + group_id];
-                uint local_offset = local_offsets[radix];
-                uint wg_offset = wg_offset_buffer.offsets[group_id];
-                uint index = global_offset + local_offset + (global_id - group_id * gl_WorkGroupSize.x - local_offset);
-                output_key_buffer.keys[index] = key;
-                output_payload_buffer.payloads[index] = payload;
-            }
-            break;
+    // Compute work group offset
+    if (local_id == 0) {
+        uint wg_offset = 0;
+        for (uint i = 0; i < 256; i++) {
+            wg_offset += global_count_buffer.counts[i * pc.num_workgroups + group_id];
+        }
+        wg_offset_buffer.offsets[group_id] = wg_offset;
+    }
+    barrier();
+
+    // Scatter elements
+    if (global_id < pc.total_elements) {
+        uint key = input_key_buffer.keys[global_id];
+        uint payload = input_payload_buffer.payloads[global_id];
+        uint radix = (key >> (8 * push_constants.pass)) & 0xFF;
+        uint global_offset = global_count_buffer.counts[radix * pc.num_workgroups + group_id];
+        uint local_offset = local_offsets[radix];
+        uint wg_offset = wg_offset_buffer.offsets[group_id];
+        uint index = global_offset + local_offset + (global_id - group_id * gl_WorkGroupSize.x - local_offset);
+        output_key_buffer.keys[index] = key;
+        output_payload_buffer.payloads[index] = payload;
     }
 }

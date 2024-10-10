@@ -83,7 +83,7 @@ pub struct LightingCompute {
     pub(crate) light_list2: Mutex<Subbuffer<[u32]>>,
     light_tile_ids2: Mutex<Subbuffer<[u32]>>,
     light_offsets: Subbuffer<[u32]>,
-    light_counter: Subbuffer<radix_sort::cs::PC>,
+    light_counter: Subbuffer<radix_sort::cs1::PC>,
     pub(crate) visible_lights: Mutex<Subbuffer<[u32]>>,
     pub(crate) visible_lights_c: Subbuffer<u32>,
     pub(crate) radix_sort: Arc<Mutex<crate::engine::utils::radix_sort::RadixSort>>,
@@ -442,9 +442,9 @@ impl LightingCompute {
         builder.update_buffer(self.visible_lights_c.clone(), &0);
         builder.update_buffer(
             self.light_counter.clone(),
-            &radix_sort::cs::PC {
-                total_elements: 0,
-                num_workgroups: 0,
+            &radix_sort::cs1::PC {
+                g_num_elements: 0,
+                g_num_workgroups: 0,
             },
         );
 

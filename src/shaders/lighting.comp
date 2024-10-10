@@ -169,15 +169,15 @@ void main() {
             barrier();
             if (gl_LocalInvocationID.x == 0) {
                 uint num_elements = global_idx + local_counter;
-                uint work_groups_x = uint(ceil(float(num_elements) / 256.0));
-                uint work_groups_y = 1;
+                uint work_groups_x = uint(ceil(float(num_elements) / 256.0 / 4.0));
+                // uint work_groups_y = 1;
                 uint total_work_groups = work_groups_x;
-                if (work_groups_x > 65535) {
-                    work_groups_y = uint(ceil(float(work_groups_x) / 65535.0));
-                    work_groups_x = 65535;
-                }
+                // if (work_groups_x > 65535) {
+                //     work_groups_y = uint(ceil(float(work_groups_x) / 65535.0));
+                //     work_groups_x = 65535;
+                // }
                 atomicMax(indirect[0].x, work_groups_x);
-                atomicMax(indirect[0].y, work_groups_y);
+                // atomicMax(indirect[0].y, work_groups_y);
                 atomicMax(pc.num_workgroups, total_work_groups);
             }
 
