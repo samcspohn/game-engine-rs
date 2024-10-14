@@ -8,7 +8,8 @@ use vulkano::{
         DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, DescriptorSet, PersistentDescriptorSet,
+        WriteDescriptorSet,
     },
     device::{Device, Queue},
     format::{self, Format},
@@ -26,7 +27,10 @@ use vulkano::{
             vertex_input::{BuffersDefinition, Vertex, VertexDefinition, VertexInputState},
             viewport::ViewportState,
             GraphicsPipelineCreateInfo,
-        }, layout::PipelineDescriptorSetLayoutCreateInfo, DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout, PipelineShaderStageCreateInfo
+        },
+        layout::PipelineDescriptorSetLayoutCreateInfo,
+        DynamicState, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout,
+        PipelineShaderStageCreateInfo,
     },
     render_pass::{RenderPass, Subpass},
     shader::ShaderModule,
@@ -35,6 +39,7 @@ use vulkano::{
 use crate::engine::{
     rendering::vulkan_manager::VulkanManager,
     transform_compute::cs::{transform, MVP},
+    utils,
 };
 
 use self::fs::light;
@@ -82,11 +87,11 @@ pub struct Id {
 // use self::vs::ty::Data;
 
 pub struct RenderPipeline {
-    _vs: Arc<ShaderModule>,
-    _fs: Arc<ShaderModule>,
+    // _vs: Arc<ShaderModule>,
+    // _fs: Arc<ShaderModule>,
     pub pipeline: Arc<GraphicsPipeline>,
     // pub uniforms: SubbufferAllocator,
-    pub def_texture: Arc<ImageView<Image>>,
+    pub def_texture: Arc<ImageView>,
     pub def_sampler: Arc<Sampler>,
     vk: Arc<VulkanManager>,
 }
@@ -107,56 +112,74 @@ impl RenderPipeline {
     pub fn new(
         sub_pass_index: u32,
         vk: Arc<VulkanManager>,
+        render_pass: Arc<RenderPass>,
         // use_msaa: bool,
     ) -> RenderPipeline {
-        let vs = vs::load(vk.device.clone()).unwrap();
-        let fs = fs::load(vk.device.clone()).unwrap();
+        let vs = vs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let fs = fs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
 
-        let vertex_input_state = [
-            _Vertex::per_vertex(),
-            Normal::per_vertex(),
-            UV::per_vertex(),
-        ]
-        .definition(&vs)
-        .unwrap();
-        // VertexInputState::new().attribute(0, _Vertex::per_vertex().definition(&vs)).attribute(1, Normal::per_vertex().definition(&vs)).attribute(2, UV::per_vertex().definition(&vs));
+        let pipeline = utils::pipeline::graphics_pipeline(
+            vk.clone(),
+            &[vs, fs],
+            &[
+                _Vertex::per_vertex(),
+                Normal::per_vertex(),
+                UV::per_vertex(),
+            ],
+            |g| {},
+            render_pass.clone(),
+        );
+        // let vertex_input_state = [
+        //     _Vertex::per_vertex(),
+        //     Normal::per_vertex(),
+        //     UV::per_vertex(),
+        // ]
+        // .definition(&vs)
+        // .unwrap();
+        // // VertexInputState::new().attribute(0, _Vertex::per_vertex().definition(&vs)).attribute(1, Normal::per_vertex().definition(&vs)).attribute(2, UV::per_vertex().definition(&vs));
 
-        let stages = [
-            PipelineShaderStageCreateInfo::new(vs),
-            PipelineShaderStageCreateInfo::new(fs),
-        ];
-        let layout = PipelineLayout::new(
-            vk.device.clone(),
-            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
-                .into_pipeline_layout_create_info(vk.device.clone())
-                .unwrap(),
-        )
-        .unwrap();
+        // let stages = [
+        //     PipelineShaderStageCreateInfo::new(vs),
+        //     PipelineShaderStageCreateInfo::new(fs),
+        // ];
+        // let layout = PipelineLayout::new(
+        //     vk.device.clone(),
+        //     PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+        //         .into_pipeline_layout_create_info(vk.device.clone())
+        //         .unwrap(),
+        // )
+        // .unwrap();
 
-        let subpass = PipelineRenderingCreateInfo {
-            color_attachment_formats: vec![Some(vk.swapchain().image_format())],
-            ..Default::default()
-        };
-        let pipeline = GraphicsPipeline::new(
-            vk.device.clone(),
-            None,
-            GraphicsPipelineCreateInfo {
-                stages: stages.into_iter().collect(),
-                vertex_input_state: Some(vertex_input_state),
-                input_assembly_state: Some(InputAssemblyState::default()),
-                viewport_state: Some(ViewportState::default()),
-                rasterization_state: Some(RasterizationState::default().cull_mode(CullMode::Back)),
-                multisample_state: Some(MultisampleState::default()),
-                color_blend_state: Some(ColorBlendState::with_attachment_states(
-                    subpass.color_attachment_formats.len() as u32,
-                    ColorBlendAttachmentState::default(),
-                )),
-                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-                subpass: Some(subpass.into()),
-                ..GraphicsPipelineCreateInfo::layout(layout)
-            },
-        )
-        .unwrap();
+        // let subpass = PipelineRenderingCreateInfo {
+        //     color_attachment_formats: vec![Some(vk.swapchain().image_format())],
+        //     ..Default::default()
+        // };
+        // let pipeline = GraphicsPipeline::new(
+        //     vk.device.clone(),
+        //     None,
+        //     GraphicsPipelineCreateInfo {
+        //         stages: stages.into_iter().collect(),
+        //         vertex_input_state: Some(vertex_input_state),
+        //         input_assembly_state: Some(InputAssemblyState::default()),
+        //         viewport_state: Some(ViewportState::default()),
+        //         rasterization_state: Some(RasterizationState::default().cull_mode(CullMode::Back)),
+        //         multisample_state: Some(MultisampleState::default()),
+        //         color_blend_state: Some(ColorBlendState::with_attachment_states(
+        //             subpass.color_attachment_formats.len() as u32,
+        //             ColorBlendAttachmentState::default(),
+        //         )),
+        //         dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+        //         subpass: Some(subpass.into()),
+        //         ..GraphicsPipelineCreateInfo::layout(layout)
+        //     },
+        // )
+        // .unwrap();
         // let pipeline = GraphicsPipeline::start()
         //     .vertex_input_state(
         //         BuffersDefinition::new()
@@ -224,7 +247,8 @@ impl RenderPipeline {
         )
         .unwrap();
 
-        let (def_texture, def_sampler) = texture::texture_from_bytes(vk.clone(), &vec![255_u8, 255, 255, 255], 1, 1);
+        let (def_texture, def_sampler) =
+            texture::texture_from_bytes(vk.clone(), &vec![255_u8, 255, 255, 255], 1, 1);
         // let def_texture = {
         //     let dimensions = ImageDimensions::Dim2d {
         //         width: 1,
@@ -257,8 +281,8 @@ impl RenderPipeline {
         // .unwrap();
 
         RenderPipeline {
-            _vs: vs,
-            _fs: fs,
+            // _vs: vs,
+            // _fs: fs,
             pipeline,
             def_texture,
             def_sampler,
@@ -299,10 +323,7 @@ impl RenderPipeline {
 
     pub fn bind_pipeline(
         &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
     ) -> &RenderPipeline {
         builder.bind_pipeline_graphics(self.pipeline.clone());
 
@@ -312,10 +333,7 @@ impl RenderPipeline {
     pub fn bind_mesh(
         &self,
         texture_manager: &TextureManager,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         desc_allocator: Arc<StandardDescriptorSetAllocator>,
         instance_buffer: Subbuffer<[[i32; 2]]>,
         mvp_buffer: Subbuffer<[MVP]>,
@@ -386,7 +404,9 @@ impl RenderPipeline {
         ));
         // descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
 
-        if let Ok(set) = DescriptorSet::new(&desc_allocator, layout.clone(), descriptors) {
+        if let Ok(set) =
+            PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors, [])
+        {
             builder
                 .bind_descriptor_sets(
                     PipelineBindPoint::Graphics,
@@ -394,6 +414,7 @@ impl RenderPipeline {
                     0,
                     set,
                 )
+                .unwrap()
                 .bind_vertex_buffers(
                     0,
                     (
@@ -405,8 +426,10 @@ impl RenderPipeline {
                         // instance_buffer.clone(),
                     ),
                 )
+                .unwrap()
                 // .bind_vertex_buffers(1, transforms_buffer.data.clone())
                 .bind_index_buffer(mesh.index_buffer.clone())
+                .unwrap()
                 .draw_indexed_indirect(indirect_buffer)
                 .unwrap();
         }

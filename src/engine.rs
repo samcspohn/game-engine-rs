@@ -26,7 +26,7 @@ use lazy_static::lazy_static;
 use num_integer::Roots;
 use once_cell::sync::Lazy;
 use project::scene_manager::SceneManager;
-use puffin_egui::puffin;
+// use puffin_egui::puffin;
 use rapier3d::{
     na::{ComplexField, UnitQuaternion},
     prelude::*,
@@ -44,23 +44,21 @@ use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, BlitImageInfo,
         CommandBufferUsage, CopyImageInfo, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
-        RenderPassBeginInfo, SubpassContents,
+        RenderPassBeginInfo, SubpassBeginInfo, SubpassContents, SubpassEndInfo,
     },
     format::Format,
     image::{
-        view::ImageView, AttachmentImage, ImageAccess, ImageDimensions, ImageUsage, ImmutableImage,
-        MipmapsCount, StorageImage, SwapchainImage,
+        sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
+        view::ImageView,
+        Image,
     },
-    memory::allocator::MemoryUsage,
     pipeline::graphics::viewport::Viewport,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
     swapchain::{
-        acquire_next_image, AcquireError, SwapchainAcquireFuture, SwapchainCreateInfo,
-        SwapchainCreationError, SwapchainPresentInfo,
+        acquire_next_image, SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
     },
-    sync::{self, FlushError, GpuFuture},
-    DeviceSize,
+    sync::{self, GpuFuture},
+    DeviceSize, Validated,
 };
 #[cfg(target_os = "windows")]
 use winit::platform::windows::EventLoopBuilderExtWindows;
@@ -68,7 +66,7 @@ use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::platform::x11::EventLoopBuilderExtX11;
 use winit::{
     dpi::{LogicalPosition, PhysicalSize},
-    event::{Event, ModifiersState, VirtualKeyCode, WindowEvent},
+    event::{Event, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
     window::Window,
 };
@@ -163,10 +161,7 @@ mod render_thread;
 pub mod utils;
 #[repr(C)]
 pub struct RenderData<'a> {
-    pub builder: &'a mut AutoCommandBufferBuilder<
-        PrimaryAutoCommandBuffer,
-        Arc<StandardCommandBufferAllocator>,
-    >,
+    pub builder: &'a mut utils::PrimaryCommandBuffer,
     // pub uniforms: Arc<Mutex<SubbufferAllocator>>,
     pub gpu_transforms: Subbuffer<[transform]>,
     pub light_len: u32,
@@ -229,9 +224,9 @@ pub(crate) enum EngineEvent {
 }
 struct EngineRenderer {
     viewport: Viewport,
-    framebuffers: Vec<(Arc<SwapchainImage>, Arc<Framebuffer>)>,
+    framebuffers: Vec<(Arc<Image>, Arc<Framebuffer>)>,
     recreate_swapchain: bool,
-    editor_window_image: Option<Arc<dyn ImageAccess>>,
+    editor_window_image: Option<Arc<Image>>,
     render_pass: Arc<RenderPass>,
     // previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
@@ -259,7 +254,7 @@ pub struct Engine {
     pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) rendering_data: Sender<(
         bool,
-        Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
+        Option<(u32, SwapchainAcquireFuture, Arc<PrimaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>>)>,
     )>,
     pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     phys_upd_start: Sender<(bool, Arc<Mutex<Physics>>)>,
@@ -281,7 +276,7 @@ pub struct Engine {
     editor: Editor,
     pub(crate) gui: SendSync<Gui>,
     pub(crate) tex_id: Option<TextureId>,
-    pub(crate) image_view: Option<Arc<ImageView<ImmutableImage>>>,
+    pub(crate) image_view: Option<Arc<ImageView>>,
     engine_dir: String,
     game_mode: bool,
     update_editor_window: bool,
@@ -317,17 +312,30 @@ impl Engine {
                     .build();
                 let vk = VulkanManager::new(&event_loop);
                 let proxy = event_loop.create_proxy();
+                // let render_pass = vulkano::single_pass_renderpass!(
+                //     vk.device.clone(),
+                //     attachments: {
+                //         final_color: {
+                //             load_op: Clear,
+                //             store_op: Store,
+                //             format: vk.swapchain().image_format(),
+                //             samples: 1,
+                //         }
+                //     },
+                //     pass: { color: [final_color], depth_stencil: {}} // Create a second renderpass to draw egui
+                // )
+                // .unwrap();
                 let render_pass = vulkano::single_pass_renderpass!(
                     vk.device.clone(),
                     attachments: {
-                        final_color: {
-                            load: Clear,
-                            store: Store,
+                        color: {
                             format: vk.swapchain().image_format(),
                             samples: 1,
+                            load_op: Clear,
+                            store_op: Store,
                         }
                     },
-                    pass: { color: [final_color], depth_stencil: {}} // Create a second renderpass to draw egui
+                    pass: { color: [color], depth_stencil: {} }
                 )
                 .unwrap();
                 let mut gui = egui_winit_vulkano::Gui::new_with_subpass(
@@ -353,7 +361,7 @@ impl Engine {
         let assets_manager = Arc::new(AssetsManager::new());
 
         let texture_manager = Arc::new(Mutex::new(TextureManager::new(
-            (vk.device.clone(), vk.queue.clone(), vk.mem_alloc.clone()),
+            (vk.clone()),
             &["png", "jpeg"],
         )));
         let model_manager = Arc::new(Mutex::new(ModelManager::new(
@@ -423,9 +431,9 @@ impl Engine {
         }
 
         let mut viewport = Viewport {
-            origin: [0.0, 0.0],
-            dimensions: [0.0, 0.0],
-            depth_range: 0.0..1.0,
+            offset: [0.0, 0.0],
+            extent: [0.0, 0.0],
+            depth_range: 0.0..=1.0,
         };
 
         //////////////////////////////////////////////////
@@ -491,16 +499,16 @@ impl Engine {
         proxy.send_event(EngineEvent::Send);
 
         let mut viewport = Viewport {
-            origin: [0.0, 0.0],
-            dimensions: [0.0, 0.0],
-            depth_range: 0.0..1.0,
+            offset: [0.0, 0.0],
+            extent: [0.0, 0.0],
+            depth_range: 0.0..=1.0,
         };
 
         let framebuffers =
             window_size_dependent_setup(&vk.images, render_pass.clone(), &mut viewport, &vk);
         let mut recreate_swapchain = true;
         let mut fc_map: HashMap<i32, HashMap<u32, TextureId>> = HashMap::new();
-        let mut editor_window_image: Option<Arc<dyn ImageAccess>> = None;
+        let mut editor_window_image: Option<Arc<Image>> = None;
         println!(
             "default quat: {}",
             glm::quat_look_at_lh(&Vec3::z(), &Vec3::y()).coords
@@ -717,12 +725,12 @@ impl Engine {
         self.vk
             .window()
             .set_cursor_visible(*self.vk.show_cursor.lock());
-        
+
         if (self.game_mode | self.playing_game) {
             self.vk.cursor_pos.lock().take();
-            puffin::profile_scope!("game loop");
+            // puffin::profile_scope!("game loop");
             {
-                puffin::profile_scope!("defered");
+                // puffin::profile_scope!("defered");
                 {
                     let world_do_defered = self.perf.node("world do_deffered");
                     world.do_defered();
@@ -738,7 +746,7 @@ impl Engine {
                 }
             }
             {
-                puffin::profile_scope!("world update");
+                // puffin::profile_scope!("world update");
                 if world.phys_time >= world.phys_step {
                     // skip if physics sim not complete
                     if let Ok(_) = self.phys_step_compl.try_recv() {
@@ -972,42 +980,42 @@ impl Engine {
             println!("dimensions: {dimensions:?}");
 
             let mut swapchain = vk.swapchain();
-            let (new_swapchain, new_images): (_, Vec<Arc<SwapchainImage>>) = match swapchain
-                .recreate(SwapchainCreateInfo {
+            let (new_swapchain, new_images): (_, Vec<Arc<Image>>) =
+                match swapchain.recreate(SwapchainCreateInfo {
                     image_extent: dimensions,
                     ..swapchain.create_info()
                 }) {
-                Ok(r) => r,
-                Err(SwapchainCreationError::ImageExtentNotSupported {
-                    provided,
-                    min_supported,
-                    max_supported,
-                }) => {
-                    println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
-                    self.rendering_data.send((false, None)).unwrap();
-                    // self.event_loop_proxy.send_event(EngineEvent::Send);
-                    return should_exit;
-                }
-                Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
-            };
+                    Ok(r) => r,
+                    // Err(VulkanError::ImageExtentNotSupported {
+                    //     provided,
+                    //     min_supported,
+                    //     max_supported,
+                    // }) => {
+                    //     println!("provided: {provided:?}, min_supported: {min_supported:?}, max_supported: {max_supported:?}");
+                    //     self.rendering_data.send((false, None)).unwrap();
+                    //     // self.event_loop_proxy.send_event(EngineEvent::Send);
+                    //     return should_exit;
+                    // }
+                    Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
+                };
 
             vk.update_swapchain(new_swapchain);
 
             *framebuffers =
                 window_size_dependent_setup(&new_images, render_pass.clone(), viewport, &vk);
-            viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+            viewport.extent = [dimensions[0] as f32, dimensions[1] as f32];
             *recreate_swapchain = false;
         }
 
         let (image_num, suboptimal, acquire_future) =
             match acquire_next_image(vk.swapchain(), Some(Duration::from_secs(30))) {
                 Ok(r) => r,
-                Err(AcquireError::OutOfDate) => {
-                    *recreate_swapchain = true;
-                    println!("falied to aquire next image");
-                    self.rendering_data.send((false, None)).unwrap();
-                    return true;
-                }
+                // Err(Validated) => {
+                //     *recreate_swapchain = true;
+                //     println!("falied to aquire next image");
+                //     self.rendering_data.send((false, None)).unwrap();
+                //     return true;
+                // }
                 Err(e) => panic!("Failed to acquire next image: {:?}", e),
             };
         if suboptimal {
@@ -1239,14 +1247,20 @@ impl Engine {
                     clear_values: vec![Some([0., 0., 0., 1.].into())],
                     ..RenderPassBeginInfo::framebuffer(framebuffers[image_num as usize].1.clone())
                 },
-                SubpassContents::SecondaryCommandBuffers,
+                SubpassBeginInfo {
+                    contents: SubpassContents::SecondaryCommandBuffers,
+                    ..Default::default()
+                },
             )
             .unwrap()
-            .set_viewport(0, [viewport.clone()]);
-        if !self.game_mode {
-            builder.execute_commands(gui_commands).unwrap();
+            .set_viewport(0, [viewport.clone()].into_iter().collect())
+            .unwrap();
+        unsafe {
+            if !self.game_mode {
+                builder.execute_commands(gui_commands).unwrap();
+            }
         }
-        builder.end_render_pass().unwrap();
+        builder.end_render_pass(Default::default()).unwrap();
 
         let _build_command_buffer = self.perf.node("_ build command buffer");
         let command_buffer = builder.build().unwrap();
@@ -1342,13 +1356,13 @@ impl Engine {
 
 /// This method is called once during initialization, then again whenever the window is resized
 fn window_size_dependent_setup(
-    images: &[Arc<SwapchainImage>],
+    images: &[Arc<Image>],
     render_pass: Arc<RenderPass>,
     viewport: &mut Viewport,
     vk: &VulkanManager,
-) -> Vec<(Arc<SwapchainImage>, Arc<Framebuffer>)> {
-    let dimensions = images[0].dimensions().width_height();
-    viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
+) -> Vec<(Arc<Image>, Arc<Framebuffer>)> {
+    let dimensions = &images[0].extent()[0..2];
+    viewport.extent = [dimensions[0] as f32, dimensions[1] as f32];
     // let _image = AttachmentImage::with_usage(
     //     &vk.mem_alloc,
     //     dimensions,

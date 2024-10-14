@@ -328,7 +328,8 @@ impl EditorWindow for SceneWindow {
                 self.image = tex;
             }
         });
-        ui.image(self.image, a);
+        ui.add(egui::Image::from_texture((self.image, a)).shrink_to_fit());
+        // ui.image(self.image);
 
         ui.input(|input| {
             if !input.pointer.secondary_down() {

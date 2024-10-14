@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use glm::{vec4, Vec3};
-use winit::event::VirtualKeyCode;
-
 use nalgebra_glm::{self as glm, vec3};
+use winit::event::VirtualKeyCode;
 
 use crate::engine::{
     input::Input, prelude::VulkanManager, rendering::camera::CameraDataId, time::Time,

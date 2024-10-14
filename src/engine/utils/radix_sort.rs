@@ -1,10 +1,52 @@
-use std::{ops::{Div, Mul}, sync::Arc};
+use std::{
+    ops::{Div, Mul},
+    sync::Arc,
+};
 
-use crate::engine::rendering::vulkan_manager::VulkanManager;
+use crate::engine::{rendering::vulkan_manager::VulkanManager, utils};
 
 use super::PrimaryCommandBuffer;
 use vulkano::{
-    buffer::Subbuffer, command_buffer::DispatchIndirectCommand, descriptor_set::{DescriptorSet, WriteDescriptorSet}, memory::allocator::MemoryTypeFilter, pipeline::{ComputePipeline, Pipeline, PipelineBindPoint}, shader::ShaderModule
+    buffer::Subbuffer,
+    command_buffer::DispatchIndirectCommand,
+    descriptor_set::{DescriptorSet, PersistentDescriptorSet, WriteDescriptorSet},
+    memory::allocator::MemoryTypeFilter,
+    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    shader::ShaderModule,
+};
+use vulkano::{
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage},
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        RenderingAttachmentInfo, RenderingInfo,
+    },
+    device::{
+        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Features,
+        QueueCreateInfo, QueueFlags,
+    },
+    image::{view::ImageView, Image, ImageUsage},
+    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
+    memory::allocator::{AllocationCreateInfo, StandardMemoryAllocator},
+    pipeline::{
+        graphics::{
+            color_blend::{ColorBlendAttachmentState, ColorBlendState},
+            input_assembly::InputAssemblyState,
+            multisample::MultisampleState,
+            rasterization::RasterizationState,
+            subpass::PipelineRenderingCreateInfo,
+            vertex_input::{Vertex, VertexDefinition},
+            viewport::{Viewport, ViewportState},
+            GraphicsPipelineCreateInfo,
+        },
+        layout::PipelineDescriptorSetLayoutCreateInfo,
+        DynamicState, GraphicsPipeline, PipelineLayout, PipelineShaderStageCreateInfo,
+    },
+    render_pass::{AttachmentLoadOp, AttachmentStoreOp},
+    swapchain::{
+        acquire_next_image, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo,
+    },
+    sync::{self, GpuFuture},
+    Validated, Version, VulkanError, VulkanLibrary,
 };
 
 pub mod cs1 {
@@ -16,7 +58,9 @@ pub mod cs1 {
 pub mod cs2 {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/multi_radixsort_v1.0.comp",
+        vulkan_version: "1.1",
+        spirv_version: "1.5",
+        path: "src/shaders/multi_radixsort.comp",
     }
 }
 
@@ -36,29 +80,11 @@ pub struct RadixSort {
 
 impl RadixSort {
     pub fn new(vk: Arc<VulkanManager>) -> Self {
-        let histograms_pipeline = vulkano::pipeline::ComputePipeline::new(
-            vk.device.clone(),
-            cs1::load(vk.device.clone())
-                .unwrap()
-                .entry_point("main")
-                .unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("Failed to create compute shader");
+        let histograms_pipeline =
+            utils::pipeline::compute_pipeline(vk.clone(), cs1::load(vk.device.clone()).unwrap());
 
-        let radix_pipeline = vulkano::pipeline::ComputePipeline::new(
-            vk.device.clone(),
-            cs2::load(vk.device.clone())
-                .unwrap()
-                .entry_point("main")
-                .unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("Failed to create compute shader");
+        let radix_pipeline =
+            utils::pipeline::compute_pipeline(vk.clone(), cs2::load(vk.device.clone()).unwrap());
 
         let histogram_buffer = vk.buffer_array(256, MemoryTypeFilter::PREFER_DEVICE);
         // let prefix_sum_buffer = vk.buffer_array(256, MemoryTypeFilter::PREFER_DEVICE);
@@ -97,38 +123,39 @@ impl RadixSort {
         payload2: &mut Subbuffer<[u32]>,
         builder: &mut PrimaryCommandBuffer,
     ) {
-
         let num_global_counts = max_elements.div_ceil(256 * 4).next_power_of_two().mul(256);
         if num_global_counts > self.histograms.len() as u32 {
-            self.histograms = vk.buffer_array(num_global_counts as u64, MemoryTypeFilter::PREFER_DEVICE);
+            self.histograms =
+                vk.buffer_array(num_global_counts as u64, MemoryTypeFilter::PREFER_DEVICE);
         }
-        
+
         for shift in (0..32).step_by(8) {
             builder.fill_buffer(self.histograms.clone(), 0);
-            
+
             // histogram
             let push_constants = cs1::PushConstants {
                 g_num_blocks_per_workgroup: 4,
                 g_shift: shift,
             };
             let push_constants = vk.allocate(push_constants);
-            let descriptor_set = DescriptorSet::new(
+            let descriptor_set = PersistentDescriptorSet::new(
                 &vk.desc_alloc,
                 self.histograms_pipeline
-                .layout()
-                .set_layouts()
-                .get(0) // 0 is the index of the descriptor set.
-                .unwrap()
-                .clone(),
+                    .layout()
+                    .set_layouts()
+                    .get(0) // 0 is the index of the descriptor set.
+                    .unwrap()
+                    .clone(),
                 [
                     WriteDescriptorSet::buffer(0, keys.clone()),
                     WriteDescriptorSet::buffer(1, self.histograms.clone()),
                     WriteDescriptorSet::buffer(2, push_constants.clone()),
                     WriteDescriptorSet::buffer(3, num_elements.clone()),
-                    ],
-                )
-                .unwrap();
-            
+                ],
+                [],
+            )
+            .unwrap();
+
             builder.bind_pipeline_compute(self.histograms_pipeline.clone());
             builder.bind_descriptor_sets(
                 PipelineBindPoint::Compute,
@@ -139,7 +166,7 @@ impl RadixSort {
             builder.dispatch_indirect(indirect.clone()).unwrap();
 
             // radix sort
-            let descriptor_set = DescriptorSet::new(
+            let descriptor_set = PersistentDescriptorSet::new(
                 &vk.desc_alloc,
                 self.radix_pipeline
                     .layout()
@@ -156,6 +183,7 @@ impl RadixSort {
                     WriteDescriptorSet::buffer(5, push_constants),
                     WriteDescriptorSet::buffer(6, num_elements.clone()),
                 ],
+                [],
             )
             .unwrap();
             // let descriptor_set = get_descriptors(keys, payload, keys2, payload2, push_constants);
@@ -170,7 +198,6 @@ impl RadixSort {
 
             std::mem::swap(keys, keys2);
             std::mem::swap(payload, payload2);
-
         }
         // std::mem::swap(keys, keys2);
         // std::mem::swap(payload, payload2);

@@ -45,7 +45,7 @@
                 },
             },
             "linux": {
-                "preLaunchTask": "find assimp linux",
+                "preLaunchTask": "find assimp linux release",
                 "env": { "LD_LIBRARY_PATH": "${workspaceFolder}/target/release/deps" },
             },
             // "preLaunchTask": "rust: cargo build -r --bin game-engine-rs",

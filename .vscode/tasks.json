@@ -40,8 +40,8 @@
 		},
 		{
 			"type":"shell",
-			"command": "find ./target/$1 -name \"libassimp.so.*\" -exec cp {} ./target/$1/deps \\;",
-			"label": "find assimp linux",
+			"command": "find ./target/release -name \"libassimp.so.*\" -exec cp {} ./target/release/deps \\;",
+			"label": "find assimp linux release",
 		},
 		{
 			"type":"shell",

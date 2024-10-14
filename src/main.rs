@@ -45,21 +45,6 @@ use std::{
     thread::{self},
     time::{Duration, Instant},
 };
-use vulkano::sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE};
-use vulkano::{
-    command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents,
-    },
-    image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
-    memory::allocator::MemoryUsage,
-    pipeline::graphics::viewport::Viewport,
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    swapchain::{
-        acquire_next_image, AcquireError, SwapchainCreateInfo, SwapchainCreationError,
-        SwapchainPresentInfo,
-    },
-    sync::{self, FlushError, GpuFuture},
-};
 use winit::{
     event::{
         DeviceEvent, ElementState, Event, KeyboardInput, ModifiersState, MouseButton,

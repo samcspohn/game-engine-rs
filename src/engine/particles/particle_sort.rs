@@ -1,5 +1,12 @@
 use std::{default, sync::Arc};
 
+use crate::engine::{
+    input::Input,
+    perf::{self, Perf},
+    rendering::{camera::CameraViewData, component::buffer_usage_all},
+    transform_compute::cs::transform,
+    utils, VulkanManager,
+};
 use parking_lot::Mutex;
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, Buffer, Subbuffer},
@@ -8,7 +15,8 @@ use vulkano::{
         CopyBufferInfo, DispatchIndirectCommand, DrawIndirectCommand, PrimaryAutoCommandBuffer,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, DescriptorSet, PersistentDescriptorSet,
+        WriteDescriptorSet,
     },
     device::{Device, Queue},
     memory::allocator::{MemoryTypeFilter, StandardMemoryAllocator},
@@ -17,13 +25,7 @@ use vulkano::{
     sync::{self, GpuFuture},
     DeviceSize,
 };
-use crate::engine::{
-    input::Input,
-    perf::{self, Perf},
-    rendering::{camera::CameraViewData, component::buffer_usage_all},
-    transform_compute::cs::transform,
-    VulkanManager,
-};
+use winit::event::VirtualKeyCode;
 
 use super::{
     particles::{ParticleBuffers, _MAX_PARTICLES},
@@ -59,7 +61,10 @@ impl ParticleSort {
             max_particles as vulkano::DeviceSize,
             MemoryTypeFilter::PREFER_DEVICE,
         );
-        let buckets = vk.buffer_array(65536 as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
+        let buckets = vk.buffer_array(
+            65536 as vulkano::DeviceSize,
+            MemoryTypeFilter::PREFER_DEVICE,
+        );
         let avail_count = vk.buffer_from_data(0u32);
         // indirect
         let indirect = (0..2)
@@ -101,7 +106,7 @@ impl ParticleSort {
                 let future = execute.then_signal_fence_and_flush();
                 match future {
                     Ok(_) => {}
-                    Err(FlushError::OutOfDate) => {}
+                    // Err(FlushError::OutOfDate) => {}
                     Err(_e) => {}
                 }
             }
@@ -111,14 +116,15 @@ impl ParticleSort {
         };
 
         let scs = scs::load(vk.device.clone()).unwrap();
-        let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
-            vk.device.clone(),
-            scs.entry_point("main").unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("Failed to create compute shader");
+        let compute_pipeline = utils::pipeline::compute_pipeline(vk.clone(), scs);
+        // vulkano::pipeline::ComputePipeline::new(
+        //     vk.device.clone(),
+        //     scs.entry_point("main").unwrap(),
+        //     &(),
+        //     None,
+        //     |_| {},
+        // )
+        // .expect("Failed to create compute shader");
 
         ParticleSort {
             a1,
@@ -139,10 +145,7 @@ impl ParticleSort {
         pb: &ParticleBuffers,
         _device: Arc<Device>,
         _queue: Arc<Queue>,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         desc_allocator: &StandardDescriptorSetAllocator,
         perf: &Perf,
         input: &Input,
@@ -182,10 +185,7 @@ impl ParticleSort {
             .unwrap()
             .clone();
 
-        let mut build_stage = |builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        let mut build_stage = |builder: &mut utils::PrimaryCommandBuffer,
                                stage: i32,
                                num_jobs: i32| {
             let indirect = match stage {
@@ -204,7 +204,7 @@ impl ParticleSort {
             uniform_data.num_jobs = num_jobs;
             uniform_data.stage = stage.into();
             let uniform_sub_buffer = self.vk.allocate(uniform_data);
-            let descriptor_set = DescriptorSet::new(
+            let descriptor_set = PersistentDescriptorSet::new(
                 desc_allocator,
                 layout.clone(),
                 [
@@ -225,6 +225,7 @@ impl ParticleSort {
                     WriteDescriptorSet::buffer(14, pb.alive_count.clone()),
                     // WriteDescriptorSet::buffer(15, pb.pos_life_compressed.clone()),
                 ],
+                [],
             )
             .unwrap();
 
@@ -236,6 +237,7 @@ impl ParticleSort {
                         0, // Bind this descriptor set to index 0.
                         descriptor_set,
                     )
+                    .unwrap()
                     .dispatch_indirect(indirect)
                     .unwrap();
             } else {
@@ -246,6 +248,7 @@ impl ParticleSort {
                         0, // Bind this descriptor set to index 0.
                         descriptor_set,
                     )
+                    .unwrap()
                     .dispatch([num_jobs as u32 / 1024 + 1, 1, 1])
                     .unwrap();
             }

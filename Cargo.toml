@@ -62,16 +62,17 @@ noise = "*"
 
 vulkano = "0.34.1"
 vulkano-shaders = "0.34.0"
-winit = "0.30.5"
+winit = "0.28.0"
 vulkano-win = "0.34.0"
 
-egui = "0.29.1"
+egui = "0.24.0"
 # egui_vulkano = "*"
 egui_winit_vulkano = "0.27.0"
-egui-winit = "0.29.1"
-egui_demo_lib = "0.29.1"
-puffin_egui = "0.29.0"
-egui_dock = "0.14.0"
+egui-winit = "0.24.0"
+egui_demo_lib = "0.24.1"
+puffin_egui = "0.24.0"
+egui_dock = "0.9.1"
+egui-gizmo = { path = "transform-gizmo" }
 
 tobj = "4.0.0"
 
@@ -101,5 +102,4 @@ kira = "0.8.7"
 russimp = { version = "3.2.0", features = ["prebuilt"] }
 rfd = "0.14.1"
 # egui-gizmo = "0.11.0"
-egui-gizmo = { path = "transform-gizmo" }
 ncollide3d = "0.33.0"

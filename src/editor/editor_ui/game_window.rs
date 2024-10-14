@@ -136,7 +136,7 @@ impl EditorWindow for GameWindow {
         //     c.resize(self.window_dims, self.vk.clone(), gui)
         // });
         // let mut tex_id = self.image;
-        ui.image(self.image, a);
+        ui.add(egui::Image::from_texture((self.image, a)).shrink_to_fit());
     }
 
     fn get_name(&self) -> &str {

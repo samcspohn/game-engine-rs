@@ -20,13 +20,13 @@ use vulkano::{
     DeviceSize,
 };
 
+use crate::engine::rendering::vulkan_manager::VulkanManager;
 use crate::{
     editor::inspectable::Inspectable_,
     engine::{
         project::asset_manager::{Asset, AssetManager},
         world::World,
     },
-    prelude::VulkanManager,
 };
 
 pub type TextureManager = AssetManager<Arc<VulkanManager>, Texture>;
@@ -58,15 +58,16 @@ impl Inspectable_ for Texture {
     }
 }
 
-pub fn texture_from_bytes(vk: Arc<VulkanManager>, data: &[u8], width: u32, height: u32) -> (Arc<Image>, Arc<Sampler>) {
-    let mut uploads = AutoCommandBufferBuilder::new(
-        vk.comm_alloc.clone(),
+pub fn texture_from_bytes(
+    vk: Arc<VulkanManager>,
+    data: &[u8],
+    width: u32,
+    height: u32,
+) -> (Arc<ImageView>, Arc<Sampler>) {
+    let mut uploads = AutoCommandBufferBuilder::primary(
+        &vk.comm_alloc,
         vk.queue.queue_family_index(),
-        CommandBufferLevel::Primary,
-        CommandBufferBeginInfo {
-            usage: CommandBufferUsage::OneTimeSubmit,
-            ..Default::default()
-        },
+        CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();
 
@@ -122,17 +123,16 @@ pub fn texture_from_bytes(vk: Arc<VulkanManager>, data: &[u8], width: u32, heigh
         ))
         .unwrap();
 
-    let _ = uploads.end().unwrap().execute(vk.queue.clone()).unwrap();
+    let _ = uploads.build().unwrap().execute(vk.queue.clone()).unwrap();
 
     let sampler =
         Sampler::new(vk.device.clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
 
-    (image, sampler)
+    (ImageView::new_default(image).unwrap(), sampler)
 }
 impl Asset<Texture, (Arc<VulkanManager>)> for Texture {
     fn from_file(path: &str, params: &Arc<VulkanManager>) -> Texture {
         if let Ok(img) = image::open(path) {
-
             // let img_format = match img.color() {
             //     // image::ColorType::L8(_) => Format::R8_SNORM,
             //     image::ColorType::Rgb8 => Format::R8G8B8_SRGB,
@@ -150,7 +150,7 @@ impl Asset<Texture, (Arc<VulkanManager>)> for Texture {
             // } else {
             //     img.as_bytes().iter().map(|u| *u).collect()
             // };
-            let pixels: Vec<u8> = img.to_rgba8().iter().collect();
+            let pixels: Vec<u8> = img.to_rgba8().iter().cloned().collect();
 
             // let vk = params;
             // let mut uploads = AutoCommandBufferBuilder::new(
@@ -239,7 +239,8 @@ impl Asset<Texture, (Arc<VulkanManager>)> for Texture {
             //     Sampler::new(vk.device.clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
 
             // let _ = uploads.end().unwrap().execute(vk.queue.clone()).unwrap();
-            let (image, sampler) = texture_from_bytes(params.clone(), &pixels, img.width(), img.height());
+            let (image, sampler) =
+                texture_from_bytes(params.clone(), &pixels, img.width(), img.height());
 
             Texture {
                 file: path.into(),
@@ -326,11 +327,7 @@ impl Asset<Texture, (Arc<VulkanManager>)> for Texture {
         // }
     }
 
-    fn reload(
-        &mut self,
-        file: &str,
-        params: &(Arc<VulkanManager>),
-    ) {
+    fn reload(&mut self, file: &str, params: &(Arc<VulkanManager>)) {
         *self = Self::from_file(file, params)
     }
 }

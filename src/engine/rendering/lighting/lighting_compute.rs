@@ -5,6 +5,9 @@ use nalgebra_glm as glm;
 use nalgebra_glm::{Mat4, Vec3};
 use parking_lot::Mutex;
 use rapier3d::na::ComplexField;
+use vulkano::descriptor_set::PersistentDescriptorSet;
+use vulkano::pipeline::graphics::vertex_input::VertexBufferDescription;
+use vulkano::pipeline::graphics::GraphicsPipelineCreateInfo;
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, Subbuffer},
     command_buffer::{CopyBufferInfo, DispatchIndirectCommand, DrawIndirectCommand},
@@ -20,7 +23,7 @@ use vulkano::{
             vertex_input::BuffersDefinition,
             viewport::ViewportState,
         },
-        ComputePipeline, GraphicsPipeline, Pipeline, StateMode,
+        ComputePipeline, GraphicsPipeline, Pipeline,
     },
     render_pass::{RenderPass, Subpass},
 };
@@ -94,59 +97,93 @@ impl LightingCompute {
         vk: Arc<VulkanManager>,
         render_pass: Arc<RenderPass>,
     ) -> Arc<GraphicsPipeline> {
-        let vs = vs::load(vk.device.clone()).unwrap();
-        let fs = lfs::load(vk.device.clone()).unwrap();
-        let gs = gs::load(vk.device.clone()).unwrap();
-
-        let subpass = Subpass::from(render_pass, 0).unwrap();
-        let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
-        let mut depth_stencil_state = DepthStencilState::simple_depth_test();
-        depth_stencil_state.depth = Some(DepthState {
-            write_enable: StateMode::Fixed(false),
-            compare_op: StateMode::Fixed(CompareOp::Less),
-        });
-
-        let render_pipeline = GraphicsPipeline::start()
-            .vertex_input_state(BuffersDefinition::new())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            // .input_assembly_state(InputAssemblyState::new())
-            .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .geometry_shader(gs.entry_point("main").unwrap(), ())
-            // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
-            .depth_stencil_state(depth_stencil_state)
-            .color_blend_state(blend_state)
-            .render_pass(subpass)
-            .build(vk.device.clone())
+        let vs = vs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
             .unwrap();
+        let fs = lfs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let gs = gs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+
+        // let subpass = Subpass::from(render_pass, 0).unwrap();
+        // let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
+        // let mut depth_stencil_state = DepthStencilState::simple_depth_test();
+        // depth_stencil_state.depth = Some(DepthState {
+        //     write_enable: StateMode::Fixed(false),
+        //     compare_op: StateMode::Fixed(CompareOp::Less),
+        // });
+
+        // let render_pipeline = GraphicsPipeline::start()
+        //     .vertex_input_state(BuffersDefinition::new())
+        //     .vertex_shader(vs.entry_point("main").unwrap(), ())
+        //     // .input_assembly_state(InputAssemblyState::new())
+        //     .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
+        //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        //     .geometry_shader(gs.entry_point("main").unwrap(), ())
+        //     // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
+        //     .fragment_shader(fs.entry_point("main").unwrap(), ())
+        //     .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+        //     .depth_stencil_state(depth_stencil_state)
+        //     .color_blend_state(blend_state)
+        //     .render_pass(subpass)
+        //     .build(vk.device.clone())
+        //     .unwrap();
+        let render_pipeline = utils::pipeline::graphics_pipeline(
+            vk.clone(),
+            &[vs, gs, fs],
+            &[],
+            |info| {
+                info.input_assembly_state = Some(InputAssemblyState {
+                    topology: PrimitiveTopology::PointList,
+                    primitive_restart_enable: false,
+                    ..Default::default()
+                });
+                info.rasterization_state = Some(RasterizationState {
+                    cull_mode: CullMode::None,
+                    ..Default::default()
+                });
+            },
+            render_pass,
+        );
         render_pipeline
     }
     pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>) -> LightingCompute {
         Self {
-            pipeline: vulkano::pipeline::ComputePipeline::new(
-                vk.device.clone(),
-                cs::load(vk.device.clone())
-                    .unwrap()
-                    .entry_point("main")
-                    .unwrap(),
-                &(),
-                None,
-                |_| {},
-            )
-            .expect("Failed to create compute shader"),
-            pipeline2: vulkano::pipeline::ComputePipeline::new(
-                vk.device.clone(),
-                lt::load(vk.device.clone())
-                    .unwrap()
-                    .entry_point("main")
-                    .unwrap(),
-                &(),
-                None,
-                |_| {},
-            )
-            .expect("Failed to create compute shader"),
+            // pipeline: vulkano::pipeline::ComputePipeline::new(
+            //     vk.device.clone(),
+            //     cs::load(vk.device.clone())
+            //         .unwrap()
+            //         .entry_point("main")
+            //         .unwrap(),
+            //     &(),
+            //     None,
+            //     |_| {},
+            // )
+            // .expect("Failed to create compute shader"),
+            pipeline: utils::pipeline::compute_pipeline(
+                vk.clone(),
+                cs::load(vk.device.clone()).unwrap(),
+            ),
+            // pipeline2: vulkano::pipeline::ComputePipeline::new(
+            //     vk.device.clone(),
+            //     lt::load(vk.device.clone())
+            //         .unwrap()
+            //         .entry_point("main")
+            //         .unwrap(),
+            //     &(),
+            //     None,
+            //     |_| {},
+            // )
+            // .expect("Failed to create compute shader"),
+            pipeline2: utils::pipeline::compute_pipeline(
+                vk.clone(),
+                lt::load(vk.device.clone()).unwrap(),
+            ),
             // uniforms: Mutex::new(vk.sub_buffer_allocator()),
             dummy_buffer: vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE),
             light_list: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
@@ -175,7 +212,7 @@ impl LightingCompute {
         light_templates: Subbuffer<[fs::lightTemplate]>,
         tiles: Subbuffer<[V]>,
         indirect: Subbuffer<[W]>,
-    ) -> Arc<DescriptorSet> {
+    ) -> Arc<PersistentDescriptorSet> {
         // let visble_lights = self.visible_lights.lock();
         let uniforms = self.vk.allocate(cs::Data {
             num_jobs: num_jobs as i32,
@@ -191,7 +228,7 @@ impl LightingCompute {
         //     ub
         //     // self.uniforms.from_data(uniform_data).unwrap()
         // };
-        DescriptorSet::new(
+        PersistentDescriptorSet::new(
             &self.vk.desc_alloc,
             self.pipeline
                 .layout()
@@ -216,6 +253,7 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(13, self.visible_lights_c.clone()),
                 WriteDescriptorSet::buffer(14, indirect.clone()),
             ],
+            [],
         )
         .unwrap()
     }
@@ -285,6 +323,7 @@ impl LightingCompute {
                         0,
                         descriptor_set,
                     )
+                    .unwrap()
                     .dispatch([(num_jobs as u32).div_ceil(128), 1, 1])
                     .unwrap();
             };
@@ -359,7 +398,7 @@ impl LightingCompute {
         //     ub
         //     // self.uniforms.from_data(uniform_data).unwrap()
         // };
-        let set = DescriptorSet::new(
+        let set = PersistentDescriptorSet::new(
             &self.vk.desc_alloc,
             self.pipeline2
                 .layout()
@@ -371,6 +410,7 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(0, uniforms),
                 WriteDescriptorSet::buffer(2, self.tiles.lock().clone()),
             ],
+            [],
         )
         .unwrap();
         builder
@@ -380,6 +420,7 @@ impl LightingCompute {
                 0,
                 set,
             )
+            .unwrap()
             .dispatch([NUM_TILES.div_ceil(64) as u32, 1, 1])
             .unwrap();
 

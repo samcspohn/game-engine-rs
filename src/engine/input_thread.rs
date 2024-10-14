@@ -4,8 +4,8 @@ use crossbeam::channel::{Receiver, Sender};
 use force_send_sync::SendSync;
 use winit::{
     dpi::PhysicalSize,
-    event::{Event, WindowEvent},
-    event_loop::{self, ControlFlow, EventLoop}, keyboard::ModifiersState,
+    event::{Event, ModifiersState, WindowEvent},
+    event_loop::{self, ControlFlow, EventLoop},
 };
 
 use crate::engine::rendering::vulkan_manager::VulkanManager;
@@ -16,7 +16,7 @@ pub(crate) fn input_thread(
     event_loop: EventLoop<EngineEvent>,
     vk: Arc<VulkanManager>,
     coms: Sender<(
-        Vec<WindowEvent>,
+        Vec<WindowEvent<'static>>,
         Input,
         Option<PhysicalSize<u32>>,
         bool,
@@ -76,17 +76,19 @@ pub(crate) fn input_thread(
                         device_id,
                         state,
                         button,
+                        modifiers,
                     } => input.process_mouse_input(device_id, state, button),
                     WindowEvent::MouseWheel {
                         device_id,
                         delta,
                         phase,
+                        modifiers,
                     } => input.process_mouse_wheel(device_id, delta, phase),
 
                     WindowEvent::KeyboardInput {
-                        event: ky_input,
                         device_id,
                         is_synthetic,
+                        input: ky_input,
                     } => input.process_keyboard(device_id, ky_input, is_synthetic),
                     WindowEvent::ModifiersChanged(m) => modifiers = m,
                     WindowEvent::Resized(_size) => {

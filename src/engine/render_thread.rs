@@ -89,7 +89,7 @@ pub(super) fn render_thread(
     // render_pass: Arc<RenderPass>,
     rendering_data: Receiver<(
         bool,
-        Option<(u32, SwapchainAcquireFuture, PrimaryAutoCommandBuffer)>,
+        Option<(u32, SwapchainAcquireFuture, Arc<PrimaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>>)>,
     )>,
     rendering_complete: Sender<bool>,
 ) {

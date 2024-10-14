@@ -15,6 +15,7 @@ use crate::{
         project::asset_manager::AssetInstance,
         storage::_Storage,
         transform_compute::TransformCompute,
+        utils,
         world::{component::Component, transform::Transform, Sys},
     },
 };
@@ -31,10 +32,14 @@ use vulkano::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CopyBufferInfo,
         DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer,
     },
-    descriptor_set::{DescriptorSet, WriteDescriptorSet},
+    descriptor_set::{DescriptorSet, PersistentDescriptorSet, WriteDescriptorSet},
     device::DeviceOwned,
     memory::allocator::{MemoryAllocator, MemoryTypeFilter},
-    pipeline::{compute::ComputePipelineCreateInfo, layout::PipelineDescriptorSetLayoutCreateInfo, ComputePipeline, Pipeline, PipelineBindPoint, PipelineLayout, PipelineShaderStageCreateInfo},
+    pipeline::{
+        compute::ComputePipelineCreateInfo, layout::PipelineDescriptorSetLayoutCreateInfo,
+        ComputePipeline, Pipeline, PipelineBindPoint, PipelineLayout,
+        PipelineShaderStageCreateInfo,
+    },
     shader::ShaderModule,
 };
 
@@ -253,10 +258,7 @@ impl SharedRendererData {
         // rm: &mut parking_lot::RwLockWriteGuard<SharedRendererData>,
         rd: &mut RendererData,
         vk: Arc<VulkanManager>,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         renderer_pipeline: Arc<ComputePipeline>,
         transform_compute: &TransformCompute,
     ) -> Vec<i32> {
@@ -268,8 +270,10 @@ impl SharedRendererData {
 
             let copy_buffer = self.transform_ids_gpu.clone();
             unsafe {
-                self.transform_ids_gpu = vk.buffer_array(max_len as u64, MemoryTypeFilter::PREFER_DEVICE);
-                self.renderers_gpu = vk.buffer_array(max_len as u64, MemoryTypeFilter::PREFER_DEVICE);
+                self.transform_ids_gpu =
+                    vk.buffer_array(max_len as u64, MemoryTypeFilter::PREFER_DEVICE);
+                self.renderers_gpu =
+                    vk.buffer_array(max_len as u64, MemoryTypeFilter::PREFER_DEVICE);
             }
 
             // let copy = CopyBufferInfo::buffers(copy_buffer, rm.transform_ids_gpu.clone());
@@ -319,7 +323,7 @@ impl SharedRendererData {
                 // *uniforms.write().unwrap() = data;
                 let uniforms = self.vk.allocate(data);
 
-                let update_renderers_set = DescriptorSet::new(
+                let update_renderers_set = PersistentDescriptorSet::new(
                     &vk.desc_alloc,
                     renderer_pipeline
                         .layout()
@@ -337,6 +341,7 @@ impl SharedRendererData {
                         WriteDescriptorSet::buffer(5, self.indirect_buffer.clone()),
                         WriteDescriptorSet::buffer(6, uniforms),
                     ],
+                    [],
                 )
                 .unwrap();
 
@@ -347,6 +352,7 @@ impl SharedRendererData {
                         0, // Bind this descriptor set to index 0.
                         update_renderers_set,
                     )
+                    .unwrap()
                     .dispatch([update_num as u32 / 128 + 1, 1, 1])
                     .unwrap();
             }
@@ -376,7 +382,6 @@ pub fn buffer_usage_all() -> BufferUsage {
         | BufferUsage::INDEX_BUFFER
         | BufferUsage::VERTEX_BUFFER
         | BufferUsage::INDIRECT_BUFFER
-        | BufferUsage::SHADER_DEVICE_ADDRESS
     // BufferUsage {
     //     transfer_src: true,
     //     transfer_dst: true,
@@ -406,24 +411,25 @@ impl RendererManager {
         // )
         // .expect("Failed to create compute shader");
 
-        let pipeline = {
-            let cs = shader
-                .entry_point("main")
-                .unwrap();
-            let stage = PipelineShaderStageCreateInfo::new(cs);
-            let layout = PipelineLayout::new(
-                vk.device.clone(),
-                PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
-                    .into_pipeline_layout_create_info(vk.device.clone()),
-            )
-            .unwrap();
-            ComputePipeline::new(
-                vk.device.clone(),
-                None,
-                ComputePipelineCreateInfo::stage_layout(stage, layout),
-            )
-            .unwrap()
-        };
+        // let pipeline = {
+        //     let cs = shader
+        //         .entry_point("main")
+        //         .unwrap();
+        //     let stage = PipelineShaderStageCreateInfo::new(cs);
+        //     let layout = PipelineLayout::new(
+        //         vk.device.clone(),
+        //         PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
+        //             .into_pipeline_layout_create_info(vk.device.clone()),
+        //     )
+        //     .unwrap();
+        //     ComputePipeline::new(
+        //         vk.device.clone(),
+        //         None,
+        //         ComputePipelineCreateInfo::stage_layout(stage, layout),
+        //     )
+        //     .unwrap()
+        // };
+        let pipeline = utils::pipeline::compute_pipeline(vk.clone(), shader.clone());
 
         RendererManager {
             model_indirect: RwLock::new(BTreeMap::new()),

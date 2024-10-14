@@ -22,7 +22,8 @@ use vulkano::{
         PrimaryAutoCommandBuffer,
     },
     descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
+        allocator::StandardDescriptorSetAllocator, DescriptorSet, PersistentDescriptorSet,
+        WriteDescriptorSet,
     },
     device::Device,
     memory::allocator::{MemoryTypeFilter, StandardMemoryAllocator},
@@ -36,7 +37,7 @@ use vulkano::{
 
 use self::cs::{transform, Data, MVP};
 
-use super::{perf::Perf, rendering::vulkan_manager::VulkanManager, world::transform::TransformBuf};
+use super::{perf::Perf, rendering::vulkan_manager::VulkanManager, utils, world::transform::TransformBuf};
 
 pub mod cs {
     vulkano_shaders::shader! {
@@ -66,8 +67,10 @@ impl TransformCompute {
         let num_images = vk.images.len() as u32;
 
         let num_transforms = 2;
-        let gpu_transforms =
-            vk.buffer_array(num_transforms as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
+        let gpu_transforms = vk.buffer_array(
+            num_transforms as vulkano::DeviceSize,
+            MemoryTypeFilter::PREFER_DEVICE,
+        );
         let mvp = vk.buffer_array(
             num_transforms as vulkano::DeviceSize,
             MemoryTypeFilter::PREFER_DEVICE,
@@ -94,7 +97,8 @@ impl TransformCompute {
                 let layout = PipelineLayout::new(
                     vk.device.clone(),
                     PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
-                        .into_pipeline_layout_create_info(vk.device.clone()),
+                        .into_pipeline_layout_create_info(vk.device.clone())
+                        .unwrap(),
                 )
                 .unwrap();
                 ComputePipeline::new(
@@ -125,10 +129,7 @@ impl TransformCompute {
 
     pub(crate) fn update_data(
         &mut self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         // image_num: u32,
         transform_data: TransformBuf,
         perf: &Perf,
@@ -148,10 +149,7 @@ impl TransformCompute {
     ///
     pub fn __update_data(
         &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         data: TransformBuf,
     ) {
         // stage 0
@@ -180,7 +178,8 @@ impl TransformCompute {
         //     // self.uniforms.from_data(uniform_data).unwrap()
         // };
 
-        let descriptor_set = DescriptorSet::new(
+        let descriptor_set = PersistentDescriptorSet::new(
+            &self.vk.desc_alloc,
             self.compute
                 .layout()
                 .set_layouts()
@@ -200,17 +199,20 @@ impl TransformCompute {
                 // WriteDescriptorSet::buffer(3, ids.clone()),
                 // WriteDescriptorSet::buffer(4, transforms_sub_buffer),
             ],
+            [],
         )
         .unwrap();
 
         builder
             .bind_pipeline_compute(self.compute.clone())
+            .unwrap()
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.compute.layout().clone(),
                 0, // Bind this descriptor set to index 0.
                 descriptor_set,
             )
+            .unwrap()
             .dispatch([num_jobs as u32 / 128 + 1, 1, 1])
             .unwrap();
         // }
@@ -218,10 +220,7 @@ impl TransformCompute {
     //////////////////////////////////////////////////////////////////
     pub fn _update_gpu_transforms(
         &mut self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         transform_len: usize,
     ) {
         let len = transform_len;
@@ -229,9 +228,10 @@ impl TransformCompute {
         let max_len = len.next_power_of_two();
 
         if self.gpu_transforms.len() < len as u64 {
-            let device_local_buffer = self
-                .vk
-                .buffer_array(max_len as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
+            let device_local_buffer = self.vk.buffer_array(
+                max_len as vulkano::DeviceSize,
+                MemoryTypeFilter::PREFER_DEVICE,
+            );
             let copy_buffer = self.gpu_transforms.clone();
 
             self.gpu_transforms = device_local_buffer;
@@ -242,9 +242,10 @@ impl TransformCompute {
                 ))
                 .unwrap();
 
-            let device_local_buffer = self
-                .vk
-                .buffer_array(max_len as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
+            let device_local_buffer = self.vk.buffer_array(
+                max_len as vulkano::DeviceSize,
+                MemoryTypeFilter::PREFER_DEVICE,
+            );
 
             let copy_buffer = self.mvp.clone();
 
@@ -256,10 +257,7 @@ impl TransformCompute {
     }
     pub fn update_mvp(
         &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         view: glm::Mat4,
         proj: glm::Mat4,
         // transforms_len: i32,
@@ -287,7 +285,8 @@ impl TransformCompute {
         //     ub
         // };
 
-        let descriptor_set = DescriptorSet::new(
+        let descriptor_set = PersistentDescriptorSet::new(
+            &self.vk.desc_alloc,
             self.compute
                 .layout()
                 .set_layouts()
@@ -315,17 +314,20 @@ impl TransformCompute {
                 //     self.vk.buffer_from_iter(vec![0]),
                 // ),
             ],
+            [],
         )
         .unwrap();
 
         builder
             .bind_pipeline_compute(self.compute.clone())
+            .unwrap()
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 self.compute.layout().clone(),
                 0,
                 descriptor_set,
             )
+            .unwrap()
             .dispatch([data.1.len() as u32 / 128 + 1, 1, 1])
             .unwrap();
     }

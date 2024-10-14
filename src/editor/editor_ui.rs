@@ -46,7 +46,7 @@ use std::{
 };
 use winit::event::VirtualKeyCode;
 
-use egui_dock::{DockArea, NodeIndex, Style, TabIndex, Tree};
+use egui_dock::{DockArea, DockState, NodeIndex, Style, SurfaceIndex, TabIndex, Tree};
 
 mod asset_browser;
 mod console;
@@ -147,7 +147,7 @@ pub struct Editor {
     dragged_transform: Mutex<i32>,
     transform_drag: Mutex<Option<TransformDrag>>,
     inspectable: Option<Arc<Mutex<dyn Inspectable_>>>,
-    dock: Tree<Box<dyn EditorWindow>>,
+    dock: DockState<Box<dyn EditorWindow>>,
     views: Vec<Box<dyn EditorWindow>>,
     play_game: bool,
     scene_window: NodeIndex,
@@ -171,18 +171,22 @@ pub struct EditorArgs<'a> {
 
 impl Editor {
     pub fn new(vk: Arc<VulkanManager>) -> Self {
-        let mut tree: Tree<Box<dyn EditorWindow>> = Tree::new(vec![
+        let mut dock: DockState<Box<dyn EditorWindow>> = DockState::new(vec![
             Box::new(SceneWindow::new(vk.clone())),
             Box::new(GameWindow::new(vk.clone())),
         ]);
+        // let mut tree: Tree<Box<dyn EditorWindow + 'static>> = Tree::new(vec![
+        //     Box::new(SceneWindow::new(vk.clone())),
+        //     Box::new(GameWindow::new(vk.clone())),
+        // ]);
 
         // You can modify the tree before constructing the dock
-        let [a, b] = tree.split_left(NodeIndex::root(), 0.15, vec![Box::new(Hierarchy::new())]);
+        let [a, b] = dock.main_surface_mut().split_left(NodeIndex::root(), 0.15, vec![Box::new(Hierarchy::new())]);
         let ins = Box::new(Inspector::new());
         unsafe { LAST_ACTIVE = ins.as_ref() };
-        let [c, _] = tree.split_right(a, 0.8, vec![ins]);
-        let [_, _] = tree.split_below(b, 0.5, vec![Box::new(ProjectWindow::new())]);
-        let [_, _] = tree.split_below(c, 0.7, vec![Box::new(ConsoleWindow::new())]);
+        let [c, _] = dock.main_surface_mut().split_right(a, 0.8, vec![ins]);
+        let [_, _] = dock.main_surface_mut().split_below(b, 0.5, vec![Box::new(ProjectWindow::new())]);
+        let [_, _] = dock.main_surface_mut().split_below(c, 0.7, vec![Box::new(ConsoleWindow::new())]);
         let mut shortcuts = key_shortcuts::KeyShortcuts::new();
         shortcuts.add_key_shortcut("Play", VirtualKeyCode::F5, vec![]);
         shortcuts.add_key_shortcut("Stop", VirtualKeyCode::F5, vec![VirtualKeyCode::LShift]);
@@ -207,6 +211,7 @@ impl Editor {
             VirtualKeyCode::D,
             vec![VirtualKeyCode::LControl],
         );
+        // let dock = DockState::new(tree.tabs().into_iter().collect());
 
         Self {
             vk,
@@ -214,7 +219,7 @@ impl Editor {
             dragged_transform: Mutex::new(-1),
             transform_drag: Mutex::new(None),
             inspectable: None,
-            dock: tree,
+            dock,
             views: vec![Box::new(Hierarchy::new())],
             play_game: false,
             scene_window: NodeIndex(1),
@@ -297,8 +302,8 @@ impl Editor {
                 })
                 .unwrap_or(std::ptr::null());
 
-            for node in self.dock.iter_mut() {
-                if let egui_dock::Node::Leaf { tabs, .. } = node {
+            for node in self.dock.iter_all_nodes_mut() {
+                if let egui_dock::Node::Leaf { tabs, .. } = node.1 {
                     for tab in tabs {
                         let is_active =
                             tab.as_ref() as *const dyn EditorWindow as *const () == _active;
@@ -523,8 +528,7 @@ impl Editor {
                 editor_args.playing_game = false;
                 // *self.vk.hide_cursor.lock() = false;
                 // *self.vk.cursor_pos.lock() = None;
-            }
-            else if editor_args
+            } else if editor_args
                 .shortcuts
                 .get_key_shortcut("Play", &editor_args.input)
             {
@@ -560,25 +564,29 @@ impl Editor {
             //     // println!("stop game");
             // }
             if editor_args.playing_game != self.play_game {
-
-                if let Some((node_idx, t_idx)) =
-                    self.dock.iter_mut().enumerate().find_map(|(n_idx, node)| {
-                        if let egui_dock::Node::Leaf { tabs, .. } = node {
-                            tabs.iter().enumerate().find_map(|(tab_idx, tab)| {
-                                if (editor_args.playing_game && tab.get_name() == "Game")
-                                    || (!editor_args.playing_game && tab.get_name() == "Scene")
-                                {
-                                    Some((NodeIndex(n_idx), TabIndex(tab_idx)))
-                                } else {
-                                    None
-                                }
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                {
-                    self.dock.set_active_tab(node_idx, t_idx);
+                if let Some((surf_idx, node_idx, t_idx)) = {
+                    let a = self
+                        .dock
+                        .iter_all_nodes()
+                        .enumerate()
+                        .find_map(|(n_idx, node)| {
+                            if let egui_dock::Node::Leaf { tabs, .. } = node.1 {
+                                tabs.iter().enumerate().find_map(|(tab_idx, tab)| {
+                                    if (editor_args.playing_game && tab.get_name() == "Game")
+                                        || (!editor_args.playing_game && tab.get_name() == "Scene")
+                                    {
+                                        Some((node.0, NodeIndex(n_idx), TabIndex(tab_idx)))
+                                    } else {
+                                        None
+                                    }
+                                })
+                            } else {
+                                None
+                            }
+                        });
+                    a
+                } {
+                    self.dock.set_active_tab((surf_idx, node_idx, t_idx));
                 }
             }
 

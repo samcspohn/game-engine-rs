@@ -13,16 +13,17 @@ use crate::{
         color_gradient::ColorGradient,
         project::asset_manager::{Asset, AssetInstance, AssetManager, AssetManagerBase},
         rendering::{
+            self,
             camera::CameraViewData,
             component::buffer_usage_all,
             lighting::lighting_compute::lt::{self, tile},
-            texture::{Texture, TextureManager},
+            texture::{self, Texture, TextureManager},
             vulkan_manager::VulkanManager,
         },
         storage::_Storage,
         time::Time,
         transform_compute::{self, cs::transform, TransformCompute},
-        utils::PrimaryCommandBuffer,
+        utils::{self, PrimaryCommandBuffer},
         world::{component::Component, transform::Transform, Sys, World},
     },
 };
@@ -30,6 +31,7 @@ use crate::{
 
 use crossbeam::queue::SegQueue;
 use nalgebra_glm as glm;
+use ncollide3d::pipeline;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, MutexGuard};
 use segvec::SegVec;
@@ -46,12 +48,12 @@ use vulkano::{
     },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator,
-        layout::{DescriptorSetLayout, DescriptorSetLayoutCreateInfo},
-        DescriptorSet, WriteDescriptorSet,
+        layout::{DescriptorBindingFlags, DescriptorSetLayout, DescriptorSetLayoutCreateInfo},
+        DescriptorSet, PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::Device,
     format::Format,
-    image::view::ImageView,
+    image::{sampler::Sampler, view::ImageView},
     memory::allocator::{MemoryTypeFilter, StandardMemoryAllocator},
     padded::Padded,
     pipeline::{
@@ -64,8 +66,9 @@ use vulkano::{
             vertex_input::BuffersDefinition,
             viewport::ViewportState,
         },
-        layout::PipelineLayoutCreateInfo,
+        layout::{PipelineDescriptorSetLayoutCreateInfo, PipelineLayoutCreateInfo},
         ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint, PipelineLayout,
+        PipelineShaderStageCreateInfo,
     },
     render_pass::{RenderPass, Subpass},
     sync::{self, GpuFuture},
@@ -133,7 +136,7 @@ pub struct ParticlesSystem {
     // pub compute_uniforms: Mutex<Vec<SubbufferAllocator>>,
     // pub cycle: SyncUnsafeCell<usize>,
     // pub render_uniforms: Mutex<SubbufferAllocator>,
-    pub def_texture: Arc<ImageView<ImmutableImage>>,
+    pub def_texture: Arc<ImageView>,
     pub def_sampler: Arc<Sampler>,
     pub vk: Arc<VulkanManager>,
     pub performance: PerformanceCounters,
@@ -144,42 +147,85 @@ pub struct ParticleRenderPipeline {
 }
 impl ParticleRenderPipeline {
     pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>) -> Self {
-        let vs = shaders::vs::load(vk.device.clone()).unwrap();
-        let fs = shaders::fs::load(vk.device.clone()).unwrap();
-        let gs = shaders::gs::load(vk.device.clone()).unwrap();
+        let vs = shaders::vs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let fs = shaders::fs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let gs = shaders::gs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
 
-        let subpass = Subpass::from(render_pass, 0).unwrap();
-        let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
+        // let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+        // let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
         let mut depth_stencil_state = DepthStencilState::simple_depth_test();
         depth_stencil_state.depth = Some(DepthState {
             write_enable: false,
             compare_op: CompareOp::Less,
         });
 
-        let render_pipeline = GraphicsPipeline::start()
-            .vertex_input_state(BuffersDefinition::new())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            // .input_assembly_state(InputAssemblyState::new())
-            .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .geometry_shader(gs.entry_point("main").unwrap(), ())
-            // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
-            .multisample_state(MultisampleState {
-                rasterization_samples: subpass.num_samples().unwrap(),
-                ..Default::default()
-            })
-            .depth_stencil_state(depth_stencil_state)
-            .color_blend_state(blend_state)
-            .render_pass(subpass)
-            .with_auto_layout(vk.device.clone(), |layout_create_infos| {
-                let binding = layout_create_infos[0].bindings.get_mut(&16).unwrap();
-                binding.variable_descriptor_count = true;
+        let render_pipeline = utils::pipeline::graphics_pipeline(
+            vk.clone(),
+            &[vs.clone(), gs.clone(), fs.clone()],
+            &[],
+            |g| {
+                g.input_assembly_state =
+                    Some(InputAssemblyState::new().topology(PrimitiveTopology::PointList));
+                g.rasterization_state = Some(RasterizationState::new().cull_mode(CullMode::None));
+                g.depth_stencil_state = Some(depth_stencil_state);
+                g.color_blend_state = Some(ColorBlendState::new(1).blend_alpha());
+                let mut layout_create_info = PipelineDescriptorSetLayoutCreateInfo::from_stages(&[
+                    PipelineShaderStageCreateInfo::new(vs),
+                    PipelineShaderStageCreateInfo::new(gs),
+                    PipelineShaderStageCreateInfo::new(fs),
+                ]);
+                let binding = layout_create_info.set_layouts[0]
+                    .bindings
+                    .get_mut(&16)
+                    .unwrap();
+                binding.binding_flags |= DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT;
                 binding.descriptor_count = 16;
-            })
-            // .with_pipeline_layout(vk.device.clone(), layout)
-            .unwrap();
+                let pipeline_layout = PipelineLayout::new(
+                    vk.device.clone(),
+                    layout_create_info
+                        .into_pipeline_layout_create_info(vk.device.clone())
+                        .unwrap(),
+                )
+                .unwrap();
+
+                g.layout = pipeline_layout;
+                // GraphicsPipelineCreateInfo::layout(PipelineLayout::new(vk.device.clone(), PipelineDescriptorSetLayoutCreateInfo::))
+            },
+            render_pass.clone(),
+        );
+        // let render_pipeline = GraphicsPipeline::start()
+        //     .vertex_input_state(BuffersDefinition::new())
+        //     .vertex_shader(vs.entry_point("main").unwrap(), ())
+        //     // .input_assembly_state(InputAssemblyState::new())
+        //     .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
+        //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        //     .geometry_shader(gs.entry_point("main").unwrap(), ())
+        //     // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
+        //     .fragment_shader(fs.entry_point("main").unwrap(), ())
+        //     .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+        //     .multisample_state(MultisampleState {
+        //         rasterization_samples: subpass.num_samples().unwrap(),
+        //         ..Default::default()
+        //     })
+        //     .depth_stencil_state(depth_stencil_state)
+        //     .color_blend_state(blend_state)
+        //     .render_pass(subpass)
+        //     .with_auto_layout(vk.device.clone(), |layout_create_infos| {
+        //         let binding = layout_create_infos[0].bindings.get_mut(&16).unwrap();
+        //         binding.variable_descriptor_count = true;
+        //         binding.descriptor_count = 16;
+        //     })
+        //     // .with_pipeline_layout(vk.device.clone(), layout)
+        //     .unwrap();
         // .build(vk.device.clone())
         // .unwrap();
 
@@ -194,11 +240,20 @@ pub struct ParticleDebugPipeline {
 }
 impl ParticleDebugPipeline {
     pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>) -> Self {
-        let vs = shaders::vs::load(vk.device.clone()).unwrap();
-        let fs = shaders::fs_d::load(vk.device.clone()).unwrap();
-        let gs = shaders::gs_d::load(vk.device.clone()).unwrap();
+        let vs = shaders::vs::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let fs = shaders::fs_d::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let gs = shaders::gs_d::load(vk.device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
 
-        let subpass = Subpass::from(render_pass, 0).unwrap();
+        // let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
         // let blend_state = ColorBlendState::new(subpass.num_color_attachments()).blend_alpha();
         // let mut depth_stencil_state = DepthStencilState::simple_depth_test();
         // depth_stencil_state.depth = Some(DepthState {
@@ -207,31 +262,41 @@ impl ParticleDebugPipeline {
         //     compare_op: StateMode::Fixed(CompareOp::Less),
         // });
 
-        let render_pipeline = GraphicsPipeline::start()
-            .vertex_input_state(BuffersDefinition::new())
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            // .input_assembly_state(InputAssemblyState::new())
-            .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .geometry_shader(gs.entry_point("main").unwrap(), ())
-            // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
-            .multisample_state(MultisampleState {
-                rasterization_samples: subpass.num_samples().unwrap(),
-                ..Default::default()
-            })
-            // .color_blend_state(blend_state)
-            .render_pass(subpass)
-            // .with_pipeline_layout(vk.device.clone(), layout)
-            // .unwrap();
-            .build(vk.device.clone())
-            .unwrap();
+        let shader1 = utils::pipeline::graphics_pipeline(
+            vk.clone(),
+            &[vs.clone(), gs.clone(), fs.clone()],
+            &[],
+            |g| {
+                g.input_assembly_state =
+                    Some(InputAssemblyState::new().topology(PrimitiveTopology::PointList));
+                g.rasterization_state = Some(RasterizationState::new().cull_mode(CullMode::None));
+            },
+            render_pass.clone(),
+        );
 
-        Self {
-            arc: render_pipeline,
-        }
+        // let render_pipeline = GraphicsPipeline::start()
+        //     .vertex_input_state(BuffersDefinition::new())
+        //     .vertex_shader(vs.entry_point("main").unwrap(), ())
+        //     // .input_assembly_state(InputAssemblyState::new())
+        //     .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
+        //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+        //     .geometry_shader(gs.entry_point("main").unwrap(), ())
+        //     // .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::LineStrip))
+        //     .fragment_shader(fs.entry_point("main").unwrap(), ())
+        //     .depth_stencil_state(DepthStencilState::simple_depth_test())
+        //     .rasterization_state(RasterizationState::new().cull_mode(CullMode::None))
+        //     .multisample_state(MultisampleState {
+        //         rasterization_samples: subpass.num_samples().unwrap(),
+        //         ..Default::default()
+        //     })
+        //     // .color_blend_state(blend_state)
+        //     .render_pass(subpass)
+        //     // .with_pipeline_layout(vk.device.clone(), layout)
+        //     // .unwrap();
+        //     .build(vk.device.clone())
+        //     .unwrap();
+
+        Self { arc: shader1 }
     }
 }
 
@@ -385,35 +450,37 @@ impl ParticlesSystem {
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, templates.clone()))
             .unwrap();
 
-        let def_texture = {
-            let dimensions = ImageDimensions::Dim2d {
-                width: 1,
-                height: 1,
-                array_layers: 1,
-            };
-            let image_data = vec![255_u8, 255, 255, 255];
-            let image = ImmutableImage::from_iter(
-                &vk.mem_alloc,
-                image_data,
-                dimensions,
-                MipmapsCount::One,
-                Format::R8G8B8A8_SRGB,
-                &mut builder,
-            )
-            .unwrap();
+        // let def_texture = {
+        //     let dimensions = ImageDimensions::Dim2d {
+        //         width: 1,
+        //         height: 1,
+        //         array_layers: 1,
+        //     };
+        //     let image_data = vec![255_u8, 255, 255, 255];
+        //     let image = ImmutableImage::from_iter(
+        //         &vk.mem_alloc,
+        //         image_data,
+        //         dimensions,
+        //         MipmapsCount::One,
+        //         Format::R8G8B8A8_SRGB,
+        //         &mut builder,
+        //     )
+        //     .unwrap();
 
-            ImageView::new_default(image).unwrap()
-        };
-        let def_sampler = Sampler::new(
-            vk.device.clone(),
-            SamplerCreateInfo {
-                mag_filter: Filter::Linear,
-                min_filter: Filter::Linear,
-                address_mode: [SamplerAddressMode::Repeat; 3],
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        //     ImageView::new_default(image).unwrap()
+        // };
+        // let def_sampler = Sampler::new(
+        //     vk.device.clone(),
+        //     SamplerCreateInfo {
+        //         mag_filter: Filter::Linear,
+        //         min_filter: Filter::Linear,
+        //         address_mode: [SamplerAddressMode::Repeat; 3],
+        //         ..Default::default()
+        //     },
+        // )
+        // .unwrap();
+        let (def_texture, def_sampler) =
+            texture::texture_from_bytes(vk.clone(), &[255_u8, 255, 255, 255], 1, 1);
 
         // build buffer
         let command_buffer = builder.build().unwrap();
@@ -427,7 +494,7 @@ impl ParticlesSystem {
                 let future = execute.then_signal_fence_and_flush();
                 match future {
                     Ok(_) => {}
-                    Err(FlushError::OutOfDate) => {}
+                    // Err(FlushError::OutOfDate) => {}
                     Err(_e) => {}
                 }
             }
@@ -436,14 +503,15 @@ impl ParticlesSystem {
             }
         };
         let cs = cs::load(vk.device.clone()).unwrap();
-        let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
-            vk.device.clone(),
-            cs.entry_point("main").unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("Failed to create compute shader");
+        // let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
+        //     vk.device.clone(),
+        //     cs.entry_point("main").unwrap(),
+        //     &(),
+        //     None,
+        //     |_| {},
+        // )
+        // .expect("Failed to create compute shader");
+        let compute_pipeline = utils::pipeline::compute_pipeline(vk.clone(), cs);
 
         // let uniforms = Mutex::new((0..2).map(|_| vk.sub_buffer_allocator()).collect());
         // let render_uniforms = Mutex::new(vk.sub_buffer_allocator());
@@ -491,7 +559,7 @@ impl ParticlesSystem {
         &self,
         transform: Subbuffer<[transform]>,
         uniform_sub_buffer: Subbuffer<Data>,
-    ) -> Arc<DescriptorSet> {
+    ) -> Arc<PersistentDescriptorSet> {
         self.get_descriptors(
             transform,
             uniform_sub_buffer,
@@ -505,10 +573,10 @@ impl ParticlesSystem {
         uniform_sub_buffer: Subbuffer<Data>,
         emitter_inits: Subbuffer<impl ?Sized>,
         particle_bursts: Subbuffer<impl ?Sized>,
-    ) -> Arc<DescriptorSet> {
+    ) -> Arc<PersistentDescriptorSet> {
         let pb = &self.particle_buffers;
 
-        let descriptor_set = DescriptorSet::new(
+        let descriptor_set = PersistentDescriptorSet::new(
             &self.vk.desc_alloc,
             self.compute_pipeline
                 .layout()
@@ -534,16 +602,14 @@ impl ParticlesSystem {
                 WriteDescriptorSet::buffer(14, pb.alive_b.clone()),
                 WriteDescriptorSet::buffer(15, particle_bursts.clone()),
             ],
+            [],
         )
         .unwrap();
         descriptor_set
     }
     pub fn update(
         &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         particle_init_data: (usize, Vec<emitter_init>, Vec<emitter_init>, Vec<burst>),
         transform_compute: &TransformCompute,
         time: &Time,
@@ -676,10 +742,7 @@ impl ParticlesSystem {
 
     pub fn emitter_deinit(
         &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         transform: Subbuffer<[transform]>,
         emitter_deinits: Vec<cs::emitter_init>,
         time: &Time,
@@ -731,10 +794,7 @@ impl ParticlesSystem {
 
     pub fn emitter_init(
         &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         transform: Subbuffer<[transform]>,
         emitter_inits: Vec<cs::emitter_init>,
         time: &Time,
@@ -782,10 +842,7 @@ impl ParticlesSystem {
 
     pub fn emitter_update(
         &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         transform: Subbuffer<[transform]>,
         emitter_len: usize,
         time: &Time,
@@ -811,16 +868,14 @@ impl ParticlesSystem {
                 0,
                 descriptor_set,
             )
+            .unwrap()
             .dispatch([emitter_len as u32 / 1024 + 1, 1, 1])
             .unwrap();
     }
 
     pub fn particle_update(
         &self,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         transform: Subbuffer<[transform]>,
         time: &Time,
     ) {
@@ -851,6 +906,7 @@ impl ParticlesSystem {
                 0, // Bind this descriptor set to index 0.
                 descriptor_set,
             )
+            .unwrap()
             .dispatch([max_particles as u32 / 1024 + 1, 1, 1])
             .unwrap();
         // set indirect
@@ -870,6 +926,7 @@ impl ParticlesSystem {
                 0,
                 descriptor_set,
             )
+            .unwrap()
             .dispatch([1, 1, 1])
             .unwrap();
         // dispatch indirect particle update
@@ -890,16 +947,14 @@ impl ParticlesSystem {
                 0,
                 descriptor_set,
             )
+            .unwrap()
             .dispatch_indirect(pb.indirect.clone())
             .unwrap();
     }
     pub fn debug_particles(
         &self,
         particle_debug_pipeline: &ParticleDebugPipeline,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         cvd: &CameraViewData,
         transform: Subbuffer<[transform]>,
 
@@ -943,7 +998,7 @@ impl ParticlesSystem {
         //     uniform_sub_buffer
         // };
         let pt = self.particle_textures.lock();
-        let set = DescriptorSet::new(
+        let set = PersistentDescriptorSet::new(
             &self.vk.desc_alloc,
             particle_debug_pipeline
                 .arc
@@ -978,6 +1033,7 @@ impl ParticlesSystem {
                 //     pt.samplers.iter().map(|a| (a.0.clone() as _, a.1.clone())),
                 // ),
             ],
+            [],
         )
         .unwrap();
         // unsafe {
@@ -985,12 +1041,14 @@ impl ParticlesSystem {
         // }
         builder
             .bind_pipeline_graphics(particle_debug_pipeline.arc.clone())
+            .unwrap()
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
                 particle_debug_pipeline.arc.layout().clone(),
                 0,
                 set,
             )
+            .unwrap()
             .draw_indirect(self.sort.draw.clone())
             .unwrap();
         // unsafe {
@@ -1001,10 +1059,7 @@ impl ParticlesSystem {
     pub fn render_particles(
         &self,
         particle_render_pipeline: &ParticleRenderPipeline,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         view: glm::Mat4,
         proj: glm::Mat4,
         cam_inv_rot: glm::Mat4,
@@ -1052,7 +1107,7 @@ impl ParticlesSystem {
         //     uniform_sub_buffer
         // };
         let pt = self.particle_textures.lock();
-        let set = DescriptorSet::new_variable(
+        let set = PersistentDescriptorSet::new_variable(
             &self.vk.desc_alloc,
             particle_render_pipeline
                 .arc
@@ -1088,6 +1143,7 @@ impl ParticlesSystem {
                     pt.samplers.iter().map(|a| (a.0.clone() as _, a.1.clone())),
                 ),
             ],
+            [],
         )
         .unwrap();
         // unsafe {
@@ -1095,12 +1151,14 @@ impl ParticlesSystem {
         // }
         builder
             .bind_pipeline_graphics(particle_render_pipeline.arc.clone())
+            .unwrap()
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
                 particle_render_pipeline.arc.layout().clone(),
                 0,
                 set,
             )
+            .unwrap()
             .draw_indirect(self.sort.draw.clone())
             .unwrap();
         // unsafe {

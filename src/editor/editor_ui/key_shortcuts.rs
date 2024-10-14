@@ -4,7 +4,6 @@ use winit::event::VirtualKeyCode;
 
 use crate::engine::input::Input;
 
-
 pub struct KeyCombination {
     pub key: VirtualKeyCode,
     pub modifiers: Vec<VirtualKeyCode>,
@@ -22,8 +21,14 @@ impl KeyShortcuts {
         }
     }
 
-    pub fn add_key_shortcut(&mut self, name: &str, key: VirtualKeyCode, modifiers: Vec<VirtualKeyCode>) {
-        self.key_shortcuts.insert(name.to_string(), KeyCombination { key, modifiers });
+    pub fn add_key_shortcut(
+        &mut self,
+        name: &str,
+        key: VirtualKeyCode,
+        modifiers: Vec<VirtualKeyCode>,
+    ) {
+        self.key_shortcuts
+            .insert(name.to_string(), KeyCombination { key, modifiers });
     }
     pub fn get_key_shortcut(&self, name: &str, input: &Input) -> bool {
         if let Some(key_combination) = self.key_shortcuts.get(name) {

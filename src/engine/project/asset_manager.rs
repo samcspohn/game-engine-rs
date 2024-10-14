@@ -1,4 +1,4 @@
-use egui::Ui;
+use egui::{Rect, Ui};
 use id::ID_trait;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -168,6 +168,9 @@ pub fn drop_target<R>(
             fill,
             stroke,
             rect,
+            fill_texture_id: egui::TextureId::default(),
+            uv: Rect::from_min_max(Default::default(), Default::default()),
+            
         },
     );
 

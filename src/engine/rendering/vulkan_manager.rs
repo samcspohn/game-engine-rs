@@ -29,22 +29,23 @@ use vulkano::{
     format::Format,
     image::{Image, ImageUsage},
     instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
+    library::DynamicLibraryLoader,
     memory::allocator::{
-        AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter, StandardMemoryAllocator
+        AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter, StandardMemoryAllocator,
     },
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
     sync::Sharing,
-    NonZeroDeviceSize, VulkanLibrary,
+    NonZeroDeviceSize, Version, VulkanLibrary,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
     dpi::{LogicalPosition, LogicalSize, PhysicalSize},
     event_loop::EventLoop,
-    window::{self, CursorGrabMode, Window},
+    window::{self, CursorGrabMode, Window, WindowBuilder},
 };
 
-use crate::engine::EngineEvent;
+use crate::engine::{utils, EngineEvent};
 
 use super::component::buffer_usage_all;
 
@@ -59,7 +60,7 @@ pub struct VulkanManager {
     pub instance: Arc<Instance>,
     // pub event_loop: EventLoop<()>,
     pub mem_alloc: Arc<StandardMemoryAllocator>,
-    // pub desc_alloc: Arc<StandardDescriptorSetAllocator>,
+    pub desc_alloc: Arc<StandardDescriptorSetAllocator>,
     pub comm_alloc: Arc<StandardCommandBufferAllocator>,
     pub query_pool: Mutex<HashMap<i32, Arc<QueryPool>, nohash_hasher::BuildNoHashHasher<i32>>>,
     sub_alloc: Vec<SendSync<SubbufferAllocator>>,
@@ -67,7 +68,7 @@ pub struct VulkanManager {
     c: SyncUnsafeCell<usize>,
     query_counter: AtomicI32,
     pub(crate) show_cursor: Mutex<bool>,
-    pub(crate)  cursor_pos: Mutex<Option<LogicalPosition<f32>>>,
+    pub(crate) cursor_pos: Mutex<Option<LogicalPosition<f32>>>,
     pub(crate) grab_mode: Mutex<CursorGrabMode>,
     // a: ThinMap<std::ptr::>
 }
@@ -107,7 +108,7 @@ impl VulkanManager {
         T: BufferContents + Sized,
     {
         let buf = Buffer::new_sized(
-            &self.mem_alloc,
+            self.mem_alloc.clone(),
             BufferCreateInfo {
                 usage: buffer_usage_all(),
                 ..Default::default()
@@ -125,7 +126,7 @@ impl VulkanManager {
         T: BufferContents + ?Sized,
     {
         let buf = Buffer::new_unsized(
-            &self.mem_alloc,
+            self.mem_alloc.clone(),
             BufferCreateInfo {
                 usage: buffer_usage_all(),
                 ..Default::default()
@@ -144,13 +145,14 @@ impl VulkanManager {
         T: BufferContents + Sized,
     {
         let buf = Buffer::from_data(
-            &self.mem_alloc,
+            self.mem_alloc.clone(),
             BufferCreateInfo {
                 usage: buffer_usage_all(),
                 ..Default::default()
             },
             AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
             d,
@@ -165,7 +167,7 @@ impl VulkanManager {
         I::IntoIter: ExactSizeIterator,
     {
         let buf = Buffer::from_iter(
-            &self.mem_alloc,
+            self.mem_alloc.clone(),
             BufferCreateInfo {
                 usage: buffer_usage_all(),
                 ..Default::default()
@@ -227,6 +229,8 @@ impl VulkanManager {
     pub(crate) fn new(event_loop: &EventLoop<EngineEvent>) -> Arc<Self> {
         // rayon::ThreadPoolBuilder::new().num_threads(63).build_global().unwrap();
         let library = VulkanLibrary::new().unwrap();
+        println!("{:?}", library.api_version());
+        // let library = VulkanLibrary::with_loader()
         let required_extensions = vulkano_win::required_extensions(&library);
         // required_extensions.ext_headless_surface = true;
         // Now creating the instance.
@@ -250,10 +254,10 @@ impl VulkanManager {
         //     })
         //     .build_vk_surface(event_loop, instance.clone())
         //     .unwrap();
-        let window = Arc::new(event_loop.create_window(Window::default_attributes())).unwrap();
-        let surface = Surface::from_window(instance.clone(), window).unwrap();
+        let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+        let surface = Surface::from_window(instance.clone(), window.clone()).unwrap();
 
-        let device_extensions = DeviceExtensions {
+        let mut device_extensions = DeviceExtensions {
             khr_swapchain: true,
             // nv_geometry_shader_passthrough: true,
             ..DeviceExtensions::empty()
@@ -262,6 +266,10 @@ impl VulkanManager {
         let (physical_device, queue_family_index) = instance
             .enumerate_physical_devices()
             .unwrap()
+            .filter(|p| {
+                // For this example, we require at least Vulkan 1.3, or a device that has the
+                p.api_version() >= Version::V1_3 || p.supported_extensions().khr_dynamic_rendering
+            })
             .filter(|p| p.supported_extensions().contains(&device_extensions))
             .filter_map(|p| {
                 p.queue_family_properties()
@@ -290,6 +298,10 @@ impl VulkanManager {
             physical_device.properties().device_type,
         );
 
+        if physical_device.api_version() < Version::V1_3 {
+            device_extensions.khr_dynamic_rendering = true;
+        }
+
         // Now initializing the device. This is probably the most important object of Vulkan.
         //
         // The iterator of created queues is returned by the function alongside the device.
@@ -298,7 +310,8 @@ impl VulkanManager {
             geometry_shader: true,
             runtime_descriptor_array: true,
             descriptor_binding_variable_descriptor_count: true,
-            ..Default::default()
+            dynamic_rendering: true,
+            ..Features::empty()
         };
         let (device, mut queues) = Device::new(
             // Which physical device to connect to.
@@ -328,7 +341,10 @@ impl VulkanManager {
 
         // let img_count = swapchain.image_count();
         let mem_alloc = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-        // let desc_alloc = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
+        let desc_alloc = Arc::new(StandardDescriptorSetAllocator::new(
+            device.clone(),
+            Default::default(),
+        ));
         let comm_alloc = Arc::new(StandardCommandBufferAllocator::new(
             device.clone(),
             Default::default(),
@@ -355,7 +371,7 @@ impl VulkanManager {
             // let min_image_count = surface_capabilities.min_image_count;
             let mut swapchain_create_info = SwapchainCreateInfo {
                 min_image_count,
-                image_format,
+                image_format: image_format.unwrap(),
                 image_extent: window.inner_size().into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
                 composite_alpha: surface_capabilities
@@ -396,7 +412,7 @@ impl VulkanManager {
             swapchain: SyncUnsafeCell::new(swapchain),
             images,
             mem_alloc: mem_alloc.clone(),
-            // desc_alloc,
+            desc_alloc,
             comm_alloc,
             query_pool: Mutex::new(HashMap::default()),
             query_counter: AtomicI32::new(0),
@@ -445,14 +461,7 @@ impl VulkanManager {
         self.query_pool.lock().insert(id, query_pool);
         id
     }
-    pub fn query(
-        &self,
-        id: &i32,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
-    ) {
+    pub fn query(&self, id: &i32, builder: &mut utils::PrimaryCommandBuffer) {
         let b = self.query_pool.lock();
         let a = b.get(id).unwrap();
         unsafe {
@@ -464,14 +473,7 @@ impl VulkanManager {
         }
         todo!();
     }
-    pub fn end_query(
-        &self,
-        id: &i32,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
-    ) {
+    pub fn end_query(&self, id: &i32, builder: &mut utils::PrimaryCommandBuffer) {
         let b = self.query_pool.lock();
         let a = b.get(id).unwrap();
         builder.end_query(a.clone(), 0).unwrap();
@@ -481,9 +483,9 @@ impl VulkanManager {
         let mut query_results = [0u64];
         let b = self.query_pool.lock();
         let query_pool = b.get(id).unwrap();
-        if let Some(res) = query_pool.queries_range(0..1) {
-            res.get_results(&mut query_results, QueryResultFlags::WAIT)
-                .unwrap();
+        if let Ok(res) = query_pool.get_results(0..1, &mut query_results, QueryResultFlags::WAIT) {
+            // res.get_results(&mut query_results, QueryResultFlags::WAIT)
+            //     .unwrap();
         }
 
         // todo!();

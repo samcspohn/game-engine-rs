@@ -15,14 +15,31 @@ use std::{
     sync::{atomic::AtomicI32, Arc},
 };
 use vulkano::{
-    buffer::Subbuffer, command_buffer::{
+    buffer::Subbuffer,
+    command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, DrawIndirectCommand,
-        PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
-    }, descriptor_set::{DescriptorSet, WriteDescriptorSet}, format::{ClearValue, Format}, image::{view::ImageView, Image}, memory::allocator::MemoryTypeFilter, padded::Padded, pipeline::{
+        PrimaryAutoCommandBuffer, RenderPassBeginInfo, RenderingAttachmentInfo, RenderingInfo,
+        SubpassContents, SubpassEndInfo,
+    },
+    descriptor_set::{DescriptorSet, PersistentDescriptorSet, WriteDescriptorSet},
+    format::{ClearValue, Format},
+    image::{
+        sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE},
+        view::ImageView,
+        Image, ImageCreateInfo, ImageType, ImageUsage,
+    },
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter},
+    padded::Padded,
+    pipeline::{
         graphics::viewport::Viewport, ComputePipeline, GraphicsPipeline, Pipeline,
         PipelineBindPoint,
-    }, render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass}, sampler::{SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE}, sync::GpuFuture
+    },
+    render_pass::{
+        self, AttachmentLoadOp, Framebuffer, FramebufferCreateInfo, RenderPass, Subpass,
+    },
+    sync::GpuFuture,
 };
+use winit::event::VirtualKeyCode;
 
 use crate::{
     editor::inspectable::{Inpsect, Ins},
@@ -37,11 +54,11 @@ use crate::{
         rendering::{component::ur, debug, model::Skeleton},
         time::Time,
         transform_compute::{cs::Data, TransformCompute},
-        world::World,
+        utils,
         world::{
             component::Component,
             transform::{Transform, TransformBuf, TransformData},
-            Sys,
+            Sys, World,
         },
         RenderData,
     },
@@ -145,14 +162,14 @@ pub struct CameraData {
     particle_debug_pipeline: ParticleDebugPipeline,
     pub debug: DebugSystem,
     light_debug: Arc<GraphicsPipeline>,
-    // _render_pass: Arc<RenderPass>,
+    render_pass: Arc<RenderPass>,
     viewport: Viewport,
-    framebuffer: Arc<Framebuffer>,
+    frame_buffer: Arc<Framebuffer>,
     pub texture_id: Option<egui::TextureId>,
-    pub image: Arc<dyn ImageAccess>,
-    pub view: Arc<dyn ImageViewAbstract>,
+    pub image: Arc<Image>,
+    pub view: Arc<ImageView>,
 
-    samples: SampleCount,
+    // samples: SampleCount,
     vk: Arc<VulkanManager>,
     pub camera_view_data: std::collections::VecDeque<CameraViewData>,
 }
@@ -477,13 +494,13 @@ impl CameraData {
         // cvd.view = glm::quat_to_mat4(&glm::quat_conjugate(&rot)) * glm::translate(&glm::identity(), &-pos);
         cvd.view = glm::look_at_rh(&cvd.cam_pos, &target, &up);
         // cvd.view = set_view_direction(pos, rot * -Vec3::z(), Vec3::y());
-        let aspect_ratio = self.viewport.dimensions[0] / self.viewport.dimensions[1];
+        let aspect_ratio = self.viewport.extent[0] / self.viewport.extent[1];
         // let x = glm::pers
         cvd.proj = glm::perspective_zo(aspect_ratio, fov.to_radians(), near, far);
         cvd.cam_up = up;
         cvd.cam_forw = glm::quat_rotate_vec3(&cvd.cam_rot, &Vec3::z());
         cvd.cam_right = glm::quat_rotate_vec3(&cvd.cam_rot, &Vec3::x());
-        cvd.dimensions = self.viewport.dimensions;
+        cvd.dimensions = self.viewport.extent;
         cvd.near = near;
         cvd.far = far;
         cvd.frustum = _Frustum::create(&cvd);
@@ -492,14 +509,14 @@ impl CameraData {
         self.camera_view_data.push_back(cvd);
     }
     pub fn new(vk: Arc<VulkanManager>, num_samples: u32) -> Self {
-        let samples = match num_samples {
-            2 => SampleCount::Sample2,
-            4 => SampleCount::Sample4,
-            8 => SampleCount::Sample8,
-            16 => SampleCount::Sample16,
-            _ => SampleCount::Sample1,
-        };
-        let use_msaa = num_samples != 1;
+        // let samples = match num_samples {
+        //     2 => SampleCount::Sample2,
+        //     4 => SampleCount::Sample4,
+        //     8 => SampleCount::Sample8,
+        //     16 => SampleCount::Sample16,
+        //     _ => SampleCount::Sample1,
+        // };
+        // let use_msaa = num_samples != 1;
         // let render_pass = if use_msaa {
         // vulkano::single_pass_renderpass!(
         //     vk.device.clone(),
@@ -622,19 +639,37 @@ impl CameraData {
         //     .unwrap()
         // };
         // let render_pass = ;
+        let render_pass = vulkano::single_pass_renderpass!(
+            vk.device.clone(),
+            attachments: {
+                color: {
+                    format: Format::R8G8B8A8_UNORM,
+                    samples: 1,
+                    load_op: Clear,
+                    store_op: Store,
+                },
+                depth: {
+                    format: Format::D32_SFLOAT,
+                    samples: 1,
+                    load_op: Clear,
+                    store_op: DontCare,
+                }
+            },
+            pass:
+                { color: [color], depth_stencil: {depth} }
+
+        )
+        .unwrap();
         let mut viewport = Viewport {
             offset: [0.0, 0.0],
             extent: [1.0, -1.0],
             depth_range: 0.0..=1.0,
         };
 
-        let (framebuffer, image, view): (
-            Arc<Framebuffer>,
-            Arc<Image>,
-            Arc<ImageView>,
-        ) = window_size_dependent_setup(&vk.images);
+        let (frame_buffer, image, view): (Arc<Framebuffer>, Arc<Image>, Arc<ImageView>) =
+            window_size_dependent_setup(&vk, &vk.images, [1, 1], render_pass.clone());
         // let subpass = Subpass::from(render_pass, 0).unwrap();
-        let rend = RenderPipeline::new(0, vk.clone());
+        let rend = RenderPipeline::new(0, vk.clone(), render_pass.clone());
 
         Self {
             rend,
@@ -642,14 +677,14 @@ impl CameraData {
             particle_debug_pipeline: ParticleDebugPipeline::new(vk.clone(), render_pass.clone()),
             light_debug: LightingCompute::new_pipeline(vk.clone(), render_pass.clone()),
             debug: DebugSystem::new(vk.clone(), render_pass.clone()),
-            // _render_pass: render_pass,
+            render_pass,
             viewport,
-            framebuffer,
+            frame_buffer,
             texture_id: None,
             image,
             view,
             camera_view_data: VecDeque::new(), // swapchain,
-            samples,
+            // samples,
             // tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE)),
             vk,
             is_active: true,
@@ -658,10 +693,8 @@ impl CameraData {
         }
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>, gui: &mut Gui) {
-        if self.framebuffer.extent() != dimensions {
-            (self.framebuffer, self.image, self.view) = window_size_dependent_setup(
-                &vk.images,
-            );
+        if *&self.image.extent()[0..2] != dimensions {
+            (self.frame_buffer, self.image, self.view) = window_size_dependent_setup(&vk, &vk.images, dimensions, self.render_pass.clone());
             if let Some(tex) = self.texture_id.as_ref() {
                 gui.unregister_user_image(*tex);
             }
@@ -679,10 +712,7 @@ impl CameraData {
     pub fn render(
         &mut self,
         vk: Arc<VulkanManager>,
-        builder: &mut AutoCommandBufferBuilder<
-            PrimaryAutoCommandBuffer,
-            Arc<StandardCommandBufferAllocator>,
-        >,
+        builder: &mut utils::PrimaryCommandBuffer,
         transform_compute: &TransformCompute,
         // lights
         light_len: u32,
@@ -711,7 +741,7 @@ impl CameraData {
         skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>,
         playing_game: bool,
         // debug: &mut DebugSystem,
-    ) -> Option<Arc<dyn ImageAccess>> {
+    ) -> Option<Arc<Image>> {
         assets.get_manager(|model_manager: &ModelManager| {
             assets.get_manager(|texture_manager: &TextureManager| {
                 transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_buf);
@@ -721,7 +751,7 @@ impl CameraData {
                     // Buffer::from_iter(&vk.mem_alloc, buffer_usage_all(), false, offset_vec).unwrap();
                     {
                         // per camera
-                        puffin::profile_scope!("update renderers: stage 1");
+                        // puffin::profile_scope!("update renderers: stage 1");
                         // stage 1
                         let uniforms = self.vk.allocate(ur::Data {
                             num_jobs: rrd.transforms_len,
@@ -746,7 +776,7 @@ impl CameraData {
                         }
                         let update_renderers_set = {
                             puffin::profile_scope!("update renderers: stage 1: descriptor set");
-                            DescriptorSet::new(
+                            PersistentDescriptorSet::new(
                                 &vk.desc_alloc,
                                 renderer_pipeline
                                     .layout()
@@ -766,6 +796,7 @@ impl CameraData {
                                     WriteDescriptorSet::buffer(5, offsets_buffer),
                                     WriteDescriptorSet::buffer(6, uniforms),
                                 ],
+                                [],
                             )
                             .unwrap()
                         };
@@ -775,12 +806,14 @@ impl CameraData {
                             );
                             builder
                                 .bind_pipeline_compute(renderer_pipeline.clone())
+                                .unwrap()
                                 .bind_descriptor_sets(
                                     PipelineBindPoint::Compute,
                                     renderer_pipeline.layout().clone(),
                                     0, // Bind this descriptor set to index 0.
                                     update_renderers_set,
                                 )
+                                .unwrap()
                                 .dispatch([rrd.transforms_len as u32 / 128 + 1, 1, 1])
                                 .unwrap();
                         }
@@ -810,6 +843,22 @@ impl CameraData {
                 // );
 
                 builder
+                    // .begin_rendering(RenderingInfo {
+                    //     color_attachments: vec![
+                    //         Some(RenderingAttachmentInfo {
+                    //             load_op: AttachmentLoadOp::Clear,
+                    //             store_op: AttachmentStoreOp::Store,
+                    //             clear_value: Some(ClearValue::Color([0.2, 0.25, 1., 1.].into())),
+                    //             ..RenderingAttachmentInfo::image_view(self.view.clone())
+                    //         })
+                    //     ],
+                    //     depth_attachment: Some(RenderingAttachmentInfo {
+                    //         load_op: AttachmentLoadOp::Clear,
+                    //         store_op: AttachmentStoreOp::DontCare,
+                    //         clear_value: Some(ClearValue::Depth(1.0)),
+                    //         ..RenderingAttachmentInfo::image_view(vk.depth_view.clone())
+                    //     }),
+                    // })
                     .begin_render_pass(
                         RenderPassBeginInfo {
                             clear_values: vec![
@@ -817,12 +866,17 @@ impl CameraData {
                                 Some(1f32.into()),
                                 None,
                             ],
-                            ..RenderPassBeginInfo::framebuffer(self.framebuffer.clone())
+                            ..RenderPassBeginInfo::framebuffer(self.frame_buffer.clone())
                         },
-                        SubpassContents::Inline,
+                        vulkano::command_buffer::SubpassBeginInfo {
+                            contents: SubpassContents::Inline,
+                            ..Default::default()
+                        },
                     )
                     .unwrap();
-                builder.set_viewport(0, [self.viewport.clone()]);
+                builder
+                    .set_viewport(0, [self.viewport.clone()].into_iter().collect())
+                    .unwrap();
 
                 self.rend.bind_pipeline(builder);
 
@@ -997,7 +1051,7 @@ impl CameraData {
                 );
 
                 if (light_debug) {
-                    let set = DescriptorSet::new(
+                    let set = PersistentDescriptorSet::new(
                         &self.vk.desc_alloc,
                         self.light_debug
                             .layout()
@@ -1006,20 +1060,23 @@ impl CameraData {
                             .unwrap()
                             .clone(),
                         [WriteDescriptorSet::buffer(0, tiles.clone())],
+                        [],
                     )
                     .unwrap();
                     builder
                         .bind_pipeline_graphics(self.light_debug.clone())
+                        .unwrap()
                         .bind_descriptor_sets(
                             PipelineBindPoint::Graphics,
                             self.light_debug.layout().clone(),
                             0,
                             set,
                         )
+                        .unwrap()
                         .draw(NUM_TILES as u32, 1, 0, 0)
                         .unwrap();
                 }
-                builder.end_render_pass().unwrap();
+                builder.end_render_pass(Default::default()).unwrap();
                 // self.camera_view_data.pop_front();
                 Some(self.image.clone())
             })
@@ -1150,10 +1207,52 @@ impl CameraData {
 //     Arc<dyn ImageViewAbstract>,
 // )
 fn window_size_dependent_setup(
+    vk: &VulkanManager,
     images: &[Arc<Image>],
-) -> (Arc<dyn ImageAccess>, Vec<Arc<ImageView>>) {
-    images
-        .iter()
-        .map(|image| ImageView::new_default(image.clone()).unwrap())
-        .collect::<Vec<_>>()
+    dimensions: [u32; 2],
+    render_pass: Arc<RenderPass>,
+) -> (Arc<Framebuffer>, Arc<Image>, Arc<ImageView>) {
+    let depth_buffer = ImageView::new_default(
+        Image::new(
+            vk.mem_alloc.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::D32_SFLOAT,
+                extent: [dimensions[0], dimensions[1], 1],
+                array_layers: 1,
+                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let image = Image::new(
+        vk.mem_alloc.clone(),
+        ImageCreateInfo {
+            image_type: ImageType::Dim2d,
+            format: Format::R8G8B8A8_UNORM,
+            extent: [dimensions[0], dimensions[1], 1],
+            array_layers: 1,
+            usage: ImageUsage::SAMPLED
+                | ImageUsage::STORAGE
+                | ImageUsage::COLOR_ATTACHMENT
+                | ImageUsage::TRANSFER_SRC, // | ImageUsage::INPUT_ATTACHMENT,
+            ..Default::default()
+        },
+        AllocationCreateInfo::default(),
+    )
+    .unwrap();
+    let view = ImageView::new_default(image.clone()).unwrap();
+    let frame_buf = Framebuffer::new(
+        render_pass.clone(),
+        FramebufferCreateInfo {
+            attachments: vec![view.clone(), depth_buffer.clone()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // let image_views = images.iter().map(|image| view.clone()).collect::<Vec<_>>();
+    (frame_buf, image, view)
 }

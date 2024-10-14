@@ -26,7 +26,7 @@ use vulkano::{
         CommandBufferInheritanceRenderingInfo, CommandBufferUsage, CopyBufferInfo,
         PrimaryCommandBufferAbstract,
     },
-    descriptor_set::{DescriptorSet, WriteDescriptorSet},
+    descriptor_set::{DescriptorSet, PersistentDescriptorSet, WriteDescriptorSet},
     device::Device,
     memory::allocator::MemoryTypeFilter,
     pipeline::{Pipeline, PipelineBindPoint},
@@ -523,8 +523,8 @@ impl Component for TerrainEng {
             if let Some(i) = unsafe { &INSTANCE_BUFFER } {
                 descriptors.push(WriteDescriptorSet::buffer(2, i.clone()));
             }
-            let set =
-                DescriptorSet::new(layout.clone(), descriptors).unwrap();
+            let set = PersistentDescriptorSet::new(&vk.desc_alloc, layout.clone(), descriptors, [])
+                .unwrap();
             builder
                 // .set_viewport(0, [viewport.clone()])
                 // .bind_pipeline_graphics(pipeline.pipeline.clone())
@@ -534,6 +534,7 @@ impl Component for TerrainEng {
                     0,
                     set,
                 )
+                .unwrap()
                 .bind_vertex_buffers(
                     0,
                     (
@@ -543,7 +544,9 @@ impl Component for TerrainEng {
                         // instance_buffer.clone(),
                     ),
                 )
+                .unwrap()
                 .bind_index_buffer(index_buffer.clone())
+                .unwrap()
                 .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
                 .unwrap();
         }

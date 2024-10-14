@@ -11,8 +11,10 @@ use vulkano::command_buffer::{
 
 pub type SecondaryCommandBuffer =
     AutoCommandBufferBuilder<SecondaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
-pub type PrimaryCommandBuffer =
-    AutoCommandBufferBuilder<PrimaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
+pub type PrimaryCommandBuffer = AutoCommandBufferBuilder<
+    PrimaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>,
+    Arc<StandardCommandBufferAllocator>,
+>;
 pub type GPUWork =
     SegQueue<SendSync<Box<dyn FnOnce(&mut PrimaryCommandBuffer, Arc<VulkanManager>)>>>;
 
@@ -44,8 +46,8 @@ pub fn path_format(entry: &std::path::PathBuf) -> String {
     f_name
 }
 
-pub mod radix_sort;
 pub mod pipeline;
+pub mod radix_sort;
 // fn mat3_quat(m: &Mat3) -> Quat {
 //     let m00 = m[0];
 //     let m01 = m[1];

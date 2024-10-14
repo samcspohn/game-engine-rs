@@ -2,16 +2,16 @@ use std::collections::HashMap;
 
 use super::{particles::shaders::cs::p, time::Time};
 use egui::Key;
-use winit::{event::{
-    DeviceEvent, DeviceId, ElementState, Event, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent
-}, keyboard::KeyCode, platform::modifier_supplement::KeyEventExtModifierSupplement};
+use winit::event::{
+    DeviceEvent, DeviceId, ElementState, Event, KeyboardInput, MouseButton, MouseScrollDelta, TouchPhase, VirtualKeyCode, WindowEvent
+};
 
 #[derive(Default, Clone)]
 pub struct Input {
     // focused: bool,
-    pub(crate) key_downs: HashMap<KeyCode, bool>,
-    pub(crate) key_presses: HashMap<KeyCode, bool>,
-    pub(crate) key_ups: HashMap<KeyCode, bool>,
+    pub(crate) key_downs: HashMap<VirtualKeyCode, bool>,
+    pub(crate) key_presses: HashMap<VirtualKeyCode, bool>,
+    pub(crate) key_ups: HashMap<VirtualKeyCode, bool>,
     pub(crate) mouse_x: f64,
     pub(crate) mouse_y: f64,
     pub(crate) mouse_whl_vert: f32,
@@ -25,14 +25,14 @@ impl Input {
     // pub fn get_time(&self) -> &Time {
     //     &self.time
     // }
-    pub fn get_key(&self, key: &KeyCode) -> bool {
-        // TODO: &VirtualKeyCode to VirtualKeyCode
+    pub fn get_key(&self, key: &VirtualKeyCode) -> bool {
+        // TODO: &VirtualVirtualKeyCode to VirtualVirtualKeyCode
         *self.key_downs.get(key).unwrap_or(&false)
     }
-    pub fn get_key_down(&self, key: &KeyCode) -> bool {
+    pub fn get_key_down(&self, key: &VirtualKeyCode) -> bool {
         *self.key_presses.get(key).unwrap_or(&false)
     }
-    pub fn get_key_up(&self, key: &KeyCode) -> bool {
+    pub fn get_key_up(&self, key: &VirtualKeyCode) -> bool {
         *self.key_ups.get(key).unwrap_or(&false)
     }
     pub fn get_mouse_delta(&self) -> (f64, f64) {
@@ -73,19 +73,19 @@ impl Input {
             //     let KeyboardInput {
             //         scancode,
             //         state,
-            //         virtual_keycode,
+            //         virtual_VirtualKeyCode,
             //         modifiers,
             //     } = key;
             //     println!("key: {} {:?}", scancode, state);
-            //     if let Some(virtual_keycode) = virtual_keycode {
+            //     if let Some(virtual_VirtualKeyCode) = virtual_VirtualKeyCode {
             //         match state {
             //             ElementState::Pressed => {
-            //                 self.key_presses.insert(virtual_keycode, true);
-            //                 self.key_downs.insert(virtual_keycode, true);
+            //                 self.key_presses.insert(virtual_VirtualKeyCode, true);
+            //                 self.key_downs.insert(virtual_VirtualKeyCode, true);
             //             }
             //             ElementState::Released => {
-            //                 self.key_downs.insert(virtual_keycode, false);
-            //                 self.key_ups.insert(virtual_keycode, true);
+            //                 self.key_downs.insert(virtual_VirtualKeyCode, false);
+            //                 self.key_ups.insert(virtual_VirtualKeyCode, true);
             //             }
             //         }
             //     }
@@ -108,8 +108,8 @@ impl Input {
                         MouseButton::Middle => 1,
                         MouseButton::Right => 2,
                         MouseButton::Other(x) => x as u32,
-                        MouseButton::Back => todo!(),
-                        MouseButton::Forward => todo!(),
+                        // MouseButton::Back => todo!(),
+                        // MouseButton::Forward => todo!(),
                     },
                     true,
                 );
@@ -121,8 +121,8 @@ impl Input {
                         MouseButton::Middle => 1,
                         MouseButton::Right => 2,
                         MouseButton::Other(x) => x as u32,
-                        MouseButton::Back => todo!(),
-                        MouseButton::Forward => todo!(),
+                        // MouseButton::Back => todo!(),
+                        // MouseButton::Forward => todo!(),
                     },
                     false,
                 );
@@ -146,7 +146,7 @@ impl Input {
     pub(crate) fn process_keyboard(
         &mut self,
         device_id: DeviceId,
-        input: KeyEvent,
+        input: KeyboardInput,
         is_synthetic: bool,
     ) {
         // let KeyEvent {
@@ -157,45 +157,45 @@ impl Input {
         //     state,
         //     repeat,
         // } = input;
-        match input.physical_key {
-            winit::keyboard::PhysicalKey::Code(key) => 
-                match input.state {
-                    ElementState::Pressed => {
-                        self.key_downs.insert(key, true);
-                        self.key_presses.insert(key, true);
-                    },
-                    ElementState::Released => {
-                        self.key_downs.remove(&key);
-                        self.key_ups.remove(&key);
-                        self.key_ups.insert(key, true);
-                    },
-                }
-            ,
-            winit::keyboard::PhysicalKey::Unidentified(key) => {
-                println!("Unidentified key: {:?}", key);
-            },
-        }
-        
+        // match input.physical_key {
+        //     winit::keyboard::PhysicalKey::Code(key) =>
+        //         match input.state {
+        //             ElementState::Pressed => {
+        //                 self.key_downs.insert(key, true);
+        //                 self.key_presses.insert(key, true);
+        //             },
+        //             ElementState::Released => {
+        //                 self.key_downs.remove(&key);
+        //                 self.key_ups.remove(&key);
+        //                 self.key_ups.insert(key, true);
+        //             },
+        //         }
+        //     ,
+        //     winit::keyboard::PhysicalKey::Unidentified(key) => {
+        //         println!("Unidentified key: {:?}", key);
+        //     },
+        // }
+
         // if let WindowEvent::KeyboardInput { input: x, .. } = event {
-        // match input {
-            // KeyboardInput {
-            //     state: ElementState::Released,
-            //     virtual_keycode: Some(key),
-            //     ..
-            // } => {
-            //     self.key_downs.insert(key, false);
-            //     self.key_ups.insert(key, true);
-            // }
-            // KeyboardInput {
-            //     state: ElementState::Pressed,
-            //     virtual_keycode: Some(key),
-            //     ..
-            // } => {
-            //     self.key_presses.insert(key, true);
-            //     self.key_downs.insert(key, true);
-            // }
-            // _ => {}
-        // };
+        match input {
+            KeyboardInput {
+                state: ElementState::Released,
+                virtual_keycode: Some(key),
+                ..
+            } => {
+                self.key_downs.remove(&key);
+                self.key_ups.insert(key, true);
+            }
+            KeyboardInput {
+                state: ElementState::Pressed,
+                virtual_keycode: Some(key),
+                ..
+            } => {
+                self.key_presses.insert(key, true);
+                self.key_downs.insert(key, true);
+            }
+            _ => {}
+        };
         // }
     }
     // pub(crate) fn process_event<T>(&mut self, event: Event<T>) {
@@ -257,7 +257,7 @@ impl Input {
     //                     let _ = match x {
     //                         KeyboardInput {
     //                             state: ElementState::Released,
-    //                             virtual_keycode: Some(key),
+    //                             virtual_VirtualKeyCode: Some(key),
     //                             ..
     //                         } => {
     //                             self.key_downs.insert(key, false);
@@ -265,7 +265,7 @@ impl Input {
     //                         }
     //                         KeyboardInput {
     //                             state: ElementState::Pressed,
-    //                             virtual_keycode: Some(key),
+    //                             virtual_VirtualKeyCode: Some(key),
     //                             ..
     //                         } => {
     //                             self.key_presses.insert(key, true);
@@ -281,7 +281,7 @@ impl Input {
     //                 _ => (),
     //             }
 
-    //             if !input.get_key(&VirtualKeyCode::Space) {
+    //             if !input.get_key(&VirtualVirtualKeyCode::Space) {
     //                 gui.update(&event);
     //             }
     //         }
