@@ -99,7 +99,7 @@ impl RadixSort {
         vk: Arc<VulkanManager>,
         max_elements: u32,
         indirect: Subbuffer<[DispatchIndirectCommand]>,
-        num_elements: Subbuffer<cs1::PC>,
+        num_elements: Subbuffer<cs2::PC>,
         keys: &mut Subbuffer<[u32]>,
         payload: &mut Subbuffer<[u32]>,
         keys2: &mut Subbuffer<[u32]>,
@@ -110,23 +110,21 @@ impl RadixSort {
         const NUM_ELEMENTS_PER_BLOCK: u32 = 32;
         const NUM_BUCKETS: u32 = 256;
         // const NUM_BLOCKS: u32 = 256;
-        let num_global_counts = max_elements
-            .div_ceil(NUM_ELEMENTS_PER_BLOCK)
-            .div_ceil(WORKGROUP_SIZE)
-            .next_power_of_two()
-            .mul(NUM_BUCKETS);
-            // .max(1_000_000);
-        if num_global_counts > self.histograms.len() as u32 {
-            self.histograms = vk.buffer_array(num_global_counts as u64, MemoryUsage::DeviceOnly);
+
+        let global_invocation_size = max_elements.div_ceil(NUM_ELEMENTS_PER_BLOCK);
+        let num_workgroups = global_invocation_size.div_ceil(WORKGROUP_SIZE);
+        let histogram_size = num_workgroups.mul(NUM_BUCKETS);
+        if histogram_size > self.histograms.len() as u32 {
+            self.histograms = vk.buffer_array(histogram_size as u64, MemoryUsage::DeviceOnly);
         }
 
         for shift in (0..32).step_by(8) {
-            builder.fill_buffer(self.histograms.clone(), 0);
+            // builder.fill_buffer(self.histograms.clone(), 0);
 
             // histogram
             let push_constants = cs1::PushConstants {
-                g_num_blocks_per_workgroup: 32,
                 g_shift: shift,
+                g_num_blocks_per_workgroup: NUM_ELEMENTS_PER_BLOCK,
             };
             let push_constants = vk.allocate(push_constants);
             let descriptor_set = PersistentDescriptorSet::new(
@@ -146,14 +144,16 @@ impl RadixSort {
             )
             .unwrap();
 
-            builder.bind_pipeline_compute(self.histograms_pipeline.clone());
-            builder.bind_descriptor_sets(
-                PipelineBindPoint::Compute,
-                self.histograms_pipeline.layout().clone(),
-                0,
-                descriptor_set,
-            );
-            builder.dispatch_indirect(indirect.clone()).unwrap();
+            builder
+                .bind_pipeline_compute(self.histograms_pipeline.clone())
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Compute,
+                    self.histograms_pipeline.layout().clone(),
+                    0,
+                    descriptor_set,
+                )
+                .dispatch_indirect(indirect.clone())
+                .unwrap();
 
             // radix sort
             let descriptor_set = PersistentDescriptorSet::new(
@@ -176,14 +176,16 @@ impl RadixSort {
             )
             .unwrap();
             // let descriptor_set = get_descriptors(keys, payload, keys2, payload2, push_constants);
-            builder.bind_pipeline_compute(self.radix_pipeline.clone());
-            builder.bind_descriptor_sets(
-                PipelineBindPoint::Compute,
-                self.radix_pipeline.layout().clone(),
-                0,
-                descriptor_set,
-            );
-            builder.dispatch_indirect(indirect.clone()).unwrap();
+            builder
+                .bind_pipeline_compute(self.radix_pipeline.clone())
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Compute,
+                    self.radix_pipeline.layout().clone(),
+                    0,
+                    descriptor_set,
+                )
+                .dispatch_indirect(indirect.clone())
+                .unwrap();
 
             std::mem::swap(keys, keys2);
             std::mem::swap(payload, payload2);
