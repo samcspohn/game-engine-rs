@@ -1,10 +1,18 @@
-use std::{ops::{Div, Mul}, sync::Arc};
+use std::{
+    ops::{Div, Mul},
+    sync::Arc,
+};
 
 use crate::engine::rendering::vulkan_manager::VulkanManager;
 
 use super::PrimaryCommandBuffer;
 use vulkano::{
-    buffer::Subbuffer, command_buffer::DispatchIndirectCommand, descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet}, memory::allocator::MemoryUsage, pipeline::{ComputePipeline, Pipeline, PipelineBindPoint}, shader::ShaderModule
+    buffer::Subbuffer,
+    command_buffer::DispatchIndirectCommand,
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    memory::allocator::MemoryUsage,
+    pipeline::{ComputePipeline, Pipeline, PipelineBindPoint},
+    shader::ShaderModule,
 };
 
 pub mod cs1 {
@@ -16,7 +24,8 @@ pub mod cs1 {
 pub mod cs2 {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/multi_radixsort_v1.0.comp",
+        spirv_version: "1.5",
+        path: "src/shaders/multi_radixsort.comp",
     }
 }
 
@@ -97,38 +106,46 @@ impl RadixSort {
         payload2: &mut Subbuffer<[u32]>,
         builder: &mut PrimaryCommandBuffer,
     ) {
-
-        let num_global_counts = max_elements.div_ceil(256 * 4).next_power_of_two().mul(256);
+        const WORKGROUP_SIZE: u32 = 256;
+        const NUM_ELEMENTS_PER_BLOCK: u32 = 32;
+        const NUM_BUCKETS: u32 = 256;
+        // const NUM_BLOCKS: u32 = 256;
+        let num_global_counts = max_elements
+            .div_ceil(NUM_ELEMENTS_PER_BLOCK)
+            .div_ceil(WORKGROUP_SIZE)
+            .next_power_of_two()
+            .mul(NUM_BUCKETS);
+            // .max(1_000_000);
         if num_global_counts > self.histograms.len() as u32 {
             self.histograms = vk.buffer_array(num_global_counts as u64, MemoryUsage::DeviceOnly);
         }
-        
+
         for shift in (0..32).step_by(8) {
             builder.fill_buffer(self.histograms.clone(), 0);
-            
+
             // histogram
             let push_constants = cs1::PushConstants {
-                g_num_blocks_per_workgroup: 4,
+                g_num_blocks_per_workgroup: 32,
                 g_shift: shift,
             };
             let push_constants = vk.allocate(push_constants);
             let descriptor_set = PersistentDescriptorSet::new(
                 &vk.desc_alloc,
                 self.histograms_pipeline
-                .layout()
-                .set_layouts()
-                .get(0) // 0 is the index of the descriptor set.
-                .unwrap()
-                .clone(),
+                    .layout()
+                    .set_layouts()
+                    .get(0) // 0 is the index of the descriptor set.
+                    .unwrap()
+                    .clone(),
                 [
                     WriteDescriptorSet::buffer(0, keys.clone()),
                     WriteDescriptorSet::buffer(1, self.histograms.clone()),
                     WriteDescriptorSet::buffer(2, push_constants.clone()),
                     WriteDescriptorSet::buffer(3, num_elements.clone()),
-                    ],
-                )
-                .unwrap();
-            
+                ],
+            )
+            .unwrap();
+
             builder.bind_pipeline_compute(self.histograms_pipeline.clone());
             builder.bind_descriptor_sets(
                 PipelineBindPoint::Compute,
@@ -170,7 +187,6 @@ impl RadixSort {
 
             std::mem::swap(keys, keys2);
             std::mem::swap(payload, payload2);
-
         }
         // std::mem::swap(keys, keys2);
         // std::mem::swap(payload, payload2);

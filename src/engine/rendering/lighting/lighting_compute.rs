@@ -210,8 +210,8 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(7, tiles.clone()),
                 WriteDescriptorSet::buffer(8, self.light_list.lock().clone()),
                 WriteDescriptorSet::buffer(15, self.light_tile_ids.lock().clone()),
-                // WriteDescriptorSet::buffer(9, self.light_list2.lock().clone()),
-                // WriteDescriptorSet::buffer(10, self.light_offsets.clone()),
+                WriteDescriptorSet::buffer(9, self.light_list2.lock().clone()),
+                WriteDescriptorSet::buffer(10, self.light_offsets.clone()),
                 WriteDescriptorSet::buffer(11, self.light_counter.clone()),
                 WriteDescriptorSet::buffer(12, self.visible_lights.lock().clone()),
                 WriteDescriptorSet::buffer(13, self.visible_lights_c.clone()),
@@ -462,27 +462,34 @@ impl LightingCompute {
             Some(indirect.clone().slice(1..2)),
             4,
         );
-        // radix sort
-        {
-            let mut light_list = self.light_list.lock();
-            let mut light_tile_ids = self.light_tile_ids.lock();
-            let mut light_list2 = self.light_list2.lock();
-            let mut light_tile_ids2 = self.light_tile_ids2.lock();
-            // let mut visible_lights = self.visible_lights.lock();
-            self.radix_sort.lock().sort(
-                self.vk.clone(),
-                num_lights as u32,
-                indirect.clone().slice(1..2),
-                self.light_counter.clone(),
-                &mut *light_tile_ids,
-                &mut *light_list,
-                &mut *light_tile_ids2,
-                &mut *light_list2,
-                builder,
-            );
-        }
+        build_stage(
+            builder,
+            128,
+            None,
+            None,
+            5,
+        );
+        // // radix sort
+        // {
+        //     let mut light_list = self.light_list.lock();
+        //     let mut light_tile_ids = self.light_tile_ids.lock();
+        //     let mut light_list2 = self.light_list2.lock();
+        //     let mut light_tile_ids2 = self.light_tile_ids2.lock();
+        //     // let mut visible_lights = self.visible_lights.lock();
+        //     self.radix_sort.lock().sort(
+        //         self.vk.clone(),
+        //         num_lights as u32,
+        //         indirect.clone().slice(1..2),
+        //         self.light_counter.clone(),
+        //         &mut *light_tile_ids,
+        //         &mut *light_list,
+        //         &mut *light_tile_ids2,
+        //         &mut *light_list2,
+        //         builder,
+        //     );
+        // }
         // build_stage(builder, 128, None, None, 4);
-        // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 5);
+        build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 6);
         // build_stage(builder, 32 * 32, 5);
 
         // let tiles_curr_len = { tiles.lock().len() };
