@@ -18,6 +18,7 @@ use vulkano::{
 pub mod cs1 {
     vulkano_shaders::shader! {
         ty: "compute",
+        spirv_version: "1.5",
         path: "src/shaders/multi_radixsort_histograms.comp",
     }
 }
@@ -99,47 +100,85 @@ impl RadixSort {
         vk: Arc<VulkanManager>,
         max_elements: u32,
         indirect: Subbuffer<[DispatchIndirectCommand]>,
-        num_elements: Subbuffer<cs2::PC>,
-        keys: &mut Subbuffer<[u32]>,
-        payload: &mut Subbuffer<[u32]>,
-        keys2: &mut Subbuffer<[u32]>,
-        payload2: &mut Subbuffer<[u32]>,
+        pc: Subbuffer<cs2::PC>,
+        elements_in: &mut Subbuffer<[u32]>,
+        payloads_in: &mut Subbuffer<[u32]>,
+        elements_out: &mut Subbuffer<[u32]>,
+        payloads_out: &mut Subbuffer<[u32]>,
         builder: &mut PrimaryCommandBuffer,
     ) {
         const WORKGROUP_SIZE: u32 = 256;
-        const NUM_ELEMENTS_PER_BLOCK: u32 = 32;
+        const NUM_BLOCKS_PER_WORKGROUP: u32 = 32;
         const NUM_BUCKETS: u32 = 256;
+
         // const NUM_BLOCKS: u32 = 256;
 
-        let global_invocation_size = max_elements.div_ceil(NUM_ELEMENTS_PER_BLOCK);
+    
+        let global_invocation_size = max_elements.mul(4).div_ceil(NUM_BLOCKS_PER_WORKGROUP);
         let num_workgroups = global_invocation_size.div_ceil(WORKGROUP_SIZE);
         let histogram_size = num_workgroups.mul(NUM_BUCKETS);
+
+        println!("max_elements: {}", max_elements);
+        println!("global_invocation_size: {}", global_invocation_size);
+        println!("num_workgroups: {}", num_workgroups);
+        println!("histogram_size: {}", histogram_size);
+
+        // let indirect: Subbuffer<[DispatchIndirectCommand]> =
+        //     vk.buffer_from_iter([DispatchIndirectCommand {
+        //         x: num_workgroups,
+        //         y: 1,
+        //         z: 1,
+        //     }]);
+        // let pc = vk.buffer_from_data(cs2::PC {
+        //     g_num_elements: max_elements * 4,
+        //     g_num_workgroups: num_workgroups,
+        // });
         if histogram_size > self.histograms.len() as u32 {
             self.histograms = vk.buffer_array(histogram_size as u64, MemoryUsage::DeviceOnly);
         }
+
+        let hist_layout = self
+            .histograms_pipeline
+            .layout()
+            .set_layouts()
+            .get(0)
+            .unwrap();
+        let radix_layout = self.radix_pipeline.layout().set_layouts().get(1).unwrap();
 
         for shift in (0..32).step_by(8) {
             // builder.fill_buffer(self.histograms.clone(), 0);
 
             // histogram
-            let push_constants = cs1::PushConstants {
+            let hist_push = cs1::PushConstants {
                 g_shift: shift,
-                g_num_blocks_per_workgroup: NUM_ELEMENTS_PER_BLOCK,
+                g_num_blocks_per_workgroup: NUM_BLOCKS_PER_WORKGROUP,
             };
-            let push_constants = vk.allocate(push_constants);
-            let descriptor_set = PersistentDescriptorSet::new(
+            let radix_push = cs2::PushConstants {
+                g_shift: shift,
+                g_num_blocks_per_workgroup: NUM_BLOCKS_PER_WORKGROUP,
+            };
+            // let push_constants = vk.allocate(push_constants);
+            let hist_set = PersistentDescriptorSet::new(
                 &vk.desc_alloc,
-                self.histograms_pipeline
-                    .layout()
-                    .set_layouts()
-                    .get(0) // 0 is the index of the descriptor set.
-                    .unwrap()
-                    .clone(),
+                hist_layout.clone(),
                 [
-                    WriteDescriptorSet::buffer(0, keys.clone()),
+                    WriteDescriptorSet::buffer(0, elements_in.clone()),
                     WriteDescriptorSet::buffer(1, self.histograms.clone()),
-                    WriteDescriptorSet::buffer(2, push_constants.clone()),
-                    WriteDescriptorSet::buffer(3, num_elements.clone()),
+                    WriteDescriptorSet::buffer(5, pc.clone()),
+                ],
+            )
+            .unwrap();
+            // radix sort
+            let radix_set = PersistentDescriptorSet::new(
+                &vk.desc_alloc,
+                radix_layout.clone(),
+                [
+                    WriteDescriptorSet::buffer(0, elements_in.clone()),
+                    WriteDescriptorSet::buffer(1, elements_out.clone()),
+                    WriteDescriptorSet::buffer(3, payloads_in.clone()),
+                    WriteDescriptorSet::buffer(4, payloads_out.clone()),
+                    WriteDescriptorSet::buffer(2, self.histograms.clone()),
+                    WriteDescriptorSet::buffer(5, pc.clone()),
                 ],
             )
             .unwrap();
@@ -150,48 +189,27 @@ impl RadixSort {
                     PipelineBindPoint::Compute,
                     self.histograms_pipeline.layout().clone(),
                     0,
-                    descriptor_set,
+                    hist_set,
                 )
+                .push_constants(self.histograms_pipeline.layout().clone(), 0, hist_push)
                 .dispatch_indirect(indirect.clone())
-                .unwrap();
-
-            // radix sort
-            let descriptor_set = PersistentDescriptorSet::new(
-                &vk.desc_alloc,
-                self.radix_pipeline
-                    .layout()
-                    .set_layouts()
-                    .get(0)
-                    .unwrap()
-                    .clone(),
-                [
-                    WriteDescriptorSet::buffer(0, keys.clone()),
-                    WriteDescriptorSet::buffer(1, payload.clone()),
-                    WriteDescriptorSet::buffer(2, keys2.clone()),
-                    WriteDescriptorSet::buffer(3, payload2.clone()),
-                    WriteDescriptorSet::buffer(4, self.histograms.clone()),
-                    WriteDescriptorSet::buffer(5, push_constants),
-                    WriteDescriptorSet::buffer(6, num_elements.clone()),
-                ],
-            )
-            .unwrap();
-            // let descriptor_set = get_descriptors(keys, payload, keys2, payload2, push_constants);
-            builder
+                .unwrap()
                 .bind_pipeline_compute(self.radix_pipeline.clone())
                 .bind_descriptor_sets(
                     PipelineBindPoint::Compute,
                     self.radix_pipeline.layout().clone(),
-                    0,
-                    descriptor_set,
+                    1,
+                    radix_set,
                 )
+                .push_constants(self.radix_pipeline.layout().clone(), 0, radix_push)
                 .dispatch_indirect(indirect.clone())
                 .unwrap();
 
-            std::mem::swap(keys, keys2);
-            std::mem::swap(payload, payload2);
+            if shift < 24 {
+                std::mem::swap(elements_in, elements_out);
+                std::mem::swap(payloads_in, payloads_out);
+            }
         }
-        // std::mem::swap(keys, keys2);
-        // std::mem::swap(payload, payload2);
 
         // builder.bind_pipeline_compute(self.pipeline.clone());
         // builder.dispatch([buffer.len() as u32 / 1024, 1, 1]);

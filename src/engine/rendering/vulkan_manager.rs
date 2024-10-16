@@ -120,6 +120,24 @@ impl VulkanManager {
         .unwrap();
         buf
     }
+    pub fn buffer2<T>(&self, usage: MemoryUsage, buf_usage: BufferUsage) -> Subbuffer<T>
+    where
+        T: BufferContents + Sized,
+    {
+        let buf = Buffer::new_sized(
+            &self.mem_alloc,
+            BufferCreateInfo {
+                usage: buf_usage,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                usage,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        buf
+    }
     pub fn buffer_array<T>(&self, size: u64, usage: MemoryUsage) -> Subbuffer<T>
     where
         T: BufferContents + ?Sized,
