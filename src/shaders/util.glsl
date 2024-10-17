@@ -72,11 +72,18 @@ struct tile {
     Frustum frustum;
     uint count;
     uint offset;
-    uint contains_origin;
+    uint BLH_offset;
     uint travel_through;
     // vec2 p;
     // uint p2;
     // uint lights[MAX_LIGHTS_PER_TILE];
+};
+struct BoundingLine {
+    uint flag;
+    float start;
+    float end;
+    int front;   // positive value points to BoundingLine, negative points to light
+    int back;
 };
 struct AABB {
     vec3 _min;

@@ -176,11 +176,13 @@ impl LightingCompute {
         light_templates: Subbuffer<[fs::lightTemplate]>,
         tiles: Subbuffer<[V]>,
         indirect: Subbuffer<[W]>,
+        cam_pos: Vec3,
     ) -> Arc<PersistentDescriptorSet> {
         // let visble_lights = self.visible_lights.lock();
         let uniforms = self.vk.allocate(cs::Data {
             num_jobs: num_jobs as i32,
             stage: stage.into(),
+            cam_pos: cam_pos.into(),
         });
         // {
         //     let uniform_data = cs::Data {
@@ -229,6 +231,7 @@ impl LightingCompute {
         lights: Subbuffer<[lt::light]>,
         transforms: Subbuffer<[transform]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
+        // cvd: &CameraViewData,
         // screen_dims: [u32; 2],
     ) {
         builder.bind_pipeline_compute(self.pipeline.clone());
@@ -253,6 +256,7 @@ impl LightingCompute {
                         light_templates.clone(),
                         self.dummy_buffer.clone(),
                         self.dummy_buffer.clone(),
+                        Vec3::new(0., 0., 0.),
                     )
                 } else if let Some(init) = inits {
                     self.get_descriptors(
@@ -265,6 +269,7 @@ impl LightingCompute {
                         light_templates.clone(),
                         self.dummy_buffer.clone(),
                         self.dummy_buffer.clone(),
+                        Vec3::new(0., 0., 0.),
                     )
                 } else {
                     self.get_descriptors(
@@ -277,6 +282,7 @@ impl LightingCompute {
                         light_templates.clone(),
                         self.dummy_buffer.clone(),
                         self.dummy_buffer.clone(),
+                        Vec3::new(0., 0., 0.),
                     )
                 };
                 builder
@@ -403,6 +409,7 @@ impl LightingCompute {
                     light_templates.clone(),
                     tiles.clone(),
                     indirect_write.clone(),
+                    cvd.cam_pos,
                 )
             } else {
                 self.get_descriptors(
@@ -415,6 +422,7 @@ impl LightingCompute {
                     light_templates.clone(),
                     tiles.clone(),
                     self.dummy_buffer.clone(),
+                    cvd.cam_pos,
                 )
             };
             builder.bind_descriptor_sets(
