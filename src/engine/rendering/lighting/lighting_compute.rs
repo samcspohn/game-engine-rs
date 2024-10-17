@@ -1,4 +1,3 @@
-use std::u32;
 use std::{ops::Mul, sync::Arc};
 
 use glm::vec3;
@@ -6,7 +5,6 @@ use nalgebra_glm as glm;
 use nalgebra_glm::{Mat4, Vec3};
 use parking_lot::Mutex;
 use rapier3d::na::ComplexField;
-use vulkano::buffer::BufferUsage;
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, Subbuffer},
     command_buffer::{CopyBufferInfo, DispatchIndirectCommand, DrawIndirectCommand},
@@ -41,14 +39,12 @@ use crate::engine::{
 pub mod cs {
     vulkano_shaders::shader! {
         ty: "compute",
-        spirv_version: "1.5",
         path: "src/shaders/lighting.comp",
     }
 }
 pub mod lt {
     vulkano_shaders::shader! {
         ty: "compute",
-        spirv_version: "1.5",
         path: "src/shaders/light_tile.comp",
     }
 }
@@ -82,12 +78,12 @@ pub struct LightingCompute {
     vk: Arc<VulkanManager>,
     dummy_buffer: Subbuffer<[u8]>,
     pub(crate) tiles: Mutex<Subbuffer<[lt::tile]>>,
-    pub(crate) light_list: Mutex<Subbuffer<[u32]>>,
+    light_list: Mutex<Subbuffer<[u32]>>,
     light_tile_ids: Mutex<Subbuffer<[u32]>>,
     pub(crate) light_list2: Mutex<Subbuffer<[u32]>>,
     light_tile_ids2: Mutex<Subbuffer<[u32]>>,
     light_offsets: Subbuffer<[u32]>,
-    light_counter: Subbuffer<radix_sort::cs2::PC>,
+    light_counter: Subbuffer<radix_sort::cs1::PC>,
     pub(crate) visible_lights: Mutex<Subbuffer<[u32]>>,
     pub(crate) visible_lights_c: Subbuffer<u32>,
     pub(crate) radix_sort: Arc<Mutex<crate::engine::utils::radix_sort::RadixSort>>,
@@ -159,7 +155,7 @@ impl LightingCompute {
             light_list2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
             light_tile_ids2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
             light_offsets: vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly),
-            light_counter: vk.buffer2(MemoryUsage::DeviceOnly, BufferUsage::STORAGE_BUFFER),
+            light_counter: vk.buffer(MemoryUsage::DeviceOnly),
             visible_lights: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
             visible_lights_c: vk.buffer(MemoryUsage::DeviceOnly),
             tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly)),
@@ -440,15 +436,13 @@ impl LightingCompute {
         let indirect = self.vk.buffer_from_iter([
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
-            // DispatchIndirectCommand { x: 1, y: 1, z: 1 },
         ]);
         // build_stage(builder, 32 * 32, 3);
-        // let light_jobs = (num_lights as u32).div_ceil(128).mul(128) as i32;
+        let light_jobs = (num_lights as u32).div_ceil(128).mul(128) as i32;
         builder.update_buffer(self.visible_lights_c.clone(), &0);
-        // builder.fill_buffer(self.light_list2.lock().clone(), u32::MAX);
         builder.update_buffer(
             self.light_counter.clone(),
-            &radix_sort::cs2::PC {
+            &radix_sort::cs1::PC {
                 g_num_elements: 0,
                 g_num_workgroups: 0,
             },

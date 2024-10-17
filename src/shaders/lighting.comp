@@ -34,7 +34,9 @@ layout(set = 0, binding = 13) buffer vlc { uint visible_lights_c; };
 layout(set = 0, binding = 14) buffer i { DispatchIndirectCommand indirect[]; };
 
 shared uint local_offsets[128 * 2];
-shared uvec2 local_indeces[128 * 4];
+// shared uvec2 local_indeces[128 * 4];
+shared uint local_tile_ids[128 * 4];
+shared uint local_light_ids[128 * 4];
 // shared uint local_counts[_light_quadtree_offsets[MAX_LEVEL]];
 shared uint local_counter;
 shared uint global_idx;
@@ -147,7 +149,9 @@ void main() {
                 for (int i = 0; i < a_c; ++i) {
                     ivec3 _a = a[i];
                     uint tile_idx = uint(get_tile(_a.x, _a.y, _a.z));
-                    local_indeces[local_idx + i] = uvec2(tile_idx, light_id);
+                    // local_indeces[local_idx + i] = uvec2(tile_idx, light_id);
+                    local_tile_ids[local_idx + i] = tile_idx;
+                    local_light_ids[local_idx + i] = light_id;
                     atomicAdd(tiles[tile_idx].count, 1);
                 }
             }
@@ -160,20 +164,19 @@ void main() {
             local_id = local_id * 4;
             for (int i = 0; i < 4; ++i) {
                 if (local_id + i < local_counter) {
-                    light_tile_ids[global_idx + local_id + i] = local_indeces[local_id + i].x;
-                    light_ids[global_idx + local_id + i] = local_indeces[local_id + i].y;
+                    light_tile_ids[global_idx + local_id + i] = local_tile_ids[local_id + i];
+                    light_ids[global_idx + local_id + i] = local_light_ids[local_id + i];
                 }
             }
             barrier();
             if (local_id == 0) {
+                // atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
                 uint num_elements = global_idx + local_counter;
                 const uint num_blocks_per_workgroup = 32;
                 const uint work_group_size = 256;
                 uint dispatch_size = uint(ceil(float(num_elements / float(num_blocks_per_workgroup))));
                 uint num_workgroups = uint(ceil(float(dispatch_size) / float(work_group_size)));
                 atomicMax(indirect[0].x, num_workgroups);
-                // indirect[0].y = 1;
-                // indirect[0].z = 1;
                 atomicMax(pc.g_num_workgroups, num_workgroups);
             }
 
@@ -227,6 +230,7 @@ void main() {
         case 6: {   // reorder
             if (id < pc.g_num_elements) {
                 uint index = atomicAdd(light_offsets[light_tile_ids[id]], 1);
+                // light_tile_ids2[index] = light_tile_ids[id];
                 light_list2[index] = light_ids[id];
             }
         } break;

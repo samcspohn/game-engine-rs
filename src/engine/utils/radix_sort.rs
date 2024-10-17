@@ -100,7 +100,7 @@ impl RadixSort {
         vk: Arc<VulkanManager>,
         max_elements: u32,
         indirect: Subbuffer<[DispatchIndirectCommand]>,
-        pc: Subbuffer<cs2::PC>,
+        pc: Subbuffer<cs1::PC>,
         elements_in: &mut Subbuffer<[u32]>,
         payloads_in: &mut Subbuffer<[u32]>,
         elements_out: &mut Subbuffer<[u32]>,
