@@ -15,6 +15,7 @@ use vulkano::{
     image::{view::ImageView, ImageDimensions, ImmutableImage, MipmapsCount},
     impl_vertex,
     memory::allocator::StandardMemoryAllocator,
+    padded::Padded,
     pipeline::{
         graphics::{
             depth_stencil::DepthStencilState,
@@ -39,7 +40,10 @@ use crate::engine::{
 use self::fs::light;
 
 use super::{
-    lighting::lighting_compute::lt::{self, tile},
+    lighting::lighting_compute::{
+        cs,
+        lt::{self, tile},
+    },
     model::{Mesh, Normal, _Vertex, UV},
     texture::TextureManager,
 };
@@ -259,6 +263,7 @@ impl RenderPipeline {
         light_templates: Subbuffer<[fs::lightTemplate]>,
         tiles: Subbuffer<[tile]>,
         screen_dims: [f32; 2],
+        bounding_line_hierarchy: Subbuffer<[cs::BoundingLine]>,
         /////
         transforms: Subbuffer<[transform]>,
         mesh: &Mesh,
@@ -301,7 +306,7 @@ impl RenderPipeline {
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
         descriptors.push(WriteDescriptorSet::buffer(5, tiles));
         descriptors.push(WriteDescriptorSet::buffer(6, uniform));
-        descriptors.push(WriteDescriptorSet::buffer(7, light_list));
+        // descriptors.push(WriteDescriptorSet::buffer(7, light_list));
         // descriptors.push(WriteDescriptorSet::buffer(7, mesh.bone_weight_offsets));
         if let Some(skel) = skeleton {
             descriptors.push(WriteDescriptorSet::buffer(10, skel.clone()));
@@ -318,8 +323,9 @@ impl RenderPipeline {
             13,
             mesh.bone_weights_offsets_counts_buf.clone(),
         ));
+        descriptors.push(WriteDescriptorSet::buffer(15, bounding_line_hierarchy));
         // descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
-
+        let pc = Into::<[f32;3]>::into(cam_pos);
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
         {
             builder
@@ -342,8 +348,15 @@ impl RenderPipeline {
                 )
                 // .bind_vertex_buffers(1, transforms_buffer.data.clone())
                 .bind_index_buffer(mesh.index_buffer.clone())
+                .push_constants(
+                    self.pipeline.layout().clone(),
+                    0,
+                    pc,
+                )
                 .draw_indexed_indirect(indirect_buffer)
                 .unwrap();
+        } else {
+            println!("failed to create descriptor set");
         }
         self
     }

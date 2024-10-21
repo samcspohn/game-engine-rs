@@ -68,8 +68,7 @@ use super::{
         // light_bounding::LightBounding,
         lighting::LightingSystem,
         lighting_compute::{
-            lt::{self, tile},
-            LightingCompute, NUM_TILES,
+            cs, lt::{self, tile}, LightingCompute, NUM_TILES
         },
     },
     model::{ModelManager, ModelRenderer},
@@ -690,6 +689,7 @@ impl CameraData {
         visible_lights: Subbuffer<[u32]>,
         visible_lights_count: Subbuffer<u32>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
+        bounding_line_hierarchy: Subbuffer<[cs::BoundingLine]>,
         // end lights
         particles: Arc<ParticlesSystem>,
         transform_buf: TransformBuf,
@@ -872,6 +872,7 @@ impl CameraData {
                                         light_templates.clone(),
                                         tiles.clone(),
                                         cvd.dimensions,
+                                        bounding_line_hierarchy.clone(),
                                         // end lights
                                         transform_compute.gpu_transforms.clone(),
                                         &mr.model.meshes[i],
@@ -914,6 +915,7 @@ impl CameraData {
                     vk: vk.clone(),
                     cam_pos: cvd.cam_pos,
                     playing_game,
+                    bounding_line_hierarchy: bounding_line_hierarchy.clone(),
                 };
                 world.render(&mut rd);
                 // for job in render_jobs {

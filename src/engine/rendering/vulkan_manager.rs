@@ -314,6 +314,9 @@ impl VulkanManager {
             geometry_shader: true,
             runtime_descriptor_array: true,
             descriptor_binding_variable_descriptor_count: true,
+            // shader_buffer_float32_atomic_min_max: true,
+            // shader_shared_float32_atomic_min_max: true,
+            // shader_image_float32_atomic_min_max: true,
             ..Default::default()
         };
         let (device, mut queues) = Device::new(

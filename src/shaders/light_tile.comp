@@ -69,8 +69,7 @@ void main() {
     uint index = get_tile(tile_id.x, tile_id.y, level);
     tile t = tiles[index];
     t.frustum = frustum;
-    t.contains_origin = 0;
-    tiles[index].contains_origin = uint(sphere_frustum(vec3(0), 0, frustum));
+    // tiles[index].BLH_offset = 0;
     tiles[index].frustum = frustum;
     tiles[index].count = 0;
     tiles[index].travel_through = 0;

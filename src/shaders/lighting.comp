@@ -1,4 +1,5 @@
 #version 450
+
 #include "util.glsl"
 
 // struct ClusterNode {
@@ -22,9 +23,9 @@ layout(set = 0, binding = 7) buffer t { tile tiles[]; };
 layout(set = 0, binding = 8) buffer ltid { uint light_tile_ids[]; };
 layout(set = 0, binding = 15) buffer ll { uint light_ids[]; };
 // layout(set = 0, binding = 8) buffer ll { ivec2 light_list[]; };
-layout(set = 0, binding = 16) buffer ltid { uint light_tile_ids2[]; };
+layout(set = 0, binding = 16) buffer ltid2 { uint light_tile_ids2[]; };
 layout(set = 0, binding = 9) buffer ll2 { uint light_list2[]; };
-layout(set = 0, binding = 10) buffer lo { uint light_offsets[]; };
+// layout(set = 0, binding = 10) buffer lo { uint light_offsets[]; };
 
 struct PC {
     uint g_num_elements;
@@ -35,14 +36,14 @@ layout(set = 0, binding = 12) buffer vl { uint visible_lights[]; };
 layout(set = 0, binding = 13) buffer vlc { uint visible_lights_c; };
 layout(set = 0, binding = 14) buffer i { DispatchIndirectCommand indirect[]; };
 
-
-layout(std430, set = 0, binding = 17) buffer blh { BoundingLine BLH[]; };   // (num_lights * 4)
+layout(std430, set = 0, binding = 10) buffer blh_ { BoundingLine blh[]; };   // (num_lights * 4)
 
 shared uint local_offsets[128 * 2];
-shared uint local_BLH_offsets[128 * 2];
+shared int local_BLH_offsets[128 * 2];
 // shared uvec2 local_indeces[128 * 4];
 shared uint local_tile_ids[128 * 4];
 shared uint local_light_ids[128 * 4];
+// shared float local_distances[128 * 4];
 // shared uint local_counts[_light_quadtree_offsets[MAX_LEVEL]];
 shared uint local_counter;
 shared uint global_idx;
@@ -156,7 +157,7 @@ void main() {
                 for (int i = 0; i < a_c; ++i) {
                     ivec3 _a = a[i];
                     uint tile_idx = uint(get_tile(_a.x, _a.y, _a.z));
-                    uint tile_id_dist = tile_idx << 19 | floatBitsToUint(light_dist) & 0x7FFFF;
+                    uint tile_id_dist = tile_idx << 19 | (((floatBitsToUint(light_dist) ^ (1 << 31)) >> 13) & 0x7FFFF);
                     // local_indeces[local_idx + i] = uvec2(tile_idx, light_id);
                     local_tile_ids[local_idx + i] = tile_id_dist;
                     local_light_ids[local_idx + i] = light_id;
@@ -212,25 +213,25 @@ void main() {
             int end = int((local_id + 1) * (num_tiles / num_threads));
 
             uint temp = tiles[start].count;
-            uint BLH_temp = uint(max(int(tiles[start].count) - 1, 0));
+            int BLH_temp = int(max(int(tiles[start].count) - 1, 0));
             tiles[start].offset = 0;
             tiles[start].BLH_offset = 0;
             for (int i = start + 1; i < end; ++i) {
                 tiles[i].offset = temp;
                 tiles[i].BLH_offset = BLH_temp;
                 temp += tiles[i].count;
-                BLH_temp += uint(max(int(tiles[i].count) - 1, 0))
+                BLH_temp += int(max(int(tiles[i].count) - 1, 0));
             }
             local_offsets[id] = temp;
             local_BLH_offsets[id] = BLH_temp;
             barrier();
             if (local_id == 0) {
                 uint temp = local_offsets[0];
-                uint BLH_temp = local_BLH_offsets[0];
+                int BLH_temp = local_BLH_offsets[0];
                 local_offsets[0] = 0;
                 for (int i = 1; i < gl_WorkGroupSize.x; i++) {
                     uint temp2 = local_offsets[i];
-                    uint temp3 = local_BLH_offsets[i];
+                    int temp3 = local_BLH_offsets[i];
                     local_offsets[i] = temp;
                     local_BLH_offsets[i] = BLH_temp;
                     temp += temp2;
@@ -241,89 +242,162 @@ void main() {
             for (int i = start; i < end; ++i) {
                 tiles[i].offset += local_offsets[id];
                 tiles[i].BLH_offset += local_BLH_offsets[id] + 1;   // offset all blh by 1 / sacrifice 1 blh
-                light_offsets[i] = tiles[i].offset;
+                // light_offsets[i] = tiles[i].offset;
             }
             // offsets point to BLH or light ids
         } break;
         case 6: {   // reorder
             if (id < pc.g_num_elements) {
-                uint index = atomicAdd(light_offsets[light_tile_ids[id] >> 19], 1);
-                // light_tile_ids2[index] = light_tile_ids[id];
+                uint index = atomicAdd(tiles[light_tile_ids[id] >> 19].count, 1);
+                light_tile_ids2[index] = light_tile_ids[id];
                 light_list2[index] = light_ids[id];
             }
         } break;
-        case 7: {   // calculate BLH
+        case 7: {
+            if (id < num_jobs) {
+                blh[id].flag = 0;
+                // set start to max float value
+                // blh[id].start = 3.402823466e+38;
+                // blh[id].start1 = 3.402823466e+38;
+                // blh[id].start2 = 3.402823466e+38;
+                // set end to min float value
+                // blh[id].end = -3.402823466e+38;
+                // blh[id].end1 = -3.402823466e+38;
+                // blh[id].end2 = -3.402823466e+38;
+            }
+        } break;
+        case 8: {   // calculate BLH
             if (id < pc.g_num_elements) {
                 uint tile_id = light_tile_ids2[id] >> 19;
                 uint light_id = light_list2[id];
+
                 float dist = distance(cam_pos, lights[light_id].pos);
                 float start = dist - lights[light_id].radius;
                 float end = dist + lights[light_id].radius;
-                uint light_offset = tiles[tile_id].offset;
-                uint BLH_offset = tiles[tile_id].BLH_offset;
-                uint BLH_count = uint(max(int(tiles[tile_id].count) - 1, 0));
 
-                uint level_size = BLH_count / 2;
-                uint level_remainder = BLH_count % 2;
-                uint local_light_id = id - light_offset;
-                uint curr_level_id = local_light_id / 2;
-                uint BLH_id = BLH_offset + curr_level_id;
+                int light_count = int(tiles[tile_id].count);
+                int light_offset = int(tiles[tile_id].offset);
+                int blh_count = int(max(int(tiles[tile_id].count) - 1, 0));
+                int blh_offset = tiles[tile_id].BLH_offset;
+                int blh_end = blh_offset + blh_count;
+                int blh_value = -int(light_id);
 
-                // first level/leaf
-                if (curr_level_id < level_size) {
-                    if (local_light_id % 2 == 0) {
-                        blh[BLH_id].front = -light_id;   // negative value points to light
-                    } else {
-                        blh[BLH_id].back = -light_id;
-                    }
-                    atomicMin(BLH[BLH_id].start, start);
-                    atomicMax(BLH[BLH_id].end, end);
-                    uint flag = AtomicAdd(BLH[BLH_id].flag, 1);
-                    if (flag == 0) {
-                        return;
-                    }
+                if (blh_count == 0) {
+                    tiles[tile_id].BLH_offset = blh_value;
+                    return;
                 }
 
-                // traverse up binary tree
-                BLH_offset += level_size;
-                level_remainder = (level_size + level_remainder) % 2;
-                level_size = (level_size + level_remainder) / 2;
-                start = blh[BLH_id].start;
-                end = blh[BLH_id].end;
-                curr_level_id /= 2;
-                BLH_id = BLH_offset + curr_level_id;
+                uint local_id = gl_LocalInvocationID.x;
+                int curr_id = int(id) - light_offset;
+                int blh_id = curr_id / 2;
+                
+                int level_size = light_count / 2;
+                int level_remainder = blh_count > 1 ? light_count % 2 : 0;
 
                 while (level_size > 0) {
-                    if (curr_level_id > level_size) {
-                        curr_level_id /= 2;
-                        level_size = (level_size + level_remainder) / 2;
-                        continue;
+                    if (blh_id < level_size) {
+                        if(curr_id % 2 == 0) {
+                            blh[blh_offset + blh_id].front = blh_value;
+                            blh[blh_offset + blh_id].start1 = start;
+                            blh[blh_offset + blh_id].end1 = end;
+                            
+                        } else {
+                            blh[blh_offset + blh_id].back = blh_value;
+                            blh[blh_offset + blh_id].start2 = start;
+                            blh[blh_offset + blh_id].end2 = end;
+                        }
+                        uint flag = atomicAdd(blh[blh_offset + blh_id].flag, 1);
+                        if (flag == 0) {
+                            return;
+                        }
+                        blh[blh_offset + blh_id].start = min(blh[blh_offset + blh_id].start1, blh[blh_offset + blh_id].start2);
+                        blh[blh_offset + blh_id].end = max(blh[blh_offset + blh_id].end1, blh[blh_offset + blh_id].end2);
+                        blh_value = blh_offset + blh_id;
+                        start = blh[blh_offset + blh_id].start;
+                        end = blh[blh_offset + blh_id].end;
                     }
-                    atomicMin(BLH[BLH_id].start, start);
-                    atomicMax(BLH[BLH_id].end, end);
-
-                    if (curr_level_id % 2 == 0) {
-                        blh[BLH_id].front = curr_level_id;
-                    } else {
-                        blh[BLH_id].back = curr_level_id;
-                    }
-                    uint flag = atomicAdd(BLH[BLH_id].flag, 1);
-                    if (flag == 0) {
-                        return;
-                    }
-
-                    start = blh[BLH_id].start;
-                    end = blh[BLH_id].end;
-                    curr_level_id /= 2;
-                    if level_size == 1 {
+                    curr_id = blh_id;
+                    blh_id /= 2;
+                    if (blh_offset + level_size >= blh_end) {
                         break;
                     }
-                    BLH_offset += level_size;
-                    BLH_id = BLH_offset + curr_level_id;
+                    blh_offset += level_size;
                     level_remainder = (level_size + level_remainder) % 2;
                     level_size = (level_size + level_remainder) / 2;
                 }
-                tiles[tile_id].BLH_offset = BLH_offset; // update BLH offset
+                tiles[tile_id].BLH_offset = blh_offset;
+
+
+                // uint local_id = gl_LocalInvocationID.x;
+                // uint tile_id = light_tile_ids2[id] >> 19;
+                // if (tile_id >= tiles.length()) {
+                //     return;
+                // }
+                // uint light_id = light_list2[id];
+
+                // float dist = distance(cam_pos, lights[light_id].pos);
+                // float start = dist - lights[light_id].radius;
+                // float end = dist + lights[light_id].radius;
+                // uint light_offset = tiles[tile_id].offset;
+                // int BLH_offset = tiles[tile_id].BLH_offset;
+                // int BLH_count = int(max(int(tiles[tile_id].count) - 1, 0));
+                // int BLH_end = BLH_offset + BLH_count;
+                
+                // int level_size = BLH_count / 2;
+                // int level_remainder = BLH_count % 2;
+                // uint local_light_id = id - light_offset;
+                // uint curr_level_id = local_light_id / 2;
+                // uint BLH_id = BLH_offset + curr_level_id;
+                // int blh_value = -int(light_id);
+                // // return;
+                // if (BLH_count == 0) {
+                //     tiles[tile_id].BLH_offset = -int(light_id);
+                //     return;
+                // }
+
+                // uint num_iter = 0;
+                // while (BLH_offset < BLH_end || level_size > 0) {
+                //     if (BLH_id >= blh.length()) {
+                //         return;
+                //     }
+                //     if (curr_level_id < level_size) {   // curr_level_id == BLH_id - BLH_offset
+                //         if (local_light_id % 2 == 0) {
+                //             blh[BLH_id].front = blh_value;
+                //             if (local_id * 4 + 1 < local_distances.length()) {
+                //                 local_distances[local_id * 4] = start;
+                //                 local_distances[local_id * 4 + 1] = end;
+                //             }
+
+                //             if (local_id * 4 + 3 < local_distances.length()) {
+                //                 local_distances[local_id * 4 + 2] = start;
+                //                 local_distances[local_id * 4 + 3] = end;
+                //             }
+                //             local_distances[local_id * 4 + 2] = start;
+                //             local_distances[local_id * 4 + 3] = end;
+                //         }
+                //         uint flag = atomicAdd(blh[BLH_id].flag, 1);
+                //         if (flag == 0) {
+                //             return;
+                //         }
+                //         blh[BLH_id].start = min(local_distances[local_id * 4], local_distances[local_id * 4 + 2]);
+                //         blh[BLH_id].end = max(local_distances[local_id * 4 + 1], local_distances[local_id * 4 + 3]);
+                //         blh_value = int(BLH_id);
+                //         start = blh[BLH_id].start;
+                //         end = blh[BLH_id].end;
+                //     }
+
+                //     local_light_id = curr_level_id;
+                //     curr_level_id /= 2;
+                //     if ((level_size + level_remainder) == 1) {
+                //         break;
+                //     }
+                //     BLH_offset += level_size;
+                //     BLH_id = BLH_offset + curr_level_id;
+                //     level_remainder = (level_size + level_remainder) % 2;
+                //     level_size = (level_size + level_remainder) / 2;
+                //     num_iter++;
+                // }
+                // tiles[tile_id].BLH_offset = BLH_offset;   // update BLH offset
             }
         } break;
         default:

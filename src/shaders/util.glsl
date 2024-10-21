@@ -72,7 +72,7 @@ struct tile {
     Frustum frustum;
     uint count;
     uint offset;
-    uint BLH_offset;
+    int BLH_offset;
     uint travel_through;
     // vec2 p;
     // uint p2;
@@ -80,6 +80,10 @@ struct tile {
 };
 struct BoundingLine {
     uint flag;
+    float start1;
+    float end1;
+    float start2;
+    float end2;
     float start;
     float end;
     int front;   // positive value points to BoundingLine, negative points to light

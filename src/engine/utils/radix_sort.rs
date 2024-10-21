@@ -118,10 +118,10 @@ impl RadixSort {
         let num_workgroups = global_invocation_size.div_ceil(WORKGROUP_SIZE);
         let histogram_size = num_workgroups.mul(NUM_BUCKETS);
 
-        println!("max_elements: {}", max_elements);
-        println!("global_invocation_size: {}", global_invocation_size);
-        println!("num_workgroups: {}", num_workgroups);
-        println!("histogram_size: {}", histogram_size);
+        // println!("max_elements: {}", max_elements);
+        // println!("global_invocation_size: {}", global_invocation_size);
+        // println!("num_workgroups: {}", num_workgroups);
+        // println!("histogram_size: {}", histogram_size);
 
         // let indirect: Subbuffer<[DispatchIndirectCommand]> =
         //     vk.buffer_from_iter([DispatchIndirectCommand {
