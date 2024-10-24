@@ -94,7 +94,7 @@ void main() {
             continue;
         }
 
-        if (tiles[tileIndex].BLH_offset < 1) {
+        if (tiles[tileIndex].BLH_offset < -1) {
             uint l_id = -tiles[tileIndex].BLH_offset;
             vec3 l_pos = v_pos - lights[l_id].pos;
             float radius = lights[l_id].radius;
@@ -104,7 +104,7 @@ void main() {
             }
             continue;
         }
-        if (tiles[tileIndex].BLH_offset == 1) {
+        if (tiles[tileIndex].BLH_offset == -1) {
             continue;
         }
 
@@ -117,32 +117,32 @@ void main() {
 
             if (blh_ptr >= blh.length()) break;   // Check for out-of-bounds access
 
-            // if (blh[blh_ptr].start < z && blh[blh_ptr].end > z) {
-            int front = blh[blh_ptr].front;
-            int back = blh[blh_ptr].back;
+            // if (uint_to_float(blh[blh_ptr].start) < z && uint_to_float(blh[blh_ptr].end) > z) {
+                int front = blh[blh_ptr].front;
+                int back = blh[blh_ptr].back;
 
-            if (front < 1) {   // front is a light id
-                uint l_id = -front;
-                vec3 l_pos = v_pos - lights[l_id].pos;
-                float radius = lights[l_id].radius;
-                if (dot(l_pos, l_pos) < radius * radius) {
-                    light_ids[lit_times++] = l_id;
-                    if (lit_times > MAX_LIT) break;
+                if (front < 1) {   // front is a light id
+                    int l_id = -front - 2;
+                    vec3 l_pos = v_pos - lights[l_id].pos;
+                    float radius = lights[l_id].radius;
+                    if (dot(l_pos, l_pos) < radius * radius) {
+                        light_ids[lit_times++] = l_id;
+                        if (lit_times > MAX_LIT) break;
+                    }
+                } else if (front > 1) {
+                    if (stack_ptr < 32) stack[stack_ptr++] = front;   // Check for stack overflow
                 }
-            } else if (front > 1) {
-                if (stack_ptr < 32) stack[stack_ptr++] = front;   // Check for stack overflow
-            }
-            if (back < 1) {   // back is a light id
-                uint l_id = -back;
-                vec3 l_pos = v_pos - lights[l_id].pos;
-                float radius = lights[l_id].radius;
-                if (dot(l_pos, l_pos) < radius * radius) {
-                    light_ids[lit_times++] = l_id;
-                    if (lit_times > MAX_LIT) break;
+                if (back < 1) {   // back is a light id
+                    int l_id = -back - 2;
+                    vec3 l_pos = v_pos - lights[l_id].pos;
+                    float radius = lights[l_id].radius;
+                    if (dot(l_pos, l_pos) < radius * radius) {
+                        light_ids[lit_times++] = l_id;
+                        if (lit_times > MAX_LIT) break;
+                    }
+                } else if (back > 1) {
+                    if (stack_ptr < 32) stack[stack_ptr++] = back;   // Check for stack overflow
                 }
-            } else if (back > 1) {
-                if (stack_ptr < 32) stack[stack_ptr++] = back;   // Check for stack overflow
-            }
             // }
             num_iter++;
         }

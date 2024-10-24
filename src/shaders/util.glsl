@@ -80,11 +80,22 @@ struct tile {
 };
 struct BoundingLine {
     uint flag;
-    float start;
-    float end;
+    uint start;
+    uint end;
     int front;   // positive value points to BoundingLine, negative points to light
+    vec3 padding;
     int back;
 };
+
+uint float_to_uint(float f) {
+    uint _f = floatBitsToUint(f);
+    uint mask = -int(_f >> 31) | 0x80000000;
+    return _f ^ mask;
+}
+float uint_to_float(uint i) {
+    uint mask = -int(i >> 31) | 0x80000000;
+    return uintBitsToFloat(i ^ mask);
+}
 struct AABB {
     vec3 _min;
     vec3 _max;
@@ -155,10 +166,10 @@ bool sphere_frustum(vec3 pos, float radius, in Frustum frustum) {
         if (dot(frustum.planes[i].xyz, pos) - frustum.planes[i].w < -radius) {
             result = false;   // <--
             break;            //   |
-        }                     //   |
-    }                         //   |
-                              //   |
-    if (!result) {            // if false ---
+        }   //   |
+    }   //   |
+        //   |
+    if (!result) {   // if false ---
         return false;
     }
 
