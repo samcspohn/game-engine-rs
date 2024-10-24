@@ -306,7 +306,7 @@ impl RenderPipeline {
         descriptors.push(WriteDescriptorSet::buffer(4, lights));
         descriptors.push(WriteDescriptorSet::buffer(5, tiles));
         descriptors.push(WriteDescriptorSet::buffer(6, uniform));
-        // descriptors.push(WriteDescriptorSet::buffer(7, light_list));
+        descriptors.push(WriteDescriptorSet::buffer(7, light_list));
         // descriptors.push(WriteDescriptorSet::buffer(7, mesh.bone_weight_offsets));
         if let Some(skel) = skeleton {
             descriptors.push(WriteDescriptorSet::buffer(10, skel.clone()));

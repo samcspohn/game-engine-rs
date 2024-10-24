@@ -82,7 +82,7 @@ void traverse_quadtree(inout ivec3 a[4], inout int a_c, vec3 pos, float radius) 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 void main() {
     const uint id = gl_GlobalInvocationID.x;
-    if (id < num_jobs) {
+    if (id < num_jobs || num_jobs == -1) {
         switch (stage) {
         case 0: {   // deinit
             light_deinit di = deinits[id];
@@ -216,22 +216,23 @@ void main() {
             int end = int((local_id + 1) * (num_tiles / num_threads));
 
             uint temp = tiles[start].count;
-            int BLH_temp = int(max(int(tiles[start].count) - 1, 0));
+            int BLH_temp = max(int(tiles[start].count) - 1, 0);
             tiles[start].offset = 0;
             tiles[start].BLH_offset = 0;
             for (int i = start + 1; i < end; ++i) {
                 tiles[i].offset = temp;
                 tiles[i].BLH_offset = BLH_temp;
                 temp += tiles[i].count;
-                BLH_temp += int(max(int(tiles[i].count) - 1, 0));
+                BLH_temp += max(int(tiles[i].count) - 1, 0);
             }
-            local_offsets[id] = temp;
-            local_BLH_offsets[id] = BLH_temp;
+            local_offsets[local_id] = temp;
+            local_BLH_offsets[local_id] = BLH_temp;
             barrier();
             if (local_id == 0) {
                 uint temp = local_offsets[0];
                 int BLH_temp = local_BLH_offsets[0];
                 local_offsets[0] = 0;
+                local_BLH_offsets[0] = 0;
                 for (int i = 1; i < gl_WorkGroupSize.x; i++) {
                     uint temp2 = local_offsets[i];
                     int temp3 = local_BLH_offsets[i];
@@ -243,8 +244,8 @@ void main() {
             }
             barrier();
             for (int i = start; i < end; ++i) {
-                tiles[i].offset += local_offsets[id];
-                tiles[i].BLH_offset += local_BLH_offsets[id] + 1;   // offset all blh by 1 / sacrifice 1 blh
+                tiles[i].offset += local_offsets[local_id];
+                tiles[i].BLH_offset += local_BLH_offsets[local_id];   // offset all blh by 2 / sacrifice 2 blh
                 // light_offsets[i] = tiles[i].offset;
             }
             // offsets point to BLH or light ids
@@ -259,19 +260,18 @@ void main() {
         case 7: {
             if (id < num_jobs) {
                 blh[id].flag = 0;
-                // set start to max float value
-                // blh[id].start = 3.402823466e+38;
-                // blh[id].start1 = 3.402823466e+38;
-                // blh[id].start2 = 3.402823466e+38;
-                // set end to min float value
-                // blh[id].end = -3.402823466e+38;
-                // blh[id].end1 = -3.402823466e+38;
-                // blh[id].end2 = -3.402823466e+38;
+                blh[id].front = 1;
+                blh[id].back = 1;
+                blh[id].start = -1;
+                blh[id].end = -1;
+            }
+            if (id == 0) {
+                atomicMax(indirect[0].x, (pc.g_num_elements) / 128 + 1);
             }
         } break;
         case 8: {   // calculate BLH
             if (id < pc.g_num_elements) {
-                uint tile_id = light_tile_ids2[id] >> 19;
+                uint tile_id = (light_tile_ids2[id] >> 19) & 0x1FFF;
                 uint light_id = light_list2[id];
 
                 float dist = distance(cam_pos, lights[light_id].pos);
@@ -280,8 +280,8 @@ void main() {
 
                 int light_count = int(tiles[tile_id].count);
                 int light_offset = int(tiles[tile_id].offset);
-                int blh_count = int(max(int(tiles[tile_id].count) - 1, 0));
-                int blh_offset = tiles[tile_id].BLH_offset;
+                int blh_count = max(light_count - 1, 0);
+                int blh_offset = tiles[tile_id].BLH_offset + 2;
                 int blh_end = blh_offset + blh_count;
                 int blh_value = -int(light_id);
 
@@ -291,44 +291,48 @@ void main() {
                 }
                 int curr_id = int(id) - light_offset;
                 int blh_id = curr_id / 2;
-                
+
                 int level_size = light_count / 2;
                 int level_remainder = light_count % 2;
+                int blh_level_index = blh_end - level_size;
 
-                while (level_size > 0) {
+                int iter = 0;
+                while (blh_level_index >= blh_offset) {
+                    int blh_idx = blh_level_index + blh_id;
                     if (blh_id < level_size) {
-                        if(curr_id % 2 == 0) {
-                            blh[blh_offset + blh_id].front = blh_value;
-                            blh_start_end[(blh_offset + blh_end) * 4] = start;
-                            blh_start_end[(blh_offset + blh_end) * 4 + 1] = end;
-                            
+                        if (curr_id % 2 == 0) {
+                            blh[blh_idx].front = blh_value;
+                            blh_start_end[(blh_idx) * 4 + 0] = start;
+                            blh_start_end[(blh_idx) * 4 + 1] = end;
                         } else {
-                            blh[blh_offset + blh_id].back = blh_value;
-                            blh_start_end[(blh_offset + blh_end) * 4 + 2] = start;
-                            blh_start_end[(blh_offset + blh_end) * 4 + 3] = end;
+                            blh[blh_idx].back = blh_value;
+                            blh_start_end[(blh_idx) * 4 + 2] = start;
+                            blh_start_end[(blh_idx) * 4 + 3] = end;
                         }
-                        uint flag = atomicAdd(blh[blh_offset + blh_id].flag, 1);
+                        uint flag = atomicAdd(blh[blh_idx].flag, 1);
                         if (flag == 0) {
                             return;
                         }
-                        blh[blh_offset + blh_id].start = min(blh_start_end[(blh_offset + blh_end) * 4], blh_start_end[(blh_offset + blh_end) * 4 + 2]);
-                        blh[blh_offset + blh_id].end = max(blh_start_end[(blh_offset + blh_end) * 4 + 1], blh_start_end[(blh_offset + blh_end) * 4 + 3]);
-                        // blh[blh_offset + blh_id].start = min(blh[blh_offset + blh_id].start1, blh[blh_offset + blh_id].start2);
-                        // blh[blh_offset + blh_id].end = max(blh[blh_offset + blh_id].end1, blh[blh_offset + blh_id].end2);
-                        blh_value = blh_offset + blh_id;
-                        start = blh[blh_offset + blh_id].start;
-                        end = blh[blh_offset + blh_id].end;
+                        blh[blh_idx].start = min(blh_start_end[(blh_idx) * 4 + 0], blh_start_end[(blh_idx) * 4 + 2]);
+                        blh[blh_idx].end = max(blh_start_end[(blh_idx) * 4 + 1], blh_start_end[(blh_idx) * 4 + 3]);
+                        blh_value = blh_idx;
+                        start = blh[blh_idx].start;
+                        end = blh[blh_idx].end;
                     }
                     curr_id = blh_id;
                     blh_id /= 2;
-                    if (blh_offset + level_size >= blh_end) {
-                        break;
-                    }
-                    blh_offset += level_size;
+                    // if (blh_level_index -level_size >= blh_end) {
+                    //     break;
+                    // }
                     level_remainder = (level_size + level_remainder) % 2;
                     level_size = (level_size + level_remainder) / 2;
+                    blh_level_index -= level_size;
+                    iter++;
+                    if (iter > 1000) {
+                        break;
+                    }
                 }
-                tiles[tile_id].BLH_offset = blh_offset;
+                // tiles[tile_id].BLH_offset = blh_offset - 1;
             }
         } break;
         default:

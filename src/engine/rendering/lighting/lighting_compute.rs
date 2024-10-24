@@ -158,7 +158,7 @@ impl LightingCompute {
             light_list2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
             light_tile_ids2: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
             bounding_line_hierarchy: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
-            blh_start_end: Mutex::new(vk.buffer_array(4, MemoryUsage::DeviceOnly)),
+            blh_start_end: Mutex::new(vk.buffer_array(16, MemoryUsage::DeviceOnly)),
             light_offsets: vk.buffer_array(NUM_TILES, MemoryUsage::DeviceOnly),
             light_counter: vk.buffer(MemoryUsage::DeviceOnly),
             visible_lights: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
@@ -322,8 +322,7 @@ impl LightingCompute {
         light_templates: Subbuffer<[fs::lightTemplate]>,
         num_lights: i32,
     ) {
-        let mut num_bounding_lines = 0;
-        {
+        let mut num_bounding_lines = {
             let mut light_list = self.light_list.lock();
             let mut light_tile_ids = self.light_tile_ids.lock();
             let mut light_list2 = self.light_list2.lock();
@@ -332,6 +331,12 @@ impl LightingCompute {
             let mut blh_start_end = self.blh_start_end.lock();
             let mut visible_lights = self.visible_lights.lock();
             if (num_lights > visible_lights.len() as i32) {
+                let buf = self.vk.buffer_array(
+                    (num_lights as u64).next_power_of_two(),
+                    MemoryUsage::DeviceOnly,
+                );
+                *visible_lights = buf;
+
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two() * 4,
                     MemoryUsage::DeviceOnly,
@@ -361,20 +366,15 @@ impl LightingCompute {
                     MemoryUsage::DeviceOnly,
                 );
                 *bounding_line_hierarchy = buf;
+                
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two() * 4 * 4,
                     MemoryUsage::DeviceOnly,
                 );
                 *blh_start_end = buf;
-                num_bounding_lines = (num_lights as u64).next_power_of_two() * 4;
-
-                let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two(),
-                    MemoryUsage::DeviceOnly,
-                );
-                *visible_lights = buf;
             }
-        }
+            bounding_line_hierarchy.len()
+        };
         let mut uni = lt::Data {
             // num_jobs: 0,
             vp: { cvd.proj * cvd.view }.into(),
@@ -516,7 +516,7 @@ impl LightingCompute {
                 builder,
             );
         }
-        build_stage(builder, num_bounding_lines as i32, None, None, 7);
+        build_stage(builder, num_bounding_lines as i32, None, Some(indirect.clone().slice(1..2)), 7);
         build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 8);
     }
 }

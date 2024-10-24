@@ -668,7 +668,7 @@ fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
                 // start + factor as f32 * delta
                 // glm::scale(&scaling, out)
             })
-            .collect::<Vec<Quat>>()[0]
+            .collect::<Vec<Quat>>().pop().unwrap_or(quat(0., 0., 0., 1.))
     }
 }
 impl Skeleton {
