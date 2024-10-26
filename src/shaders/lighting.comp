@@ -262,8 +262,10 @@ void main() {
                 blh[id].flag = 0;
                 blh[id].front = -1;
                 blh[id].back = -1;
-                blh[id].start = floatBitsToInt(3.4028235E+38);
-                blh[id].end = floatBitsToInt(-3.4028235E+38);
+                blh[id].start = ~0u;
+                // blh[id].start = float_to_uint(3.4028235E+38);
+                blh[id].end = 0u;
+                // blh[id].end = float_to_uint(-3.4028235E+38);
             }
             if (id == 0) {
                 atomicMax(indirect[0].x, (pc.g_num_elements) / 128 + 1);
@@ -275,13 +277,13 @@ void main() {
                 uint light_id = light_list2[id];
 
                 float dist = distance(cam_pos, lights[light_id].pos);
-                float start = dist - lights[light_id].radius;
-                float end = dist + lights[light_id].radius;
+                uint start = float_to_uint(dist - lights[light_id].radius);
+                uint end = float_to_uint(dist + lights[light_id].radius);
 
                 int light_offset = int(tiles[tile_id].offset);
                 int light_count = int(tiles[tile_id].count);
                 int blh_offset = tiles[tile_id].BLH_offset;
-                int blh_end = blh_offset +  max(light_count - 1, 0);
+                int blh_end = blh_offset + max(light_count - 1, 0);
                 int blh_value = -int(light_id) - 2;
 
                 if (light_count == 1) {
@@ -300,26 +302,16 @@ void main() {
                     int blh_idx = blh_level_start + blh_id;
                     if (blh_id < level_size) {
                         if (curr_id % 2 == 0) {
-                            // blh[blh_idx].front = blh_value;
                             atomicExchange(blh[blh_idx].front, blh_value);
-                            atomicMin(blh[blh_idx].start, float_to_uint(start));
-                            atomicMax(blh[blh_idx].end, float_to_uint(end));
-                            // blh_start_end[(blh_idx) * 4 + 0].x = start;
-                            // blh_start_end[(blh_idx) * 4 + 1].x = end;
                         } else {
-                            // blh[blh_idx].back = blh_value;
                             atomicExchange(blh[blh_idx].back, blh_value);
-                            atomicMin(blh[blh_idx].start, float_to_uint(start));
-                            atomicMax(blh[blh_idx].end, float_to_uint(end));
-                            // blh_start_end[(blh_idx) * 4 + 2].x = start;
-                            // blh_start_end[(blh_idx) * 4 + 3].x = end;
                         }
+                        atomicMin(blh[blh_idx].start, start);
+                        atomicMax(blh[blh_idx].end, end);
                         uint flag = atomicAdd(blh[blh_idx].flag, 1);
                         if (flag == 0) {
                             return;
                         }
-                        // blh[blh_idx].start = min(blh_start_end[(blh_idx) * 4 + 0].x, blh_start_end[(blh_idx) * 4 + 2].x);
-                        // blh[blh_idx].end = max(blh_start_end[(blh_idx) * 4 + 1].x, blh_start_end[(blh_idx) * 4 + 3].x);
                         blh_value = blh_idx;
                         start = blh[blh_idx].start;
                         end = blh[blh_idx].end;
@@ -329,9 +321,11 @@ void main() {
                     // if (blh_level_start -level_size >= blh_end) {
                     //     break;
                     // }
-                    level_remainder = (level_size + level_remainder) % 2;
-                    level_size = (level_size + level_remainder) / 2;
-                    blh_level_start -= max(level_size, 1);
+                    int ls = level_size;
+                    int lr = level_remainder;
+                    level_remainder = (ls + lr) % 2;
+                    level_size = (ls + lr) / 2;
+                    blh_level_start -= level_size;
                     // iter++;
                     // if (iter > 1000) {
                     //     break;

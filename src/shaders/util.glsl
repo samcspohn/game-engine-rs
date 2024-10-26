@@ -83,19 +83,67 @@ struct BoundingLine {
     uint start;
     uint end;
     int front;   // positive value points to BoundingLine, negative points to light
-    vec3 padding;
     int back;
 };
 
 uint float_to_uint(float f) {
-    uint _f = floatBitsToUint(f);
-    uint mask = -int(_f >> 31) | 0x80000000;
-    return _f ^ mask;
+    // uint _f = floatBitsToUint(f);
+    // uint mask = -int(_f >> 31) | 0x80000000;
+    // return _f ^ mask;
+    // Get the raw bits as uint
+    uint u = floatBitsToUint(f);
+    
+    // If the float is negative, we need to flip all bits to maintain sorting
+    // This works because IEEE-754 negative floats have reverse ordering
+    if ((u & 0x80000000u) != 0u) {
+        u = ~u;  // Flip all bits for negative numbers
+    } else {
+        u |= 0x80000000u;  // Set sign bit for positive numbers
+    }
+    
+    return u;
 }
-float uint_to_float(uint i) {
-    uint mask = -int(i >> 31) | 0x80000000;
-    return uintBitsToFloat(i ^ mask);
+float uint_to_float(uint u) {
+     // Reverse the bit manipulation from floatToUint
+    if ((u & 0x80000000u) != 0u) {
+        u &= 0x7FFFFFFFu;  // Clear sign bit for positive numbers
+    } else {
+        u = ~u;  // Flip all bits back for negative numbers
+    }
+    
+    return uintBitsToFloat(u);
+    // uint mask = (-int(i) >> 31) | 0x80000000;
+    // return uintBitsToFloat(i ^ mask);
 }
+
+// Converts a float to a uint while preserving sorting order
+uint floatToUint(float f) {
+    // Get the raw bits as uint
+    uint u = floatBitsToUint(f);
+    
+    // If the float is negative, we need to flip all bits to maintain sorting
+    // This works because IEEE-754 negative floats have reverse ordering
+    if ((u & 0x80000000u) != 0u) {
+        u = ~u;  // Flip all bits for negative numbers
+    } else {
+        u |= 0x80000000u;  // Set sign bit for positive numbers
+    }
+    
+    return u;
+}
+
+// Converts the uint back to the original float
+float uintToFloat(uint u) {
+    // Reverse the bit manipulation from floatToUint
+    if ((u & 0x80000000u) != 0u) {
+        u &= 0x7FFFFFFFu;  // Clear sign bit for positive numbers
+    } else {
+        u = ~u;  // Flip all bits back for negative numbers
+    }
+    
+    return uintBitsToFloat(u);
+}
+
 struct AABB {
     vec3 _min;
     vec3 _max;
