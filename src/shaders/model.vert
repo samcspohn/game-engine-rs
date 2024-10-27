@@ -17,23 +17,23 @@ layout(location = 2) out vec3 v_pos;
 layout(location = 3) out vec3 _v;
 
 layout(set = 0, binding = 0) buffer tr { MVP mvp[]; };
-layout(set = 0, binding = 2) buffer id { ivec2 ids[]; };
-layout(set = 0, binding = 10) buffer b { vec4 bones[]; };
+layout(set = 0, binding = 1) buffer id { ivec2 ids[]; };
+layout(set = 0, binding = 2) buffer b { vec4 bones[]; };
 struct bone_weight {
     int bone_id;
     float weight;
 };
-layout(set = 0, binding = 11) buffer bvw { bone_weight bone_vertex_weights[]; };
+layout(set = 0, binding = 3) buffer bvw { bone_weight bone_vertex_weights[]; };
 
-layout(set = 0, binding = 12) uniform UniformBufferObject { int has_skeleton; int num_bones; };
-layout(set = 0, binding = 13) buffer bwo { uvec2 bone_weight_offsets_counts[]; };
-layout(set = 0, binding = 14) buffer bwc { uint bone_weight_counts[]; };
+layout(set = 0, binding = 4) uniform UniformBufferObject { int has_skeleton; int num_bones; };
+layout(set = 0, binding = 5) buffer bwo { uvec2 bone_weight_offsets_counts[]; };
+// layout(set = 0, binding = 6) buffer bwc { uint bone_weight_counts[]; };
 // layout(location = 4) in uint bone_weight_count;
 // mat4 world;
 void main() {
     mat4 vertex_offset = identity();
-    int id = gl_InstanceIndex;
-    id = ids[id].x;
+    int _id = gl_InstanceIndex;
+    int id = ids[_id].x;
 
     if (has_skeleton == 1) {
         mat4 z = {
@@ -44,7 +44,7 @@ void main() {
         };
         vertex_offset = z;
         for (uint i = bone_weight_offsets_counts[gl_VertexIndex].x; i < bone_weight_offsets_counts[gl_VertexIndex].x + bone_weight_offsets_counts[gl_VertexIndex].y; ++i) {
-            int raw_offset = ids[gl_InstanceIndex].y * num_bones + bone_vertex_weights[i].bone_id;
+            int raw_offset = ids[_id].y * num_bones + bone_vertex_weights[i].bone_id;
             int b = raw_offset * 3; // 3 vec4 per matrix
             vertex_offset[0] += bones[b] * bone_vertex_weights[i].weight;
             vertex_offset[1] += bones[b + 1] * bone_vertex_weights[i].weight;

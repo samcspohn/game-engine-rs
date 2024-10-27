@@ -281,51 +281,68 @@ impl RenderPipeline {
 
         descriptors.push(WriteDescriptorSet::buffer(0, mvp_buffer));
 
-        if let Some(texture) = mesh.texture.as_ref() {
-            let texture = texture_manager.get_id(texture).unwrap().lock();
-            descriptors.push(WriteDescriptorSet::image_view_sampler(
-                1,
-                texture.image.clone(),
-                texture.sampler.clone(),
-            ));
-        } else {
-            descriptors.push(WriteDescriptorSet::image_view_sampler(
-                1,
-                self.def_texture.clone(),
-                self.def_sampler.clone(),
-            ));
-        }
-        descriptors.push(WriteDescriptorSet::buffer(2, instance_buffer));
+        descriptors.push(WriteDescriptorSet::buffer(1, instance_buffer));
         // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
         let uniform = self.vk.allocate(fs::Data { screen_dims });
         let vs_uniform = self.vk.allocate(vs::UniformBufferObject {
             has_skeleton: if has_skeleton { 1 } else { 0 },
             num_bones,
         });
-        descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
-        descriptors.push(WriteDescriptorSet::buffer(4, lights));
-        descriptors.push(WriteDescriptorSet::buffer(5, tiles));
-        descriptors.push(WriteDescriptorSet::buffer(6, uniform));
-        descriptors.push(WriteDescriptorSet::buffer(7, light_list));
+        // descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
+        // descriptors.push(WriteDescriptorSet::buffer(4, lights));
+        // descriptors.push(WriteDescriptorSet::buffer(5, tiles));
+        // descriptors.push(WriteDescriptorSet::buffer(6, uniform));
+        // descriptors.push(WriteDescriptorSet::buffer(7, light_list));
         // descriptors.push(WriteDescriptorSet::buffer(7, mesh.bone_weight_offsets));
         if let Some(skel) = skeleton {
-            descriptors.push(WriteDescriptorSet::buffer(10, skel.clone()));
+            descriptors.push(WriteDescriptorSet::buffer(2, skel.clone()));
         } else {
-            descriptors.push(WriteDescriptorSet::buffer(10, empty.clone()));
+            descriptors.push(WriteDescriptorSet::buffer(2, empty.clone()));
         }
         if let Some(buf) = mesh.bone_weights_buffer.as_ref() {
-            descriptors.push(WriteDescriptorSet::buffer(11, buf.clone()));
+            descriptors.push(WriteDescriptorSet::buffer(3, buf.clone()));
         } else {
-            descriptors.push(WriteDescriptorSet::buffer(11, empty.clone()));
+            descriptors.push(WriteDescriptorSet::buffer(3, empty.clone()));
         }
-        descriptors.push(WriteDescriptorSet::buffer(12, vs_uniform));
+        descriptors.push(WriteDescriptorSet::buffer(4, vs_uniform));
         descriptors.push(WriteDescriptorSet::buffer(
-            13,
+            5,
             mesh.bone_weights_offsets_counts_buf.clone(),
         ));
-        descriptors.push(WriteDescriptorSet::buffer(15, bounding_line_hierarchy));
+        // descriptors.push(WriteDescriptorSet::buffer(6, bounding_line_hierarchy));
+
+        if let Some(texture) = mesh.texture.as_ref() {
+            let texture = texture_manager.get_id(texture).unwrap().lock();
+            descriptors.push(WriteDescriptorSet::image_view_sampler(
+                7,
+                texture.image.clone(),
+                texture.sampler.clone(),
+            ));
+        } else {
+            descriptors.push(WriteDescriptorSet::image_view_sampler(
+                7,
+                self.def_texture.clone(),
+                self.def_sampler.clone(),
+            ));
+        }
+        descriptors.push(WriteDescriptorSet::buffer(8, uniform));
+
+        let light_layout = self.pipeline.layout().set_layouts().get(1).unwrap();
+        let light_desc = PersistentDescriptorSet::new(
+            &desc_allocator,
+            light_layout.clone(),
+            [
+                WriteDescriptorSet::buffer(0, light_templates),
+                WriteDescriptorSet::buffer(1, lights),
+                WriteDescriptorSet::buffer(2, tiles),
+                WriteDescriptorSet::buffer(3, light_list),
+                WriteDescriptorSet::buffer(4, bounding_line_hierarchy),
+            ],
+        )
+        .unwrap();
+
         // descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
-        let pc = Into::<[f32;3]>::into(cam_pos);
+        let pc = Into::<[f32; 3]>::into(cam_pos);
         if let Ok(set) = PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors)
         {
             builder
@@ -334,6 +351,12 @@ impl RenderPipeline {
                     self.pipeline.layout().clone(),
                     0,
                     set,
+                )
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Graphics,
+                    self.pipeline.layout().clone(),
+                    1,
+                    light_desc,
                 )
                 .bind_vertex_buffers(
                     0,
@@ -348,11 +371,7 @@ impl RenderPipeline {
                 )
                 // .bind_vertex_buffers(1, transforms_buffer.data.clone())
                 .bind_index_buffer(mesh.index_buffer.clone())
-                .push_constants(
-                    self.pipeline.layout().clone(),
-                    0,
-                    pc,
-                )
+                .push_constants(self.pipeline.layout().clone(), 0, pc)
                 .draw_indexed_indirect(indirect_buffer)
                 .unwrap();
         } else {
