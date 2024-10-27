@@ -300,7 +300,7 @@ impl LightingCompute {
                         0,
                         descriptor_set,
                     )
-                    .dispatch([(num_jobs as u32).div_ceil(128), 1, 1])
+                    .dispatch([(num_jobs as u32).div_ceil(1024), 1, 1])
                     .unwrap();
             };
 
@@ -458,7 +458,7 @@ impl LightingCompute {
                 );
             if (num_jobs >= 0) {
                 builder
-                    .dispatch([(num_jobs as u32).div_ceil(128), 1, 1])
+                    .dispatch([(num_jobs as u32).div_ceil(1024), 1, 1])
                     .unwrap();
             } else {
                 if let Some(indirect_buffer) = indirect {
@@ -471,7 +471,7 @@ impl LightingCompute {
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
         ]);
         // build_stage(builder, 32 * 32, 3);
-        let light_jobs = (num_lights as u32).div_ceil(128).mul(128) as i32;
+        let light_jobs = (num_lights as u32).div_ceil(1024).mul(1024) as i32;
         builder.update_buffer(self.visible_lights_c.clone(), &0);
         builder.update_buffer(
             self.light_counter.clone(),

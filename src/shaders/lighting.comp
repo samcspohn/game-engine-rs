@@ -39,11 +39,11 @@ layout(set = 0, binding = 14) buffer i { DispatchIndirectCommand indirect[]; };
 layout(set = 0, binding = 10) buffer blh_ { BoundingLine blh[]; };   // (num_lights * 4)
 layout(set = 0, binding = 17) buffer blh_start_end_ { vec4 blh_start_end[]; };
 
-shared uint local_offsets[128 * 2];
-shared int local_BLH_offsets[128 * 2];
+shared uint local_offsets[1024 * 2];
+shared int local_BLH_offsets[1024 * 2];
 // shared uvec2 local_indeces[128 * 4];
-shared uint local_tile_ids[128 * 4];
-shared uint local_light_ids[128 * 4];
+shared uint local_tile_ids[1024 * 4];
+shared uint local_light_ids[1024 * 4];
 // shared float local_distances[128 * 4];
 // shared uint local_counts[_light_quadtree_offsets[MAX_LEVEL]];
 shared uint local_counter;
@@ -79,7 +79,7 @@ void traverse_quadtree(inout ivec3 a[4], inout int a_c, vec3 pos, float radius) 
     return;
 }
 
-layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 void main() {
     const uint id = gl_GlobalInvocationID.x;
     if (id < num_jobs || num_jobs == -1) {
@@ -195,7 +195,11 @@ void main() {
         } break;
         case 5: {   // prefix sum / sort
             const float num_tiles = _light_quadtree_offsets[MAX_LEVEL];
-            const float num_threads = gl_WorkGroupSize.x;
+            const float num_threads = 74;
+
+            if (id >= num_threads) {
+                return;
+            }
 
             // if (gl_LocalInvocationID.x == 0) {
             //     uint total = tiles[0].count;
