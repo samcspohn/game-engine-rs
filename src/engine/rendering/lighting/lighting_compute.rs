@@ -362,11 +362,11 @@ impl LightingCompute {
                 *light_tile_ids2 = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4 + 2,
+                    (num_lights as u64).next_power_of_two() * 4,
                     MemoryUsage::DeviceOnly,
                 );
                 *bounding_line_hierarchy = buf;
-                
+
                 // let buf = self.vk.buffer_array(
                 //     bounding_line_hierarchy.len() as u64 * 4,
                 //     MemoryUsage::DeviceOnly,
@@ -495,7 +495,7 @@ impl LightingCompute {
             Some(indirect.clone().slice(1..2)),
             4,
         );
-        build_stage(builder, 128, None, None, 5);
+        build_stage(builder, 74, None, None, 5);
         // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 6);
         // radix sort
         {
@@ -516,7 +516,8 @@ impl LightingCompute {
                 builder,
             );
         }
-        build_stage(builder, num_bounding_lines as i32, None, Some(indirect.clone().slice(1..2)), 7);
+        build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 9);
+        build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 7);
         build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 8);
     }
 }

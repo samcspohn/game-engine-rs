@@ -40,6 +40,8 @@ vec4 CalcPointLight(uint Index, vec3 v_pos, vec3 Normal) {
     float Attenuation = templ.atten.constant + templ.atten.linear * Distance + templ.atten.exponential * Distance * Distance;
 
     return Color * templ.atten.brightness / Attenuation;
+#undef _l
+#undef templ
 }
 
 const vec3 LIGHT = vec3(1.0, 1.0, -0.7);

@@ -126,7 +126,7 @@ void main() {
             if (gl_LocalInvocationID.x < local_counter) {
                 visible_lights[global_idx + gl_LocalInvocationID.x] = local_offsets[gl_LocalInvocationID.x];
             }
-            atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
+            atomicMax(indirect[0].x, (global_idx + local_counter) / 1024 + 1);
         } break;
         case 4: {
             if (gl_WorkGroupID.x > visible_lights_c / gl_WorkGroupSize.x + 1) {   // dispatch indirect
@@ -261,8 +261,14 @@ void main() {
                 light_list2[index] = light_ids[id];
             }
         } break;
+        case 9: {
+            if (id == 0) {
+                atomicMax(indirect[0].x, (pc.g_num_elements) / 1024 + 1);
+            }
+            // atomicMax(indirect[0].x, (pc.g_num_elements) / 1024 + 1);
+        }
         case 7: {
-            if (id < num_jobs) {
+            if (id < pc.g_num_elements) {
                 blh[id].flag = 0;
                 blh[id].front = -1;
                 blh[id].back = -1;
@@ -271,9 +277,9 @@ void main() {
                 blh[id].end = 0u;
                 // blh[id].end = float_to_uint(-3.4028235E+38);
             }
-            if (id == 0) {
-                atomicMax(indirect[0].x, (pc.g_num_elements) / 128 + 1);
-            }
+            // if (id == 0) {
+            //     atomicMax(indirect[0].x, (pc.g_num_elements) / 1024 + 1);
+            // }
         } break;
         case 8: {   // calculate BLH
             if (id < pc.g_num_elements) {
