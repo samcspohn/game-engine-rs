@@ -71,6 +71,8 @@ pub mod lfs {
     }
 }
 
+const LIGHTING_WG_SIZE: u32 = 128;
+const NUM_BLOCKS_PER_WG: u32 = 32;
 pub struct LightingCompute {
     compute_lights: Arc<ComputePipeline>,
     calc_tiles: Arc<ComputePipeline>,
@@ -300,7 +302,7 @@ impl LightingCompute {
                         0,
                         descriptor_set,
                     )
-                    .dispatch([(num_jobs as u32).div_ceil(1024), 1, 1])
+                    .dispatch([(num_jobs as u32).div_ceil(LIGHTING_WG_SIZE), 1, 1])
                     .unwrap();
             };
 
@@ -458,7 +460,7 @@ impl LightingCompute {
                 );
             if (num_jobs >= 0) {
                 builder
-                    .dispatch([(num_jobs as u32).div_ceil(1024), 1, 1])
+                    .dispatch([(num_jobs as u32).div_ceil(LIGHTING_WG_SIZE), 1, 1])
                     .unwrap();
             } else {
                 if let Some(indirect_buffer) = indirect {
@@ -470,8 +472,7 @@ impl LightingCompute {
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
         ]);
-        // build_stage(builder, 32 * 32, 3);
-        let light_jobs = (num_lights as u32).div_ceil(1024).mul(1024) as i32;
+
         builder.update_buffer(self.visible_lights_c.clone(), &0);
         builder.update_buffer(
             self.light_counter.clone(),
@@ -492,9 +493,10 @@ impl LightingCompute {
             builder,
             -1,
             Some(indirect.clone().slice(0..1)),
-            Some(indirect.clone().slice(1..2)),
+            None,
             4,
         );
+        build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 10);
         build_stage(builder, 74, None, None, 5);
         // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 6);
         // radix sort
