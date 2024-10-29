@@ -1092,7 +1092,7 @@ impl Engine {
                     &cvd,
                     self.transform_compute.read().gpu_transforms.clone(),
                     light_templates.clone(),
-                    light_len as i32,
+                    light_len as u32,
                 );
                 let lc = self.lighting_compute.read();
                 let img = cam.render(

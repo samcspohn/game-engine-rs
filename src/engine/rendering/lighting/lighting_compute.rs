@@ -72,7 +72,7 @@ pub mod lfs {
 }
 
 const LIGHTING_WG_SIZE: u32 = 128;
-const NUM_BLOCKS_PER_WG: u32 = 32;
+const NUM_BLOCKS_PER_WG: u64 = 32;
 pub struct LightingCompute {
     compute_lights: Arc<ComputePipeline>,
     calc_tiles: Arc<ComputePipeline>,
@@ -175,6 +175,7 @@ impl LightingCompute {
     fn get_descriptors<W, V, U, T>(
         &self,
         num_jobs: i32,
+        num_elements: i32,
         stage: i32,
         lights: Subbuffer<[lt::light]>,
         deinits: Subbuffer<[U]>,
@@ -188,6 +189,7 @@ impl LightingCompute {
         // let visble_lights = self.visible_lights.lock();
         let uniforms = self.vk.allocate(cs::Data {
             num_jobs: num_jobs as i32,
+            num_elements,
             stage: stage.into(),
             cam_pos: cam_pos.into(),
         });
@@ -252,12 +254,14 @@ impl LightingCompute {
         let mut build_stage =
             |builder: &mut utils::PrimaryCommandBuffer,
              num_jobs: i32,
+             num_elements: i32,
              stage: i32,
              inits: Option<Subbuffer<[cs::light_init]>>,
              deinits: Option<Subbuffer<[cs::light_deinit]>>| {
                 let descriptor_set = if let Some(deinit) = deinits {
                     self.get_descriptors(
                         num_jobs,
+                        num_elements,
                         stage,
                         lights.clone(),
                         deinit,
@@ -271,6 +275,7 @@ impl LightingCompute {
                 } else if let Some(init) = inits {
                     self.get_descriptors(
                         num_jobs,
+                        num_elements,
                         stage,
                         lights.clone(),
                         self.dummy_buffer.clone(),
@@ -284,6 +289,7 @@ impl LightingCompute {
                 } else {
                     self.get_descriptors(
                         num_jobs,
+                        num_elements,
                         stage,
                         lights.clone(),
                         self.dummy_buffer.clone(),
@@ -307,12 +313,12 @@ impl LightingCompute {
             };
 
         if let Some(deinits) = deinits {
-            build_stage(builder, deinits.len() as i32, 0, None, Some(deinits));
+            build_stage(builder, deinits.len().div_ceil(NUM_BLOCKS_PER_WG) as i32, deinits.len() as i32, 0, None, Some(deinits));
         }
         if let Some(inits) = inits {
-            build_stage(builder, inits.len() as i32, 1, Some(inits), None);
+            build_stage(builder, inits.len().div_ceil(NUM_BLOCKS_PER_WG) as i32, inits.len() as i32, 1, Some(inits), None);
         }
-        build_stage(builder, lights.len() as i32, 2, None, None);
+        build_stage(builder, lights.len().div_ceil(NUM_BLOCKS_PER_WG) as i32,lights.len() as i32, 2, None, None);
     }
 
     pub fn update_lights_2(
@@ -322,9 +328,9 @@ impl LightingCompute {
         cvd: &CameraViewData,
         transforms: Subbuffer<[transform]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
-        num_lights: i32,
+        num_lights: u32,
     ) {
-        let mut num_bounding_lines = {
+        {
             let mut light_list = self.light_list.lock();
             let mut light_tile_ids = self.light_tile_ids.lock();
             let mut light_list2 = self.light_list2.lock();
@@ -332,7 +338,7 @@ impl LightingCompute {
             let mut bounding_line_hierarchy = self.bounding_line_hierarchy.lock();
             // let mut blh_start_end = self.blh_start_end.lock();
             let mut visible_lights = self.visible_lights.lock();
-            if (num_lights > visible_lights.len() as i32) {
+            if (num_lights > visible_lights.len() as u32) {
                 let buf = self.vk.buffer_array(
                     (num_lights as u64).next_power_of_two(),
                     MemoryUsage::DeviceOnly,
@@ -375,8 +381,7 @@ impl LightingCompute {
                 // );
                 // *blh_start_end = buf;
             }
-            bounding_line_hierarchy.len()
-        };
+        }
         let mut uni = lt::Data {
             // num_jobs: 0,
             vp: { cvd.proj * cvd.view }.into(),
@@ -420,12 +425,14 @@ impl LightingCompute {
         let tiles = self.tiles.lock();
         let mut build_stage = |builder: &mut utils::PrimaryCommandBuffer,
                                num_jobs: i32,
+                               num_elements: i32,
                                indirect: Option<Subbuffer<[DispatchIndirectCommand]>>,
                                indirect_write: Option<Subbuffer<[DispatchIndirectCommand]>>,
                                stage: i32| {
             let descriptor_set = if let Some(indirect_write) = indirect_write {
                 self.get_descriptors(
                     num_jobs,
+                    num_elements,
                     stage,
                     lights.clone(),
                     self.dummy_buffer.clone(),
@@ -439,6 +446,7 @@ impl LightingCompute {
             } else {
                 self.get_descriptors(
                     num_jobs,
+                    num_elements,
                     stage,
                     lights.clone(),
                     self.dummy_buffer.clone(),
@@ -484,20 +492,23 @@ impl LightingCompute {
 
         build_stage(
             builder,
-            num_lights,
+            num_lights.div_ceil(NUM_BLOCKS_PER_WG as u32) as i32,
+            num_lights as i32,
             None,
             Some(indirect.clone().slice(0..1)),
             3,
         );
+        build_stage(builder, 1, -1, None, Some(indirect.clone().slice(0..1)), 11);
         build_stage(
             builder,
+            -1,
             -1,
             Some(indirect.clone().slice(0..1)),
             None,
             4,
         );
-        build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 10);
-        build_stage(builder, 74, None, None, 5);
+        build_stage(builder, 1, -1, None, Some(indirect.clone().slice(1..2)), 10);
+        build_stage(builder, 74, -1,  None, None, 5);
         // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 6);
         // radix sort
         {
@@ -518,8 +529,8 @@ impl LightingCompute {
                 builder,
             );
         }
-        build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 9);
-        build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 7);
-        build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 8);
+        build_stage(builder, 1, -1, None, Some(indirect.clone().slice(1..2)), 9);
+        build_stage(builder, -1, -1, Some(indirect.clone().slice(1..2)), None, 7);
+        build_stage(builder, -1, -1, Some(indirect.clone().slice(1..2)), None, 8);
     }
 }
