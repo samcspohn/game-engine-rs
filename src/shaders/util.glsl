@@ -174,75 +174,35 @@ struct ScreenRect {
     vec2 max;  // Top-right in pixels
 };
 
-// Convert screen space coordinates to NDC
-vec2 screenToNDC(vec2 screenPos, vec2 screenSize) {
-    return 2.0 * screenPos / screenSize - 1.0;
-}
 
-// Convert NDC coordinates to screen space
-vec2 ndcToScreen(vec2 ndcPos, vec2 screenSize) {
-    return (ndcPos + 1.0) * 0.5 * screenSize;
-}
-
-// Test if a circle intersects with a rectangle (2D test)
-bool circleIntersectsRect(vec2 circleCenter, float circleRadius, vec2 rectMin, vec2 rectMax) {
-    // Find the closest point on the rectangle to the circle center
-    vec2 closest = clamp(circleCenter, rectMin, rectMax);
+// Transform sphere from world space to NDC space using a single view-projection matrix
+NDCSphere transformSphereToNDC(Sphere sphere, mat4 viewProjMatrix) {
+    NDCSphere ndcSphere;
     
-    // If the distance from the circle center to this closest point is less than
-    // the circle's radius, then they intersect
-    return distance(circleCenter, closest) <= circleRadius;
-}
-
-// Main function to test if NDC sphere intersects with screen rectangle
-bool sphereIntersectsScreenRect(NDCSphere sphere, ScreenRect rect, vec2 screenSize) {
-    // Early rejection test - if sphere is behind near plane or beyond far plane
-    if (sphere.center.z < 0.0 || sphere.center.z > 1.0) {
-        return false;
-    }
+    // Transform sphere center to clip space
+    vec4 clipCenter = viewProjMatrix * vec4(sphere.center, 1.0);
     
-    // Convert rectangle corners to NDC space
-    vec2 rectMinNDC = screenToNDC(rect.min, screenSize);
-    vec2 rectMaxNDC = screenToNDC(rect.max, screenSize);
+    // Perspective divide to get NDC coordinates
+    ndcSphere.center = clipCenter.xyz / clipCenter.w;
     
-    // Project sphere radius to account for perspective
-    // The further the sphere is in NDC z, the smaller its radius appears
-    float projectedRadius = sphere.radius;
+    // Calculate projected radius
+    // We'll use two points to determine the projected radius
+    // First, the sphere center point
+    vec4 clipCenterRadius = viewProjMatrix * vec4(sphere.center + vec3(sphere.radius, 0.0, 0.0), 1.0);
     
-    // Perform 2D circle-rectangle intersection test
-    return circleIntersectsRect(
-        sphere.center.xy,    // Use only x,y of sphere center
-        projectedRadius,     // Use projected radius
-        rectMinNDC,         // Rectangle min in NDC
-        rectMaxNDC          // Rectangle max in NDC
-    );
-}
-
-// Test if point is inside rectangle
-bool pointInScreenRect(vec2 ndcPoint, ScreenRect rect, vec2 screenSize) {
-    vec2 rectMinNDC = screenToNDC(rect.min, screenSize);
-    vec2 rectMaxNDC = screenToNDC(rect.max, screenSize);
+    // Perspective divide for the radius point
+    vec3 ndcRadius = clipCenterRadius.xyz / clipCenterRadius.w;
     
-    return ndcPoint.x >= rectMinNDC.x && ndcPoint.x <= rectMaxNDC.x &&
-           ndcPoint.y >= rectMinNDC.y && ndcPoint.y <= rectMaxNDC.y;
-}
-
-// Test if sphere is fully contained within rectangle
-bool sphereFullyInScreenRect(NDCSphere sphere, ScreenRect rect, vec2 screenSize) {
-    if (sphere.center.z < 0.0 || sphere.center.z > 1.0) {
-        return false;
-    }
+    // Calculate radius in NDC space
+    // Use the distance between center and radius point
+    ndcSphere.radius = distance(ndcSphere.center.xy, ndcRadius.xy);
     
-    vec2 rectMinNDC = screenToNDC(rect.min, screenSize);
-    vec2 rectMaxNDC = screenToNDC(rect.max, screenSize);
+    // Optional: Adjust for perspective distortion
+    // This can make the radius more accurate at different view distances
+    float depthFactor = abs(clipCenter.w);  // Depth in view space
+    ndcSphere.radius *= (clipCenter.w / depthFactor);
     
-    float projectedRadius = sphere.radius;
-    
-    // Test if sphere bounds are completely inside rectangle bounds
-    return sphere.center.x - projectedRadius >= rectMinNDC.x &&
-           sphere.center.x + projectedRadius <= rectMaxNDC.x &&
-           sphere.center.y - projectedRadius >= rectMinNDC.y &&
-           sphere.center.y + projectedRadius <= rectMaxNDC.y;
+    return ndcSphere;
 }
 
 float halfSpaceTest(vec4 plane, vec3 p) { return dot(plane.xyz, p) - plane.w; }

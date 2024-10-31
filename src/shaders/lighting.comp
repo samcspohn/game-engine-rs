@@ -52,34 +52,34 @@ shared uint local_counter;
 shared uint global_idx;
 const ivec2 index_offsets[4] = {ivec2(0), ivec2(0, 1), ivec2(1, 0), ivec2(1)};   // -1?
 
-void traverse_quadtree(inout ivec3 a[4], inout int a_c, vec3 pos, float radius) {
-    ivec3 b[4];
-    int b_c = 0;
-    for (int level = 2; level < MAX_LEVEL; ++level) {   // iterate through levels
-        b_c = 0;
-        for (int i = 0; i < a_c; i++) {
-            int index = get_tile(a[i].x, a[i].y, a[i].z);
-            atomicAdd(tiles[index].travel_through, 1);
-        }
-        for (int j = 0; j < a_c; ++j) {   // iterate through collided parents
-            ivec2 tile_c = a[j].xy * 2;
-            for (int k = 0; k < 4; ++k) {   // iterate through 4 quadtree children
-                ivec2 _tile_c = tile_c + index_offsets[k];
-                int index = get_tile(_tile_c.x, _tile_c.y, level);
-                if (sphere_frustum(pos, radius, tiles[index].frustum)) {
-                    if (b_c >= 4) {
-                        return;
-                    }
-                    b[b_c] = ivec3(_tile_c, level);
-                    ++b_c;
-                }
-            }
-        }
-        a = b;
-        a_c = b_c;
-    }
-    return;
-}
+// void traverse_quadtree(inout ivec3 a[4], inout int a_c, vec3 pos, float radius) {
+//     ivec3 b[4];
+//     int b_c = 0;
+//     for (int level = 2; level < MAX_LEVEL; ++level) {   // iterate through levels
+//         b_c = 0;
+//         for (int i = 0; i < a_c; i++) {
+//             int index = get_tile(a[i].x, a[i].y, a[i].z);
+//             atomicAdd(tiles[index].travel_through, 1);
+//         }
+//         for (int j = 0; j < a_c; ++j) {   // iterate through collided parents
+//             ivec2 tile_c = a[j].xy * 2;
+//             for (int k = 0; k < 4; ++k) {   // iterate through 4 quadtree children
+//                 ivec2 _tile_c = tile_c + index_offsets[k];
+//                 int index = get_tile(_tile_c.x, _tile_c.y, level);
+//                 if (sphere_frustum(pos, radius, tiles[index].frustum)) {
+//                     if (b_c >= 4) {
+//                         return;
+//                     }
+//                     b[b_c] = ivec3(_tile_c, level);
+//                     ++b_c;
+//                 }
+//             }
+//         }
+//         a = b;
+//         a_c = b_c;
+//     }
+//     return;
+// }
 
 layout(local_size_x = wg_size, local_size_y = 1, local_size_z = 1) in;
 void main() {
@@ -110,99 +110,176 @@ void main() {
 
         } break;
         case 3: {   // generate light list
-            if (gl_LocalInvocationID.x == 0) {
-                local_counter = 0;
-            }
-            barrier();
-            vec3 pos = lights[id].pos;
-            float radius = lights[id].radius;
-            vec3 scr_pos_rad = worldToScreen(pos, radius, vp, vec2(2, 2));
-            if (lights[id].enabled == 1 && isCircleWithinScreenBounds(scr_pos_rad.xy, scr_pos_rad.z, vec2(1, 1))) {   // full camera frustum
-                uint idx = atomicAdd(local_counter, 1);
-                local_offsets[idx] = id;
-            }
-            barrier();
-            if (gl_LocalInvocationID.x == 0) {
-                global_idx = atomicAdd(visible_lights_c, local_counter);
-            }
-            barrier();
-            if (gl_LocalInvocationID.x < local_counter) {
-                visible_lights[global_idx + gl_LocalInvocationID.x] = local_offsets[gl_LocalInvocationID.x];
-            }
-            atomicMax(indirect[0].x, (global_idx + local_counter) / wg_size + 1);
-        } break;
-        case 4: {
-            if (gl_WorkGroupID.x > visible_lights_c / gl_WorkGroupSize.x + 1) {   // dispatch indirect
-                return;
-            }
-            uint local_id = gl_LocalInvocationID.x;
-            // if (local_id == 0) {
+            // if (gl_LocalInvocationID.x == 0) {
             //     local_counter = 0;
             // }
             // barrier();
-            if (id < visible_lights_c) {
-                uint light_id = visible_lights[id];
+            vec3 pos = lights[id].pos;
+            float radius = lights[id].radius;
+            // vec3 scr_pos_rad = worldToScreen(pos, radius, vp, vec2(2, 2));
+            Sphere sphere = {pos, radius};
+            // NDCSphere ndcsphere = transformSphereToNDC(sphere, vp);
+            // vec4 clipCenter = vp * vec4(sphere.center, 1.0);
 
-                vec3 pos = lights[light_id].pos;
-                float radius = lights[light_id].radius;
-                // vec3 scr_pos_rad = worldToScreen(pos, radius, vp, vec2(2, 2));
-                Sphere sphere = {pos, radius};
-                NDCSphere ndcsphere = worldToNDCSphere(sphere, vp);
+            // // Perspective divide to get NDC coordinates
+            // vec3 center = clipCenter.xyz / clipCenter.w;
+            vec4 clipMin = vp * vec4(sphere.center - vec3(sphere.radius), 1.0);
+            vec4 clipMax = vp * vec4(sphere.center + vec3(sphere.radius), 1.0);
+            vec3 ndcMin = clipMin.xyz / clipMin.w;
+            vec3 ndcMax = clipMax.xyz / clipMax.w;
 
-                float light_dist = distance(cam_pos, pos);
-                ivec3 a[4];
-                int a_c = 0;
-                for (int x = 0; x < 4; ++x) {   // entrance, first level
-                    ivec2 c = index_offsets[x];
-                    // if (sphere_frustum(pos, radius, tiles[get_tile(c.x, c.y, 1)].frustum)) {   // level 1 since level 0 is full camera frustum
-                    if ()
-                        a[a_c] = ivec3(c.x, c.y, 1);
-                        ++a_c;
-                    // }
-                }
-                traverse_quadtree(a, a_c, pos, radius);
+            // vec3 sphere_scr_pos = ndcsphere.center / 2.0 + 0.5;
+            // float sphere_scr_rad = ndcsphere.radius / 2.0;
 
-                // uint local_idx = atomicAdd(local_counter, a_c);
-                uint local_idx = atomicAdd(pc.g_num_elements, uint(a_c));
-                for (int i = 0; i < a_c; ++i) {
-                    ivec3 _a = a[i];
-                    uint tile_idx = uint(get_tile(_a.x, _a.y, _a.z));
-                    // uint f = floatBitsToUint(light_dist);
-                    // uint mask = -int(f >> 31) | 0x80000000;
-                    uint tile_id_dist = tile_idx << 19 | ((float_to_uint(light_dist) >> 13) & 0x7FFFF);
-                    // local_indeces[local_idx + i] = uvec2(tile_idx, light_id);
-                    light_tile_ids[local_idx + i] = tile_id_dist;
-                    light_ids[local_idx + i] = light_id;
-                    atomicAdd(tiles[tile_idx].count, 1);
-                }
+            vec3 scrMin = ndcMin / 2.0 + 0.5;
+            vec3 scrMax = ndcMax / 2.0 + 0.5;
+            float h = scrMax.y - scrMin.y;
+            float w = scrMax.x - scrMin.x;
+
+            if (scrMax.z < 0 || scrMax.x < 0 || scrMin.x > 1 || scrMax.y < 0 || scrMin.y > 1) {
+                return;
             }
 
-            // barrier();
-            // if (local_id == 0) {
-            //     global_idx = atomicAdd(pc.g_num_elements, local_counter);
-            // }
-            // barrier();
-            // local_id = local_id * 4;
-            // for (int i = 0; i < 4; ++i) {
-            //     if (local_id + i < local_counter) {
-            //         light_tile_ids[global_idx + local_id + i] = local_tile_ids[local_id + i];
-            //         light_ids[global_idx + local_id + i] = local_light_ids[local_id + i];
+            int depth = 0;
+            for (int l = MAX_LEVEL - 1; l >= 0; --l) {
+                uint level_width = _light_quadtree_widths[l];
+                float tile_width = 2.0 / level_width;
+                if (h < tile_width && w < tile_width) {
+                    depth = l;
+                    break;
+                }
+            }
+            uint a_c = 0;
+            uint a[4];
+            uint iter = 0;
+            for (float i = scrMin.x; i < scrMax.x; i += 1.0 / _light_quadtree_widths[depth]) {
+                for (float j = scrMin.y; j < scrMax.y; j += 1.0 / _light_quadtree_widths[depth]) {
+                    if (iter++ > 4) {
+                        break;
+                    }
+                    ivec2 tile = ivec2(i * int(_light_quadtree_widths[depth]), j * int(_light_quadtree_widths[depth]));
+                    if (tile.x < 0 || tile.y < 0 || tile.x >= _light_quadtree_widths[depth] || tile.y >= _light_quadtree_widths[depth]) {
+                        continue;
+                    }
+                    uint tile_id = get_tile(tile.x, tile.y, depth);
+                    atomicAdd(tiles[tile_id].count, 1);
+                    a[a_c++] = tile_id;
+
+                    // atomicAdd(tiles[tile_idx].count, 1);
+                }
+            }
+            float light_dist = distance(cam_pos, pos);
+            uint light_dist_ = ((float_to_uint(light_dist) >> 13) & 0x7FFFF);
+            uint local_idx = atomicAdd(pc.g_num_elements, uint(a_c));
+
+            for (uint i = 0; i < a_c; ++i) {
+                uint tile_id = a[i];
+                uint tile_id_dist = tile_id << 19 | light_dist_;
+                // local_indeces[local_idx + i] = uvec2(tile_idx, light_id);
+                light_tile_ids[local_idx + i] = tile_id_dist;
+                light_ids[local_idx + i] = id;
+            }
+
+            // SphereGridAssignment assignment = assignSphereToGrid(ndcsphere, MAX_LEVEL);
+
+            // if (assignment.tileRange.valid) {
+            //     GridLevel grid = getGridLevel(assignment.level);
+            //     int tileIndex = 0;
+
+            //     for (int y = assignment.tileRange.min.y; y <= assignment.tileRange.max.y; y++) {
+            //         for (int x = assignment.tileRange.min.x; x <= assignment.tileRange.max.x; x++) {
+            //             uint tile_id = get_tile(MAX_LEVEL - assignement.level, x, y)
+            //             // Process tile with coverage
+            //             float tileCoverage = assignment.coverage[tileIndex++];
+            //             // Use coverage for rendering/processing
+            //         }
             //     }
             // }
-            // barrier();
-            // if (local_id == 0) {
-            // atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
-
-            // uint num_elements = local_idx + a_c;
-            // const uint num_blocks_per_workgroup = 32;
-            // const uint work_group_size = 256;
-            // uint dispatch_size = uint(ceil(float(num_elements / float(num_blocks_per_workgroup))));
-            // uint num_workgroups = uint(ceil(float(dispatch_size) / float(work_group_size)));
-            // atomicMax(indirect[0].x, num_workgroups);
-            // atomicMax(pc.g_num_workgroups, num_workgroups);
+            // if (lights[id].enabled == 1 && isCircleWithinScreenBounds(scr_pos_rad.xy, scr_pos_rad.z, vec2(1, 1))) {   // full camera frustum
+            //     uint idx = atomicAdd(visible_lights_c, 1);
+            //     visible_lights[idx] = id;
             // }
-
+            // barrier();
+            // if (gl_LocalInvocationID.x == 0) {
+            //     global_idx = atomicAdd(visible_lights_c, local_counter);
+            // }
+            // barrier();
+            // if (gl_LocalInvocationID.x < local_counter) {
+            //     visible_lights[global_idx + gl_LocalInvocationID.x] = local_offsets[gl_LocalInvocationID.x];
+            // }
+            // atomicMax(indirect[0].x, (global_idx + local_counter) / wg_size + 1);
         } break;
+        // case 4: {
+        //     if (gl_WorkGroupID.x > visible_lights_c / gl_WorkGroupSize.x + 1) {   // dispatch indirect
+        //         return;
+        //     }
+        //     uint local_id = gl_LocalInvocationID.x;
+        //     // if (local_id == 0) {
+        //     //     local_counter = 0;
+        //     // }
+        //     // barrier();
+        //     if (id < visible_lights_c) {
+        //         uint light_id = visible_lights[id];
+
+        //         vec3 pos = lights[light_id].pos;
+        //         float radius = lights[light_id].radius;
+        //         // vec3 scr_pos_rad = worldToScreen(pos, radius, vp, vec2(2, 2));
+        //         Sphere sphere = {pos, radius};
+        //         NDCSphere ndcsphere = worldToNDCSphere(sphere, vp);
+
+        //         float light_dist = distance(cam_pos, pos);
+        //         ivec3 a[4];
+        //         int a_c = 0;
+        //         for (int x = 0; x < 4; ++x) {   // entrance, first level
+        //             ivec2 c = index_offsets[x];
+        //             // if (sphere_frustum(pos, radius, tiles[get_tile(c.x, c.y, 1)].frustum)) {   // level 1 since level 0 is full camera frustum
+        //             if () a[a_c] = ivec3(c.x, c.y, 1);
+        //             ++a_c;
+        //             // }
+        //         }
+        //         traverse_quadtree(a, a_c, pos, radius);
+
+        //         // uint local_idx = atomicAdd(local_counter, a_c);
+        //         uint local_idx = atomicAdd(pc.g_num_elements, uint(a_c));
+        //         for (int i = 0; i < a_c; ++i) {
+        //             ivec3 _a = a[i];
+        //             uint tile_idx = uint(get_tile(_a.x, _a.y, _a.z));
+        //             // uint f = floatBitsToUint(light_dist);
+        //             // uint mask = -int(f >> 31) | 0x80000000;
+        //             uint tile_id_dist = tile_idx << 19 | ((float_to_uint(light_dist) >> 13) & 0x7FFFF);
+        //             // local_indeces[local_idx + i] = uvec2(tile_idx, light_id);
+        //             light_tile_ids[local_idx + i] = tile_id_dist;
+        //             light_ids[local_idx + i] = light_id;
+        //             atomicAdd(tiles[tile_idx].count, 1);
+        //         }
+        //     }
+
+        //     // barrier();
+        //     // if (local_id == 0) {
+        //     //     global_idx = atomicAdd(pc.g_num_elements, local_counter);
+        //     // }
+        //     // barrier();
+        //     // local_id = local_id * 4;
+        //     // for (int i = 0; i < 4; ++i) {
+        //     //     if (local_id + i < local_counter) {
+        //     //         light_tile_ids[global_idx + local_id + i] = local_tile_ids[local_id + i];
+        //     //         light_ids[global_idx + local_id + i] = local_light_ids[local_id + i];
+        //     //     }
+        //     // }
+        //     // barrier();
+        //     // if (local_id == 0) {
+        //     // atomicMax(indirect[0].x, (global_idx + local_counter) / 128 + 1);
+
+        //     // uint num_elements = local_idx + a_c;
+        //     // const uint num_blocks_per_workgroup = 32;
+        //     // const uint work_group_size = 256;
+        //     // uint dispatch_size = uint(ceil(float(num_elements / float(num_blocks_per_workgroup))));
+        //     // uint num_workgroups = uint(ceil(float(dispatch_size) / float(work_group_size)));
+        //     // atomicMax(indirect[0].x, num_workgroups);
+        //     // atomicMax(pc.g_num_workgroups, num_workgroups);
+        //     // }
+
+        // } break;
         case 10: {
             if (id == 0) {
                 uint num_elements = pc.g_num_elements;
@@ -275,13 +352,13 @@ void main() {
             }
             // offsets point to BLH or light ids
         } break;
-        case 6: {   // reorder
-            if (id < pc.g_num_elements) {
-                uint index = atomicAdd(tiles[light_tile_ids[id] >> 19].count, 1);
-                light_tile_ids2[index] = light_tile_ids[id];
-                light_list2[index] = light_ids[id];
-            }
-        } break;
+        // case 6: {   // reorder
+        //     if (id < pc.g_num_elements) {
+        //         uint index = atomicAdd(tiles[light_tile_ids[id] >> 19].count, 1);
+        //         light_tile_ids2[index] = light_tile_ids[id];
+        //         light_list2[index] = light_ids[id];
+        //     }
+        // } break;
         case 9: {
             if (id == 0) {
                 atomicMax(indirect[0].x, (pc.g_num_elements) / wg_size + 1);

@@ -184,12 +184,14 @@ impl LightingCompute {
         tiles: Subbuffer<[V]>,
         indirect: Subbuffer<[W]>,
         cam_pos: Vec3,
+        vp: Mat4,
     ) -> Arc<PersistentDescriptorSet> {
         // let visble_lights = self.visible_lights.lock();
         let uniforms = self.vk.allocate(cs::Data {
             num_jobs: num_jobs as i32,
             stage: stage.into(),
-            cam_pos: cam_pos.into(),
+            cam_pos: Padded(cam_pos.into()),
+            vp: vp.into(),
         });
         // {
         //     let uniform_data = cs::Data {
@@ -222,8 +224,8 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(9, self.light_list2.lock().clone()),
                 // WriteDescriptorSet::buffer(10, self.light_offsets.clone()),
                 WriteDescriptorSet::buffer(11, self.light_counter.clone()),
-                WriteDescriptorSet::buffer(12, self.visible_lights.lock().clone()),
-                WriteDescriptorSet::buffer(13, self.visible_lights_c.clone()),
+                // WriteDescriptorSet::buffer(12, self.visible_lights.lock().clone()),
+                // WriteDescriptorSet::buffer(13, self.visible_lights_c.clone()),
                 WriteDescriptorSet::buffer(14, indirect.clone()),
                 WriteDescriptorSet::buffer(16, self.light_tile_ids2.lock().clone()),
                 WriteDescriptorSet::buffer(10, self.bounding_line_hierarchy.lock().clone()),
@@ -267,6 +269,7 @@ impl LightingCompute {
                         self.dummy_buffer.clone(),
                         self.dummy_buffer.clone(),
                         Vec3::new(0., 0., 0.),
+                        Mat4::identity(),
                     )
                 } else if let Some(init) = inits {
                     self.get_descriptors(
@@ -280,6 +283,7 @@ impl LightingCompute {
                         self.dummy_buffer.clone(),
                         self.dummy_buffer.clone(),
                         Vec3::new(0., 0., 0.),
+                        Mat4::identity(),
                     )
                 } else {
                     self.get_descriptors(
@@ -293,6 +297,7 @@ impl LightingCompute {
                         self.dummy_buffer.clone(),
                         self.dummy_buffer.clone(),
                         Vec3::new(0., 0., 0.),
+                        Mat4::identity(),
                     )
                 };
                 builder
@@ -400,7 +405,7 @@ impl LightingCompute {
                 .unwrap()
                 .clone(),
             [
-                WriteDescriptorSet::buffer(0, uniforms),
+                // WriteDescriptorSet::buffer(0, uniforms),
                 WriteDescriptorSet::buffer(2, self.tiles.lock().clone()),
             ],
         )
@@ -435,6 +440,7 @@ impl LightingCompute {
                     tiles.clone(),
                     indirect_write.clone(),
                     cvd.cam_pos,
+                    cvd.proj * cvd.view,
                 )
             } else {
                 self.get_descriptors(
@@ -448,6 +454,7 @@ impl LightingCompute {
                     tiles.clone(),
                     self.dummy_buffer.clone(),
                     cvd.cam_pos,
+                    cvd.proj * cvd.view,
                 )
             };
             builder
@@ -489,13 +496,13 @@ impl LightingCompute {
             Some(indirect.clone().slice(0..1)),
             3,
         );
-        build_stage(
-            builder,
-            -1,
-            Some(indirect.clone().slice(0..1)),
-            None,
-            4,
-        );
+        // build_stage(
+        //     builder,
+        //     -1,
+        //     Some(indirect.clone().slice(0..1)),
+        //     None,
+        //     4,
+        // );
         build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 10);
         build_stage(builder, 74, None, None, 5);
         // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 6);
