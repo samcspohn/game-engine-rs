@@ -15,10 +15,10 @@ struct Frustum {
     vec4 planes[6];
     vec3 points[8];   // 0-3 near 4-7 far
 };
-struct Sphere {
-    vec3 c;    // Center point.
-    float r;   // Radius.
-};
+// struct Sphere {
+//     vec3 c;    // Center point.
+//     float r;   // Radius.
+// };
 struct Cone {
     vec3 T;    // Cone tip.
     float h;   // Height of the cone.
@@ -69,7 +69,7 @@ struct light_deinit {
     int id;
 };
 struct tile {
-    Frustum frustum;
+    // Frustum frustum;
     uint count;
     uint offset;
     int BLH_offset;
@@ -155,6 +155,95 @@ struct MVP {
     mat4 m;
     mat4 n;
 };
+
+// Structure to represent a sphere
+struct Sphere {
+    vec3 center;
+    float radius;
+};
+
+// Structure to hold the transformed sphere in NDC space
+struct NDCSphere {
+    vec3 center;
+    float radius;
+};
+
+// Structure to represent a rectangle in screen space
+struct ScreenRect {
+    vec2 min;  // Bottom-left in pixels
+    vec2 max;  // Top-right in pixels
+};
+
+// Convert screen space coordinates to NDC
+vec2 screenToNDC(vec2 screenPos, vec2 screenSize) {
+    return 2.0 * screenPos / screenSize - 1.0;
+}
+
+// Convert NDC coordinates to screen space
+vec2 ndcToScreen(vec2 ndcPos, vec2 screenSize) {
+    return (ndcPos + 1.0) * 0.5 * screenSize;
+}
+
+// Test if a circle intersects with a rectangle (2D test)
+bool circleIntersectsRect(vec2 circleCenter, float circleRadius, vec2 rectMin, vec2 rectMax) {
+    // Find the closest point on the rectangle to the circle center
+    vec2 closest = clamp(circleCenter, rectMin, rectMax);
+    
+    // If the distance from the circle center to this closest point is less than
+    // the circle's radius, then they intersect
+    return distance(circleCenter, closest) <= circleRadius;
+}
+
+// Main function to test if NDC sphere intersects with screen rectangle
+bool sphereIntersectsScreenRect(NDCSphere sphere, ScreenRect rect, vec2 screenSize) {
+    // Early rejection test - if sphere is behind near plane or beyond far plane
+    if (sphere.center.z < 0.0 || sphere.center.z > 1.0) {
+        return false;
+    }
+    
+    // Convert rectangle corners to NDC space
+    vec2 rectMinNDC = screenToNDC(rect.min, screenSize);
+    vec2 rectMaxNDC = screenToNDC(rect.max, screenSize);
+    
+    // Project sphere radius to account for perspective
+    // The further the sphere is in NDC z, the smaller its radius appears
+    float projectedRadius = sphere.radius;
+    
+    // Perform 2D circle-rectangle intersection test
+    return circleIntersectsRect(
+        sphere.center.xy,    // Use only x,y of sphere center
+        projectedRadius,     // Use projected radius
+        rectMinNDC,         // Rectangle min in NDC
+        rectMaxNDC          // Rectangle max in NDC
+    );
+}
+
+// Test if point is inside rectangle
+bool pointInScreenRect(vec2 ndcPoint, ScreenRect rect, vec2 screenSize) {
+    vec2 rectMinNDC = screenToNDC(rect.min, screenSize);
+    vec2 rectMaxNDC = screenToNDC(rect.max, screenSize);
+    
+    return ndcPoint.x >= rectMinNDC.x && ndcPoint.x <= rectMaxNDC.x &&
+           ndcPoint.y >= rectMinNDC.y && ndcPoint.y <= rectMaxNDC.y;
+}
+
+// Test if sphere is fully contained within rectangle
+bool sphereFullyInScreenRect(NDCSphere sphere, ScreenRect rect, vec2 screenSize) {
+    if (sphere.center.z < 0.0 || sphere.center.z > 1.0) {
+        return false;
+    }
+    
+    vec2 rectMinNDC = screenToNDC(rect.min, screenSize);
+    vec2 rectMaxNDC = screenToNDC(rect.max, screenSize);
+    
+    float projectedRadius = sphere.radius;
+    
+    // Test if sphere bounds are completely inside rectangle bounds
+    return sphere.center.x - projectedRadius >= rectMinNDC.x &&
+           sphere.center.x + projectedRadius <= rectMaxNDC.x &&
+           sphere.center.y - projectedRadius >= rectMinNDC.y &&
+           sphere.center.y + projectedRadius <= rectMaxNDC.y;
+}
 
 float halfSpaceTest(vec4 plane, vec3 p) { return dot(plane.xyz, p) - plane.w; }
 bool frustumAABBIntersect(in Frustum f, AABB a) {

@@ -10,6 +10,7 @@ layout(set = 0, binding = 0) uniform Data {
     int num_jobs;
     int stage;
     vec3 cam_pos;
+    mat4 vp;
 };
 
 // layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
@@ -115,7 +116,8 @@ void main() {
             barrier();
             vec3 pos = lights[id].pos;
             float radius = lights[id].radius;
-            if (lights[id].enabled == 1 && sphere_frustum(pos, radius, tiles[get_tile(0, 0, 0)].frustum)) {   // full camera frustum
+            vec3 scr_pos_rad = worldToScreen(pos, radius, vp, vec2(2, 2));
+            if (lights[id].enabled == 1 && isCircleWithinScreenBounds(scr_pos_rad.xy, scr_pos_rad.z, vec2(1, 1))) {   // full camera frustum
                 uint idx = atomicAdd(local_counter, 1);
                 local_offsets[idx] = id;
             }
@@ -143,15 +145,20 @@ void main() {
 
                 vec3 pos = lights[light_id].pos;
                 float radius = lights[light_id].radius;
+                // vec3 scr_pos_rad = worldToScreen(pos, radius, vp, vec2(2, 2));
+                Sphere sphere = {pos, radius};
+                NDCSphere ndcsphere = worldToNDCSphere(sphere, vp);
+
                 float light_dist = distance(cam_pos, pos);
                 ivec3 a[4];
                 int a_c = 0;
                 for (int x = 0; x < 4; ++x) {   // entrance, first level
                     ivec2 c = index_offsets[x];
-                    if (sphere_frustum(pos, radius, tiles[get_tile(c.x, c.y, 1)].frustum)) {   // level 1 since level 0 is full camera frustum
+                    // if (sphere_frustum(pos, radius, tiles[get_tile(c.x, c.y, 1)].frustum)) {   // level 1 since level 0 is full camera frustum
+                    if ()
                         a[a_c] = ivec3(c.x, c.y, 1);
                         ++a_c;
-                    }
+                    // }
                 }
                 traverse_quadtree(a, a_c, pos, radius);
 
@@ -168,7 +175,6 @@ void main() {
                     light_ids[local_idx + i] = light_id;
                     atomicAdd(tiles[tile_idx].count, 1);
                 }
-               
             }
 
             // barrier();
@@ -199,7 +205,7 @@ void main() {
         } break;
         case 10: {
             if (id == 0) {
-                 uint num_elements = pc.g_num_elements;
+                uint num_elements = pc.g_num_elements;
                 const uint num_blocks_per_workgroup = 32;
                 const uint work_group_size = 256;
                 uint dispatch_size = uint(ceil(float(num_elements / float(num_blocks_per_workgroup))));
