@@ -62,7 +62,7 @@ vec3 calc_light(vec3 v_pos, vec3 v_normal, vec3 cam_pos, vec2 screen_dims) {
     uint light_ids[256];
     float z = distance(cam_pos, v_pos);
     int num_iter = 0;
-    for (int l = 1; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
+    for (int l = 0; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
         ivec2 ti = ivec2(screen_ratio * _light_quadtree_widths[l]);
         uint tileIndex = _light_quadtree_offsets[l] + uint(ti.x + (-ti.y) * _light_quadtree_widths[l]);
 

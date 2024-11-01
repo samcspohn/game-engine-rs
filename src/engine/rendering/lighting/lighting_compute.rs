@@ -1,3 +1,4 @@
+use std::u32;
 use std::{ops::Mul, sync::Arc};
 
 use glm::vec3;
@@ -25,6 +26,7 @@ use vulkano::{
     render_pass::{RenderPass, Subpass},
 };
 
+use crate::engine::particles::shaders::cs::p;
 use crate::engine::rendering::component::ur::r;
 use crate::engine::rendering::component::Indirect;
 use crate::engine::utils::radix_sort;
@@ -184,14 +186,17 @@ impl LightingCompute {
         tiles: Subbuffer<[V]>,
         indirect: Subbuffer<[W]>,
         cam_pos: Vec3,
-        vp: Mat4,
+        v: Mat4,
+        p: Mat4,
     ) -> Arc<PersistentDescriptorSet> {
         // let visble_lights = self.visible_lights.lock();
         let uniforms = self.vk.allocate(cs::Data {
             num_jobs: num_jobs as i32,
             stage: stage.into(),
             cam_pos: Padded(cam_pos.into()),
-            vp: vp.into(),
+            vp: (p * v).into(),
+            v: v.into(),
+            p: p.into(),
         });
         // {
         //     let uniform_data = cs::Data {
@@ -270,6 +275,7 @@ impl LightingCompute {
                         self.dummy_buffer.clone(),
                         Vec3::new(0., 0., 0.),
                         Mat4::identity(),
+                        Mat4::identity(),
                     )
                 } else if let Some(init) = inits {
                     self.get_descriptors(
@@ -284,6 +290,7 @@ impl LightingCompute {
                         self.dummy_buffer.clone(),
                         Vec3::new(0., 0., 0.),
                         Mat4::identity(),
+                        Mat4::identity(),
                     )
                 } else {
                     self.get_descriptors(
@@ -297,6 +304,7 @@ impl LightingCompute {
                         self.dummy_buffer.clone(),
                         self.dummy_buffer.clone(),
                         Vec3::new(0., 0., 0.),
+                        Mat4::identity(),
                         Mat4::identity(),
                     )
                 };
@@ -345,31 +353,31 @@ impl LightingCompute {
                 *visible_lights = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    (num_lights as u64).next_power_of_two() * 8,
                     MemoryUsage::DeviceOnly,
                 );
                 *light_list = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    (num_lights as u64).next_power_of_two() * 8,
                     MemoryUsage::DeviceOnly,
                 );
                 *light_tile_ids = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    (num_lights as u64).next_power_of_two() * 8,
                     MemoryUsage::DeviceOnly,
                 );
                 *light_list2 = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    (num_lights as u64).next_power_of_two() * 8,
                     MemoryUsage::DeviceOnly,
                 );
                 *light_tile_ids2 = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    (num_lights as u64).next_power_of_two() * 8,
                     MemoryUsage::DeviceOnly,
                 );
                 *bounding_line_hierarchy = buf;
@@ -440,7 +448,8 @@ impl LightingCompute {
                     tiles.clone(),
                     indirect_write.clone(),
                     cvd.cam_pos,
-                    cvd.proj * cvd.view,
+                    cvd.view,
+                    cvd.proj,
                 )
             } else {
                 self.get_descriptors(
@@ -454,7 +463,8 @@ impl LightingCompute {
                     tiles.clone(),
                     self.dummy_buffer.clone(),
                     cvd.cam_pos,
-                    cvd.proj * cvd.view,
+                    cvd.view,
+                    cvd.proj,
                 )
             };
             builder
@@ -480,21 +490,23 @@ impl LightingCompute {
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
         ]);
 
-        builder.update_buffer(self.visible_lights_c.clone(), &0);
-        builder.update_buffer(
-            self.light_counter.clone(),
-            &radix_sort::cs1::PC {
-                g_num_elements: 0,
-                g_num_workgroups: 0,
-            },
-        );
+        // builder.update_buffer(self.visible_lights_c.clone(), &0);
+        builder
+            .fill_buffer(self.light_list.lock().clone(), u32::MAX)
+            .unwrap();
+        builder
+            .update_buffer(
+                self.light_counter.clone(),
+                &radix_sort::cs1::PC {
+                    g_num_elements: 0,
+                    g_num_workgroups: 0,
+                },
+            )
+            .unwrap();
 
         build_stage(
-            builder,
-            num_lights,
-            None,
-            Some(indirect.clone().slice(0..1)),
-            3,
+            builder, num_lights, None, // Some(indirect.clone().slice(0..1)),
+            None, 3,
         );
         // build_stage(
         //     builder,

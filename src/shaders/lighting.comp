@@ -11,6 +11,8 @@ layout(set = 0, binding = 0) uniform Data {
     int stage;
     vec3 cam_pos;
     mat4 vp;
+    mat4 v;
+    mat4 p;
 };
 
 // layout(set = 0, binding = 0) buffer p { vec4 to_buffer[]; };
@@ -116,6 +118,9 @@ void main() {
             // barrier();
             vec3 pos = lights[id].pos;
             float radius = lights[id].radius;
+            if (lights[id].enabled == 0) {
+                return;
+            }
             // vec3 scr_pos_rad = worldToScreen(pos, radius, vp, vec2(2, 2));
             Sphere sphere = {pos, radius};
             // NDCSphere ndcsphere = transformSphereToNDC(sphere, vp);
@@ -123,20 +128,37 @@ void main() {
 
             // // Perspective divide to get NDC coordinates
             // vec3 center = clipCenter.xyz / clipCenter.w;
-            vec4 clipMin = vp * vec4(sphere.center - vec3(sphere.radius), 1.0);
-            vec4 clipMax = vp * vec4(sphere.center + vec3(sphere.radius), 1.0);
-            vec3 ndcMin = clipMin.xyz / clipMin.w;
-            vec3 ndcMax = clipMax.xyz / clipMax.w;
+            // vec4 clipMin = vp * vec4(sphere.center - vec3(sphere.radius), 1.0);
+            // vec4 clipMax = vp * vec4(sphere.center + vec3(sphere.radius), 1.0);
+            // vec4 clipCenter = vp * vec4(sphere.center, 1.0);
+            // vec4 clipMin = clipCenter - vec4(vec3(sphere.center), 0.0);
+            // vec4 clipMax = clipCenter + vec4(vec3(sphere.center), 0.0);
+            // vec3 ndcMin = clipMin.xyz / clipMin.w;
+            // vec3 ndcMax = clipMax.xyz / clipMax.w;
+
+            // Transform sphere center to clip space
+            vec4 clipCenter = vp * vec4(pos, 1.0);
+
+            // Perspective divide to get normalized device coordinates
+            vec3 ndcCenter = clipCenter.xyz / clipCenter.w;
+
+            // Calculate the extent of the sphere in NDC space
+            // This accounts for perspective projection
+            float ndcRadius = radius * length(vec3(vp[0].x, vp[1].y, vp[2].z)) / clipCenter.w;
+            vec3 ndcMin = ndcCenter - ndcRadius;
+            vec3 ndcMax = ndcCenter + ndcRadius;
 
             // vec3 sphere_scr_pos = ndcsphere.center / 2.0 + 0.5;
             // float sphere_scr_rad = ndcsphere.radius / 2.0;
 
             vec3 scrMin = ndcMin / 2.0 + 0.5;
             vec3 scrMax = ndcMax / 2.0 + 0.5;
+            // vec3 scrMin = ndcMin;
+            // vec3 scrMax = ndcMax;
             float h = scrMax.y - scrMin.y;
             float w = scrMax.x - scrMin.x;
 
-            if (scrMax.z < 0 || scrMax.x < 0 || scrMin.x > 1 || scrMax.y < 0 || scrMin.y > 1) {
+            if (scrMax.z < 0.5 || scrMax.x < 0 || scrMin.x > 1 || scrMax.y < 0 || scrMin.y > 1) {
                 return;
             }
 
@@ -152,16 +174,19 @@ void main() {
             uint a_c = 0;
             uint a[4];
             uint iter = 0;
-            for (float i = scrMin.x; i < scrMax.x; i += 1.0 / _light_quadtree_widths[depth]) {
-                for (float j = scrMin.y; j < scrMax.y; j += 1.0 / _light_quadtree_widths[depth]) {
-                    if (iter++ > 4) {
-                        break;
-                    }
-                    ivec2 tile = ivec2(i * int(_light_quadtree_widths[depth]), j * int(_light_quadtree_widths[depth]));
-                    if (tile.x < 0 || tile.y < 0 || tile.x >= _light_quadtree_widths[depth] || tile.y >= _light_quadtree_widths[depth]) {
+            scrMin.xy *= _light_quadtree_widths[depth];
+            scrMax.xy *= _light_quadtree_widths[depth];
+            // float endx = min(scrMax.x, _light_quadtree_widths[depth]);
+            // float endy = min(scrMax.y, _light_quadtree_widths[depth]);
+            for (int i = int(scrMin.x); i < scrMax.x; ++i) {
+                for (int j = int(scrMin.y); j < scrMax.y; ++j) {
+                    // if (iter++ > 4) {
+                    //     break;
+                    // }
+                    if (i < 0 || j < 0 || i >= _light_quadtree_widths[depth] || j >= _light_quadtree_widths[depth]) {
                         continue;
                     }
-                    uint tile_id = get_tile(tile.x, tile.y, depth);
+                    uint tile_id = get_tile(i, j, depth);
                     atomicAdd(tiles[tile_id].count, 1);
                     a[a_c++] = tile_id;
 
