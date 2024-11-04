@@ -121,20 +121,6 @@ void main() {
             if (lights[id].enabled == 0) {
                 return;
             }
-            // vec3 scr_pos_rad = worldToScreen(pos, radius, vp, vec2(2, 2));
-            Sphere sphere = {pos, radius};
-            // NDCSphere ndcsphere = transformSphereToNDC(sphere, vp);
-            // vec4 clipCenter = vp * vec4(sphere.center, 1.0);
-
-            // // Perspective divide to get NDC coordinates
-            // vec3 center = clipCenter.xyz / clipCenter.w;
-            // vec4 clipMin = vp * vec4(sphere.center - vec3(sphere.radius), 1.0);
-            // vec4 clipMax = vp * vec4(sphere.center + vec3(sphere.radius), 1.0);
-            // vec4 clipCenter = vp * vec4(sphere.center, 1.0);
-            // vec4 clipMin = clipCenter - vec4(vec3(sphere.center), 0.0);
-            // vec4 clipMax = clipCenter + vec4(vec3(sphere.center), 0.0);
-            // vec3 ndcMin = clipMin.xyz / clipMin.w;
-            // vec3 ndcMax = clipMax.xyz / clipMax.w;
 
             // Transform sphere center to clip space
             vec4 clipCenter = vp * vec4(pos, 1.0);
@@ -148,13 +134,8 @@ void main() {
             vec3 ndcMin = ndcCenter - ndcRadius;
             vec3 ndcMax = ndcCenter + ndcRadius;
 
-            // vec3 sphere_scr_pos = ndcsphere.center / 2.0 + 0.5;
-            // float sphere_scr_rad = ndcsphere.radius / 2.0;
-
             vec3 scrMin = ndcMin / 2.0 + 0.5;
             vec3 scrMax = ndcMax / 2.0 + 0.5;
-            // vec3 scrMin = ndcMin;
-            // vec3 scrMax = ndcMax;
             float h = scrMax.y - scrMin.y;
             float w = scrMax.x - scrMin.x;
 
@@ -163,34 +144,31 @@ void main() {
             }
 
             int depth = 0;
+            ivec2 scrMin_ = ivec2(scrMin.xy * _light_quadtree_widths[0]);
+            ivec2 scrMax_ = ivec2(scrMax.xy * _light_quadtree_widths[0]);
             for (int l = MAX_LEVEL - 1; l >= 0; --l) {
                 uint level_width = _light_quadtree_widths[l];
                 float tile_width = 2.0 / level_width;
                 if (h < tile_width && w < tile_width) {
-                    depth = l;
-                    break;
+                    scrMin_ = ivec2(scrMin.xy * level_width);
+                    scrMax_ = ivec2(scrMax.xy * level_width);
+                    if (scrMax_.x - scrMin_.x <= 1 && scrMax_.y - scrMin_.y <= 1) {
+                        depth = l;
+                        break;
+                    }
                 }
             }
             uint a_c = 0;
             uint a[4];
             uint iter = 0;
-            scrMin.xy *= _light_quadtree_widths[depth];
-            scrMax.xy *= _light_quadtree_widths[depth];
-            // float endx = min(scrMax.x, _light_quadtree_widths[depth]);
-            // float endy = min(scrMax.y, _light_quadtree_widths[depth]);
-            for (int i = int(scrMin.x); i < scrMax.x; ++i) {
-                for (int j = int(scrMin.y); j < scrMax.y; ++j) {
-                    // if (iter++ > 4) {
-                    //     break;
-                    // }
+            for (int i = scrMin_.x; i < scrMax_.x; ++i) {
+                for (int j = scrMin_.y; j < scrMax_.y; ++j) {
                     if (i < 0 || j < 0 || i >= _light_quadtree_widths[depth] || j >= _light_quadtree_widths[depth]) {
                         continue;
                     }
                     uint tile_id = get_tile(i, j, depth);
                     atomicAdd(tiles[tile_id].count, 1);
                     a[a_c++] = tile_id;
-
-                    // atomicAdd(tiles[tile_idx].count, 1);
                 }
             }
             float light_dist = distance(cam_pos, pos);
@@ -200,7 +178,6 @@ void main() {
             for (uint i = 0; i < a_c; ++i) {
                 uint tile_id = a[i];
                 uint tile_id_dist = tile_id << 19 | light_dist_;
-                // local_indeces[local_idx + i] = uvec2(tile_idx, light_id);
                 light_tile_ids[local_idx + i] = tile_id_dist;
                 light_ids[local_idx + i] = id;
             }
