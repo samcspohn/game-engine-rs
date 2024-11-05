@@ -63,8 +63,8 @@ pub struct VulkanManager {
     pub desc_alloc: Arc<StandardDescriptorSetAllocator>,
     pub comm_alloc: Arc<StandardCommandBufferAllocator>,
     pub query_pool: Mutex<HashMap<i32, Arc<QueryPool>, nohash_hasher::BuildNoHashHasher<i32>>>,
-    sub_alloc: Vec<SendSync<SubbufferAllocator>>,
-    sub_alloc_unsized: Vec<SendSync<SubbufferAllocator>>,
+    sub_alloc: Vec<Mutex<SubbufferAllocator>>,
+    sub_alloc_unsized: Vec<Mutex<SubbufferAllocator>>,
     c: SyncUnsafeCell<usize>,
     query_counter: AtomicI32,
     pub(crate) show_cursor: Mutex<bool>,
@@ -84,7 +84,7 @@ impl VulkanManager {
     where
         T: BufferContents + Sized,
     {
-        let ub = self.sub_alloc[unsafe { *self.c.get() }]
+        let ub = self.sub_alloc[unsafe { *self.c.get() }].lock()
             .allocate_sized()
             .unwrap();
         *ub.write().unwrap() = d;
@@ -94,7 +94,7 @@ impl VulkanManager {
     where
         T: BufferContents + ?Sized,
     {
-        self.sub_alloc_unsized[unsafe { *self.c.get() }]
+        self.sub_alloc_unsized[unsafe { *self.c.get() }].lock()
             .allocate_unsized(len)
             .unwrap()
         // let ub = self.sub_alloc[*self.c.lock() as usize]
@@ -419,10 +419,12 @@ impl VulkanManager {
             sub_alloc: unsafe {
                 (0..NUM_SUBALLOC)
                     .map(|_| {
-                        SendSync::new(SubbufferAllocator::new(
+                        Mutex::new(SubbufferAllocator::new(
                             mem_alloc.clone(),
                             SubbufferAllocatorCreateInfo {
                                 buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                                 ..Default::default()
                             },
                         ))
@@ -432,10 +434,12 @@ impl VulkanManager {
             sub_alloc_unsized: unsafe {
                 (0..NUM_SUBALLOC)
                     .map(|_| {
-                        SendSync::new(SubbufferAllocator::new(
+                        Mutex::new(SubbufferAllocator::new(
                             mem_alloc.clone(),
                             SubbufferAllocatorCreateInfo {
                                 buffer_usage: BufferUsage::STORAGE_BUFFER,
+                                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                                    | MemoryTypeFilter::HOST_RANDOM_ACCESS,
                                 ..Default::default()
                             },
                         ))

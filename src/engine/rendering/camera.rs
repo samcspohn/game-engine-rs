@@ -35,7 +35,7 @@ use vulkano::{
         PipelineBindPoint,
     },
     render_pass::{
-        self, AttachmentLoadOp, Framebuffer, FramebufferCreateInfo, RenderPass, Subpass,
+        self, AttachmentLoadOp, AttachmentStoreOp, Framebuffer, FramebufferCreateInfo, RenderPass, Subpass
     },
     sync::GpuFuture,
 };
@@ -168,6 +168,7 @@ pub struct CameraData {
     pub texture_id: Option<egui::TextureId>,
     pub image: Arc<Image>,
     pub view: Arc<ImageView>,
+    pub d_view: Arc<ImageView>,
 
     // samples: SampleCount,
     vk: Arc<VulkanManager>,
@@ -666,7 +667,7 @@ impl CameraData {
             depth_range: 0.0..=1.0,
         };
 
-        let (frame_buffer, image, view): (Arc<Framebuffer>, Arc<Image>, Arc<ImageView>) =
+        let (frame_buffer, image, view, d_view) =
             window_size_dependent_setup(&vk, &vk.images, [1, 1], render_pass.clone());
         // let subpass = Subpass::from(render_pass, 0).unwrap();
         let rend = RenderPipeline::new(0, vk.clone(), render_pass.clone());
@@ -683,6 +684,7 @@ impl CameraData {
             texture_id: None,
             image,
             view,
+            d_view,
             camera_view_data: VecDeque::new(), // swapchain,
             // samples,
             // tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE)),
@@ -694,7 +696,7 @@ impl CameraData {
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>, gui: &mut Gui) {
         if *&self.image.extent()[0..2] != dimensions {
-            (self.frame_buffer, self.image, self.view) = window_size_dependent_setup(&vk, &vk.images, dimensions, self.render_pass.clone());
+            (self.frame_buffer, self.image, self.view, self.d_view) = window_size_dependent_setup(&vk, &vk.images, dimensions, self.render_pass.clone());
             if let Some(tex) = self.texture_id.as_ref() {
                 gui.unregister_user_image(*tex);
             }
@@ -848,7 +850,7 @@ impl CameraData {
                     //         Some(RenderingAttachmentInfo {
                     //             load_op: AttachmentLoadOp::Clear,
                     //             store_op: AttachmentStoreOp::Store,
-                    //             clear_value: Some(ClearValue::Color([0.2, 0.25, 1., 1.].into())),
+                    //             clear_value: Some([0.2, 0.25, 1., 1.].into()),
                     //             ..RenderingAttachmentInfo::image_view(self.view.clone())
                     //         })
                     //     ],
@@ -856,18 +858,28 @@ impl CameraData {
                     //         load_op: AttachmentLoadOp::Clear,
                     //         store_op: AttachmentStoreOp::DontCare,
                     //         clear_value: Some(ClearValue::Depth(1.0)),
-                    //         ..RenderingAttachmentInfo::image_view(vk.depth_view.clone())
+                    //         ..RenderingAttachmentInfo::image_view(self.d_view.clone())
+                    //         // ..RenderingAttachmentInfo::image_view(vk.depth_view.clone())
                     //     }),
+                    //     ..Default::default()
+                    //     // render_area_offset: todo!(),
+                    //     // render_area_extent: todo!(),
+                    //     // layer_count: todo!(),
+                    //     // view_mask: todo!(),
+                    //     // stencil_attachment: todo!(),
+                    //     // contents: todo!(),
+                    //     // _ne: todo!(),
                     // })
                     .begin_render_pass(
                         RenderPassBeginInfo {
                             clear_values: vec![
                                 Some([0.2, 0.25, 1., 1.].into()),
                                 Some(1f32.into()),
-                                None,
+                                // None,
                             ],
                             ..RenderPassBeginInfo::framebuffer(self.frame_buffer.clone())
                         },
+                        // Default::default(),
                         vulkano::command_buffer::SubpassBeginInfo {
                             contents: SubpassContents::Inline,
                             ..Default::default()
@@ -1211,7 +1223,7 @@ fn window_size_dependent_setup(
     images: &[Arc<Image>],
     dimensions: [u32; 2],
     render_pass: Arc<RenderPass>,
-) -> (Arc<Framebuffer>, Arc<Image>, Arc<ImageView>) {
+) -> (Arc<Framebuffer>, Arc<Image>, Arc<ImageView>, Arc<ImageView>) {
     let depth_buffer = ImageView::new_default(
         Image::new(
             vk.mem_alloc.clone(),
@@ -1220,7 +1232,7 @@ fn window_size_dependent_setup(
                 format: Format::D32_SFLOAT,
                 extent: [dimensions[0], dimensions[1], 1],
                 array_layers: 1,
-                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
+                usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
                 ..Default::default()
             },
             AllocationCreateInfo::default(),
@@ -1245,6 +1257,7 @@ fn window_size_dependent_setup(
     )
     .unwrap();
     let view = ImageView::new_default(image.clone()).unwrap();
+    // let d_view = ImageView::new_default(depth_buffer.clone()).unwrap();
     let frame_buf = Framebuffer::new(
         render_pass.clone(),
         FramebufferCreateInfo {
@@ -1254,5 +1267,5 @@ fn window_size_dependent_setup(
     )
     .unwrap();
     // let image_views = images.iter().map(|image| view.clone()).collect::<Vec<_>>();
-    (frame_buf, image, view)
+    (frame_buf, image, view, depth_buffer)
 }

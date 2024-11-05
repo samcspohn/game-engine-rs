@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vulkano::{
-    pipeline::{
+    format::Format, pipeline::{
         compute::ComputePipelineCreateInfo,
         graphics::{
             color_blend::{ColorBlendAttachmentState, ColorBlendState}, depth_stencil::{CompareOp, DepthState, DepthStencilState, DepthStencilStateFlags}, input_assembly::InputAssemblyState, multisample::MultisampleState, rasterization::{CullMode, RasterizationState}, subpass::PipelineRenderingCreateInfo, vertex_input::{VertexBufferDescription, VertexDefinition}, viewport::ViewportState, GraphicsPipelineCreateInfo
@@ -9,13 +9,10 @@ use vulkano::{
         layout::PipelineDescriptorSetLayoutCreateInfo,
         ComputePipeline, DynamicState, GraphicsPipeline, PipelineLayout,
         PipelineShaderStageCreateInfo,
-    },
-    render_pass::{self, RenderPass},
-    shader::{EntryPoint, ShaderInterface, ShaderModule},
-    format::Format,
+    }, render_pass::{self, RenderPass, Subpass}, shader::{EntryPoint, ShaderInterface, ShaderModule}
 };
 
-use crate::engine::rendering::vulkan_manager::VulkanManager;
+use crate::engine::{rendering::vulkan_manager::VulkanManager, transform_compute::cs::s};
 
 pub fn compute_pipeline(vk: Arc<VulkanManager>, shader: Arc<ShaderModule>) -> Arc<ComputePipeline> {
     let cs = shader.entry_point("main").unwrap();
@@ -44,13 +41,13 @@ pub fn graphics_pipeline<D>(
 where
     D: FnOnce(&mut GraphicsPipelineCreateInfo),
 {
+    let vertex_input_state = vertex_description
+    .definition(&shaders[0].info().input_interface)
+    .unwrap();
     let stages: Vec<_> = shaders
-        .iter()
+        .into_iter()
         .map(|shader| PipelineShaderStageCreateInfo::new(shader.clone()))
         .collect();
-    let vertex_input_state = vertex_description
-        .definition(&shaders[0].info().input_interface)
-        .unwrap();
     let layout = PipelineLayout::new(
         vk.device.clone(),
         PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
@@ -64,12 +61,12 @@ where
     //     .map(|a| Some(a.format))
     //     .collect();
     // let depth_attachment_format = 
-    let subpass = PipelineRenderingCreateInfo {
-        color_attachment_formats: vec![Some(Format::R8G8B8A8_UNORM)],
-        depth_attachment_format: Some(Format::D32_SFLOAT),
-        ..Default::default()
-    };
-    let layout = GraphicsPipelineCreateInfo::layout(layout);
+    // let subpass = PipelineRenderingCreateInfo {
+    //     color_attachment_formats: vec![Some(Format::R8G8B8A8_UNORM)],
+    //     depth_attachment_format: Some(Format::D32_SFLOAT),
+    //     ..Default::default()
+    // };
+    let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
     // let options = GraphicsPipelineCreateInfo {..graphics_options..layout};
     let mut defualt_options = GraphicsPipelineCreateInfo {
         stages: stages.into_iter().collect(),
@@ -79,7 +76,7 @@ where
         rasterization_state: Some(RasterizationState::default().cull_mode(CullMode::Back)),
         multisample_state: Some(MultisampleState::default()),
         color_blend_state: Some(ColorBlendState::with_attachment_states(
-            subpass.color_attachment_formats.len() as u32,
+            subpass.num_color_attachments(),
             ColorBlendAttachmentState::default(),
         )),
         depth_stencil_state: Some(DepthStencilState {
@@ -88,49 +85,15 @@ where
                 write_enable: true,
                 compare_op: CompareOp::Less,
             }),
-            depth_bounds: None,
-            stencil: None,
+            // depth_bounds: None,
+            // stencil: None,
             ..Default::default()
         }),
         dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-        subpass: Some(subpass.into()),
-        ..layout
+        subpass: Some(subpass.clone().into()),
+        ..GraphicsPipelineCreateInfo::layout(layout)
     };
     graphics_options(&mut defualt_options);
-    // graphics_options.layout = layout.layout;
-    // // if graphics_options.stages.is_none() {
-    // graphics_options.stages = stages.into_iter().collect();
-    // // }
-    // if graphics_options.vertex_input_state.is_none() {
-    //     graphics_options.vertex_input_state = Some(vertex_input_state);
-    // }
-    // if graphics_options.input_assembly_state.is_none() {
-    //     graphics_options.input_assembly_state = Some(InputAssemblyState::default());
-    // }
-    // if graphics_options.viewport_state.is_none() {
-    //     graphics_options.viewport_state = Some(ViewportState::default());
-    // }
-    // if graphics_options.rasterization_state.is_none() {
-    //     graphics_options.rasterization_state =
-    //         Some(RasterizationState::default().cull_mode(CullMode::Back));
-    // }
-    // if graphics_options.multisample_state.is_none() {
-    //     graphics_options.multisample_state = Some(MultisampleState::default());
-    // }
-    // if graphics_options.color_blend_state.is_none() {
-    //     graphics_options.color_blend_state = Some(ColorBlendState::with_attachment_states(
-    //         subpass.color_attachment_formats.len() as u32,
-    //         ColorBlendAttachmentState::default(),
-    //     ));
-    // }
-    // graphics_options.dynamic_state = [DynamicState::Viewport].into_iter().collect();
-    // if graphics_options.subpass.is_none() {
-    //     graphics_options.subpass = Some(subpass.into());
-    // }
-
-    // if let Some(ref mut stages) = graphics_options.stages {
-    //     *stages = stages.clone().into_iter().chain(stages.clone()).collect();
-    // }
     let pipeline = GraphicsPipeline::new(vk.device.clone(), None, defualt_options).unwrap();
     pipeline
 }
