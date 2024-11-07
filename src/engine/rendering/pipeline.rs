@@ -115,6 +115,27 @@ impl RenderPipeline {
         render_pass: Arc<RenderPass>,
         // use_msaa: bool,
     ) -> RenderPipeline {
+        // let vs = vs::load(vk.device.clone())
+        //     .unwrap()
+        //     .entry_point("main")
+        //     .unwrap();
+        // let fs = fs::load(vk.device.clone())
+        //     .unwrap()
+        //     .entry_point("main")
+        //     .unwrap();
+
+        // let pipeline = utils::pipeline::graphics_pipeline(
+        //     vk.clone(),
+        //     &[vs, fs],
+        //     &[
+        //         _Vertex::per_vertex(),
+        //         Normal::per_vertex(),
+        //         UV::per_vertex(),
+        //     ],
+        //     |g| {},
+        //     render_pass.clone(),
+        // );
+
         let vs = vs::load(vk.device.clone())
             .unwrap()
             .entry_point("main")
@@ -124,17 +145,51 @@ impl RenderPipeline {
             .entry_point("main")
             .unwrap();
 
-        let pipeline = utils::pipeline::graphics_pipeline(
-            vk.clone(),
-            &[vs, fs],
-            &[
-                _Vertex::per_vertex(),
-                Normal::per_vertex(),
-                UV::per_vertex(),
-            ],
-            |g| {},
-            render_pass.clone(),
-        );
+        let vertex_input_state = [
+            _Vertex::per_vertex(),
+            Normal::per_vertex(),
+            UV::per_vertex(),
+        ]
+        .definition(&vs.info().input_interface)
+        .unwrap();
+
+        let stages = [
+            PipelineShaderStageCreateInfo::new(vs),
+            PipelineShaderStageCreateInfo::new(fs),
+        ];
+
+        let layout = PipelineLayout::new(
+            vk.device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(vk.device.clone())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let subpass = Subpass::from(render_pass.clone(), sub_pass_index).unwrap();
+
+        let pipeline = GraphicsPipeline::new(
+            vk.device.clone(),
+            None,
+            GraphicsPipelineCreateInfo {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(ViewportState::default()),
+                rasterization_state: Some(RasterizationState::default().cull_mode(CullMode::Back)),
+                multisample_state: Some(MultisampleState::default()),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    subpass.num_color_attachments(),
+                    ColorBlendAttachmentState::default(),
+                )),
+                depth_stencil_state: Some(DepthStencilState::simple_depth_test()),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                subpass: Some(subpass.into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            },
+        )
+        .unwrap();
+
         // let vertex_input_state = [
         //     _Vertex::per_vertex(),
         //     Normal::per_vertex(),
@@ -189,28 +244,7 @@ impl RenderPipeline {
         //                              // .vertex::<VertU32>()
         //                              // .vertex::<VertU32_2>(),
         //     )
-        //     .vertex_shader(vs.ent // let dimensions = ImageDimensions::Dim2d {
-        //             //     width: img.width(),
-        //             //     height: img.height(),
-        //             //     array_layers: 1,
-        //             // };
-        //             let img_format = match img.color() {
-        //                 // image::ColorType::L8(_) => Format::R8_SNORM,
-        //                 image::ColorType::Rgb8 => Format::R8G8B8_SRGB,
-        //                 // image::ColorType::Palette(_) => Format::R8_SINT,
-        //                 // image::ColorType::GrayA(_) => Format::R8G8_SNORM,
-        //                 image::ColorType::Rgba8 => Format::R8G8B8A8_SRGB,
-        //                 _ => Format::R8_SNORM,
-        //             };
-
-        //             let pixels: Vec<u8> = if img_format == Format::R8G8B8_SRGB {
-        //                 img.as_bytes()
-        //                     .chunks(3)
-        //                     .flat_map(|p| [p[0], p[1], p[2], 1u8])
-        //                     .collect()
-        //             } else {
-        //                 img.as_bytes().iter().map(|u| *u).collect()
-        //             };ry_point("main").unwrap(), ())
+        //     .vertex_shader(vs.entry_point("main").unwrap(), ())
         //     .input_assembly_state(InputAssemblyState::new())
         //     // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
         //     //     Viewport {
@@ -321,10 +355,7 @@ impl RenderPipeline {
     //         .unwrap();
     // }
 
-    pub fn bind_pipeline(
-        &self,
-        builder: &mut utils::PrimaryCommandBuffer,
-    ) -> &RenderPipeline {
+    pub fn bind_pipeline(&self, builder: &mut utils::PrimaryCommandBuffer) -> &RenderPipeline {
         builder.bind_pipeline_graphics(self.pipeline.clone());
 
         self

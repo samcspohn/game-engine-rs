@@ -18,7 +18,7 @@ use vulkano::{
         Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder,
         PrimaryAutoCommandBuffer,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
@@ -347,7 +347,10 @@ impl VulkanManager {
         ));
         let comm_alloc = Arc::new(StandardCommandBufferAllocator::new(
             device.clone(),
-            Default::default(),
+            StandardCommandBufferAllocatorCreateInfo {
+                secondary_buffer_count: 32,
+                ..Default::default()
+            },
         ));
         let (swapchain, images) = {
             let surface_capabilities = device

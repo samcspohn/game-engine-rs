@@ -1,3 +1,4 @@
+use bitvec::view;
 use egui::TextureId;
 use egui_winit_vulkano::Gui;
 use glium::buffer::Content;
@@ -35,7 +36,8 @@ use vulkano::{
         PipelineBindPoint,
     },
     render_pass::{
-        self, AttachmentLoadOp, AttachmentStoreOp, Framebuffer, FramebufferCreateInfo, RenderPass, Subpass
+        self, AttachmentLoadOp, AttachmentStoreOp, Framebuffer, FramebufferCreateInfo, RenderPass,
+        Subpass,
     },
     sync::GpuFuture,
 };
@@ -47,7 +49,7 @@ use crate::{
         input::Input,
         particles::{
             particles::{ParticleDebugPipeline, ParticleRenderPipeline, ParticlesSystem},
-            shaders::scs,
+            shaders::{cs::p, scs},
         },
         perf::Perf,
         project::asset_manager::{AssetInstance, AssetsManager},
@@ -662,13 +664,13 @@ impl CameraData {
         )
         .unwrap();
         let mut viewport = Viewport {
-            offset: [0.0, 0.0],
+            offset: [0.0, -1.0],
             extent: [1.0, -1.0],
             depth_range: 0.0..=1.0,
         };
 
         let (frame_buffer, image, view, d_view) =
-            window_size_dependent_setup(&vk, &vk.images, [1, 1], render_pass.clone());
+            window_size_dependent_setup(&vk, &vk.images, [1, 1], render_pass.clone(), &mut viewport);
         // let subpass = Subpass::from(render_pass, 0).unwrap();
         let rend = RenderPipeline::new(0, vk.clone(), render_pass.clone());
 
@@ -695,8 +697,11 @@ impl CameraData {
         }
     }
     pub fn resize(&mut self, dimensions: [u32; 2], vk: Arc<VulkanManager>, gui: &mut Gui) {
+        // println!("previouse dimensions: {:?}", &self.image.extent()[0..2]);
+        // println!("new dimensions: {:?}", dimensions);
         if *&self.image.extent()[0..2] != dimensions {
-            (self.frame_buffer, self.image, self.view, self.d_view) = window_size_dependent_setup(&vk, &vk.images, dimensions, self.render_pass.clone());
+            (self.frame_buffer, self.image, self.view, self.d_view) =
+                window_size_dependent_setup(&vk, &vk.images, dimensions, self.render_pass.clone(), &mut self.viewport);
             if let Some(tex) = self.texture_id.as_ref() {
                 gui.unregister_user_image(*tex);
             }
@@ -1223,7 +1228,10 @@ fn window_size_dependent_setup(
     images: &[Arc<Image>],
     dimensions: [u32; 2],
     render_pass: Arc<RenderPass>,
+    viewport: &mut Viewport,
 ) -> (Arc<Framebuffer>, Arc<Image>, Arc<ImageView>, Arc<ImageView>) {
+    viewport.extent = [dimensions[0] as f32, -(dimensions[1] as f32)];
+    viewport.offset[1] = -viewport.extent[1];
     let depth_buffer = ImageView::new_default(
         Image::new(
             vk.mem_alloc.clone(),

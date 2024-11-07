@@ -90,7 +90,7 @@ libloading = "0.8.0"
 # dylib = "*"
 regex = "1.8.1"
 
-notify-debouncer-full = "*"
+notify-debouncer-full = "0.3.2"
 const-fnv1a-hash = "1.1.0"
 thincollections = "0.5.4"
 config = "0.13.3"
@@ -103,3 +103,4 @@ russimp = { version = "3.2.0", features = ["prebuilt"] }
 rfd = "0.14.1"
 # egui-gizmo = "0.11.0"
 ncollide3d = "0.33.0"
+image-pyramid = "0.5.1"

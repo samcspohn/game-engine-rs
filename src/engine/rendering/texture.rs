@@ -12,9 +12,7 @@ use vulkano::{
     device::{Device, Queue},
     format::Format,
     image::{
-        sampler::{Sampler, SamplerCreateInfo},
-        view::ImageView,
-        Image, ImageCreateInfo, ImageType, ImageUsage,
+        max_mip_levels, sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE}, view::ImageView, Image, ImageCreateInfo, ImageLayout, ImageType, ImageUsage
     },
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     DeviceSize,
@@ -75,12 +73,8 @@ pub fn texture_from_bytes(
     let extent: [u32; 3] = [width, height, 1];
     let array_layers = 1u32;
 
-    let buffer_size = format.block_size()
-        * extent
-            .into_iter()
-            .map(|e| e as DeviceSize)
-            .product::<DeviceSize>()
-        * array_layers as DeviceSize;
+
+    let buffer_size = data.len() as DeviceSize;
     let upload_buffer = Buffer::new_slice(
         vk.mem_alloc.clone(),
         BufferCreateInfo {
@@ -101,7 +95,6 @@ pub fn texture_from_bytes(
 
         image_data.copy_from_slice(data);
     }
-
     let image = Image::new(
         vk.mem_alloc.clone(),
         ImageCreateInfo {
@@ -109,6 +102,7 @@ pub fn texture_from_bytes(
             format,
             extent,
             array_layers,
+            // mip_levels: max_mip_levels(extent),
             usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
             ..Default::default()
         },
@@ -121,12 +115,34 @@ pub fn texture_from_bytes(
             upload_buffer,
             image.clone(),
         ))
+        // .copy_buffer_to_image(CopyBufferToImageInfo {
+        //     src_buffer: upload_buffer,
+        //     dst_image: image.clone(),
+        //     dst_image_layout: ImageLayout,
+        //     regions: todo!(),
+        //     _ne: todo!(),
+        // })
         .unwrap();
 
     let _ = uploads.build().unwrap().execute(vk.queue.clone()).unwrap();
 
     let sampler =
         Sampler::new(vk.device.clone(), SamplerCreateInfo::simple_repeat_linear()).unwrap();
+
+    // let sampler = Sampler::new(
+    //     vk.device.clone(),
+    //     SamplerCreateInfo {
+    //         lod: 0.0..=LOD_CLAMP_NONE,
+    //         mip_lod_bias: -0.2,
+    //         mag_filter: Filter::Linear,
+    //         min_filter: Filter::Linear,
+    //         address_mode: [SamplerAddressMode::Repeat; 3],
+    //         // mip_lod_bias: 1.0,
+    //         // anisotropy: Some(())
+    //         ..Default::default()
+    //     },
+    // )
+    // .unwrap();
 
     (ImageView::new_default(image).unwrap(), sampler)
 }
@@ -151,6 +167,9 @@ impl Asset<Texture, (Arc<VulkanManager>)> for Texture {
             //     img.as_bytes().iter().map(|u| *u).collect()
             // };
             let pixels: Vec<u8> = img.to_rgba8().iter().cloned().collect();
+            // let pyr = image_pyramid::ImagePyramid::create(&img, None).unwrap();
+            // let pixels = pyr.levels.iter().rev().flat_map(|a| a.to_rgba8().iter().cloned().collect::<Vec<u8>>()).collect::<Vec<u8>>();
+            // let pixels = include_bytes!(path)
 
             // let vk = params;
             // let mut uploads = AutoCommandBufferBuilder::new(
