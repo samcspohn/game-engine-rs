@@ -140,6 +140,12 @@ impl LightingCompute {
         //     .render_pass(subpass)
         //     .build(vk.device.clone())
         //     .unwrap();
+        let mut depth_stencil_state = DepthStencilState::simple_depth_test();
+        depth_stencil_state.depth = Some(DepthState {
+            write_enable: false,
+            compare_op: CompareOp::Less,
+        });
+
         let render_pipeline = utils::pipeline::graphics_pipeline(
             vk.clone(),
             &[vs, gs, fs],
@@ -150,10 +156,12 @@ impl LightingCompute {
                     primitive_restart_enable: false,
                     ..Default::default()
                 });
+                info.depth_stencil_state = Some(depth_stencil_state);
                 info.rasterization_state = Some(RasterizationState {
                     cull_mode: CullMode::None,
                     ..Default::default()
                 });
+                info.color_blend_state = Some(ColorBlendState::new(1).blend_alpha());
             },
             render_pass,
         );
