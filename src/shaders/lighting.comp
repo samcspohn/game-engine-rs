@@ -150,10 +150,12 @@ void main() {
                 uint level_width = _light_quadtree_widths[l];
                 float tile_width = 2.0 / level_width;
                 if (h < tile_width && w < tile_width) {
-                    scrMin_ = ivec2(scrMin.xy * level_width);
-                    scrMax_ = ivec2(scrMax.xy * level_width);
-                    if (scrMax_.x - scrMin_.x <= 1 && scrMax_.y - scrMin_.y <= 1) {
+                    ivec2 _scrMin_ = ivec2(scrMin.xy * level_width);
+                    ivec2 _scrMax_ = ivec2(scrMax.xy * level_width);
+                    if (_scrMax_.x - _scrMin_.x <= 1 && _scrMax_.y - _scrMin_.y <= 1) {
                         depth = l;
+                        scrMin_ = _scrMin_;
+                        scrMax_ = _scrMax_;
                         break;
                     }
                 }
