@@ -10,6 +10,19 @@
 
 layout (local_size_x = WORKGROUP_SIZE) in;
 
+layout (push_constant, std430) uniform PushConstants {
+    // uint g_num_elements;
+    uint g_shift;
+    // uint g_num_workgroups;
+    uint g_num_blocks_per_workgroup;
+};
+struct PC {
+    uint g_num_elements;
+    uint g_num_workgroups;
+};
+layout (std430, set = 0, binding = 5) buffer pc_ {
+    PC pc;
+};
 layout (std430, set = 0, binding = 0) buffer elements_in {
     uint g_elements_in[];
 };
@@ -19,29 +32,16 @@ layout (std430, set = 0, binding = 1) buffer histograms {
     uint g_histograms[]; // |g_histograms| = RADIX_SORT_BINS * #WORKGROUPS
 };
 
-layout (set = 0, binding = 2) uniform PushConstants {
-    uint g_shift;
-    uint g_num_blocks_per_workgroup;
-};
-
-struct PC {
-    uint g_num_elements;
-    uint g_num_workgroups;
-};
-layout (set = 0, binding = 3) buffer totalElements {
-    PC pc;
-};
-
-shared uint[RADIX_SORT_BINS] local_histogram;
+shared uint[RADIX_SORT_BINS] histogram;
 
 void main() {
     uint gID = gl_GlobalInvocationID.x;
     uint lID = gl_LocalInvocationID.x;
     uint wID = gl_WorkGroupID.x;
 
-    // initialize local_histogram
+    // initialize histogram
     if (lID < RADIX_SORT_BINS) {
-        local_histogram[lID] = 0U;
+        histogram[lID] = 0U;
     }
     barrier();
 
@@ -50,13 +50,13 @@ void main() {
         if (elementId < pc.g_num_elements) {
             // determine the bin
             const uint bin = uint(g_elements_in[elementId] >> g_shift) & uint(RADIX_SORT_BINS - 1);
-            // increment the local_histogram
-            atomicAdd(local_histogram[bin], 1U);
+            // increment the histogram
+            atomicAdd(histogram[bin], 1U);
         }
     }
     barrier();
 
     if (lID < RADIX_SORT_BINS) {
-        g_histograms[RADIX_SORT_BINS * wID + lID] = local_histogram[lID];
+        g_histograms[RADIX_SORT_BINS * wID + lID] = histogram[lID];
     }
 }

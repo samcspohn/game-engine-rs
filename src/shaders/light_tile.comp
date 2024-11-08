@@ -26,52 +26,51 @@ void main() {
     }
     int linear_id = int(gl_GlobalInvocationID.x) - _light_quadtree_offsets[level];
     ivec2 tile_id = ivec2(linear_id % _light_quadtree_widths[level], linear_id / _light_quadtree_widths[level]);
-    mat4 inv_projview = inverse(vp);
-    vec2 ndc_size_per_tile = 2.0 * vec2(1.0 / _light_quadtree_widths[level]);
+    // mat4 inv_projview = inverse(vp);
+    // vec2 ndc_size_per_tile = 2.0 * vec2(1.0 / _light_quadtree_widths[level]);
 
-    vec2 ndc_pts[4];                                                       // corners of tile in ndc
-    ndc_pts[0] = ndc_upper_left + tile_id * ndc_size_per_tile;             // upper left -- lower?
-    ndc_pts[1] = vec2(ndc_pts[0].x + ndc_size_per_tile.x, ndc_pts[0].y);   // upper right
-    ndc_pts[2] = ndc_pts[0] + ndc_size_per_tile;                           // lower right -- upper?
-    ndc_pts[3] = vec2(ndc_pts[0].x, ndc_pts[0].y + ndc_size_per_tile.y);   // lower left
+    // vec2 ndc_pts[4];                                                       // corners of tile in ndc
+    // ndc_pts[0] = ndc_upper_left + tile_id * ndc_size_per_tile;             // upper left -- lower?
+    // ndc_pts[1] = vec2(ndc_pts[0].x + ndc_size_per_tile.x, ndc_pts[0].y);   // upper right
+    // ndc_pts[2] = ndc_pts[0] + ndc_size_per_tile;                           // lower right -- upper?
+    // ndc_pts[3] = vec2(ndc_pts[0].x, ndc_pts[0].y + ndc_size_per_tile.y);   // lower left
 
-    Frustum frustum;
-    float min_depth = 0.0;
-    float max_depth = 1.0;
-    vec4 temp;
-    for (int i = 0; i < 4; i++) {
-        temp = inv_projview * vec4(ndc_pts[i], min_depth, 1.0);
-        frustum.points[i] = temp.xyz / temp.w;
-        temp = inv_projview * vec4(ndc_pts[i], max_depth, 1.0);
-        frustum.points[i + 4] = temp.xyz / temp.w;
-    }
+    // Frustum frustum;
+    // float min_depth = 0.0;
+    // float max_depth = 1.0;
+    // vec4 temp;
+    // for (int i = 0; i < 4; i++) {
+    //     temp = inv_projview * vec4(ndc_pts[i], min_depth, 1.0);
+    //     frustum.points[i] = temp.xyz / temp.w;
+    //     temp = inv_projview * vec4(ndc_pts[i], max_depth, 1.0);
+    //     frustum.points[i + 4] = temp.xyz / temp.w;
+    // }
 
-    vec3 temp_normal;
-    for (int i = 0; i < 4; i++) {   // left, top, right, bottom
-        // Cax+Cby+Ccz+Cd = 0, planes[i] = (Ca, Cb, Cc, Cd)
-        //  temp_normal: normal without normalization
-        temp_normal = cross(frustum.points[i] - cam_pos, frustum.points[i + 1] - cam_pos);
-        temp_normal = normalize(temp_normal);
-        frustum.planes[i] = vec4(temp_normal, dot(temp_normal, frustum.points[i]));
-    }
-    // near plane
-    {
-        temp_normal = cross(frustum.points[1] - frustum.points[0], frustum.points[3] - frustum.points[0]);
-        temp_normal = normalize(temp_normal);
-        frustum.planes[4] = vec4(temp_normal, dot(temp_normal, frustum.points[0]));
-    }
-    // far plane
-    {
-        temp_normal = cross(frustum.points[7] - frustum.points[4], frustum.points[5] - frustum.points[4]);
-        temp_normal = normalize(temp_normal);
-        frustum.planes[5] = vec4(temp_normal, dot(temp_normal, frustum.points[4]));
-    }
+    // vec3 temp_normal;
+    // for (int i = 0; i < 4; i++) {   // left, top, right, bottom
+    //     // Cax+Cby+Ccz+Cd = 0, planes[i] = (Ca, Cb, Cc, Cd)
+    //     //  temp_normal: normal without normalization
+    //     temp_normal = cross(frustum.points[i] - cam_pos, frustum.points[i + 1] - cam_pos);
+    //     temp_normal = normalize(temp_normal);
+    //     frustum.planes[i] = vec4(temp_normal, dot(temp_normal, frustum.points[i]));
+    // }
+    // // near plane
+    // {
+    //     temp_normal = cross(frustum.points[1] - frustum.points[0], frustum.points[3] - frustum.points[0]);
+    //     temp_normal = normalize(temp_normal);
+    //     frustum.planes[4] = vec4(temp_normal, dot(temp_normal, frustum.points[0]));
+    // }
+    // // far plane
+    // {
+    //     temp_normal = cross(frustum.points[7] - frustum.points[4], frustum.points[5] - frustum.points[4]);
+    //     temp_normal = normalize(temp_normal);
+    //     frustum.planes[5] = vec4(temp_normal, dot(temp_normal, frustum.points[4]));
+    // }
     uint index = get_tile(tile_id.x, tile_id.y, level);
-    tile t = tiles[index];
-    t.frustum = frustum;
-    t.contains_origin = 0;
-    tiles[index].contains_origin = uint(sphere_frustum(vec3(0), 0, frustum));
-    tiles[index].frustum = frustum;
+    // tile t = tiles[index];
+    // t.frustum = frustum;
+    // tiles[index].BLH_offset = 0;
+    // tiles[index].frustum = frustum;
     tiles[index].count = 0;
     tiles[index].travel_through = 0;
 }

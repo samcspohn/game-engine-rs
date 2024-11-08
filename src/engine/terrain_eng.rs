@@ -486,6 +486,7 @@ impl Component for TerrainEng {
                 visible_lights,
                 visible_lights_count,
                 playing_game,
+                bounding_line_hierarchy: _,
                 // hide_cursor,
             } = rd;
             let instance_data = vec![t_id];

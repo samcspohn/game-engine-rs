@@ -15,10 +15,10 @@ struct Frustum {
     vec4 planes[6];
     vec3 points[8];   // 0-3 near 4-7 far
 };
-struct Sphere {
-    vec3 c;    // Center point.
-    float r;   // Radius.
-};
+// struct Sphere {
+//     vec3 c;    // Center point.
+//     float r;   // Radius.
+// };
 struct Cone {
     vec3 T;    // Cone tip.
     float h;   // Height of the cone.
@@ -69,15 +69,81 @@ struct light_deinit {
     int id;
 };
 struct tile {
-    Frustum frustum;
+    // Frustum frustum;
     uint count;
     uint offset;
-    uint contains_origin;
+    int BLH_offset;
     uint travel_through;
     // vec2 p;
     // uint p2;
     // uint lights[MAX_LIGHTS_PER_TILE];
 };
+struct BoundingLine {
+    uint flag;
+    uint start;
+    uint end;
+    int front;   // positive value points to BoundingLine, negative points to light
+    int back;
+};
+
+uint float_to_uint(float f) {
+    // uint _f = floatBitsToUint(f);
+    // uint mask = -int(_f >> 31) | 0x80000000;
+    // return _f ^ mask;
+    // Get the raw bits as uint
+    uint u = floatBitsToUint(f);
+    
+    // If the float is negative, we need to flip all bits to maintain sorting
+    // This works because IEEE-754 negative floats have reverse ordering
+    if ((u & 0x80000000u) != 0u) {
+        u = ~u;  // Flip all bits for negative numbers
+    } else {
+        u |= 0x80000000u;  // Set sign bit for positive numbers
+    }
+    
+    return u;
+}
+float uint_to_float(uint u) {
+     // Reverse the bit manipulation from floatToUint
+    if ((u & 0x80000000u) != 0u) {
+        u &= 0x7FFFFFFFu;  // Clear sign bit for positive numbers
+    } else {
+        u = ~u;  // Flip all bits back for negative numbers
+    }
+    
+    return uintBitsToFloat(u);
+    // uint mask = (-int(i) >> 31) | 0x80000000;
+    // return uintBitsToFloat(i ^ mask);
+}
+
+// Converts a float to a uint while preserving sorting order
+uint floatToUint(float f) {
+    // Get the raw bits as uint
+    uint u = floatBitsToUint(f);
+    
+    // If the float is negative, we need to flip all bits to maintain sorting
+    // This works because IEEE-754 negative floats have reverse ordering
+    if ((u & 0x80000000u) != 0u) {
+        u = ~u;  // Flip all bits for negative numbers
+    } else {
+        u |= 0x80000000u;  // Set sign bit for positive numbers
+    }
+    
+    return u;
+}
+
+// Converts the uint back to the original float
+float uintToFloat(uint u) {
+    // Reverse the bit manipulation from floatToUint
+    if ((u & 0x80000000u) != 0u) {
+        u &= 0x7FFFFFFFu;  // Clear sign bit for positive numbers
+    } else {
+        u = ~u;  // Flip all bits back for negative numbers
+    }
+    
+    return uintBitsToFloat(u);
+}
+
 struct AABB {
     vec3 _min;
     vec3 _max;
@@ -89,6 +155,55 @@ struct MVP {
     mat4 m;
     mat4 n;
 };
+
+// Structure to represent a sphere
+struct Sphere {
+    vec3 center;
+    float radius;
+};
+
+// Structure to hold the transformed sphere in NDC space
+struct NDCSphere {
+    vec3 center;
+    float radius;
+};
+
+// Structure to represent a rectangle in screen space
+struct ScreenRect {
+    vec2 min;  // Bottom-left in pixels
+    vec2 max;  // Top-right in pixels
+};
+
+
+// Transform sphere from world space to NDC space using a single view-projection matrix
+NDCSphere transformSphereToNDC(Sphere sphere, mat4 viewProjMatrix) {
+    NDCSphere ndcSphere;
+    
+    // Transform sphere center to clip space
+    vec4 clipCenter = viewProjMatrix * vec4(sphere.center, 1.0);
+    
+    // Perspective divide to get NDC coordinates
+    ndcSphere.center = clipCenter.xyz / clipCenter.w;
+    
+    // Calculate projected radius
+    // We'll use two points to determine the projected radius
+    // First, the sphere center point
+    vec4 clipCenterRadius = viewProjMatrix * vec4(sphere.center + vec3(sphere.radius, 0.0, 0.0), 1.0);
+    
+    // Perspective divide for the radius point
+    vec3 ndcRadius = clipCenterRadius.xyz / clipCenterRadius.w;
+    
+    // Calculate radius in NDC space
+    // Use the distance between center and radius point
+    ndcSphere.radius = distance(ndcSphere.center.xy, ndcRadius.xy);
+    
+    // Optional: Adjust for perspective distortion
+    // This can make the radius more accurate at different view distances
+    float depthFactor = abs(clipCenter.w);  // Depth in view space
+    ndcSphere.radius *= (clipCenter.w / depthFactor);
+    
+    return ndcSphere;
+}
 
 float halfSpaceTest(vec4 plane, vec3 p) { return dot(plane.xyz, p) - plane.w; }
 bool frustumAABBIntersect(in Frustum f, AABB a) {
@@ -148,10 +263,10 @@ bool sphere_frustum(vec3 pos, float radius, in Frustum frustum) {
         if (dot(frustum.planes[i].xyz, pos) - frustum.planes[i].w < -radius) {
             result = false;   // <--
             break;            //   |
-        }                     //   |
-    }                         //   |
-                              //   |
-    if (!result) {            // if false ---
+        }   //   |
+    }   //   |
+        //   |
+    if (!result) {   // if false ---
         return false;
     }
 
