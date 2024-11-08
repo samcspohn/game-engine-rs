@@ -103,4 +103,3 @@ russimp = { version = "3.2.0", features = ["prebuilt"] }
 rfd = "0.14.1"
 # egui-gizmo = "0.11.0"
 ncollide3d = "0.33.0"
-image-pyramid = "0.5.1"

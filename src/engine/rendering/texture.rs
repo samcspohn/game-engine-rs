@@ -5,14 +5,12 @@ use id::{ID_trait, ID};
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, sys::CommandBufferBeginInfo,
-        AutoCommandBufferBuilder, CommandBufferLevel, CommandBufferUsage, CopyBufferToImageInfo,
-        PrimaryCommandBufferAbstract, RenderPassBeginInfo,
+        allocator::StandardCommandBufferAllocator, sys::CommandBufferBeginInfo, AutoCommandBufferBuilder, BlitImageInfo, BufferImageCopy, CommandBufferLevel, CommandBufferUsage, CopyBufferToImageInfo, ImageBlit, PrimaryCommandBufferAbstract, RenderPassBeginInfo
     },
     device::{Device, Queue},
     format::Format,
     image::{
-        max_mip_levels, sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE}, view::ImageView, Image, ImageCreateInfo, ImageLayout, ImageType, ImageUsage
+        max_mip_levels, sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, LOD_CLAMP_NONE}, view::ImageView, Image, ImageCreateInfo, ImageLayout, ImageSubresourceLayers, ImageType, ImageUsage
     },
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     DeviceSize,
@@ -95,6 +93,16 @@ pub fn texture_from_bytes(
 
         image_data.copy_from_slice(data);
     }
+
+    let region = BufferImageCopy {
+        image_subresource: ImageSubresourceLayers::from_parameters(format, 1),
+        image_extent: extent.into(),
+        ..Default::default()
+    };
+    // let required_size = region.buf
+
+
+
     let image = Image::new(
         vk.mem_alloc.clone(),
         ImageCreateInfo {
@@ -102,8 +110,8 @@ pub fn texture_from_bytes(
             format,
             extent,
             array_layers,
-            // mip_levels: max_mip_levels(extent),
-            usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+            mip_levels: max_mip_levels(extent),
+            usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED | ImageUsage::TRANSFER_SRC,
             ..Default::default()
         },
         AllocationCreateInfo::default(),
@@ -111,18 +119,64 @@ pub fn texture_from_bytes(
     .unwrap();
 
     uploads
-        .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
-            upload_buffer,
-            image.clone(),
-        ))
-        // .copy_buffer_to_image(CopyBufferToImageInfo {
-        //     src_buffer: upload_buffer,
-        //     dst_image: image.clone(),
-        //     dst_image_layout: ImageLayout,
-        //     regions: todo!(),
-        //     _ne: todo!(),
-        // })
+        // .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+        //     upload_buffer,
+        //     image.clone(),
+        // ))
+        .copy_buffer_to_image(CopyBufferToImageInfo {
+            // src_buffer: upload_buffer,
+            // dst_image: image.clone(),
+            // dst_image_layout: ImageLayout,
+            regions: vec![region].into(),
+            ..CopyBufferToImageInfo::buffer_image(upload_buffer, image.clone())
+        })
         .unwrap();
+
+    for level in 1..max_mip_levels(extent) {
+        let src_extent = [
+            (extent[0] / 2u32.pow(level - 1)).max(1),
+            (extent[1] / 2u32.pow(level - 1)).max(1),
+            1,
+        ];
+        let dst_extent = [
+            (extent[0] / 2u32.pow(level)).max(1),
+            (extent[1] / 2u32.pow(level)).max(1),
+            1,
+        ];
+        uploads.blit_image(BlitImageInfo {
+            regions: [ImageBlit {
+                src_subresource: ImageSubresourceLayers {
+                    mip_level: level - 1,
+                    ..image.subresource_layers()
+                },
+                src_offsets: [[0;3], src_extent],
+                dst_subresource: ImageSubresourceLayers {
+                    mip_level: level,
+                    ..image.subresource_layers()
+                },
+                dst_offsets: [[0;3], dst_extent],
+                ..Default::default()
+            }].into(),
+            filter: Filter::Linear,
+            ..BlitImageInfo::images(image.clone(), image.clone())
+        }).unwrap();
+        // let region = BufferImageCopy {
+        //     image_subresource: ImageSubresourceLayers::from_parameters(format, level),
+        //     image_extent: dst_extent.into(),
+        //     buffer_offset: 0,
+        //     buffer_image_height: 0,
+        //     image_offset: [0, 0, 0],
+        // };
+        // uploads
+        //     .copy_buffer_to_image(CopyBufferToImageInfo {
+        //         regions: vec![region].into(),
+        //         ..CopyBufferToImageInfo::buffer_image(
+        //             upload_buffer.clone(),
+        //             image.clone(),
+        //         )
+        //     })
+        //     .unwrap();
+    }
 
     let _ = uploads.build().unwrap().execute(vk.queue.clone()).unwrap();
 
