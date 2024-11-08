@@ -139,19 +139,19 @@ void main() {
             float h = scrMax.y - scrMin.y;
             float w = scrMax.x - scrMin.x;
 
-            if (scrMax.z < 0.5 || scrMax.x < 0 || scrMin.x > 1 || scrMax.y < 0 || scrMin.y > 1) {
+            if (scrMax.z < 0 || scrMin.z > 1 || scrMax.x < 0 || scrMin.x > 1 || scrMax.y < 0 || scrMin.y > 1) {
                 return;
             }
 
             int depth = 0;
-            ivec2 scrMin_ = ivec2(scrMin.xy * _light_quadtree_widths[0]);
-            ivec2 scrMax_ = ivec2(scrMax.xy * _light_quadtree_widths[0]);
+            // ivec2 scrMin_ = ivec2(scrMin.xy * _light_quadtree_widths[0]);
+            // ivec2 scrMax_ = ivec2(scrMax.xy * _light_quadtree_widths[0]);
             for (int l = MAX_LEVEL - 1; l >= 0; --l) {
                 uint level_width = _light_quadtree_widths[l];
                 float tile_width = 2.0 / level_width;
                 if (h < tile_width && w < tile_width) {
-                    scrMin_ = ivec2(scrMin.xy * level_width);
-                    scrMax_ = ivec2(scrMax.xy * level_width);
+                    ivec2 scrMin_ = ivec2(scrMin.xy * level_width);
+                    ivec2 scrMax_ = ivec2(scrMax.xy * level_width);
                     if (scrMax_.x - scrMin_.x <= 1 && scrMax_.y - scrMin_.y <= 1) {
                         depth = l;
                         break;
@@ -161,14 +161,24 @@ void main() {
             uint a_c = 0;
             uint a[4];
             uint iter = 0;
-            for (int i = scrMin_.x; i < scrMax_.x; ++i) {
-                for (int j = scrMin_.y; j < scrMax_.y; ++j) {
+            scrMin.xy *= _light_quadtree_widths[depth];
+            scrMax.xy *= _light_quadtree_widths[depth];
+            // float endx = min(scrMax.x, _light_quadtree_widths[depth]);
+            // float endy = min(scrMax.y, _light_quadtree_widths[depth]);
+            for (int i = int(scrMin.x); i <= int(scrMax.x); ++i) {
+                for (int j = int(scrMin.y); j <= int(scrMax.y); ++j) {
+                    if (iter++ >= 4) {
+                        break;
+                    }
                     if (i < 0 || j < 0 || i >= _light_quadtree_widths[depth] || j >= _light_quadtree_widths[depth]) {
                         continue;
                     }
                     uint tile_id = get_tile(i, j, depth);
                     atomicAdd(tiles[tile_id].count, 1);
                     a[a_c++] = tile_id;
+                }
+                if (iter >= 4) {
+                    break;
                 }
             }
             float light_dist = distance(cam_pos, pos);
