@@ -16,7 +16,7 @@ game-engine:
   ☐ add priority to asset loading
   ✔ fix transform children mem balloon when creating & destroying @done(23-09-05 15:32)
   ☐ remove deepmesa linked list. causes mem leak
-  ☐ fix seg fault (loading dylib?)
+  ☐ fix seg fault (loading dylib?) / windows lib caching?
   ☐ use atomic_bitvec for valid
   ☐ fix 6mil renderer limit
   ☐ optimize instantiate single for cache locality
@@ -63,8 +63,8 @@ game-engine:
     ✘ bvh tile query optimization @cancelled(24-02-02 22:02)
     ✔ quadtree based tiling @done(24-02-02 22:02)
     ✔ quadtree dynamic "unlimited" lights per quadrant @done(24-02-06 11:51)
-    ☐ improve quadtree design/performance
-    ☐ blh (bounding line hierarchy) for light list in tiles
+    ✔ improve quadtree design/performance @done(24-11-08 13:27)
+    ✔ blh (bounding line hierarchy) for light list in tiles @done(24-11-08 13:27)
     ☐ morton encoded quadrants
     ☐ shadows
     ☐ move light functions/structs to seperate file out of util
@@ -83,16 +83,16 @@ game-engine:
   models:
     ✔ fix multiple meshes @done(23-08-05 09:40)
   editor:
-    ☐ menu bar
+    ✔ menu bar @done(24-11-08 13:28)
     ✔ drag/drop assets @done(23-08-05 09:40)
     ✔ fix cross platform path serialization @done(23-08-05 09:40)
-    ☐ 3d control widget
-    ☐ click on objects to select
+    ✔ 3d control widget @done(24-11-08 13:28)
+    ✔ click on objects to select @done(24-11-08 13:28)
     ✔ runtime compilation @done(23-06-07 10:02)
     ☐ add drop down for assets
     ☐ rework project inspector/remove walking directory
-    ☐ make windows modular extensible
-    ☐ show list of available windows in menu bar->view
+    ✔ make windows modular extensible @done(24-11-08 13:28)
+    ✔ show list of available windows in menu bar->view @done(24-11-08 13:28)
   audio:
     ☐ audio manager
     ☐ audio asset
@@ -107,6 +107,6 @@ refactor:
   ✘ optimize parallel instantiate/de-instantiate @cancelled(23-07-25 10:25)
   ✔ implement Engine struct to contain all functionality/state @done(23-08-05 09:39)
 revamp:
-  ☐ editor ui
+  ✔ editor ui @done(24-11-08 13:28)
   ☐ auto-compilation
   

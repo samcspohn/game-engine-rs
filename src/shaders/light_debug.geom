@@ -8,7 +8,7 @@ layout(location = 0) in int[] id;
 layout(location = 0) out vec4 color;
 
 layout(set = 0, binding = 0) buffer t { tile tiles[]; };
-// layout(set = 0, binding = 1) uniform Data { vec2 screen_dims; };
+layout (push_constant, std430) uniform p { vec2 screen_dims; };
 
 const vec4 colors[2] = {vec4(0, 1, 1, 0.05), vec4(1, 0, 0, 0.4)};
 const vec4 colors2[2] = {vec4(0, 1, 1, 0.05), vec4(0.7, 0, 0, 0.6)};
@@ -24,7 +24,11 @@ void main() {
             break;
         }
     }
-    vec2 size = vec2(1.0 / _light_quadtree_widths[tile_idx.z]) - 0.003 / (_light_quadtree_widths[tile_idx.z]);
+    vec2 size = vec2(1.0 / _light_quadtree_widths[tile_idx.z]);
+    size.x -= 0.001 * abs(screen_dims.x) * 0.001; // / screen_dims.y * screen_dims.y / screen_dims.x;
+    size.y -= 0.001 * abs(screen_dims.y) * 0.001;
+    // size.x -= 0.0026;// * tile_idx.z;
+    // size.y -= 0.004 ;// * tile_idx.z;
     // tile_idx.y = _light_quadtree_widths[tile_idx.z] - tile_idx.y - 1;
     // tile_idx.xy = tile_idx.yx;
     vec2 pos = 2 * (tile_idx.xy + 0.5) / _light_quadtree_widths[tile_idx.z] - 1;

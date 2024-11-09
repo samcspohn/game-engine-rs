@@ -73,7 +73,9 @@ use super::{
         // light_bounding::LightBounding,
         lighting::LightingSystem,
         lighting_compute::{
-            cs, lt::{self, tile}, LightingCompute, NUM_TILES
+            cs,
+            lt::{self, tile},
+            LightingCompute, NUM_TILES,
         },
     },
     model::{ModelManager, ModelRenderer},
@@ -668,8 +670,13 @@ impl CameraData {
             depth_range: 0.0..=1.0,
         };
 
-        let (frame_buffer, image, view, d_view) =
-            window_size_dependent_setup(&vk, &vk.images, [1, 1], render_pass.clone(), &mut viewport);
+        let (frame_buffer, image, view, d_view) = window_size_dependent_setup(
+            &vk,
+            &vk.images,
+            [1, 1],
+            render_pass.clone(),
+            &mut viewport,
+        );
         // let subpass = Subpass::from(render_pass, 0).unwrap();
         let rend = RenderPipeline::new(0, vk.clone(), render_pass.clone());
 
@@ -699,8 +706,13 @@ impl CameraData {
         // println!("previouse dimensions: {:?}", &self.image.extent()[0..2]);
         // println!("new dimensions: {:?}", dimensions);
         if *&self.image.extent()[0..2] != dimensions {
-            (self.frame_buffer, self.image, self.view, self.d_view) =
-                window_size_dependent_setup(&vk, &vk.images, dimensions, self.render_pass.clone(), &mut self.viewport);
+            (self.frame_buffer, self.image, self.view, self.d_view) = window_size_dependent_setup(
+                &vk,
+                &vk.images,
+                dimensions,
+                self.render_pass.clone(),
+                &mut self.viewport,
+            );
             if let Some(tex) = self.texture_id.as_ref() {
                 gui.unregister_user_image(*tex);
             }
@@ -1070,6 +1082,7 @@ impl CameraData {
                 );
 
                 if (light_debug) {
+                    let scr_dim = cvd.dimensions;
                     let set = PersistentDescriptorSet::new(
                         &self.vk.desc_alloc,
                         self.light_debug
@@ -1091,6 +1104,8 @@ impl CameraData {
                             0,
                             set,
                         )
+                        .unwrap()
+                        .push_constants(self.light_debug.layout().clone(), 0, scr_dim)
                         .unwrap()
                         .draw(NUM_TILES as u32, 1, 0, 0)
                         .unwrap();
