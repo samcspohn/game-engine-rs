@@ -134,13 +134,17 @@ void main() {
             vec3 ndcMin = ndcCenter - ndcRadius;
             vec3 ndcMax = ndcCenter + ndcRadius;
 
-            vec3 scrMin = ndcMin / 2.0 + 0.5;
-            vec3 scrMax = ndcMax / 2.0 + 0.5;
+
+            vec3 scrMin = ndcMin * 0.5 + 0.5;
+            vec3 scrMax = ndcMax * 0.5 + 0.5;
             float h = scrMax.y - scrMin.y;
             float w = scrMax.x - scrMin.x;
+            float light_dist = distance(cam_pos, pos);
 
-            if (scrMax.z < 0 || scrMin.z > 1 || scrMax.x < 0 || scrMin.x > 1 || scrMax.y < 0 || scrMin.y > 1) {
-                return;
+            if (radius < light_dist) {
+                if (scrMax.z < 0 || scrMin.z > 1 || scrMax.x < 0 || scrMin.x > 1 || scrMax.y < 0 || scrMin.y > 1) {
+                    return;
+                }
             }
 
             int depth = 0;
@@ -165,23 +169,28 @@ void main() {
             scrMax.xy *= _light_quadtree_widths[depth];
             // float endx = min(scrMax.x, _light_quadtree_widths[depth]);
             // float endy = min(scrMax.y, _light_quadtree_widths[depth]);
-            for (int i = int(scrMin.x); i <= int(scrMax.x); ++i) {
-                for (int j = int(scrMin.y); j <= int(scrMax.y); ++j) {
-                    if (iter++ >= 4) {
+            if (depth == 0 || radius > light_dist) {
+                uint tile_id = get_tile(0, 0, 0);
+                atomicAdd(tiles[tile_id].count, 1);
+                a[a_c++] = tile_id;
+            } else {
+                for (int i = int(scrMin.x); i <= int(scrMax.x); ++i) {
+                    for (int j = int(scrMin.y); j <= int(scrMax.y); ++j) {
+                        if (iter++ >= 4) {
+                            break;
+                        }
+                        if (i < 0 || j < 0 || i >= _light_quadtree_widths[depth] || j >= _light_quadtree_widths[depth]) {
+                            continue;
+                        }
+                        uint tile_id = get_tile(i, j, depth);
+                        atomicAdd(tiles[tile_id].count, 1);
+                        a[a_c++] = tile_id;
+                    }
+                    if (iter >= 4) {
                         break;
                     }
-                    if (i < 0 || j < 0 || i >= _light_quadtree_widths[depth] || j >= _light_quadtree_widths[depth]) {
-                        continue;
-                    }
-                    uint tile_id = get_tile(i, j, depth);
-                    atomicAdd(tiles[tile_id].count, 1);
-                    a[a_c++] = tile_id;
-                }
-                if (iter >= 4) {
-                    break;
                 }
             }
-            float light_dist = distance(cam_pos, pos);
             uint light_dist_ = ((float_to_uint(light_dist) >> 13) & 0x7FFFF);
             uint local_idx = atomicAdd(pc.g_num_elements, uint(a_c));
 

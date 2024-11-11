@@ -41,7 +41,7 @@ impl LightingSystem {
     pub fn new(vk: Arc<VulkanManager>) -> Self {
         Self {
             light_templates: Arc::new(Mutex::new(_Storage::new())),
-            lights: Mutex::new(vk.buffer_array(1, MemoryUsage::Download)),
+            lights: Mutex::new(vk.buffer_array(1, MemoryUsage::DeviceOnly)),
             // lights_buffer: Arc::new(Mutex::new(
             //     vk.sub_buffer_allocator_with_usage(BufferUsage::STORAGE_BUFFER),
             // )),
@@ -63,7 +63,7 @@ impl LightingSystem {
         if light_len > lights.len() as usize {
             let buf = self.vk.buffer_array(
                 light_len.next_power_of_two() as DeviceSize,
-                MemoryUsage::Download,
+                MemoryUsage::DeviceOnly,
             );
             builder
                 .copy_buffer(CopyBufferInfo::buffers(lights.clone(), buf.clone()))
