@@ -22,7 +22,7 @@ use vulkano::padded::Padded;
 use super::{
     atomic_vec::AtomicVec,
     input::Input,
-    perf::Perf,
+    utils::perf::Perf,
     world::{
         component::{Component, System},
         entity::Entity,

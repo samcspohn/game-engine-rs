@@ -32,7 +32,8 @@ use vulkano::{
 use crate::engine::particles::shaders::cs::p;
 use crate::engine::rendering::component::ur::r;
 use crate::engine::rendering::component::Indirect;
-use crate::engine::utils::radix_sort;
+use crate::engine::utils::gpu_perf::GPUPerf;
+use crate::engine::utils::{gpu_perf, radix_sort};
 use crate::engine::{
     prelude::{
         utils::{self, PrimaryCommandBuffer},
@@ -97,8 +98,11 @@ pub struct LightingCompute {
     pub(crate) visible_lights: Mutex<Subbuffer<[u32]>>,
     pub(crate) visible_lights_c: Subbuffer<u32>,
     pub(crate) radix_sort: Arc<Mutex<crate::engine::utils::radix_sort::RadixSort>>,
+    pub(crate) gpu_perf: Arc<utils::gpu_perf::GPUPerf>,
 }
 pub const NUM_TILES: u64 = 64 * 64 + 32 * 32 + 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1;
+pub static mut LIGHTING_COMPUTE_TIMESTAMP: i32 = -1;
+
 impl LightingCompute {
     pub fn new_pipeline(
         vk: Arc<VulkanManager>,
@@ -167,7 +171,7 @@ impl LightingCompute {
         );
         render_pipeline
     }
-    pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>) -> LightingCompute {
+    pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>, gpu_perf: Arc<GPUPerf>) -> LightingCompute {
         Self {
             compute_lights: utils::pipeline::compute_pipeline(
                 vk.clone(),
@@ -194,6 +198,7 @@ impl LightingCompute {
                 crate::engine::utils::radix_sort::RadixSort::new(vk.clone()),
             )),
             vk: vk,
+            gpu_perf,
         }
     }
     fn get_descriptors<W, V, U, T>(
@@ -279,6 +284,11 @@ impl LightingCompute {
         // builder.fill_buffer(visible_lights.clone(), 0).unwrap();
         // builder.update_buffer(self.visible_lights_index.clone(), &0);
         // let _builder = builder;
+        unsafe {
+            if LIGHTING_COMPUTE_TIMESTAMP == -1 {
+                LIGHTING_COMPUTE_TIMESTAMP = self.vk.new_query();
+            }
+        }
         let mut build_stage =
             |builder: &mut utils::PrimaryCommandBuffer,
              num_jobs: i32,
@@ -342,13 +352,19 @@ impl LightingCompute {
                     .unwrap();
             };
 
-        if let Some(deinits) = deinits {
-            build_stage(builder, deinits.len() as i32, 0, None, Some(deinits));
+        // self.vk.begin_query(unsafe { &LIGHTING_COMPUTE_TIMESTAMP}, builder);
+        {
+            let lc1 = self.gpu_perf.node("lighting_compute", builder);
+            if let Some(deinits) = deinits {
+                build_stage(builder, deinits.len() as i32, 0, None, Some(deinits));
+            }
+            if let Some(inits) = inits {
+                build_stage(builder, inits.len() as i32, 1, Some(inits), None);
+            }
+            build_stage(builder, lights.len() as i32, 2, None, None);
+            lc1.end(builder);
         }
-        if let Some(inits) = inits {
-            build_stage(builder, inits.len() as i32, 1, Some(inits), None);
-        }
-        build_stage(builder, lights.len() as i32, 2, None, None);
+        // self.vk.end_query(unsafe { &LIGHTING_COMPUTE_TIMESTAMP }, builder);
     }
 
     pub fn update_lights_2(

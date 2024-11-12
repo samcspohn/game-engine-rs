@@ -10,10 +10,9 @@ use rayon::prelude::*;
 
 use crate::engine::world::World;
 
-use super::{
-    perf::Perf,
-    world::{NewCollider, NewRigidBody},
-};
+use super::
+    utils::perf::Perf
+;
 pub mod collider;
 pub mod rigid_body;
 

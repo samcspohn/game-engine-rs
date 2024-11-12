@@ -11,13 +11,13 @@ use super::{
         camera::{CameraData, CameraViewData},
         component::RendererData,
     },
-    utils::GPUWork,
+    utils::{gpu_perf::{self, GPUPerf}, GPUWork},
     world::transform::TransformData,
     Engine, EnginePtr, RenderData,
 };
 use crate::{
     editor::{self, editor_ui::EDITOR_WINDOW_DIM},
-    engine::rendering::vulkan_manager::VulkanManager,
+    engine::rendering::{lighting::lighting_compute::LIGHTING_COMPUTE_TIMESTAMP, vulkan_manager::VulkanManager},
 };
 use crossbeam::channel::{Receiver, Sender};
 use egui::TextureId;
@@ -86,6 +86,7 @@ pub struct RenderingData {
 pub(super) fn render_fn(rd: RendererData) {}
 pub(super) fn render_thread(
     vk: Arc<VulkanManager>,
+    gpu_perf: Arc<GPUPerf>,
     // render_pass: Arc<RenderPass>,
     rendering_data: Receiver<(
         bool,
@@ -124,6 +125,21 @@ pub(super) fn render_thread(
                 }
             }
             previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+            for (name, perf) in gpu_perf.data.write().iter() {
+                let nanos = vk.get_query(&perf.0);
+                let dur = Duration::from_nanos(nanos);
+                let mut perf = perf.1.push(dur);
+                // let mut perf = perf.write();
+                // perf.print(name, gpu_perf.start_time);
+            }
+
+            // let lighting_compute_nanos = vk.get_query(unsafe { &LIGHTING_COMPUTE_TIMESTAMP });
+            // println!(
+            //     "lighting compute: {} ms",
+            //     (Duration::from_nanos(lighting_compute_nanos as u64).as_secs_f64() * 1000.0) as f32
+            // );
+
 
             // let future = acquire_future
             //     .then_execute(vk.queue.clone(), command_buffer)

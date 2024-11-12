@@ -10,7 +10,6 @@ mod engine;
 
 use crate::engine::input::Input;
 use crate::engine::particles::{component::ParticleEmitter, particles::ParticlesSystem};
-use crate::engine::perf::Perf;
 use crate::engine::project::asset_manager::{AssetManagerBase, AssetsManager};
 use crate::engine::project::{file_watcher, Project};
 use crate::engine::rendering::camera::{Camera, CameraData};

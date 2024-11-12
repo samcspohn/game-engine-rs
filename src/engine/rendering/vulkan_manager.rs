@@ -18,8 +18,8 @@ use vulkano::{
         Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer,
     },
     command_buffer::{
-        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo}, AutoCommandBufferBuilder,
-        PrimaryAutoCommandBuffer,
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{
@@ -35,7 +35,7 @@ use vulkano::{
     },
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
-    sync::Sharing,
+    sync::{PipelineStage, Sharing},
     NonZeroDeviceSize, Version, VulkanLibrary,
 };
 use vulkano_win::VkSurfaceBuild;
@@ -84,7 +84,8 @@ impl VulkanManager {
     where
         T: BufferContents + Sized,
     {
-        let ub = self.sub_alloc[unsafe { *self.c.get() }].lock()
+        let ub = self.sub_alloc[unsafe { *self.c.get() }]
+            .lock()
             .allocate_sized()
             .unwrap();
         *ub.write().unwrap() = d;
@@ -94,7 +95,8 @@ impl VulkanManager {
     where
         T: BufferContents + ?Sized,
     {
-        self.sub_alloc_unsized[unsafe { *self.c.get() }].lock()
+        self.sub_alloc_unsized[unsafe { *self.c.get() }]
+            .lock()
             .allocate_unsized(len)
             .unwrap()
         // let ub = self.sub_alloc[*self.c.lock() as usize]
@@ -173,7 +175,8 @@ impl VulkanManager {
                 ..Default::default()
             },
             AllocationCreateInfo {
-                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
             iter,
@@ -460,7 +463,7 @@ impl VulkanManager {
         let query_pool = QueryPool::new(
             self.device.clone(),
             QueryPoolCreateInfo {
-                query_count: 1,
+                query_count: 2,
                 ..QueryPoolCreateInfo::query_type(QueryType::Timestamp)
             },
         )
@@ -468,34 +471,47 @@ impl VulkanManager {
         self.query_pool.lock().insert(id, query_pool);
         id
     }
-    pub fn query(&self, id: &i32, builder: &mut utils::PrimaryCommandBuffer) {
+    pub fn begin_query(&self, id: &i32, builder: &mut utils::PrimaryCommandBuffer) {
         let b = self.query_pool.lock();
         let a = b.get(id).unwrap();
         unsafe {
             builder
-                .reset_query_pool(a.clone(), 0..1)
+                .reset_query_pool(a.clone(), 0..2)
                 .unwrap()
-                .begin_query(a.clone(), 0, QueryControlFlags::PRECISE)
+                .write_timestamp(a.clone(), 0, PipelineStage::TopOfPipe)
+                // .begin_query(a.clone(), 0, QueryControlFlags::PRECISE)
                 .unwrap();
         }
-        todo!();
+        // todo!();
     }
     pub fn end_query(&self, id: &i32, builder: &mut utils::PrimaryCommandBuffer) {
         let b = self.query_pool.lock();
         let a = b.get(id).unwrap();
-        builder.end_query(a.clone(), 0).unwrap();
-        todo!();
+        // builder.end_query(a.clone(), 0).unwrap();
+        unsafe {
+            builder
+                .write_timestamp(a.clone(), 1, PipelineStage::BottomOfPipe)
+                .unwrap();
+        }
+        // todo!();
     }
     pub fn get_query(&self, id: &i32) -> u64 {
-        let mut query_results = [0u64];
+        let mut query_results = [0u64; 2];
         let b = self.query_pool.lock();
         let query_pool = b.get(id).unwrap();
-        if let Ok(res) = query_pool.get_results(0..1, &mut query_results, QueryResultFlags::WAIT) {
-            // res.get_results(&mut query_results, QueryResultFlags::WAIT)
-            //     .unwrap();
+        loop {
+            if let Ok(res) =
+                query_pool.get_results(0..2, &mut query_results, QueryResultFlags::WAIT)
+            {
+                if res {
+                    break;
+                }
+                // res.get_results(&mut query_results, QueryResultFlags::WAIT)
+                //     .unwrap();
+            }
         }
 
         // todo!();
-        query_results[0]
+        query_results[1] - query_results[0]
     }
 }

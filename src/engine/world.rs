@@ -39,21 +39,21 @@ use self::{
 };
 
 use super::{
-    atomic_vec::{self, AtomicVec},
+    atomic_vec::AtomicVec,
     audio::system::AudioSystem,
     input::Input,
-    particles::{component::ParticleEmitter, particles::ParticlesSystem, shaders::cs::p},
-    perf::Perf,
+    particles::{component::ParticleEmitter, particles::ParticlesSystem},
+    utils::perf::Perf,
     physics::{
-        collider::{PhysMesh, _Collider, _ColliderType},
+        collider::{_Collider, _ColliderType},
         Physics, PhysicsData,
     },
-    project::asset_manager::{AssetManagerBase, AssetsManager},
+    project::asset_manager::AssetsManager,
     rendering::{
-        camera::{Camera, CameraData, CameraViewData},
+        camera::Camera,
         component::RendererManager,
         lighting::lighting::LightingSystem,
-        model::{ModelRenderer, Skeleton},
+        model::Skeleton,
         vulkan_manager::VulkanManager,
     },
     storage::{Storage, StorageBase, _Storage},

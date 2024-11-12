@@ -37,7 +37,7 @@ use vulkano::{
 
 use self::cs::{transform, Data, MVP};
 
-use super::{perf::Perf, rendering::vulkan_manager::VulkanManager, utils, world::transform::TransformBuf};
+use super::{utils::perf::Perf, rendering::vulkan_manager::VulkanManager, utils, world::transform::TransformBuf};
 
 pub mod cs {
     vulkano_shaders::shader! {

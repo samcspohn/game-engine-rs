@@ -39,6 +39,7 @@ use rayon::prelude::*;
 use nalgebra_glm::{self as glm, Mat4};
 use parking_lot::{Mutex, RwLock};
 use thincollections::thin_map::ThinMap;
+use utils::gpu_perf::{self, GPUPerf};
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, Subbuffer},
     command_buffer::{
@@ -106,7 +107,7 @@ use crate::{
 use self::{
     input::Input,
     particles::particles::ParticlesSystem,
-    perf::Perf,
+    utils::perf::Perf,
     physics::collider::_ColliderType,
     prelude::{Component, Inpsect, Ins, Sys, System, Transform},
     project::{
@@ -141,7 +142,7 @@ pub mod atomic_vec;
 pub mod audio;
 pub mod input;
 pub mod linked_list;
-pub mod perf;
+// pub mod perf;
 pub mod project;
 pub mod rendering;
 pub mod runtime_compilation;
@@ -283,6 +284,7 @@ pub struct Engine {
     update_editor_window: bool,
     event_loop_proxy: EventLoopProxy<EngineEvent>,
     renderer: EngineRenderer,
+    gpu_perf: Arc<GPUPerf>,
 }
 pub struct EnginePtr {
     ptr: *const Engine,
@@ -293,8 +295,9 @@ unsafe impl Sync for EnginePtr {}
 fn init_systems(
     vk: &Arc<VulkanManager>,
     texture_manager: Arc<Mutex<TextureManager>>,
+    gpu_perf: Arc<GPUPerf>,
 ) -> (Arc<ParticlesSystem>, Arc<LightingSystem>) {
-    let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
+    let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone(), gpu_perf.clone()));
     let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
     (particles_system, lighting_system)
 }
@@ -383,7 +386,11 @@ impl Engine {
 
         // let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone()));
         // let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
-        let (particles_system, lighting_system) = init_systems(&vk, texture_manager.clone());
+
+        let perf = Arc::new(Perf::new());
+        let gpu_perf = Arc::new(GPUPerf::new(vk.clone()));
+
+        let (particles_system, lighting_system) = init_systems(&vk, texture_manager.clone(), gpu_perf.clone());
         let renderer_manager = Arc::new(RwLock::new(RendererManager::new(vk.clone())));
         let light_manager = Arc::new(Mutex::new(LightTemplateManager::new(
             (lighting_system.light_templates.clone()),
@@ -443,7 +450,6 @@ impl Engine {
             ..Default::default()
         };
 
-        let mut perf = Perf::new();
 
         let mut frame_time = Instant::now();
 
@@ -483,11 +489,13 @@ impl Engine {
         // let (phys_snd2, phys_rcv2) = crossbeam::channel::bounded(1);
         let (phys_snd3, phys_rcv3) = crossbeam::channel::bounded(1);
         // let (rendering_snd, rendering_rcv) = crossbeam::channel::bounded(1);
+
         let rendering_thread = Arc::new({
             let vk = vk.clone();
-            thread::spawn(move || render_thread::render_thread(vk, rendering_rcv, rendering_snd2))
+            let gpu_perf = gpu_perf.clone();
+            thread::spawn(move || render_thread::render_thread(vk, gpu_perf, rendering_rcv, rendering_snd2))
         });
-        let perf = Arc::new(perf);
+
         // let mut phys = world.lock().sys.physics.clone();
         let physics_thread = Arc::new({
             // let vk = vk.clone();
@@ -521,7 +529,7 @@ impl Engine {
             project: Project::default(),
             recompile: recompiled,
             transform_compute: RwLock::new(transform_compute),
-            lighting_compute: RwLock::new(LightingCompute::new(vk.clone(), render_pass.clone())),
+            lighting_compute: RwLock::new(LightingCompute::new(vk.clone(), render_pass.clone(), gpu_perf.clone())),
             // light_bounding: RwLock::new(LightBounding::new(vk.clone())),
             playing_game: game_mode,
             // coms,
@@ -565,6 +573,7 @@ impl Engine {
             event_loop_proxy: proxy,
             engine_dir: engine_dir.as_path().to_str().unwrap().to_string(),
             vk,
+            gpu_perf,
         }
         //     event_loop,
         // )
@@ -1339,6 +1348,8 @@ impl Engine {
         println!("end");
         // self.world.lock().sys.physics.lock().get_counters();
         self.perf.print();
+        println!("gpu performance");
+        self.gpu_perf.print();
         if std::path::Path::exists(&Path::new("temp_scene")) {
             fs::remove_file("temp_scene");
         }

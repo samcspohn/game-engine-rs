@@ -13,11 +13,9 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
-use crate::engine::{
-    perf::Perf,
-    prelude::System,
-    storage::{Storage, StorageBase},
-};
+use crate::engine::
+    storage::{Storage, StorageBase}
+;
 
 use super::{
     component::Component,

@@ -8,20 +8,20 @@ use crossbeam::queue::SegQueue;
 use parking_lot::RwLock;
 use segvec::SegVec;
 
-struct SubPerf {
+pub(crate) struct SubPerf {
     data: RwLock<SegVec<Duration>>,
     outliers: RwLock<Vec<(Instant, f32)>>,
     avg: RwLock<f32>,
 }
 impl SubPerf {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         SubPerf {
             data: RwLock::new(SegVec::new()),
             outliers: RwLock::new(Vec::new()),
             avg: RwLock::new(0f32),
         }
     }
-    fn push(&self, d: Duration) {
+    pub(crate) fn push(&self, d: Duration) {
         let dr = (d.as_nanos() as u128) as f32 / 1e6;
         let mut data = self.data.write();
         data.push(d);
@@ -34,7 +34,7 @@ impl SubPerf {
         let mut avg = self.avg.write();
         *avg = (*avg * (data.len() as f32 - 1.) + dr) / data.len() as f32;
     }
-    fn print(&mut self, name: &str, start_time: Instant) {
+    pub(super) fn print(&mut self, name: &str, start_time: Instant) {
         let mut data = self.data.write();
         let mut outliers = self.outliers.write();
         let len = data.len();

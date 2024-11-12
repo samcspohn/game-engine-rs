@@ -23,7 +23,7 @@ use crate::{
         storage::_Storage,
         time::Time,
         transform_compute::{self, cs::transform, TransformCompute},
-        utils::{self, PrimaryCommandBuffer},
+        utils::{self, gpu_perf::{self, GPUPerf}, PrimaryCommandBuffer},
         world::{component::Component, transform::Transform, Sys, World},
     },
 };
@@ -139,8 +139,10 @@ pub struct ParticlesSystem {
     pub def_texture: Arc<ImageView>,
     pub def_sampler: Arc<Sampler>,
     pub vk: Arc<VulkanManager>,
-    pub performance: PerformanceCounters,
+    // pub performance: PerformanceCounters,
     pub particle_textures: Arc<Mutex<ParticleTextures>>,
+    pub gpu_perf: Arc<GPUPerf>,
+
 }
 pub struct ParticleRenderPipeline {
     pub arc: Arc<GraphicsPipeline>,
@@ -301,13 +303,13 @@ impl ParticleDebugPipeline {
 }
 
 impl ParticlesSystem {
-    pub fn new(vk: Arc<VulkanManager>, tex_man: Arc<Mutex<TextureManager>>) -> ParticlesSystem {
-        let performance = PerformanceCounters {
-            update_particles: vk.new_query(),
-            update_emitters: vk.new_query(),
-            init_emitters: vk.new_query(),
-            sort_particles: vk.new_query(),
-        };
+    pub fn new(vk: Arc<VulkanManager>, tex_man: Arc<Mutex<TextureManager>>, gpu_perf: Arc<GPUPerf>) -> ParticlesSystem {
+        // let performance = PerformanceCounters {
+        //     update_particles: vk.new_query(),
+        //     update_emitters: vk.new_query(),
+        //     init_emitters: vk.new_query(),
+        //     sort_particles: vk.new_query(),
+        // };
         let max_particles: i32 = *_MAX_PARTICLES;
         let particles = vk
             .buffer_array::<[cs::particle]>(max_particles as u64, MemoryTypeFilter::PREFER_DEVICE);
@@ -550,7 +552,8 @@ impl ParticlesSystem {
             def_texture,
             def_sampler,
             vk,
-            performance,
+            gpu_perf,
+            // performance,
             particle_textures,
             // cycle: SyncUnsafeCell::new(0),
         }
@@ -635,13 +638,18 @@ impl ParticlesSystem {
             particle_init_data.1,
             time,
         );
+        let a = self.gpu_perf.node("emitter update", builder);
         self.emitter_update(
             builder,
             transform_compute.gpu_transforms.clone(),
             particle_init_data.0,
             time,
         );
+        a.end(builder);
+        
+        let a = self.gpu_perf.node("particle update", builder);
         self.particle_update(builder, transform_compute.gpu_transforms.clone(), time);
+        a.end(builder);
     }
 
     fn update_templates(&self, builder: &mut PrimaryCommandBuffer) {
