@@ -49,6 +49,7 @@ const uint MAX_LIT = 256;
 const uint MAX_ITER = 1024;
 // const uint MAX_ITER = 1024;
 const bool USE_BLH = true;
+const bool USE_LIGHTING = false;
 
 vec3 calc_light(vec3 v_pos, vec3 v_normal, vec3 cam_pos, vec2 screen_dims) {
     // vec4 total_light = vec4(vec3(0.05), 1.0f);
@@ -62,7 +63,7 @@ vec3 calc_light(vec3 v_pos, vec3 v_normal, vec3 cam_pos, vec2 screen_dims) {
     uint light_ids[256];
     float z = distance(cam_pos, v_pos);
     int num_iter = 0;
-    for (int l = 0; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
+    for (int l = 0; l < MAX_LEVEL && USE_LIGHTING; ++l) {   // iterate through light quadtree levels
         ivec2 ti = ivec2(screen_ratio * _light_quadtree_widths[l]);
         uint tileIndex = _light_quadtree_offsets[l] + uint(ti.x + (-ti.y) * _light_quadtree_widths[l]);
 
