@@ -39,8 +39,8 @@ layout(set = 0, binding = 12) buffer vl { uint visible_lights[]; };
 layout(set = 0, binding = 13) buffer vlc { uint visible_lights_c; };
 layout(set = 0, binding = 14) buffer i { DispatchIndirectCommand indirect[]; };
 
-layout(set = 0, binding = 10) buffer blh_ { BoundingLine blh[]; };   // (num_lights * 4)
-layout(set = 0, binding = 17) buffer blh_start_end_ { vec4 blh_start_end[]; };
+layout(std430, set = 0, binding = 10) buffer blh_ { BoundingLine blh[]; };   // (num_lights * 4)
+layout(set = 0, binding = 17) buffer blh_start_end_ { float blh_start_end[]; };
 
 const uint wg_size = 128;
 shared uint local_offsets[wg_size];
@@ -390,10 +390,10 @@ void main() {
                 blh[id].flag = 0;
                 blh[id].front = -1;
                 blh[id].back = -1;
-                blh[id].start = ~0u;
-                // blh[id].start = float_to_uint(3.4028235E+38);
-                blh[id].end = 0u;
-                // blh[id].end = float_to_uint(-3.4028235E+38);
+                // blh[id].start = ~0u;
+                blh[id].start = 3.4028235E+38;
+                // blh[id].end = 0u;
+                blh[id].end = -3.4028235E+38;
             }
             // if (id == 0) {
             //     atomicMax(indirect[0].x, (pc.g_num_elements) / 1024 + 1);
@@ -405,8 +405,8 @@ void main() {
                 uint light_id = light_list2[id];
 
                 float dist = distance(cam_pos, lights[light_id].pos);
-                uint start = float_to_uint(dist - lights[light_id].radius);
-                uint end = float_to_uint(dist + lights[light_id].radius);
+                float start = dist - lights[light_id].radius;
+                float end = dist + lights[light_id].radius;
 
                 int light_offset = int(tiles[tile_id].offset);
                 int light_count = int(tiles[tile_id].count);
@@ -429,17 +429,24 @@ void main() {
                 while (level_size > 0) {
                     int blh_idx = blh_level_start + blh_id;
                     if (blh_id < level_size) {
+                        int bse_offset = 0;
                         if (curr_id % 2 == 0) {
-                            atomicExchange(blh[blh_idx].front, blh_value);
+                            blh[blh_idx].front = blh_value;
                         } else {
-                            atomicExchange(blh[blh_idx].back, blh_value);
+                            blh[blh_idx].back = blh_value;
+                            bse_offset = 2;
                         }
-                        atomicMin(blh[blh_idx].start, start);
-                        atomicMax(blh[blh_idx].end, end);
+                        blh_start_end[blh_idx * 4 + bse_offset + 0] = start;
+                        blh_start_end[blh_idx * 4 + bse_offset + 1] = end;
+                        // atomicMin(blh[blh_idx].start, start);
+                        // atomicMax(blh[blh_idx].end, end);
                         uint flag = atomicAdd(blh[blh_idx].flag, 1);
                         if (flag == 0) {
                             return;
                         }
+                        blh[blh_idx].start = min(blh_start_end[blh_idx * 4 + 0], blh_start_end[blh_idx * 4 + 2]);
+                        blh[blh_idx].end = max(blh_start_end[blh_idx * 4 + 1], blh_start_end[blh_idx * 4 + 3]);
+                        
                         blh_value = blh_idx;
                         start = blh[blh_idx].start;
                         end = blh[blh_idx].end;

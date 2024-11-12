@@ -92,7 +92,7 @@ pub struct LightingCompute {
     pub(crate) light_list2: Mutex<Subbuffer<[u32]>>,
     light_tile_ids2: Mutex<Subbuffer<[u32]>>,
     pub(crate) bounding_line_hierarchy: Mutex<Subbuffer<[cs::BoundingLine]>>,
-    // pub(crate) blh_start_end: Mutex<Subbuffer<[f32]>>,
+    pub(crate) blh_start_end: Mutex<Subbuffer<[f32]>>,
     light_offsets: Subbuffer<[u32]>,
     light_counter: Subbuffer<radix_sort::cs1::PC>,
     pub(crate) visible_lights: Mutex<Subbuffer<[u32]>>,
@@ -194,7 +194,7 @@ impl LightingCompute {
             bounding_line_hierarchy: Mutex::new(
                 vk.buffer_array(6, MemoryTypeFilter::PREFER_DEVICE),
             ),
-            // blh_start_end: Mutex::new(vk.buffer_array(16, MemoryTypeFilter::PREFER_DEVICE)),
+            blh_start_end: Mutex::new(vk.buffer_array(16, MemoryTypeFilter::PREFER_DEVICE)),
             light_offsets: vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE),
             light_counter: vk.buffer(MemoryTypeFilter::PREFER_DEVICE),
             visible_lights: Mutex::new(vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)),
@@ -267,7 +267,7 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(14, indirect.clone()),
                 WriteDescriptorSet::buffer(16, self.light_tile_ids2.lock().clone()),
                 WriteDescriptorSet::buffer(10, self.bounding_line_hierarchy.lock().clone()),
-                // WriteDescriptorSet::buffer(17, self.blh_start_end.lock().clone()),
+                WriteDescriptorSet::buffer(17, self.blh_start_end.lock().clone()),
             ],
             [],
         )
@@ -389,7 +389,7 @@ impl LightingCompute {
             let mut light_list2 = self.light_list2.lock();
             let mut light_tile_ids2 = self.light_tile_ids2.lock();
             let mut bounding_line_hierarchy = self.bounding_line_hierarchy.lock();
-            // let mut blh_start_end = self.blh_start_end.lock();
+            let mut blh_start_end = self.blh_start_end.lock();
             let mut visible_lights = self.visible_lights.lock();
             if (num_lights > visible_lights.len() as i32) {
                 let buf = self.vk.buffer_array(
@@ -427,6 +427,12 @@ impl LightingCompute {
                     MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *bounding_line_hierarchy = buf;
+
+                let buf = self.vk.buffer_array(
+                    (num_lights as u64).next_power_of_two() * 4 * 4,
+                    MemoryTypeFilter::PREFER_DEVICE,
+                );
+                *blh_start_end = buf;
             }
         }
         let mut uni = lt::Data {

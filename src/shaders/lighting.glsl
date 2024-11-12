@@ -3,7 +3,7 @@ layout(set = 1, binding = 0) buffer lt { lightTemplate light_templates[]; };
 layout(set = 1, binding = 1) buffer l { light lights[]; };
 layout(set = 1, binding = 2) buffer c { tile tiles[]; };
 layout(set = 1, binding = 3) buffer ll { uint light_list[]; };
-layout(set = 1, binding = 4) buffer blh_ { BoundingLine blh[]; };
+layout(std430, set = 1, binding = 4) buffer blh_ { BoundingLine blh[]; };
 
 vec4 CalcLightInternal(lightTemplate Light, vec3 LightDirection, vec3 Normal) {
     // vec4 AmbientColor = vec4(Light.color, 1.0f);
@@ -100,13 +100,13 @@ vec3 calc_light(vec3 v_pos, vec3 v_normal, vec3 cam_pos, vec2 screen_dims) {
         int stack_ptr = 0;
         stack[stack_ptr++] = tiles[tileIndex].BLH_offset;
 
-        uint _z = float_to_uint(z);
+        // uint _z = float_to_uint(z);
         while (stack_ptr > 0 && lit_times < MAX_LIT && num_iter < MAX_ITER) {
             uint blh_ptr = stack[--stack_ptr];
 
             if (blh_ptr >= blh.length()) break;   // Check for out-of-bounds access
 
-            if (blh[blh_ptr].start <= _z && blh[blh_ptr].end >= _z) {
+            if (blh[blh_ptr].start <= z && blh[blh_ptr].end >= z) {
                 int front = blh[blh_ptr].front;
                 int back = blh[blh_ptr].back;
 

@@ -80,8 +80,8 @@ struct tile {
 };
 struct BoundingLine {
     uint flag;
-    uint start;
-    uint end;
+    float start;
+    float end;
     int front;   // positive value points to BoundingLine, negative points to light
     int back;
 };
