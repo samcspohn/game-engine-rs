@@ -171,7 +171,11 @@ impl LightingCompute {
         );
         render_pipeline
     }
-    pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>, gpu_perf: Arc<GpuPerf>) -> LightingCompute {
+    pub fn new(
+        vk: Arc<VulkanManager>,
+        render_pass: Arc<RenderPass>,
+        gpu_perf: Arc<GpuPerf>,
+    ) -> LightingCompute {
         Self {
             compute_lights: utils::pipeline::compute_pipeline(
                 vk.clone(),
@@ -187,7 +191,9 @@ impl LightingCompute {
             light_tile_ids: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
             light_list2: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
             light_tile_ids2: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
-            bounding_line_hierarchy: Mutex::new(vk.buffer_array(6, MemoryTypeFilter::PREFER_DEVICE)),
+            bounding_line_hierarchy: Mutex::new(
+                vk.buffer_array(6, MemoryTypeFilter::PREFER_DEVICE),
+            ),
             // blh_start_end: Mutex::new(vk.buffer_array(16, MemoryTypeFilter::PREFER_DEVICE)),
             light_offsets: vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE),
             light_counter: vk.buffer(MemoryTypeFilter::PREFER_DEVICE),
@@ -347,7 +353,8 @@ impl LightingCompute {
                         self.compute_lights.layout().clone(),
                         0,
                         descriptor_set,
-                    ).unwrap()
+                    )
+                    .unwrap()
                     .dispatch([(num_jobs as u32).div_ceil(LIGHTING_WG_SIZE), 1, 1])
                     .unwrap();
             };
@@ -376,7 +383,7 @@ impl LightingCompute {
         light_templates: Subbuffer<[fs::lightTemplate]>,
         num_lights: i32,
     ) {
-        let mut num_bounding_lines = {
+        {
             let mut light_list = self.light_list.lock();
             let mut light_tile_ids = self.light_tile_ids.lock();
             let mut light_list2 = self.light_list2.lock();
@@ -420,15 +427,8 @@ impl LightingCompute {
                     MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *bounding_line_hierarchy = buf;
-
-                // let buf = self.vk.buffer_array(
-                //     bounding_line_hierarchy.len() as u64 * 4,
-                //     MemoryTypeFilter::PREFER_DEVICE,
-                // );
-                // *blh_start_end = buf;
             }
-            bounding_line_hierarchy.len()
-        };
+        }
         let mut uni = lt::Data {
             // num_jobs: 0,
             vp: { cvd.proj * cvd.view }.into(),
@@ -509,7 +509,8 @@ impl LightingCompute {
                 )
             };
             builder
-                .bind_pipeline_compute(self.compute_lights.clone()).unwrap()
+                .bind_pipeline_compute(self.compute_lights.clone())
+                .unwrap()
                 .bind_descriptor_sets(
                     self.compute_lights.bind_point(),
                     self.compute_lights.layout().clone(),
@@ -530,7 +531,7 @@ impl LightingCompute {
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
         ]);
-        
+
         let lc2 = self.gpu_perf.node("lights tile compute", builder);
         // builder.update_buffer(self.visible_lights_c.clone(), &0);
         builder
@@ -545,7 +546,7 @@ impl LightingCompute {
                 },
             )
             .unwrap();
-        
+
         let make_tile_list = self.gpu_perf.node("make tile list", builder);
         build_stage(
             builder, num_lights, None, // Some(indirect.clone().slice(0..1)),
