@@ -60,7 +60,7 @@ use super::{perf::SubPerf, PrimaryCommandBuffer};
 // }
 
 type GPUPerfData = RwLock<BTreeMap<String, (i32, SubPerf)>>;
-pub struct GPUPerf {
+pub struct GpuPerf {
     start_time: Instant,
     pub(crate) data: Arc<GPUPerfData>,
     vk: Arc<VulkanManager>,
@@ -106,7 +106,7 @@ impl PerfNode {
 //         // );
 //     }
 // }
-impl GPUPerf {
+impl GpuPerf {
     pub fn new(vk: Arc<VulkanManager>) -> Self {
         Self {
             start_time: Instant::now(),

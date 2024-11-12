@@ -37,7 +37,15 @@ use vulkano::{
 
 use self::cs::{transform, Data, MVP};
 
-use super::{utils::perf::Perf, rendering::vulkan_manager::VulkanManager, utils, world::transform::TransformBuf};
+use super::{
+    rendering::vulkan_manager::VulkanManager,
+    utils::{
+        self,
+        gpu_perf::{self, GpuPerf},
+        perf::Perf,
+    },
+    world::transform::TransformBuf,
+};
 
 pub mod cs {
     vulkano_shaders::shader! {
@@ -52,6 +60,7 @@ pub struct TransformCompute {
     // pub cycle: usize,
     pub mvp: Subbuffer<[MVP]>,
     pub(crate) vk: Arc<VulkanManager>,
+    gpu_perf: Arc<GpuPerf>,
     // update_count: (Option<u32>, Option<u32>, Option<u32>),
     update_data: (
         Option<(Subbuffer<[i32]>, Subbuffer<[[f32; 4]]>)>,
@@ -63,7 +72,7 @@ pub struct TransformCompute {
 }
 
 impl TransformCompute {
-    pub fn new(vk: Arc<VulkanManager>) -> Self {
+    pub fn new(vk: Arc<VulkanManager>, gpu_perf: Arc<GpuPerf>) -> Self {
         let num_images = vk.images.len() as u32;
 
         let num_transforms = 2;
@@ -109,6 +118,7 @@ impl TransformCompute {
                 .unwrap()
             },
             vk: vk.clone(),
+            gpu_perf,
         }
     }
 
@@ -141,17 +151,15 @@ impl TransformCompute {
         {
             let write_to_buffer = perf.node("transform update");
             puffin::profile_scope!("transform update compute");
+            let a = self.gpu_perf.node("update gpu transforms", builder);
             self.__update_data(builder, transform_data);
+            a.end(builder);
         }
     }
 
     //////////////////////////////////////////////////////////////////
     ///
-    pub fn __update_data(
-        &self,
-        builder: &mut utils::PrimaryCommandBuffer,
-        data: TransformBuf,
-    ) {
+    pub fn __update_data(&self, builder: &mut utils::PrimaryCommandBuffer, data: TransformBuf) {
         // stage 0
         puffin::profile_scope!("update positions");
 

@@ -39,7 +39,7 @@ use rayon::prelude::*;
 use nalgebra_glm::{self as glm, Mat4};
 use parking_lot::{Mutex, RwLock};
 use thincollections::thin_map::ThinMap;
-use utils::gpu_perf::{self, GPUPerf};
+use utils::gpu_perf::{self, GpuPerf};
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, Subbuffer},
     command_buffer::{
@@ -284,7 +284,7 @@ pub struct Engine {
     update_editor_window: bool,
     event_loop_proxy: EventLoopProxy<EngineEvent>,
     renderer: EngineRenderer,
-    gpu_perf: Arc<GPUPerf>,
+    gpu_perf: Arc<GpuPerf>,
 }
 pub struct EnginePtr {
     ptr: *const Engine,
@@ -295,7 +295,7 @@ unsafe impl Sync for EnginePtr {}
 fn init_systems(
     vk: &Arc<VulkanManager>,
     texture_manager: Arc<Mutex<TextureManager>>,
-    gpu_perf: Arc<GPUPerf>,
+    gpu_perf: Arc<GpuPerf>,
 ) -> (Arc<ParticlesSystem>, Arc<LightingSystem>) {
     let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone(), gpu_perf.clone()));
     let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
@@ -388,7 +388,7 @@ impl Engine {
         // let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
 
         let perf = Arc::new(Perf::new());
-        let gpu_perf = Arc::new(GPUPerf::new(vk.clone()));
+        let gpu_perf = Arc::new(GpuPerf::new(vk.clone()));
 
         let (particles_system, lighting_system) = init_systems(&vk, texture_manager.clone(), gpu_perf.clone());
         let renderer_manager = Arc::new(RwLock::new(RendererManager::new(vk.clone())));
@@ -453,7 +453,7 @@ impl Engine {
 
         let mut frame_time = Instant::now();
 
-        let mut transform_compute = TransformCompute::new(vk.clone());
+        let mut transform_compute = TransformCompute::new(vk.clone(), gpu_perf.clone());
 
         let mut fps_queue: VecDeque<f32> = std::collections::VecDeque::new();
 
@@ -493,7 +493,8 @@ impl Engine {
         let rendering_thread = Arc::new({
             let vk = vk.clone();
             let gpu_perf = gpu_perf.clone();
-            thread::spawn(move || render_thread::render_thread(vk, gpu_perf, rendering_rcv, rendering_snd2))
+            let perf = perf.clone();
+            thread::spawn(move || render_thread::render_thread(vk, gpu_perf, perf, rendering_rcv, rendering_snd2))
         });
 
         // let mut phys = world.lock().sys.physics.clone();
@@ -980,7 +981,7 @@ impl Engine {
             }
         }
         // begin rendering
-        let clean_up = self.perf.node("previous frame end clean up finished");
+        let clean_up = self.perf.node("wait for render");
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
         *recreate_swapchain |= self.rendering_complete.recv().unwrap();
         drop(clean_up);

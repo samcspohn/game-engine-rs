@@ -32,7 +32,7 @@ use vulkano::{
 use crate::engine::particles::shaders::cs::p;
 use crate::engine::rendering::component::ur::r;
 use crate::engine::rendering::component::Indirect;
-use crate::engine::utils::gpu_perf::GPUPerf;
+use crate::engine::utils::gpu_perf::GpuPerf;
 use crate::engine::utils::{gpu_perf, radix_sort};
 use crate::engine::{
     prelude::{
@@ -98,7 +98,7 @@ pub struct LightingCompute {
     pub(crate) visible_lights: Mutex<Subbuffer<[u32]>>,
     pub(crate) visible_lights_c: Subbuffer<u32>,
     pub(crate) radix_sort: Arc<Mutex<crate::engine::utils::radix_sort::RadixSort>>,
-    pub(crate) gpu_perf: Arc<utils::gpu_perf::GPUPerf>,
+    pub(crate) gpu_perf: Arc<utils::gpu_perf::GpuPerf>,
 }
 pub const NUM_TILES: u64 = 64 * 64 + 32 * 32 + 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1;
 pub static mut LIGHTING_COMPUTE_TIMESTAMP: i32 = -1;
@@ -171,7 +171,7 @@ impl LightingCompute {
         );
         render_pipeline
     }
-    pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>, gpu_perf: Arc<GPUPerf>) -> LightingCompute {
+    pub fn new(vk: Arc<VulkanManager>, render_pass: Arc<RenderPass>, gpu_perf: Arc<GpuPerf>) -> LightingCompute {
         Self {
             compute_lights: utils::pipeline::compute_pipeline(
                 vk.clone(),
@@ -354,7 +354,7 @@ impl LightingCompute {
 
         // self.vk.begin_query(unsafe { &LIGHTING_COMPUTE_TIMESTAMP}, builder);
         {
-            let lc1 = self.gpu_perf.node("lighting_compute", builder);
+            let lc1 = self.gpu_perf.node("lights update", builder);
             if let Some(deinits) = deinits {
                 build_stage(builder, deinits.len() as i32, 0, None, Some(deinits));
             }
@@ -530,7 +530,8 @@ impl LightingCompute {
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
         ]);
-
+        
+        let lc2 = self.gpu_perf.node("lights tile compute", builder);
         // builder.update_buffer(self.visible_lights_c.clone(), &0);
         builder
             .fill_buffer(self.light_list.lock().clone(), u32::MAX)
@@ -544,11 +545,13 @@ impl LightingCompute {
                 },
             )
             .unwrap();
-
+        
+        let make_tile_list = self.gpu_perf.node("make tile list", builder);
         build_stage(
             builder, num_lights, None, // Some(indirect.clone().slice(0..1)),
             None, 3,
         );
+        make_tile_list.end(builder);
         // build_stage(
         //     builder,
         //     -1,
@@ -560,6 +563,7 @@ impl LightingCompute {
         build_stage(builder, 74, None, None, 5);
         // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 6);
         // radix sort
+        let l_s = self.gpu_perf.node("lights sort", builder);
         {
             let mut light_list = self.light_list.lock();
             let mut light_tile_ids = self.light_tile_ids.lock();
@@ -578,8 +582,12 @@ impl LightingCompute {
                 builder,
             );
         }
+        l_s.end(builder);
+        let light_bsh = self.gpu_perf.node("light blh", builder);
         build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 9);
         build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 7);
         build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 8);
+        light_bsh.end(builder);
+        lc2.end(builder);
     }
 }

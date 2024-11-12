@@ -23,7 +23,7 @@ use crate::{
         storage::_Storage,
         time::Time,
         transform_compute::{self, cs::transform, TransformCompute},
-        utils::{self, gpu_perf::{self, GPUPerf}, PrimaryCommandBuffer},
+        utils::{self, gpu_perf::{self, GpuPerf}, PrimaryCommandBuffer},
         world::{component::Component, transform::Transform, Sys, World},
     },
 };
@@ -141,7 +141,7 @@ pub struct ParticlesSystem {
     pub vk: Arc<VulkanManager>,
     // pub performance: PerformanceCounters,
     pub particle_textures: Arc<Mutex<ParticleTextures>>,
-    pub gpu_perf: Arc<GPUPerf>,
+    pub gpu_perf: Arc<GpuPerf>,
 
 }
 pub struct ParticleRenderPipeline {
@@ -303,7 +303,7 @@ impl ParticleDebugPipeline {
 }
 
 impl ParticlesSystem {
-    pub fn new(vk: Arc<VulkanManager>, tex_man: Arc<Mutex<TextureManager>>, gpu_perf: Arc<GPUPerf>) -> ParticlesSystem {
+    pub fn new(vk: Arc<VulkanManager>, tex_man: Arc<Mutex<TextureManager>>, gpu_perf: Arc<GpuPerf>) -> ParticlesSystem {
         // let performance = PerformanceCounters {
         //     update_particles: vk.new_query(),
         //     update_emitters: vk.new_query(),
@@ -522,7 +522,7 @@ impl ParticlesSystem {
         let particle_burst_dummy =
             vk.buffer_array(1 as vulkano::DeviceSize, MemoryTypeFilter::PREFER_DEVICE);
         ParticlesSystem {
-            sort: ParticleSort::new(vk.clone()),
+            sort: ParticleSort::new(vk.clone(), gpu_perf.clone()),
             emitter_inits: AtomicVec::new(),
             emitter_deinits: AtomicVec::new(),
             particle_burts: AtomicVec::new(),
@@ -1087,6 +1087,7 @@ impl ParticlesSystem {
         //         *RENDER_QUERY = self.vk.new_query();
         //     }
         // }
+        // let r = self.gpu_perf.node("particle render", builder);
         let pb = &self.particle_buffers;
         let uniform_sub_buffer = self.vk.allocate(gs::Data {
             view: view.into(),
@@ -1169,6 +1170,7 @@ impl ParticlesSystem {
             .unwrap()
             .draw_indirect(self.sort.draw.clone())
             .unwrap();
+        // r.end(builder);
         // unsafe {
         //     self.vk.end_query(&*RENDER_QUERY, builder);
         // }

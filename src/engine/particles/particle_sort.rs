@@ -2,10 +2,14 @@ use std::{default, sync::Arc};
 
 use crate::engine::{
     input::Input,
-    utils::perf::{self, Perf},
     rendering::{camera::CameraViewData, component::buffer_usage_all},
     transform_compute::cs::transform,
-    utils, VulkanManager,
+    utils::{
+        self,
+        gpu_perf::{self, GpuPerf},
+        perf::{self, Perf},
+    },
+    VulkanManager,
 };
 use parking_lot::Mutex;
 use vulkano::{
@@ -42,9 +46,10 @@ pub struct ParticleSort {
     pub draw: Subbuffer<[DrawIndirectCommand]>,
     // pub uniforms: Mutex<SubbufferAllocator>,
     pub compute_pipeline: Arc<ComputePipeline>,
+    gpu_perf: Arc<GpuPerf>,
 }
 impl ParticleSort {
-    pub fn new(vk: Arc<VulkanManager>) -> ParticleSort {
+    pub fn new(vk: Arc<VulkanManager>, gpu_perf: Arc<GpuPerf>) -> ParticleSort {
         let mut builder = AutoCommandBufferBuilder::primary(
             &vk.comm_alloc,
             vk.queue.queue_family_index(),
@@ -136,6 +141,7 @@ impl ParticleSort {
             // uniforms,
             compute_pipeline,
             vk,
+            gpu_perf,
         }
     }
     pub fn sort(
@@ -150,6 +156,7 @@ impl ParticleSort {
         perf: &Perf,
         input: &Input,
     ) {
+        let s = self.gpu_perf.node("particle sort", builder);
         let max_particles: i32 = *_MAX_PARTICLES;
         static mut FRUSTUM: scs::Frustum = scs::Frustum {
             planes: [[0., 0., 0., 0.]; 6],
@@ -185,74 +192,73 @@ impl ParticleSort {
             .unwrap()
             .clone();
 
-        let mut build_stage = |builder: &mut utils::PrimaryCommandBuffer,
-                               stage: i32,
-                               num_jobs: i32| {
-            let indirect = match stage {
-                // dispatch
-                1 => pb.indirect.clone(),
-                3 => self.indirect[0].clone(),
-                5 => self.indirect[0].clone(),
-                _ => self.indirect[1].clone(),
-            };
-            let bound_indirect = match stage {
-                // update
-                2 => self.indirect[0].clone(),
-                _ => self.indirect[1].clone(),
-            };
+        let mut build_stage =
+            |builder: &mut utils::PrimaryCommandBuffer, stage: i32, num_jobs: i32| {
+                let indirect = match stage {
+                    // dispatch
+                    1 => pb.indirect.clone(),
+                    3 => self.indirect[0].clone(),
+                    5 => self.indirect[0].clone(),
+                    _ => self.indirect[1].clone(),
+                };
+                let bound_indirect = match stage {
+                    // update
+                    2 => self.indirect[0].clone(),
+                    _ => self.indirect[1].clone(),
+                };
 
-            uniform_data.num_jobs = num_jobs;
-            uniform_data.stage = stage.into();
-            let uniform_sub_buffer = self.vk.allocate(uniform_data);
-            let descriptor_set = PersistentDescriptorSet::new(
-                desc_allocator,
-                layout.clone(),
-                [
-                    WriteDescriptorSet::buffer(0, self.a1.clone()),
-                    WriteDescriptorSet::buffer(1, self.a2.clone()),
-                    // WriteDescriptorSet::buffer(2, pb.particles.clone()),
-                    WriteDescriptorSet::buffer(3, pb.particle_positions_lifes.clone()),
-                    WriteDescriptorSet::buffer(4, bound_indirect),
-                    WriteDescriptorSet::buffer(5, self.avail_count.clone()),
-                    WriteDescriptorSet::buffer(6, uniform_sub_buffer),
-                    WriteDescriptorSet::buffer(7, self.buckets.clone()),
-                    WriteDescriptorSet::buffer(8, self.draw.clone()),
-                    WriteDescriptorSet::buffer(9, pb.particle_next.clone()),
-                    WriteDescriptorSet::buffer(10, pb.particle_templates.lock().clone()),
-                    WriteDescriptorSet::buffer(11, pb.particle_template_ids.clone()),
-                    WriteDescriptorSet::buffer(12, transform.clone()),
-                    WriteDescriptorSet::buffer(13, pb.alive.clone()),
-                    WriteDescriptorSet::buffer(14, pb.alive_count.clone()),
-                    // WriteDescriptorSet::buffer(15, pb.pos_life_compressed.clone()),
-                ],
-                [],
-            )
-            .unwrap();
+                uniform_data.num_jobs = num_jobs;
+                uniform_data.stage = stage.into();
+                let uniform_sub_buffer = self.vk.allocate(uniform_data);
+                let descriptor_set = PersistentDescriptorSet::new(
+                    desc_allocator,
+                    layout.clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, self.a1.clone()),
+                        WriteDescriptorSet::buffer(1, self.a2.clone()),
+                        // WriteDescriptorSet::buffer(2, pb.particles.clone()),
+                        WriteDescriptorSet::buffer(3, pb.particle_positions_lifes.clone()),
+                        WriteDescriptorSet::buffer(4, bound_indirect),
+                        WriteDescriptorSet::buffer(5, self.avail_count.clone()),
+                        WriteDescriptorSet::buffer(6, uniform_sub_buffer),
+                        WriteDescriptorSet::buffer(7, self.buckets.clone()),
+                        WriteDescriptorSet::buffer(8, self.draw.clone()),
+                        WriteDescriptorSet::buffer(9, pb.particle_next.clone()),
+                        WriteDescriptorSet::buffer(10, pb.particle_templates.lock().clone()),
+                        WriteDescriptorSet::buffer(11, pb.particle_template_ids.clone()),
+                        WriteDescriptorSet::buffer(12, transform.clone()),
+                        WriteDescriptorSet::buffer(13, pb.alive.clone()),
+                        WriteDescriptorSet::buffer(14, pb.alive_count.clone()),
+                        // WriteDescriptorSet::buffer(15, pb.pos_life_compressed.clone()),
+                    ],
+                    [],
+                )
+                .unwrap();
 
-            if num_jobs < 0 {
-                builder
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Compute,
-                        self.compute_pipeline.layout().clone(),
-                        0, // Bind this descriptor set to index 0.
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .dispatch_indirect(indirect)
-                    .unwrap();
-            } else {
-                builder
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Compute,
-                        self.compute_pipeline.layout().clone(),
-                        0, // Bind this descriptor set to index 0.
-                        descriptor_set,
-                    )
-                    .unwrap()
-                    .dispatch([num_jobs as u32 / 1024 + 1, 1, 1])
-                    .unwrap();
-            }
-        };
+                if num_jobs < 0 {
+                    builder
+                        .bind_descriptor_sets(
+                            PipelineBindPoint::Compute,
+                            self.compute_pipeline.layout().clone(),
+                            0, // Bind this descriptor set to index 0.
+                            descriptor_set,
+                        )
+                        .unwrap()
+                        .dispatch_indirect(indirect)
+                        .unwrap();
+                } else {
+                    builder
+                        .bind_descriptor_sets(
+                            PipelineBindPoint::Compute,
+                            self.compute_pipeline.layout().clone(),
+                            0, // Bind this descriptor set to index 0.
+                            descriptor_set,
+                        )
+                        .unwrap()
+                        .dispatch([num_jobs as u32 / 1024 + 1, 1, 1])
+                        .unwrap();
+                }
+            };
         builder.bind_pipeline_compute(self.compute_pipeline.clone());
         builder.update_buffer(self.avail_count.clone(), &0).unwrap();
         // .copy_buffer(CopyBufferInfo::buffers(
@@ -283,6 +289,7 @@ impl ParticleSort {
         // stage 6
         build_stage(builder, 6, 1); // set draw data
 
+        s.end(builder);
         // let temp = self.a1.clone();
         // self.a1 = self.a2.clone();
         // self.a2 = temp.clone();

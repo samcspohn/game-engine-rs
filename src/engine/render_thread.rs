@@ -11,7 +11,7 @@ use super::{
         camera::{CameraData, CameraViewData},
         component::RendererData,
     },
-    utils::{gpu_perf::{self, GPUPerf}, GPUWork},
+    utils::{gpu_perf::{self, GpuPerf}, perf::Perf, GPUWork},
     world::transform::TransformData,
     Engine, EnginePtr, RenderData,
 };
@@ -86,7 +86,8 @@ pub struct RenderingData {
 pub(super) fn render_fn(rd: RendererData) {}
 pub(super) fn render_thread(
     vk: Arc<VulkanManager>,
-    gpu_perf: Arc<GPUPerf>,
+    gpu_perf: Arc<GpuPerf>,
+    perf: Arc<Perf>,
     // render_pass: Arc<RenderPass>,
     rendering_data: Receiver<(
         bool,
@@ -126,6 +127,7 @@ pub(super) fn render_thread(
             }
             previous_frame_end.as_mut().unwrap().cleanup_finished();
 
+            let get_gpu_metrics = perf.node("get_gpu_metrics");
             for (name, perf) in gpu_perf.data.write().iter() {
                 let nanos = vk.get_query(&perf.0);
                 let dur = Duration::from_nanos(nanos);
@@ -133,6 +135,7 @@ pub(super) fn render_thread(
                 // let mut perf = perf.write();
                 // perf.print(name, gpu_perf.start_time);
             }
+            drop(get_gpu_metrics);
 
             // let lighting_compute_nanos = vk.get_query(unsafe { &LIGHTING_COMPUTE_TIMESTAMP });
             // println!(

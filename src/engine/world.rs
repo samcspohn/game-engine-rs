@@ -1007,7 +1007,7 @@ impl World {
                     if stor.len() == 0 {
                         return;
                     }
-                    let world_update = perf.node(&format!("world update: {}", stor.get_name()));
+                    let world_update = perf.node(&format!("update-{}", stor.get_name()));
                     stor.update(&self.transforms, &sys, &self);
                 });
             }
@@ -1019,7 +1019,7 @@ impl World {
                         return;
                     }
                     let world_update =
-                        perf.node(&format!("world late update: {}", stor.get_name()));
+                        perf.node(&format!("late_update-{}", stor.get_name()));
                     stor.late_update(&self.transforms, &sys);
                 });
             }
