@@ -209,7 +209,7 @@ impl Component for Renderer {
 pub mod ur {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/update_renderers2.comp",
+        path: "shaders/update_renderers2.comp",
         // types_meta: {
         //     use bytemuck::{Pod, Zeroable};
 

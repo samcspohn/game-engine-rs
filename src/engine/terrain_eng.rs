@@ -483,8 +483,6 @@ impl Component for TerrainEng {
                 tiles,
                 screen_dims,
                 light_list,
-                visible_lights,
-                visible_lights_count,
                 playing_game,
                 bounding_line_hierarchy: _,
                 // hide_cursor,

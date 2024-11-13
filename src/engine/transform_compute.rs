@@ -50,7 +50,7 @@ use super::{
 pub mod cs {
     vulkano_shaders::shader! {
         ty: "compute",
-        path: "src/shaders/transform.comp",
+        path: "shaders/transform.comp",
     }
 }
 

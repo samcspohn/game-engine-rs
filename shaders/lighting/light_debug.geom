@@ -1,5 +1,5 @@
 #version 450
-#include "util.glsl"
+#include "../util.glsl"
 
 layout(points) in;
 layout(triangle_strip, max_vertices = 8) out;

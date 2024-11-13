@@ -1,7 +1,7 @@
 #version 450
 #extension GL_EXT_nonuniform_qualifier : enable
-#include "../../../shaders/util.glsl"
-#include "../../../shaders/lighting.glsl"
+#include "../util.glsl"
+#include "../lighting/lighting.glsl"
 #include "particle.glsl"
 layout(location = 0) in float life;
 layout(location = 1) in flat int templ_id;

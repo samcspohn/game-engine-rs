@@ -53,21 +53,21 @@ pub mod cs1 {
     vulkano_shaders::shader! {
         ty: "compute",
         spirv_version: "1.5",
-        path: "src/shaders/multi_radixsort_histograms.comp",
+        path: "shaders/multi_radixsort_histograms.comp",
     }
 }
 pub mod cs2 {
     vulkano_shaders::shader! {
         ty: "compute",
         spirv_version: "1.5",
-        path: "src/shaders/multi_radixsort.comp",
+        path: "shaders/multi_radixsort.comp",
     }
 }
 
 // pub mod cs {
 //     vulkano_shaders::shader! {
 //         ty: "compute",
-//         path: "src/shaders/radix_sort.comp",
+//         path: "shaders/radix_sort.comp",
 //     }
 // }
 

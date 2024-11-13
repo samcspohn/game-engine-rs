@@ -79,7 +79,7 @@ struct tile {
     // uint lights[MAX_LIGHTS_PER_TILE];
 };
 struct BoundingLine {
-    uint flag;
+    // uint flag;
     uint start;
     uint end;
     int front;   // positive value points to BoundingLine, negative points to light

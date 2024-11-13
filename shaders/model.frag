@@ -1,6 +1,6 @@
 #version 450
 #include "util.glsl"
-#include "lighting.glsl"
+#include "lighting/lighting.glsl"
 
 #define BLOCK_SIZE 16
 

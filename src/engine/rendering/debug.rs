@@ -34,33 +34,33 @@ use super::{
 pub mod gs1 {
     vulkano_shaders::shader! {
         ty: "geometry",
-        path: "src/shaders/debug1.geom",
+        path: "shaders/debug1.geom",
     }
 }
 pub mod gs2 {
     vulkano_shaders::shader! {
         ty: "geometry",
-        path: "src/shaders/debug2.geom",
+        path: "shaders/debug2.geom",
     }
 }
 pub mod gs3 {
     vulkano_shaders::shader! {
         ty: "geometry",
-        path: "src/shaders/debug3.geom",
+        path: "shaders/debug3.geom",
     }
 }
 
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/shaders/debug1.vert",
+        path: "shaders/debug1.vert",
     }
 }
 
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/shaders/debug1.frag",
+        path: "shaders/debug1.frag",
     }
 }
 

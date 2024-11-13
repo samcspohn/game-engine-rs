@@ -1,6 +1,6 @@
 #version 450
 
-#include "util.glsl"
+#include "../util.glsl"
 
 // struct ClusterNode {
 //     uint count;
@@ -35,12 +35,13 @@ struct PC {
     uint g_num_workgroups;
 };
 layout(std430, set = 0, binding = 11) buffer lc { PC pc; };
-layout(set = 0, binding = 12) buffer vl { uint visible_lights[]; };
-layout(set = 0, binding = 13) buffer vlc { uint visible_lights_c; };
+// layout(set = 0, binding = 12) buffer vl { uint visible_lights[]; };
+// layout(set = 0, binding = 13) buffer vlc { uint visible_lights_c; };
 layout(set = 0, binding = 14) buffer i { DispatchIndirectCommand indirect[]; };
 
 layout(set = 0, binding = 10) buffer blh_ { BoundingLine blh[]; };   // (num_lights * 4)
-layout(set = 0, binding = 17) buffer blh_start_end_ { vec4 blh_start_end[]; };
+layout(set = 0, binding = 12) buffer blh_flags_ { uint blh_flags[]; };   // (num_lights * 4)
+// layout(set = 0, binding = 17) buffer blh_start_end_ { vec4 blh_start_end[]; };
 
 const uint wg_size = 128;
 shared uint local_offsets[wg_size];
@@ -387,7 +388,7 @@ void main() {
         }
         case 7: {
             if (id < pc.g_num_elements) {
-                blh[id].flag = 0;
+                // blh[id].flag = 0;
                 blh[id].front = -1;
                 blh[id].back = -1;
                 blh[id].start = ~0u;
@@ -436,7 +437,8 @@ void main() {
                         }
                         atomicMin(blh[blh_idx].start, start);
                         atomicMax(blh[blh_idx].end, end);
-                        uint flag = atomicAdd(blh[blh_idx].flag, 1);
+                        // uint flag = atomicAdd(blh[blh_idx].flag, 1);
+                        uint flag = atomicAdd(blh_flags[blh_idx], 1);
                         if (flag == 0) {
                             return;
                         }

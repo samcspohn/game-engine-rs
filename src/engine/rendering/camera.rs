@@ -735,8 +735,6 @@ impl CameraData {
         // lights
         light_len: u32,
         lights: Subbuffer<[lt::light]>,
-        visible_lights: Subbuffer<[u32]>,
-        visible_lights_count: Subbuffer<u32>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
         bounding_line_hierarchy: Subbuffer<[cs::BoundingLine]>,
         // end lights
@@ -985,8 +983,6 @@ impl CameraData {
                     lights: lights.clone(),
                     light_templates: light_templates.clone(),
                     light_list: light_list.clone(),
-                    visible_lights: visible_lights.clone(),
-                    visible_lights_count: visible_lights_count.clone(),
                     tiles: tiles.clone(),
                     screen_dims: cvd.dimensions,
                     mvp: transform_compute.mvp.clone(),

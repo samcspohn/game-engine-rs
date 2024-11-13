@@ -57,7 +57,7 @@ use super::{
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/shaders/model.vert",
+        path: "shaders/model.vert",
         // types_meta: {
         //     use bytemuck::{Pod, Zeroable};
 
@@ -69,7 +69,7 @@ pub mod vs {
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/shaders/model.frag"
+        path: "shaders/model.frag"
     }
 }
 
