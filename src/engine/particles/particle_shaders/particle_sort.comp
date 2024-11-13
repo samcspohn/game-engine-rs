@@ -5,8 +5,8 @@ layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) buffer _a1 { _a a1[]; };
 layout(set = 0, binding = 1) buffer _a2 { uint a2[]; };
-layout(set = 0, binding = 2) buffer p { particle particles[]; };
-layout(set = 0, binding = 3) buffer _p { pos_lif p_l[]; };
+layout(std430, set = 0, binding = 2) buffer p { particle particles[]; };
+layout(std430, set = 0, binding = 3) buffer _p { pos_lif p_l[]; };
 layout(set = 0, binding = 4) buffer l { DispatchIndirectCommand indirect[]; };
 layout(set = 0, binding = 5) buffer a_c { int avail_count; };
 layout(set = 0, binding = 6) uniform Data {

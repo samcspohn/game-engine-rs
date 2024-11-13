@@ -10,7 +10,7 @@ layout(location = 0) out vec4 _color;
 
 // layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
 // layout(set = 0, binding = 0) buffer pl_c { pos_life_comp p_l[]; };
-layout(set = 0, binding = 0) buffer pl_c { pos_lif p_l[]; };
+layout(std430, set = 0, binding = 0) buffer pl_c { pos_lif p_l[]; };
 layout(set = 0, binding = 3) buffer pt { particle_template templates[]; };
 layout(set = 0, binding = 5) buffer a { int sorted[]; };
 layout(set = 0, binding = 6) buffer pti { int template_ids[]; };
@@ -126,7 +126,9 @@ void main() {
         } else if (templ.billboard == 1) {
             rot = look_at;
         } else {
-            rot = particles[i].rot;
+            uvec2 urot = particles[i].rot;
+            rot = vec4(unpackHalf2x16(urot.x), unpackHalf2x16(urot.y));
+            // rot = particles[i].rot;
         }
         model = translate(pos) * rotate(rot) * scale(vec3(templ.scale.x, templ.scale.y, 1));
     }

@@ -121,7 +121,6 @@ pub struct ParticleBuffers {
     pub avail_count: Subbuffer<u32>,
     // pub buffer_0: Subbuffer<i32>,
     pub indirect: Subbuffer<[DispatchIndirectCommand]>,
-    pub alive_b: Subbuffer<[cs::b]>,
 }
 
 pub struct ParticlesSystem {
@@ -337,7 +336,6 @@ impl ParticlesSystem {
         .unwrap();
 
         println!("pos_lif: {}", std::mem::size_of::<cs::pos_lif>());
-        println!("b: {}", std::mem::size_of::<cs::b>());
 
         let particle_positions_lifes: Vec<cs::pos_lif> = (0..max_particles)
             .map(|_| cs::pos_lif {
@@ -373,15 +371,6 @@ impl ParticlesSystem {
             .copy_buffer(CopyBufferInfo::buffers(copy_buffer, avail.clone()))
             .unwrap();
 
-        // alive_b
-        let copy_buffer = vk.buffer_from_iter((0..max_particles).map(|_| 0));
-        let alive_b = vk.buffer_array(
-            max_particles as vulkano::DeviceSize,
-            MemoryTypeFilter::PREFER_DEVICE,
-        );
-        builder
-            .copy_buffer(CopyBufferInfo::buffers(copy_buffer, alive_b.clone()))
-            .unwrap();
         let alive = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
             MemoryTypeFilter::PREFER_DEVICE,
@@ -543,7 +532,6 @@ impl ParticlesSystem {
                 avail,
                 avail_count,
                 indirect,
-                alive_b,
             },
             // render_pipeline,
             compute_pipeline,
@@ -602,7 +590,6 @@ impl ParticlesSystem {
                 WriteDescriptorSet::buffer(11, pb.alive.clone()),
                 WriteDescriptorSet::buffer(12, pb.alive_count.clone()),
                 WriteDescriptorSet::buffer(13, pb.indirect.clone()),
-                WriteDescriptorSet::buffer(14, pb.alive_b.clone()),
                 WriteDescriptorSet::buffer(15, particle_bursts.clone()),
             ],
             [],

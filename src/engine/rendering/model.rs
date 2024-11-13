@@ -13,7 +13,6 @@ use std::{
 // use assimp as ai;
 // use bytemuck::{Pod, Zeroable};
 use crate::engine::{
-    particles::shaders::cs::b,
     prelude::{Component, Inpsect, Ins},
     project::asset_manager::AssetInstance,
 };

@@ -24,12 +24,8 @@ struct burst {
 struct particle {
     vec3 vel;
     int emitter_id;
-    vec4 rot;
+    uvec2 rot;
     float l;
-    // AABB aabb;
-    uint padding;
-    uint padding2;
-    uint padding3;
 };
 struct particle_template {
     vec4 color;
