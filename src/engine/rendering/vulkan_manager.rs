@@ -512,6 +512,6 @@ impl VulkanManager {
         }
 
         // todo!();
-        query_results[1] - query_results[0]
+        ((query_results[1] - query_results[0]) as f64 * self.device.physical_device().properties().timestamp_period as f64) as u64
     }
 }
