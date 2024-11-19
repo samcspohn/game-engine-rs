@@ -45,7 +45,7 @@ struct particle_template {
     float dispersion;
 
     uint tex_id;
-    uint padding;
+    uint recieve_lighting;
     uint padding2;
     uint padding3;
     // vec4 color_life[256];

@@ -47,6 +47,7 @@ pub struct ParticleTemplate {
     billboard: bool,
     align_vel: bool,
     texture: AssetInstance<Texture>,
+    recieve_lighting: bool,
 }
 
 lazy_static! {
@@ -71,6 +72,7 @@ impl Default for ParticleTemplate {
             align_vel: false,
             dispersion: 1.,
             texture: unsafe { *DEFAULT_TEXTURE.get() },
+            recieve_lighting: false,
         }
     }
 }
@@ -92,7 +94,7 @@ impl ParticleTemplate {
             billboard: if self.billboard { 1 } else { 0 },
             scale: self.size.into(),
             tex_id: textures.get_tex_id(&self.texture),
-            padding: 0,
+            recieve_lighting: if self.recieve_lighting { 1 } else { 0 },
             padding2: 0,
             padding3: 0,
             // _dummy0: Default::default(),
@@ -210,6 +212,12 @@ impl Inspectable_ for ParticleTemplate {
         }
         if ui
             .checkbox(&mut self.align_vel, "align to velocity")
+            .changed()
+        {
+            TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
+        }
+        if ui
+            .checkbox(&mut self.recieve_lighting, "recieve lighting")
             .changed()
         {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);

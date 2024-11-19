@@ -3,6 +3,8 @@
 #include "../util.glsl"
 #include "../lighting/lighting.glsl"
 #include "particle.glsl"
+
+
 layout(location = 0) in float life;
 layout(location = 1) in flat int templ_id;
 layout(location = 2) in vec2 uv;
@@ -36,8 +38,11 @@ void main() {
     vec4 col = texture(nonuniformEXT(s[_templ.tex_id]), uv);
     vec4 col2 = texture(color_over_life, uv2);
     // vec4 col3 = templates[templ_id].color_life[int(life * 255)];
-    vec4 total_light = vec4(vec3(0.3), 1.0f);
-    total_light.rgb += calc_light_p(v_pos, cam_pos, screen_dims);
+    vec4 total_light = vec4(1.0);
+    if (_templ.recieve_lighting == 1) {
+        total_light = vec4(vec3(0.3), 1.0f);
+        total_light.rgb += calc_light_p(v_pos, cam_pos, screen_dims);
+    }
 
     FragColor = col * col2 * total_light;
     // FragColor = vec4(1,0,0,1);
