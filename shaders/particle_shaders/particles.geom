@@ -26,8 +26,9 @@ layout(set = 0, binding = 4) uniform Data {
     mat4 cam_inv_rot;
     mat4 proj;
     vec3 cam_pos;
-    vec4 cam_rot;
     uint num_templates;
+    vec4 cam_rot;
+    vec2 screen_dims;
 };
 vec4 look_at = lookAt(rotate3(cam_rot) * vec3(0, 0, 1), rotate3(cam_rot) * vec3(0, 1, 0));
 

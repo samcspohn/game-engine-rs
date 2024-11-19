@@ -92,25 +92,25 @@ uint float_to_uint(float f) {
     // return _f ^ mask;
     // Get the raw bits as uint
     uint u = floatBitsToUint(f);
-    
+
     // If the float is negative, we need to flip all bits to maintain sorting
     // This works because IEEE-754 negative floats have reverse ordering
     if ((u & 0x80000000u) != 0u) {
-        u = ~u;  // Flip all bits for negative numbers
+        u = ~u;   // Flip all bits for negative numbers
     } else {
-        u |= 0x80000000u;  // Set sign bit for positive numbers
+        u |= 0x80000000u;   // Set sign bit for positive numbers
     }
-    
+
     return u;
 }
 float uint_to_float(uint u) {
-     // Reverse the bit manipulation from floatToUint
+    // Reverse the bit manipulation from floatToUint
     if ((u & 0x80000000u) != 0u) {
-        u &= 0x7FFFFFFFu;  // Clear sign bit for positive numbers
+        u &= 0x7FFFFFFFu;   // Clear sign bit for positive numbers
     } else {
-        u = ~u;  // Flip all bits back for negative numbers
+        u = ~u;   // Flip all bits back for negative numbers
     }
-    
+
     return uintBitsToFloat(u);
     // uint mask = (-int(i) >> 31) | 0x80000000;
     // return uintBitsToFloat(i ^ mask);
@@ -120,15 +120,15 @@ float uint_to_float(uint u) {
 uint floatToUint(float f) {
     // Get the raw bits as uint
     uint u = floatBitsToUint(f);
-    
+
     // If the float is negative, we need to flip all bits to maintain sorting
     // This works because IEEE-754 negative floats have reverse ordering
     if ((u & 0x80000000u) != 0u) {
-        u = ~u;  // Flip all bits for negative numbers
+        u = ~u;   // Flip all bits for negative numbers
     } else {
-        u |= 0x80000000u;  // Set sign bit for positive numbers
+        u |= 0x80000000u;   // Set sign bit for positive numbers
     }
-    
+
     return u;
 }
 
@@ -136,11 +136,11 @@ uint floatToUint(float f) {
 float uintToFloat(uint u) {
     // Reverse the bit manipulation from floatToUint
     if ((u & 0x80000000u) != 0u) {
-        u &= 0x7FFFFFFFu;  // Clear sign bit for positive numbers
+        u &= 0x7FFFFFFFu;   // Clear sign bit for positive numbers
     } else {
-        u = ~u;  // Flip all bits back for negative numbers
+        u = ~u;   // Flip all bits back for negative numbers
     }
-    
+
     return uintBitsToFloat(u);
 }
 
@@ -170,38 +170,37 @@ struct NDCSphere {
 
 // Structure to represent a rectangle in screen space
 struct ScreenRect {
-    vec2 min;  // Bottom-left in pixels
-    vec2 max;  // Top-right in pixels
+    vec2 min;   // Bottom-left in pixels
+    vec2 max;   // Top-right in pixels
 };
-
 
 // Transform sphere from world space to NDC space using a single view-projection matrix
 NDCSphere transformSphereToNDC(Sphere sphere, mat4 viewProjMatrix) {
     NDCSphere ndcSphere;
-    
+
     // Transform sphere center to clip space
     vec4 clipCenter = viewProjMatrix * vec4(sphere.center, 1.0);
-    
+
     // Perspective divide to get NDC coordinates
     ndcSphere.center = clipCenter.xyz / clipCenter.w;
-    
+
     // Calculate projected radius
     // We'll use two points to determine the projected radius
     // First, the sphere center point
     vec4 clipCenterRadius = viewProjMatrix * vec4(sphere.center + vec3(sphere.radius, 0.0, 0.0), 1.0);
-    
+
     // Perspective divide for the radius point
     vec3 ndcRadius = clipCenterRadius.xyz / clipCenterRadius.w;
-    
+
     // Calculate radius in NDC space
     // Use the distance between center and radius point
     ndcSphere.radius = distance(ndcSphere.center.xy, ndcRadius.xy);
-    
+
     // Optional: Adjust for perspective distortion
     // This can make the radius more accurate at different view distances
-    float depthFactor = abs(clipCenter.w);  // Depth in view space
+    float depthFactor = abs(clipCenter.w);   // Depth in view space
     ndcSphere.radius *= (clipCenter.w / depthFactor);
-    
+
     return ndcSphere;
 }
 
@@ -232,7 +231,7 @@ bool frustumSegmentIntersect(in Frustum f, LineSegment s) {
     return true;
 }
 
-int get_tile(int x, int y, int level) { return _light_quadtree_offsets[level] + (x + (y) *_light_quadtree_widths[level]); }
+int get_tile(int x, int y, int level) { return _light_quadtree_offsets[level] + (x + y * _light_quadtree_widths[level]); }
 
 float DistanceToPlane(vec4 vPlane, vec3 vPoint) { return dot(vec4(vPoint, 1.0), vPlane); }
 

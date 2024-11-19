@@ -46,23 +46,14 @@ use winit::event::VirtualKeyCode;
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        input::Input,
-        particles::{
+        input::Input, particles::{
             particles::{ParticleDebugPipeline, ParticleRenderPipeline, ParticlesSystem},
             shaders::scs,
-        },
-        utils::perf::Perf,
-        project::asset_manager::AssetsManager,
-        rendering::{component::ur, debug},
-        time::Time,
-        transform_compute::TransformCompute,
-        utils,
-        world::{
+        }, project::asset_manager::AssetsManager, rendering::{component::ur, debug, lighting::lighting_compute::cs::li}, time::Time, transform_compute::TransformCompute, utils::{self, perf::Perf}, world::{
             component::Component,
             transform::{Transform, TransformBuf},
             Sys, World,
-        },
-        RenderData,
+        }, RenderData
     },
 };
 
@@ -1065,15 +1056,13 @@ impl CameraData {
                 particles.render_particles(
                     &self.particle_render_pipeline,
                     builder,
-                    cvd.view,
-                    cvd.proj,
-                    cvd.inv_rot,
-                    cvd.cam_rot.coords.into(),
-                    cvd.cam_pos.into(),
+                    &cvd,
                     transform_compute.gpu_transforms.clone(),
                     //
                     lights.clone(),
                     light_templates.clone(),
+                    light_list.clone(),
+                    bounding_line_hierarchy.clone(),
                     tiles.clone(),
                 );
 

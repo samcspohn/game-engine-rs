@@ -16,14 +16,21 @@ use crate::{
             self,
             camera::CameraViewData,
             component::buffer_usage_all,
-            lighting::lighting_compute::lt::{self, tile},
+            lighting::lighting_compute::{
+                cs::li,
+                lt::{self, tile},
+            },
             texture::{self, Texture, TextureManager},
             vulkan_manager::VulkanManager,
         },
         storage::_Storage,
         time::Time,
         transform_compute::{self, cs::transform, TransformCompute},
-        utils::{self, gpu_perf::{self, GpuPerf}, PrimaryCommandBuffer},
+        utils::{
+            self,
+            gpu_perf::{self, GpuPerf},
+            PrimaryCommandBuffer,
+        },
         world::{component::Component, transform::Transform, Sys, World},
     },
 };
@@ -141,7 +148,6 @@ pub struct ParticlesSystem {
     // pub performance: PerformanceCounters,
     pub particle_textures: Arc<Mutex<ParticleTextures>>,
     pub gpu_perf: Arc<GpuPerf>,
-
 }
 pub struct ParticleRenderPipeline {
     pub arc: Arc<GraphicsPipeline>,
@@ -302,7 +308,11 @@ impl ParticleDebugPipeline {
 }
 
 impl ParticlesSystem {
-    pub fn new(vk: Arc<VulkanManager>, tex_man: Arc<Mutex<TextureManager>>, gpu_perf: Arc<GpuPerf>) -> ParticlesSystem {
+    pub fn new(
+        vk: Arc<VulkanManager>,
+        tex_man: Arc<Mutex<TextureManager>>,
+        gpu_perf: Arc<GpuPerf>,
+    ) -> ParticlesSystem {
         // let performance = PerformanceCounters {
         //     update_particles: vk.new_query(),
         //     update_emitters: vk.new_query(),
@@ -633,7 +643,7 @@ impl ParticlesSystem {
             time,
         );
         a.end(builder);
-        
+
         let a = self.gpu_perf.node("particle update", builder);
         self.particle_update(builder, transform_compute.gpu_transforms.clone(), time);
         a.end(builder);
@@ -955,43 +965,19 @@ impl ParticlesSystem {
 
         lights: Subbuffer<[crate::engine::rendering::lighting::lighting_compute::lt::light]>,
         light_templates: Subbuffer<[crate::engine::rendering::pipeline::fs::lightTemplate]>,
-        // light_buckets: Subbuffer<[u32]>,
-        // light_buckets_count: Subbuffer<[u32]>,
         tiles: Subbuffer<[lt::tile]>,
     ) {
-        // static mut RENDER_QUERY: Lazy<i32> = Lazy::new(|| -1);
-        // unsafe {
-        //     if *RENDER_QUERY == -1 {
-        //         *RENDER_QUERY = self.vk.new_query();
-        //     }
-        // }
         let pb = &self.particle_buffers;
         let uniform_sub_buffer = self.vk.allocate(gs::Data {
             view: cvd.view.into(),
             proj: cvd.proj.into(),
             cam_inv_rot: cvd.inv_rot.into(),
             cam_rot: cvd.cam_rot.coords.into(),
-            cam_pos: Padded(cvd.cam_pos.into()),
+            cam_pos: cvd.cam_pos.into(),
             num_templates: pb.particle_templates.lock().len() as u32,
+            screen_dims: [cvd.dimensions[0] as f32, cvd.dimensions[1] as f32],
             // _dummy0: Default::default(),
         });
-        // {
-        //     let uniform_data = gs::Data {
-        //         view: view.into(),
-        //         proj: proj.into(),
-        //         cam_inv_rot: cam_inv_rot.into(),
-        //         cam_rot,
-        //         cam_pos: cam_pos.into(),
-        //         num_templates: pb.particle_templates.lock().len() as u32,
-        //         // _dummy0: Default::default(),
-        //     };
-        //     // self.render_uniforms.from_data(uniform_data).unwrap()
-        //     let uniform_sub_buffer = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
-        //         .allocate_sized()
-        //         .unwrap();
-        //     *uniform_sub_buffer.write().unwrap() = uniform_data;
-        //     uniform_sub_buffer
-        // };
         let pt = self.particle_textures.lock();
         let set = PersistentDescriptorSet::new(
             &self.vk.desc_alloc,
@@ -1012,21 +998,6 @@ impl ParticlesSystem {
                 WriteDescriptorSet::buffer(7, pb.particle_next.clone()),
                 WriteDescriptorSet::buffer(8, transform),
                 WriteDescriptorSet::buffer(9, pb.particles.clone()),
-                // WriteDescriptorSet::image_view_sampler(
-                //     10,
-                //     pt.color_tex.0.clone(),
-                //     pt.color_tex.1.clone(),
-                // ),
-                // WriteDescriptorSet::buffer(11, light_templates),
-                // WriteDescriptorSet::buffer(12, lights),
-                // WriteDescriptorSet::buffer(13, light_ids),
-                // WriteDescriptorSet::buffer(14, light_buckets),
-                // WriteDescriptorSet::buffer(15, light_buckets_count),
-                // WriteDescriptorSet::image_view_sampler_array(
-                //     16,
-                //     0,
-                //     pt.samplers.iter().map(|a| (a.0.clone() as _, a.1.clone())),
-                // ),
             ],
             [],
         )
@@ -1055,17 +1026,13 @@ impl ParticlesSystem {
         &self,
         particle_render_pipeline: &ParticleRenderPipeline,
         builder: &mut utils::PrimaryCommandBuffer,
-        view: glm::Mat4,
-        proj: glm::Mat4,
-        cam_inv_rot: glm::Mat4,
-        cam_rot: [f32; 4],
-        cam_pos: [f32; 3],
+        cvd: &CameraViewData,
         transform: Subbuffer<[transform]>,
 
         lights: Subbuffer<[crate::engine::rendering::lighting::lighting_compute::lt::light]>,
         light_templates: Subbuffer<[crate::engine::rendering::pipeline::fs::lightTemplate]>,
-        // light_buckets: Subbuffer<[u32]>,
-        // light_buckets_count: Subbuffer<[u32]>,
+        light_ids: Subbuffer<[u32]>,
+        light_blh: Subbuffer<[rendering::lighting::lighting_compute::cs::BoundingLine]>,
         tiles: Subbuffer<[lt::tile]>,
     ) {
         // static mut RENDER_QUERY: Lazy<i32> = Lazy::new(|| -1);
@@ -1077,31 +1044,15 @@ impl ParticlesSystem {
         // let r = self.gpu_perf.node("particle render", builder);
         let pb = &self.particle_buffers;
         let uniform_sub_buffer = self.vk.allocate(gs::Data {
-            view: view.into(),
-            proj: proj.into(),
-            cam_inv_rot: cam_inv_rot.into(),
-            cam_rot,
-            cam_pos: cam_pos.into(),
+            view: cvd.view.into(),
+            proj: cvd.proj.into(),
+            cam_inv_rot: cvd.inv_rot.into(),
+            cam_rot: cvd.cam_rot.coords.into(),
+            cam_pos: cvd.cam_pos.into(),
             num_templates: pb.particle_templates.lock().len() as u32,
+            screen_dims: cvd.dimensions.into(), 
             // _dummy0: Default::default(),
         });
-        // {
-        //     let uniform_data = gs::Data {
-        //         view: view.into(),
-        //         proj: proj.into(),
-        //         cam_inv_rot: cam_inv_rot.into(),
-        //         cam_rot,
-        //         cam_pos: cam_pos.into(),
-        //         num_templates: pb.particle_templates.lock().len() as u32,
-        //         // _dummy0: Default::default(),
-        //     };
-        //     // self.render_uniforms.from_data(uniform_data).unwrap()
-        //     let uniform_sub_buffer = self.compute_uniforms.lock()[unsafe { *self.cycle.get() }]
-        //         .allocate_sized()
-        //         .unwrap();
-        //     *uniform_sub_buffer.write().unwrap() = uniform_data;
-        //     uniform_sub_buffer
-        // };
         let pt = self.particle_textures.lock();
         let set = PersistentDescriptorSet::new_variable(
             &self.vk.desc_alloc,
@@ -1128,11 +1079,6 @@ impl ParticlesSystem {
                     pt.color_tex.0.clone(),
                     pt.color_tex.1.clone(),
                 ),
-                // WriteDescriptorSet::buffer(11, light_templates),
-                // WriteDescriptorSet::buffer(12, lights),
-                // WriteDescriptorSet::buffer(13, light_ids),
-                // WriteDescriptorSet::buffer(14, light_buckets),
-                // WriteDescriptorSet::buffer(15, light_buckets_count),
                 WriteDescriptorSet::image_view_sampler_array(
                     16,
                     0,
@@ -1142,6 +1088,27 @@ impl ParticlesSystem {
             [],
         )
         .unwrap();
+
+        let light_layout = particle_render_pipeline
+            .arc
+            .layout()
+            .set_layouts()
+            .get(1)
+            .unwrap();
+        let light_desc = PersistentDescriptorSet::new(
+            &self.vk.desc_alloc,
+            light_layout.clone(),
+            [
+                WriteDescriptorSet::buffer(0, light_templates),
+                WriteDescriptorSet::buffer(1, lights),
+                WriteDescriptorSet::buffer(2, tiles),
+                // WriteDescriptorSet::buffer(3, light_ids),
+                WriteDescriptorSet::buffer(4, light_blh),
+            ],
+            [],
+        )
+        .unwrap();
+
         // unsafe {
         //     self.vk.query(&*RENDER_QUERY, builder);
         // }
@@ -1153,6 +1120,13 @@ impl ParticlesSystem {
                 particle_render_pipeline.arc.layout().clone(),
                 0,
                 set,
+            )
+            .unwrap()
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                particle_render_pipeline.arc.layout().clone(),
+                1,
+                light_desc,
             )
             .unwrap()
             .draw_indirect(self.sort.draw.clone())

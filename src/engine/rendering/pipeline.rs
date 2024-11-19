@@ -193,91 +193,6 @@ impl RenderPipeline {
             },
         )
         .unwrap();
-
-        // let vertex_input_state = [
-        //     _Vertex::per_vertex(),
-        //     Normal::per_vertex(),
-        //     UV::per_vertex(),
-        // ]
-        // .definition(&vs)
-        // .unwrap();
-        // // VertexInputState::new().attribute(0, _Vertex::per_vertex().definition(&vs)).attribute(1, Normal::per_vertex().definition(&vs)).attribute(2, UV::per_vertex().definition(&vs));
-
-        // let stages = [
-        //     PipelineShaderStageCreateInfo::new(vs),
-        //     PipelineShaderStageCreateInfo::new(fs),
-        // ];
-        // let layout = PipelineLayout::new(
-        //     vk.device.clone(),
-        //     PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
-        //         .into_pipeline_layout_create_info(vk.device.clone())
-        //         .unwrap(),
-        // )
-        // .unwrap();
-
-        // let subpass = PipelineRenderingCreateInfo {
-        //     color_attachment_formats: vec![Some(vk.swapchain().image_format())],
-        //     ..Default::default()
-        // };
-        // let pipeline = GraphicsPipeline::new(
-        //     vk.device.clone(),
-        //     None,
-        //     GraphicsPipelineCreateInfo {
-        //         stages: stages.into_iter().collect(),
-        //         vertex_input_state: Some(vertex_input_state),
-        //         input_assembly_state: Some(InputAssemblyState::default()),
-        //         viewport_state: Some(ViewportState::default()),
-        //         rasterization_state: Some(RasterizationState::default().cull_mode(CullMode::Back)),
-        //         multisample_state: Some(MultisampleState::default()),
-        //         color_blend_state: Some(ColorBlendState::with_attachment_states(
-        //             subpass.color_attachment_formats.len() as u32,
-        //             ColorBlendAttachmentState::default(),
-        //         )),
-        //         dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-        //         subpass: Some(subpass.into()),
-        //         ..GraphicsPipelineCreateInfo::layout(layout)
-        //     },
-        // )
-        // .unwrap();
-        // let pipeline = GraphicsPipeline::start()
-        //     .vertex_input_state(
-        //         BuffersDefinition::new()
-        //             .vertex::<_Vertex>()
-        //             .vertex::<Normal>()
-        //             .vertex::<UV>(), // .instance::<Id>(),
-        //                              // .vertex::<VertU32>()
-        //                              // .vertex::<VertU32_2>(),
-        //     )
-        //     .vertex_shader(vs.entry_point("main").unwrap(), ())
-        //     .input_assembly_state(InputAssemblyState::new())
-        //     // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-        //     //     Viewport {
-        //     //         origin: [0.0, 0.0],
-        //     //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-        //     //         depth_range: 0.0..1.0,
-        //     //     },
-        //     // ]))
-        //     .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-        //     .fragment_shader(fs.entry_point("main").unwrap(), ())
-        //     .rasterization_state(RasterizationState::new().cull_mode(CullMode::Back))
-        //     .depth_stencil_state(DepthStencilState::simple_depth_test())
-        //     .multisample_state(MultisampleState {
-        //         rasterization_samples: subpass.num_samples().unwrap(),
-        //         ..Default::default()
-        //     })
-        //     .render_pass(subpass)
-        //     .build(vk.device.clone())
-        //     .unwrap();
-        // let pipeline = if use_msaa {
-        //     pipeline.multisample_state(MultisampleState {
-        //         rasterization_samples: subpass.num_samples().unwrap(),
-        //         ..Default::default()
-        //     })
-        // } else {
-        //     pipeline
-        // };
-        // let pipeline = pipeline
-
         let mut builder = AutoCommandBufferBuilder::primary(
             &vk.comm_alloc,
             vk.queue.queue_family_index(),
@@ -287,37 +202,6 @@ impl RenderPipeline {
 
         let (def_texture, def_sampler) =
             texture::texture_from_bytes(vk.clone(), &vec![255_u8, 255, 255, 255], 1, 1);
-        // let def_texture = {
-        //     let dimensions = ImageDimensions::Dim2d {
-        //         width: 1,
-        //         height: 1,
-        //         array_layers: 1,
-        //     };
-        //     let image_data = vec![255_u8, 255, 255, 255];
-        //     let image = ImmutableImage::from_iter(
-        //         &vk.mem_alloc,
-        //         image_data,
-        //         dimensions,
-        //         MipmapsCount::One,
-        //         Format::R8G8B8A8_SRGB,
-        //         &mut builder,
-        //     )
-        //     .unwrap();
-        //     ImageView::new_default(image).unwrap()
-        // };
-        // let _ = builder.build().unwrap().execute(vk.queue.clone()).unwrap();
-
-        // let def_sampler = Sampler::new(
-        //     vk.device.clone(),
-        //     SamplerCreateInfo {
-        //         mag_filter: Filter::Linear,
-        //         min_filter: Filter::Linear,
-        //         address_mode: [SamplerAddressMode::Repeat; 3],
-        //         ..Default::default()
-        //     },
-        // )
-        // .unwrap();
-
         RenderPipeline {
             // _vs: vs,
             // _fs: fs,
@@ -328,36 +212,6 @@ impl RenderPipeline {
             vk,
         }
     }
-    // pub fn _regen(
-    //     &mut self,
-    //     device: Arc<Device>,
-    //     render_pass: Arc<RenderPass>,
-    //     _dimensions: [u32; 2],
-    // ) {
-    //     self.pipeline = GraphicsPipeline::start()
-    //         .vertex_input_state(
-    //             BuffersDefinition::new()
-    //                 .vertex::<_Vertex>()
-    //                 .vertex::<Normal>()
-    //                 .vertex::<UV>(), // .instance::<Id>(),
-    //         )
-    //         .vertex_shader(self._vs.entry_point("main").unwrap(), ())
-    //         .input_assembly_state(InputAssemblyState::new())
-    //         // .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-    //         //     Viewport {
-    //         //         origin: [0.0, 0.0],
-    //         //         dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-    //         //         depth_range: 0.0..1.0,
-    //         //     },
-    //         // ]))
-    //         .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-    //         .fragment_shader(self._fs.entry_point("main").unwrap(), ())
-    //         .rasterization_state(RasterizationState::new().cull_mode(CullMode::Front))
-    //         .depth_stencil_state(DepthStencilState::simple_depth_test())
-    //         .render_pass(Subpass::from(render_pass, 0).unwrap())
-    //         .build(device)
-    //         .unwrap();
-    // }
 
     pub fn bind_pipeline(&self, builder: &mut utils::PrimaryCommandBuffer) -> &RenderPipeline {
         builder.bind_pipeline_graphics(self.pipeline.clone());
@@ -403,12 +257,6 @@ impl RenderPipeline {
             has_skeleton: if has_skeleton { 1 } else { 0 },
             num_bones,
         });
-        // descriptors.push(WriteDescriptorSet::buffer(3, light_templates));
-        // descriptors.push(WriteDescriptorSet::buffer(4, lights));
-        // descriptors.push(WriteDescriptorSet::buffer(5, tiles));
-        // descriptors.push(WriteDescriptorSet::buffer(6, uniform));
-        // descriptors.push(WriteDescriptorSet::buffer(7, light_list));
-        // descriptors.push(WriteDescriptorSet::buffer(7, mesh.bone_weight_offsets));
         if let Some(skel) = skeleton {
             descriptors.push(WriteDescriptorSet::buffer(2, skel.clone()));
         } else {
