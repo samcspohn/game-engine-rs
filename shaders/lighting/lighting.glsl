@@ -146,7 +146,6 @@ vec3 calc_light(vec3 v_pos, vec3 v_normal, vec3 cam_pos, vec2 screen_dims) {
     // f_color = texture(tex, coords) * total_light;   // min(brightness + 0.8, 1.0);
 }
 
-
 // vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
 //     vec3 norm = normalize(v_pos - cam_pos);
 //     return calc_light(v_pos, norm, cam_pos, screen_dims);
@@ -192,7 +191,6 @@ vec4 CalcPointLight_p(uint Index, vec3 v_pos) {
 #undef templ
 }
 
-
 vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
     // vec4 total_light = vec4(vec3(0.05), 1.0f);
     // float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
@@ -202,9 +200,11 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
     coord.y = abs(screen_dims.y) - coord.y - 1;
     vec2 screen_ratio = coord.xy / abs(screen_dims);
     uint lit_times = 0;
-    uint light_ids[128];
+    const uint max_p_lit = 32;
+    uint light_ids[max_p_lit];
     float z = distance(cam_pos, v_pos);
     int num_iter = 0;
+    const float max_brightness = 10.f;
     for (int l = 0; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
         ivec2 ti = ivec2(screen_ratio * _light_quadtree_widths[l]);
         // uint tileIndex = _light_quadtree_offsets[l] + uint(ti.x + (ti.y) * _light_quadtree_widths[l]);
@@ -218,7 +218,9 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
             float radius = lights[l_id].radius;
             if (dot(l_pos, l_pos) < radius * radius) {
                 light_ids[lit_times++] = l_id;
-                if (lit_times > 128) break;
+                // total_light += CalcPointLight_p(l_id, v_pos);
+                // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;
+                if (lit_times > max_p_lit) break;
             }
             continue;
         }
@@ -231,7 +233,7 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
         stack[stack_ptr++] = tiles[tileIndex].BLH_offset;
 
         uint _z = float_to_uint(z);
-        while (stack_ptr > 0 && lit_times < 128 && num_iter < MAX_ITER) {
+        while (stack_ptr > 0 && lit_times < max_p_lit && num_iter < MAX_ITER) {
             uint blh_ptr = stack[--stack_ptr];
 
             if (blh_ptr >= blh.length()) break;   // Check for out-of-bounds access
@@ -246,7 +248,9 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
                     float radius = lights[l_id].radius;
                     if (dot(l_pos, l_pos) < radius * radius) {
                         light_ids[lit_times++] = l_id;
-                        if (lit_times > 128) break;
+                        // total_light += CalcPointLight_p(l_id, v_pos);
+                        // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;
+                        if (lit_times > max_p_lit) break;
                     }
                 } else if (front >= 0) {
                     if (stack_ptr < 32) stack[stack_ptr++] = front;   // Check for stack overflow
@@ -257,7 +261,9 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
                     float radius = lights[l_id].radius;
                     if (dot(l_pos, l_pos) < radius * radius) {
                         light_ids[lit_times++] = l_id;
-                        if (lit_times > 128) break;
+                        // total_light += CalcPointLight_p(l_id, v_pos);
+                        // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;
+                        if (lit_times > max_p_lit) break;
                     }
                 } else if (back >= 0) {
                     if (stack_ptr < 32) stack[stack_ptr++] = back;   // Check for stack overflow
@@ -270,7 +276,7 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
         uint l_id = light_ids[i];
         total_light += CalcPointLight_p(l_id, v_pos);
     }
-    total_light.a = 1.0f;
+    // total_light.a = 1.0f;
     return total_light.rgb;
     // f_color = texture(tex, coords) * total_light;   // min(brightness + 0.8, 1.0);
 }

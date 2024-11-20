@@ -94,9 +94,12 @@ void main() {
                 float z = (view * vec4(p_l[id].pos, 1.0)).z;
                 float z2 = (view * vec4(next_pos, 1.0)).z;
 
-                z = -sqrt(-(z + z2) / 2.f);
-                z = min(z, 0);
-                a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
+                z = sqrt(abs(z + z2) / 2.f);
+                z = -max(z, 0);
+                a1[i].key = float_to_uint(z);//~(float_to_uint(z) ^ (1 << 31));
+                // z = -sqrt(-(z + z2) / 2.f);
+                // z = min(z, 0);
+                // a1[i].key = ~(floatBitsToUint(z) ^ (1 << 31));
                 a1[i].p_id = id;
                 // atomicAdd(buckets[a1[i].key >> 16], 1);
             }

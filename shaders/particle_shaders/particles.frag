@@ -37,6 +37,9 @@ void main() {
     // particle_template templ = templates[templ_id];
     vec4 col = texture(nonuniformEXT(s[_templ.tex_id]), uv);
     vec4 col2 = texture(color_over_life, uv2);
+    if (col.a < 0.01 || col2.a < 0.01) {
+        discard;
+    }
     // vec4 col3 = templates[templ_id].color_life[int(life * 255)];
     vec4 total_light = vec4(1.0);
     if (_templ.recieve_lighting == 1) {
