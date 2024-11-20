@@ -65,7 +65,9 @@ use vulkano::{
     padded::Padded,
     pipeline::{
         graphics::{
-            color_blend::ColorBlendState,
+            color_blend::{
+                AttachmentBlend, BlendFactor, BlendOp, ColorBlendAttachmentState, ColorBlendState, ColorBlendStateFlags, LogicOp
+            },
             depth_stencil::{CompareOp, DepthState, DepthStencilState},
             input_assembly::{InputAssemblyState, PrimitiveTopology},
             multisample::MultisampleState,
@@ -185,6 +187,24 @@ impl ParticleRenderPipeline {
                 g.rasterization_state = Some(RasterizationState::new().cull_mode(CullMode::None));
                 g.depth_stencil_state = Some(depth_stencil_state);
                 g.color_blend_state = Some(ColorBlendState::new(1).blend_alpha());
+                // g.color_blend_state = Some(ColorBlendState {
+                //     // logic_op: LogicOp::,
+                //     attachments: vec![ColorBlendAttachmentState {
+                //         blend: Some(AttachmentBlend {
+                //             src_color_blend_factor:  BlendFactor::One,
+                //             dst_color_blend_factor: BlendFactor::OneMinusSrcAlpha,
+                //             color_blend_op: BlendOp::Add,
+                //             src_alpha_blend_factor: BlendFactor::One,
+                //             dst_alpha_blend_factor: BlendFactor::Zero,
+                //             alpha_blend_op: BlendOp::Add,
+                //         }),
+                //         ..Default::default()
+                //         // color_write_mask: ,
+                //         // color_write_enable: todo!(),
+                //     }],
+                //     // blend_constants: todo!(),
+                //     ..Default::default()
+                // });
                 let mut layout_create_info = PipelineDescriptorSetLayoutCreateInfo::from_stages(&[
                     PipelineShaderStageCreateInfo::new(vs),
                     PipelineShaderStageCreateInfo::new(gs),
@@ -964,7 +984,7 @@ impl ParticlesSystem {
             cam_rot: cvd.cam_rot.coords.into(),
             cam_pos: cvd.cam_pos.into(),
             num_templates: pb.particle_templates.lock().len() as u32,
-            screen_dims: cvd.dimensions.into(), 
+            screen_dims: cvd.dimensions.into(),
             // _dummy0: Default::default(),
         });
         let pt = self.particle_textures.lock();

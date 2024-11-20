@@ -1,5 +1,7 @@
 
 // #define MAX_LIGHTS_PER_TILE 512
+#ifndef UTIL
+#define UTIL
 #define MAX_LEVEL 7
 
 const int _light_quadtree_offsets[8] = {0, 1, 5, 21, 85, 341, 1365, 5461};
@@ -770,3 +772,4 @@ vec3 get(smvec3 v) {
     // p.z = v.z;
     return p;
 }
+#endif

@@ -1,4 +1,5 @@
 
+#include "../util.glsl"
 layout(set = 1, binding = 0) buffer lt { lightTemplate light_templates[]; };
 layout(set = 1, binding = 1) buffer l { light lights[]; };
 layout(set = 1, binding = 2) buffer c { tile tiles[]; };
@@ -50,6 +51,7 @@ const uint MAX_ITER = 1024;
 // const uint MAX_ITER = 1024;
 const bool USE_BLH = true;
 
+#ifndef GEOM
 vec3 calc_light(vec3 v_pos, vec3 v_normal, vec3 cam_pos, vec2 screen_dims) {
     // vec4 total_light = vec4(vec3(0.05), 1.0f);
     // float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
@@ -145,6 +147,7 @@ vec3 calc_light(vec3 v_pos, vec3 v_normal, vec3 cam_pos, vec2 screen_dims) {
     return total_light.rgb;
     // f_color = texture(tex, coords) * total_light;   // min(brightness + 0.8, 1.0);
 }
+#endif
 
 // vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
 //     vec3 norm = normalize(v_pos - cam_pos);
@@ -190,7 +193,7 @@ vec4 CalcPointLight_p(uint Index, vec3 v_pos) {
 #undef _l
 #undef templ
 }
-
+#ifndef GEOM
 vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
     // vec4 total_light = vec4(vec3(0.05), 1.0f);
     // float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
@@ -279,4 +282,81 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
     // total_light.a = 1.0f;
     return total_light.rgb;
     // f_color = texture(tex, coords) * total_light;   // min(brightness + 0.8, 1.0);
+}
+#endif
+
+const uint MAX_LIGHTS_PER_PARTICLE = 16;
+void get_light_list(vec2 screen_ratio, vec3 v_pos, vec3 cam_pos, vec2 screen_dims, inout uint light_ids[MAX_LIGHTS_PER_PARTICLE], inout uint lit_times) {
+    lit_times = 0;
+    const uint max_p_lit = 8;
+    float z = distance(cam_pos, v_pos);
+    int num_iter = 0;
+    const float max_brightness = 10.f;
+    for (int l = 0; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
+        ivec2 ti = ivec2(screen_ratio * _light_quadtree_widths[l]);
+        // uint tileIndex = _light_quadtree_offsets[l] + uint(ti.x + (ti.y) * _light_quadtree_widths[l]);
+        uint tileIndex = get_tile(ti.x, ti.y, l);
+
+        if (tiles[tileIndex].count == 0) continue;
+
+        if (tiles[tileIndex].BLH_offset < -1) {
+            uint l_id = -tiles[tileIndex].BLH_offset - 2;
+            vec3 l_pos = v_pos - lights[l_id].pos;
+            float radius = lights[l_id].radius;
+            if (dot(l_pos, l_pos) < radius * radius) {
+                light_ids[lit_times++] = l_id;
+                // total_light += CalcPointLight_p(l_id, v_pos);
+                // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;
+                if (lit_times > MAX_LIGHTS_PER_PARTICLE) break;
+            }
+            continue;
+        }
+        if (tiles[tileIndex].BLH_offset == -1) {
+            continue;
+        }
+
+        int stack[32];
+        int stack_ptr = 0;
+        stack[stack_ptr++] = tiles[tileIndex].BLH_offset;
+
+        uint _z = float_to_uint(z);
+        while (stack_ptr > 0 && lit_times < max_p_lit && num_iter < MAX_ITER) {
+            uint blh_ptr = stack[--stack_ptr];
+
+            if (blh_ptr >= blh.length()) break;   // Check for out-of-bounds access
+
+            if (blh[blh_ptr].start <= _z && blh[blh_ptr].end >= _z) {
+                int front = blh[blh_ptr].front;
+                int back = blh[blh_ptr].back;
+
+                if (front < -1) {   // front is a light id
+                    int l_id = -front - 2;
+                    vec3 l_pos = v_pos - lights[l_id].pos;
+                    float radius = lights[l_id].radius;
+                    if (dot(l_pos, l_pos) < radius * radius) {
+                        light_ids[lit_times++] = l_id;
+                        // total_light += CalcPointLight_p(l_id, v_pos);
+                        // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;
+                        if (lit_times > MAX_LIGHTS_PER_PARTICLE) break;
+                    }
+                } else if (front >= 0) {
+                    if (stack_ptr < 32) stack[stack_ptr++] = front;   // Check for stack overflow
+                }
+                if (back < -1) {   // back is a light id
+                    int l_id = -back - 2;
+                    vec3 l_pos = v_pos - lights[l_id].pos;
+                    float radius = lights[l_id].radius;
+                    if (dot(l_pos, l_pos) < radius * radius) {
+                        light_ids[lit_times++] = l_id;
+                        // total_light += CalcPointLight_p(l_id, v_pos);
+                        // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;
+                        if (lit_times > MAX_LIGHTS_PER_PARTICLE) break;
+                    }
+                } else if (back >= 0) {
+                    if (stack_ptr < 32) stack[stack_ptr++] = back;   // Check for stack overflow
+                }
+            }
+            num_iter++;
+        }
+    }
 }

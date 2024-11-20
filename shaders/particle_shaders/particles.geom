@@ -1,5 +1,7 @@
 #version 450
 #include "../util.glsl"
+#define GEOM
+#include "../lighting/lighting.glsl"
 #include "particle.glsl"
 
 layout(points) in;
@@ -11,6 +13,8 @@ layout(location = 1) out int templ_id;
 layout(location = 2) out vec2 uv;
 layout(location = 3) out vec2 uv2;
 layout(location = 4) out vec3 v_pos;
+layout(location = 5) out flat uint num_lights;
+layout(location = 6) out flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
 
 // layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
 // layout(set = 0, binding = 0) buffer pl_c { pos_life_comp p_l[]; };
@@ -113,6 +117,17 @@ void main() {
         }
         model = translate(pos) * rotate(rot) * scale(vec3(templ.scale.x, templ.scale.y, 1));
     }
+
+    vec4 scr_pt = proj * view * model * vec4(0, 0, 0, 1);
+    scr_pt /= scr_pt.w;
+    // vec2 coord = gl_FragCoord.xy;
+    // coord.y = abs(screen_dims.y) - coord.y - 1;
+    vec2 screen_ratio = scr_pt.xy / 2 + 0.5;
+
+    // get light list
+    uint _light_list[MAX_LIGHTS_PER_PARTICLE];
+    uint _num_lights = 0;
+    if (templ.recieve_lighting == 1) get_light_list(screen_ratio, pos, cam_pos, screen_dims, _light_list, _num_lights);
     // float offset = 0.5 / float(num_templates);
     float tid = float(_templ_id + 0.5);
     float color_id = tid / float(num_templates);
@@ -123,6 +138,8 @@ void main() {
     uv = vert_uv[0];
     uv2 = vec2(l1, color_id);
     life = l1;
+    light_ids = _light_list;
+    num_lights = _num_lights;
     EmitVertex();
 
     gl_Position = get_position(mvp, 1);
@@ -131,6 +148,8 @@ void main() {
     uv = vert_uv[1];
     uv2 = vec2(l2, color_id);
     life = l2;
+    light_ids = _light_list;
+    num_lights = _num_lights;
     EmitVertex();
 
     gl_Position = get_position(mvp, 2);
@@ -139,6 +158,8 @@ void main() {
     uv = vert_uv[2];
     uv2 = vec2(l1, color_id);
     life = l1;
+    light_ids = _light_list;
+    num_lights = _num_lights;
     EmitVertex();
 
     gl_Position = get_position(mvp, 3);
@@ -147,6 +168,8 @@ void main() {
     uv = vert_uv[3];
     uv2 = vec2(l2, color_id);
     life = l2;
+    light_ids = _light_list;
+    num_lights = _num_lights;
     EmitVertex();
 
     // EndPrimitive();
