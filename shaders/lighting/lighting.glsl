@@ -286,12 +286,13 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
 #endif
 
 const uint MAX_LIGHTS_PER_PARTICLE = 16;
-void get_light_list(vec2 screen_ratio, vec3 v_pos, vec3 cam_pos, vec2 screen_dims, inout uint light_ids[MAX_LIGHTS_PER_PARTICLE], inout uint lit_times) {
+void get_light_list(vec2 screen_ratio, vec3 v_pos, vec3 cam_pos, float p_size, inout uint light_ids[MAX_LIGHTS_PER_PARTICLE], inout uint lit_times) {
     lit_times = 0;
     const uint max_p_lit = 8;
     float z = distance(cam_pos, v_pos);
     int num_iter = 0;
     const float max_brightness = 10.f;
+    // p_size *= p_size;
     for (int l = 0; l < MAX_LEVEL; ++l) {   // iterate through light quadtree levels
         ivec2 ti = ivec2(screen_ratio * _light_quadtree_widths[l]);
         // uint tileIndex = _light_quadtree_offsets[l] + uint(ti.x + (ti.y) * _light_quadtree_widths[l]);
@@ -303,7 +304,7 @@ void get_light_list(vec2 screen_ratio, vec3 v_pos, vec3 cam_pos, vec2 screen_dim
             uint l_id = -tiles[tileIndex].BLH_offset - 2;
             vec3 l_pos = v_pos - lights[l_id].pos;
             float radius = lights[l_id].radius;
-            if (dot(l_pos, l_pos) < radius * radius) {
+            if (dot(l_pos, l_pos) < (radius + p_size) * (radius + p_size)) {
                 light_ids[lit_times++] = l_id;
                 // total_light += CalcPointLight_p(l_id, v_pos);
                 // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;
@@ -333,7 +334,7 @@ void get_light_list(vec2 screen_ratio, vec3 v_pos, vec3 cam_pos, vec2 screen_dim
                     int l_id = -front - 2;
                     vec3 l_pos = v_pos - lights[l_id].pos;
                     float radius = lights[l_id].radius;
-                    if (dot(l_pos, l_pos) < radius * radius) {
+                    if (dot(l_pos, l_pos) < (radius + p_size) * (radius + p_size)) {
                         light_ids[lit_times++] = l_id;
                         // total_light += CalcPointLight_p(l_id, v_pos);
                         // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;
@@ -346,7 +347,7 @@ void get_light_list(vec2 screen_ratio, vec3 v_pos, vec3 cam_pos, vec2 screen_dim
                     int l_id = -back - 2;
                     vec3 l_pos = v_pos - lights[l_id].pos;
                     float radius = lights[l_id].radius;
-                    if (dot(l_pos, l_pos) < radius * radius) {
+                    if (dot(l_pos, l_pos) < (radius + p_size) * (radius + p_size)) {
                         light_ids[lit_times++] = l_id;
                         // total_light += CalcPointLight_p(l_id, v_pos);
                         // if (lit_times > max_p_lit || length(total_light) > max_brightness) return total_light.rgb;

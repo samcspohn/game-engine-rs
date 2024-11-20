@@ -58,6 +58,7 @@ void main() {
     float l2;
     // vec3 pos = get_pos(p_l[i]);
     vec3 pos = p_l[i].pos;
+    vec2 size = templ.scale;
     if (templ.trail == 1) {   // trail
         vec3 next_pos;
         // l2 = 1. - get_life(p_l[i]);
@@ -78,7 +79,8 @@ void main() {
         vec3 x = cross(v, (pos - cam_pos));
         x = cross(x, v);
         vec4 l = lookAt(x, v);
-        model = translate(pos + v / 2.f) * rotate(l) * scale(vec3(templ.scale.x, length(v) / 2 * templ.scale.y, 1));
+        size = vec2(size.x, length(v) / 2 * size.y);
+        model = translate(pos + v / 2.f) * rotate(l) * scale(vec3(size.x, size.y, 1));
     } else {   // not trail / billboard / aligned to velocity
         // l1 = l2 = 1. - get_life(p_l[i]);
         l1 = l2 = 1. - p_l[i].life;
@@ -127,14 +129,16 @@ void main() {
     // get light list
     uint _light_list[MAX_LIGHTS_PER_PARTICLE];
     uint _num_lights = 0;
-    if (templ.recieve_lighting == 1) get_light_list(screen_ratio, pos, cam_pos, screen_dims, _light_list, _num_lights);
+    if (templ.recieve_lighting == 1) get_light_list(screen_ratio, pos, cam_pos, length(size), _light_list, _num_lights);
     // float offset = 0.5 / float(num_templates);
     float tid = float(_templ_id + 0.5);
     float color_id = tid / float(num_templates);
     mat4 mvp = proj * view * model;
-    templ_id = template_ids[i];
+
+
     gl_Position = get_position(mvp, 0);
     v_pos = (model * vert_pos[0]).xyz;
+    templ_id = template_ids[i];
     uv = vert_uv[0];
     uv2 = vec2(l1, color_id);
     life = l1;
