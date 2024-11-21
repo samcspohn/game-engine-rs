@@ -34,13 +34,13 @@ use super::{
 #[serde(default)]
 pub struct ParticleTemplate {
     color: [f32; 4],
-    emission_rate: f32,
+    pub emission_rate: f32,
     emission_radius: f32,
     dispersion: f32,
     min_speed: f32,
     max_speed: f32,
     min_lifetime: f32,
-    max_lifetime: f32,
+    pub max_lifetime: f32,
     size: Vec2,
     pub(super) color_over_life: ColorGradient,
     trail: bool,

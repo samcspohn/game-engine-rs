@@ -35,7 +35,12 @@ impl Component for ParticleEmitter {
             e_id: id,
         };
 
-        sys.particles_system.emitter_inits.push(d);
+        let p = &sys.particles_system;
+        p.emitter_inits.push(d);
+        p.max_particles.fetch_add(
+            unsafe { &*p.emitter_max_particles.get() }[self.template.id as usize].1,
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
     fn deinit(&mut self, transform: &Transform, id: i32, sys: &Sys) {
         let d = cs::emitter_init {

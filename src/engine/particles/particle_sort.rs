@@ -31,10 +31,7 @@ use vulkano::{
 };
 use winit::event::VirtualKeyCode;
 
-use super::{
-    particles::{ParticleBuffers, _MAX_PARTICLES},
-    shaders::scs,
-};
+use super::{particles::ParticleBuffers, shaders::scs};
 
 pub struct ParticleSort {
     vk: Arc<VulkanManager>,
@@ -49,14 +46,13 @@ pub struct ParticleSort {
     gpu_perf: Arc<GpuPerf>,
 }
 impl ParticleSort {
-    pub fn new(vk: Arc<VulkanManager>, gpu_perf: Arc<GpuPerf>) -> ParticleSort {
+    pub fn new(vk: Arc<VulkanManager>, gpu_perf: Arc<GpuPerf>, max_particles: i32) -> ParticleSort {
         let mut builder = AutoCommandBufferBuilder::primary(
             &vk.comm_alloc,
             vk.queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
-        let max_particles: i32 = *_MAX_PARTICLES;
 
         let a1 = vk.buffer_array(
             max_particles as vulkano::DeviceSize,
@@ -144,6 +140,16 @@ impl ParticleSort {
             gpu_perf,
         }
     }
+    pub fn resize(&mut self, max_particles: i32) {
+        self.a1 = self.vk.buffer_array(
+            max_particles as vulkano::DeviceSize,
+            MemoryTypeFilter::PREFER_DEVICE,
+        );
+        self.a2 = self.vk.buffer_array(
+            max_particles as vulkano::DeviceSize,
+            MemoryTypeFilter::PREFER_DEVICE,
+        );
+    }
     pub fn sort(
         &self,
         cvd: &CameraViewData,
@@ -155,9 +161,10 @@ impl ParticleSort {
         desc_allocator: &StandardDescriptorSetAllocator,
         perf: &Perf,
         input: &Input,
+        max_particles: i32
     ) {
         let s = self.gpu_perf.node("particle sort", builder);
-        let max_particles: i32 = *_MAX_PARTICLES;
+        // let max_particles: i32 = *_MAX_PARTICLES;
         static mut FRUSTUM: scs::Frustum = scs::Frustum {
             planes: [[0., 0., 0., 0.]; 6],
             points: [Padded([0., 0., 0.]); 8],

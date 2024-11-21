@@ -1,4 +1,5 @@
 use bitvec::view;
+use crossbeam::atomic::AtomicConsume;
 use egui::TextureId;
 use egui_winit_vulkano::Gui;
 use glium::buffer::Content;
@@ -46,14 +47,22 @@ use winit::event::VirtualKeyCode;
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        input::Input, particles::{
+        input::Input,
+        particles::{
             particles::{ParticleDebugPipeline, ParticleRenderPipeline, ParticlesSystem},
             shaders::scs,
-        }, project::asset_manager::AssetsManager, rendering::{component::ur, debug, lighting::lighting_compute::cs::li}, time::Time, transform_compute::TransformCompute, utils::{self, perf::Perf}, world::{
+        },
+        project::asset_manager::AssetsManager,
+        rendering::{component::ur, debug, lighting::lighting_compute::cs::li},
+        time::Time,
+        transform_compute::TransformCompute,
+        utils::{self, perf::Perf},
+        world::{
             component::Component,
             transform::{Transform, TransformBuf},
             Sys, World,
-        }, RenderData
+        },
+        RenderData,
     },
 };
 
@@ -828,17 +837,18 @@ impl CameraData {
                     }
                 }
                 let particle_sort = perf.node("particle sort");
-                particles.sort.sort(
+                particles.sort.lock().sort(
                     // per camera
                     &cvd,
                     transform_compute.gpu_transforms.clone(),
-                    &particles.particle_buffers,
+                    &particles.particle_buffers.lock(),
                     vk.device.clone(),
                     vk.queue.clone(),
                     builder,
                     &vk.desc_alloc,
                     &perf,
                     &input,
+                    particles.max_particles.load_consume() as i32,
                 );
                 drop(particle_sort);
                 // light_bounding.render(

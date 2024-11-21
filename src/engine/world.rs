@@ -23,10 +23,10 @@ use std::{
     cell::{RefCell, SyncUnsafeCell},
     collections::HashMap,
     sync::{
-        atomic::{AtomicI32, Ordering},
+        atomic::{AtomicI32, AtomicU32, Ordering},
         Arc,
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 use thincollections::{thin_map::ThinMap, thin_vec::ThinVec};
 
@@ -42,23 +42,19 @@ use super::{
     atomic_vec::AtomicVec,
     audio::system::AudioSystem,
     input::Input,
-    particles::{component::ParticleEmitter, particles::ParticlesSystem},
-    utils::perf::Perf,
+    particles::{component::ParticleEmitter, particles::ParticlesSystem, shaders::cs::emitter},
     physics::{
         collider::{_Collider, _ColliderType},
         Physics, PhysicsData,
     },
     project::asset_manager::AssetsManager,
     rendering::{
-        camera::Camera,
-        component::RendererManager,
-        lighting::lighting::LightingSystem,
-        model::Skeleton,
-        vulkan_manager::VulkanManager,
+        camera::Camera, component::RendererManager, lighting::lighting::LightingSystem,
+        model::Skeleton, vulkan_manager::VulkanManager,
     },
     storage::{Storage, StorageBase, _Storage},
     time::Time,
-    utils::GPUWork,
+    utils::{perf::Perf, GPUWork},
     Defer, RenderData,
 };
 
@@ -192,19 +188,31 @@ where
         }
     }
     pub fn update(mut self) -> Self {
-        self._world.component_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self._world.component_updates.insert(
+            self.key,
+            self._world.components.get(&self.key).unwrap().1.clone(),
+        );
         self
     }
     pub fn late_update(mut self) -> Self {
-        self._world.component_late_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self._world.component_late_updates.insert(
+            self.key,
+            self._world.components.get(&self.key).unwrap().1.clone(),
+        );
         self
     }
-    pub fn on_render(mut self)  -> Self {
-        self._world.component_on_render.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+    pub fn on_render(mut self) -> Self {
+        self._world.component_on_render.insert(
+            self.key,
+            self._world.components.get(&self.key).unwrap().1.clone(),
+        );
         self
     }
     pub fn editor_update(mut self) -> Self {
-        self._world.component_editor_updates.insert(self.key, self._world.components.get(&self.key).unwrap().1.clone());
+        self._world.component_editor_updates.insert(
+            self.key,
+            self._world.components.get(&self.key).unwrap().1.clone(),
+        );
         self
     }
 }
@@ -472,7 +480,7 @@ impl World {
             component_storage.read().get_name().to_string(),
             component_storage.clone(),
         );
-        
+
         return Registation::new(self);
 
         // println!("{} registered", std::any::type_name::<T>());
@@ -979,6 +987,46 @@ impl World {
         self.gpu_work = SegQueue::new();
         self.input = input;
         self.time = time;
+
+        let emitter_max_particles =
+            unsafe { &mut *self.sys.particles_system.emitter_max_particles.get() };
+        let burst_deinits_accum =
+            unsafe { &mut *self.sys.particles_system.burst_deinits_accum.get() };
+        emitter_max_particles.resize(
+            self.sys
+                .particles_system
+                .particle_template_manager
+                .lock()
+                .id_gen as usize,
+            (0, 0),
+        );
+        burst_deinits_accum.resize_with(
+            self.sys
+                .particles_system
+                .particle_template_manager
+                .lock()
+                .id_gen as usize,
+            || AtomicU32::new(0),
+        );
+
+        for (id, a) in self
+            .sys
+            .particles_system
+            .particle_template_manager
+            .lock()
+            .assets_id
+            .iter()
+        {
+            let a = a.lock();
+            let time_offset = Duration::from_secs_f32(a.max_lifetime).as_micros() as u64;
+            emitter_max_particles[*id as usize] =
+                (time_offset, (a.emission_rate * a.max_lifetime) as u32);
+        }
+
+        let v = unsafe { &mut *self.sys.particles_system.burst_deinits_accum.get() };
+        for a in v.iter() {
+            a.store(0, Ordering::Relaxed);
+        }
     }
     pub fn _update(&mut self, perf: &Perf) {
         {
@@ -1018,8 +1066,7 @@ impl World {
                     if stor.len() == 0 {
                         return;
                     }
-                    let world_update =
-                        perf.node(&format!("late_update-{}", stor.get_name()));
+                    let world_update = perf.node(&format!("late_update-{}", stor.get_name()));
                     stor.late_update(&self.transforms, &sys);
                 });
             }

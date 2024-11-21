@@ -86,6 +86,11 @@ impl<'a> System<'a> {
         };
 
         self.particle_system.particle_burts.push(burst);
+        self.particle_system
+            .max_particles
+            .fetch_add(count, std::sync::atomic::Ordering::Relaxed);
+        let v = unsafe { &mut *self.particle_system.burst_deinits_accum.get() };
+        v[template.id as usize].fetch_add(count, std::sync::atomic::Ordering::Relaxed);
     }
     pub fn play_sound(&self, template: &AssetInstance<AudioAsset>) {
         self.assets.get_manager(|audio_manager: &AudioManager| {

@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
     thread::{self, JoinHandle, Thread},
@@ -107,7 +107,6 @@ use crate::{
 use self::{
     input::Input,
     particles::particles::ParticlesSystem,
-    utils::perf::Perf,
     physics::collider::_ColliderType,
     prelude::{Component, Inpsect, Ins, Sys, System, Transform},
     project::{
@@ -120,7 +119,7 @@ use self::{
         camera::{Camera, CameraData, CameraViewData},
         component::{Renderer, SharedRendererData},
         debug::DebugSystem,
-        lighting::lighting_compute::{lt, cs, LightingCompute},
+        lighting::lighting_compute::{cs, lt, LightingCompute},
         model::{Mesh, ModelRenderer},
         pipeline::{
             fs::{light, lightTemplate},
@@ -134,6 +133,7 @@ use self::{
         cs::{transform, MVP},
         TransformCompute,
     },
+    utils::perf::Perf,
     utils::GPUWork,
     world::World,
 };
@@ -254,7 +254,11 @@ pub struct Engine {
     pub(crate) rendering_complete: Receiver<bool>,
     pub(crate) rendering_data: Sender<(
         bool,
-        Option<(u32, SwapchainAcquireFuture, Arc<PrimaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>>)>,
+        Option<(
+            u32,
+            SwapchainAcquireFuture,
+            Arc<PrimaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>>,
+        )>,
     )>,
     pub(crate) rendering_thread: Arc<JoinHandle<()>>,
     phys_upd_start: Sender<(bool, Arc<Mutex<Physics>>)>,
@@ -295,7 +299,11 @@ fn init_systems(
     texture_manager: Arc<Mutex<TextureManager>>,
     gpu_perf: Arc<GpuPerf>,
 ) -> (Arc<ParticlesSystem>, Arc<LightingSystem>) {
-    let particles_system = Arc::new(ParticlesSystem::new(vk.clone(), texture_manager.clone(), gpu_perf.clone()));
+    let particles_system = Arc::new(ParticlesSystem::new(
+        vk.clone(),
+        texture_manager.clone(),
+        gpu_perf.clone(),
+    ));
     let lighting_system = Arc::new(LightingSystem::new(vk.clone()));
     (particles_system, lighting_system)
 }
@@ -388,7 +396,8 @@ impl Engine {
         let perf = Arc::new(Perf::new());
         let gpu_perf = Arc::new(GpuPerf::new(vk.clone()));
 
-        let (particles_system, lighting_system) = init_systems(&vk, texture_manager.clone(), gpu_perf.clone());
+        let (particles_system, lighting_system) =
+            init_systems(&vk, texture_manager.clone(), gpu_perf.clone());
         let renderer_manager = Arc::new(RwLock::new(RendererManager::new(vk.clone())));
         let light_manager = Arc::new(Mutex::new(LightTemplateManager::new(
             (lighting_system.light_templates.clone()),
@@ -448,7 +457,6 @@ impl Engine {
             ..Default::default()
         };
 
-
         let mut frame_time = Instant::now();
 
         let mut transform_compute = TransformCompute::new(vk.clone(), gpu_perf.clone());
@@ -492,7 +500,9 @@ impl Engine {
             let vk = vk.clone();
             let gpu_perf = gpu_perf.clone();
             let perf = perf.clone();
-            thread::spawn(move || render_thread::render_thread(vk, gpu_perf, perf, rendering_rcv, rendering_snd2))
+            thread::spawn(move || {
+                render_thread::render_thread(vk, gpu_perf, perf, rendering_rcv, rendering_snd2)
+            })
         });
 
         // let mut phys = world.lock().sys.physics.clone();
@@ -528,7 +538,11 @@ impl Engine {
             project: Project::default(),
             recompile: recompiled,
             transform_compute: RwLock::new(transform_compute),
-            lighting_compute: RwLock::new(LightingCompute::new(vk.clone(), render_pass.clone(), gpu_perf.clone())),
+            lighting_compute: RwLock::new(LightingCompute::new(
+                vk.clone(),
+                render_pass.clone(),
+                gpu_perf.clone(),
+            )),
             // light_bounding: RwLock::new(LightBounding::new(vk.clone())),
             playing_game: game_mode,
             // coms,
@@ -605,6 +619,43 @@ impl Engine {
             .status()
             .unwrap();
         self.file_watcher.get_updates(self.assets_manager.clone());
+
+        let emitter_max_particles =
+            unsafe { &mut *self.particles_system.emitter_max_particles.get() };
+        let burst_deinits_accum = unsafe { &mut *self.particles_system.burst_deinits_accum.get() };
+        emitter_max_particles.resize(
+            self.particles_system
+                .particle_template_manager
+                .lock()
+                .id_gen as usize,
+            (0, 0),
+        );
+        burst_deinits_accum.resize_with(
+            self.particles_system
+                .particle_template_manager
+                .lock()
+                .id_gen as usize,
+            || AtomicU32::new(0),
+        );
+
+        for (id, a) in self
+            .particles_system
+            .particle_template_manager
+            .lock()
+            .assets_id
+            .iter()
+        {
+            let a = a.lock();
+            let time_offset = Duration::from_secs_f32(a.max_lifetime).as_micros() as u64;
+            emitter_max_particles[*id as usize] =
+                (time_offset, (a.emission_rate * a.max_lifetime) as u32);
+        }
+
+        let v = unsafe { &mut *self.particles_system.burst_deinits_accum.get() };
+        for a in v.iter() {
+            a.store(0, Ordering::Relaxed);
+        }
+
         serialize::deserialize(&mut self.world.lock(), &self.project.working_scene);
     }
 
@@ -795,7 +846,7 @@ impl Engine {
         let mut renderer_data = world.sys.renderer_manager.write().get_renderer_data();
         drop(get_renderer_data);
         let emitter_len = world.get_emitter_len();
-        let emitter_inits = world.sys.particles_system.emitter_inits.get_vec();
+        let emitter_inits = world.sys.particles_system.emitter_inits.get_vec(); // optimize
         let emitter_deinits = world.sys.particles_system.emitter_deinits.get_vec();
         let particle_bursts = world.sys.particles_system.particle_burts.get_vec();
         // let (main_cam_id, mut cam_datas) = world.get_cam_datas();
