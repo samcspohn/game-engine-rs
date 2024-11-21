@@ -11,7 +11,8 @@ layout(location = 2) in vec2 uv;
 layout(location = 3) in vec2 uv2;
 layout(location = 4) in vec3 v_pos;
 layout(location = 5) in flat uint num_lights;
-layout(location = 6) in flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
+layout(location = 6) in flat uint offset;
+// layout(location = 6) in flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
 layout(location = 0) out vec4 FragColor;
 
 const int BM_NONE = 0;
@@ -29,16 +30,10 @@ layout(set = 0, binding = 4) uniform Data {
     vec4 cam_rot;
     vec2 screen_dims;
 };
-layout(set = 0, binding = 10) uniform sampler2D color_over_life;
+layout(set = 0, binding = 10) buffer b10 { uint offset; uint particle_lighting[]; } _pl_;
+layout(set = 0, binding = 11) uniform sampler2D color_over_life;
 
-// layout(set = 0, binding = 11) buffer lt { lightTemplate light_templates[]; };
-
-// layout(set = 0, binding = 12) buffer l { light lights[]; };
-// layout(set = 0, binding = 13) buffer lid { uint light_ids[]; };
-// layout(set = 0, binding = 14) buffer b { uint buckets[]; };
-// layout(set = 0, binding = 15) buffer bc { uint buckets_count[]; };
-
-layout(set = 0, binding = 16) uniform sampler2D[] s;
+layout(set = 0, binding = 12) uniform sampler2D[] s;
 void main() {
 #define _templ templates[templ_id]
     // particle_template templ = templates[templ_id];
@@ -52,7 +47,7 @@ void main() {
     if (_templ.recieve_lighting == 1) {
         total_light = vec4(vec3(0.3), 1.0f);
         for (int i = 0; i < num_lights; i++) {
-            uint l_id = light_ids[i];
+            uint l_id = _pl_.particle_lighting[(offset + i) % (1 << 16)];
             total_light += CalcPointLight_p(l_id, v_pos);
         }
         // total_light.rgb += calc_light_p(v_pos, cam_pos, screen_dims);

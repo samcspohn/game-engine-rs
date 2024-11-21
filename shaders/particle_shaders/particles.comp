@@ -110,8 +110,9 @@ void init_particle(uint i, int tId, int eid, vec3 pos, vec4 rot, vec3 scale) {
         vec3 dir = cross(
             p.vel, normalize(vec3(rand() - 0.5, rand() - 0.5, rand() - 0.5)));
         // set(p.rotation,lookAt(dir,vel));
-        vec4 rot = lookAt(dir, p.vel);
-        p.rot = uvec2(packHalf2x16(vec2(rot.x, rot.y)), packHalf2x16(vec2(rot.z, rot.w)));
+        set_rot(p, lookAt(dir, p.vel));
+        // vec4 rot = lookAt(dir, p.vel);
+        // p.rot = uvec2(packHalf2x16(vec2(rot.x, rot.y)), packHalf2x16(vec2(rot.z, rot.w)));
     }
     p_l[i].pos = pos;
     p_l[i].life = 1.0;

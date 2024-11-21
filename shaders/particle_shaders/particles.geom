@@ -14,7 +14,8 @@ layout(location = 2) out vec2 uv;
 layout(location = 3) out vec2 uv2;
 layout(location = 4) out vec3 v_pos;
 layout(location = 5) out flat uint num_lights;
-layout(location = 6) out flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
+layout(location = 6) out flat uint offset;
+// layout(location = 6) out flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
 
 // layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
 // layout(set = 0, binding = 0) buffer pl_c { pos_life_comp p_l[]; };
@@ -25,6 +26,7 @@ layout(set = 0, binding = 6) buffer pti { int template_ids[]; };
 layout(set = 0, binding = 7) buffer _n { int next[]; };
 layout(set = 0, binding = 8) buffer t { transform transforms[]; };
 layout(set = 0, binding = 9) buffer p { particle particles[]; };
+layout(set = 0, binding = 10) buffer b10 { uint offset; uint particle_lighting[]; } _pl_;
 layout(set = 0, binding = 4) uniform Data {
     mat4 view;
     mat4 cam_inv_rot;
@@ -114,8 +116,9 @@ void main() {
         } else if (templ.billboard == 1) {
             rot = look_at;
         } else {
-            uvec2 urot = particles[i].rot;
-            rot = vec4(unpackHalf2x16(urot.x), unpackHalf2x16(urot.y));
+            rot = get_rot(p);
+            // uvec2 urot = particles[i].rot;
+            // rot = vec4(unpackHalf2x16(urot.x), unpackHalf2x16(urot.y));
         }
         model = translate(pos) * rotate(rot) * scale(vec3(templ.scale.x, templ.scale.y, 1));
     }
@@ -135,6 +138,11 @@ void main() {
     float color_id = tid / float(num_templates);
     mat4 mvp = proj * view * model;
 
+    uint _offset = atomicAdd(_pl_.offset, _num_lights) % (1 << 16);
+    for (int i = 0; i < _num_lights; ++i) {
+        _pl_.particle_lighting[(_offset + i) % (1 << 16)] = _light_list[i];
+    }
+
 
     gl_Position = get_position(mvp, 0);
     v_pos = (model * vert_pos[0]).xyz;
@@ -142,7 +150,8 @@ void main() {
     uv = vert_uv[0];
     uv2 = vec2(l1, color_id);
     life = l1;
-    light_ids = _light_list;
+    // light_ids = _light_list;
+    offset = _offset;
     num_lights = _num_lights;
     EmitVertex();
 
@@ -152,7 +161,8 @@ void main() {
     uv = vert_uv[1];
     uv2 = vec2(l2, color_id);
     life = l2;
-    light_ids = _light_list;
+    // light_ids = _light_list;
+    offset = _offset;
     num_lights = _num_lights;
     EmitVertex();
 
@@ -162,7 +172,8 @@ void main() {
     uv = vert_uv[2];
     uv2 = vec2(l1, color_id);
     life = l1;
-    light_ids = _light_list;
+    // light_ids = _light_list;
+    offset = _offset;
     num_lights = _num_lights;
     EmitVertex();
 
@@ -172,7 +183,8 @@ void main() {
     uv = vert_uv[3];
     uv2 = vec2(l2, color_id);
     life = l2;
-    light_ids = _light_list;
+    // light_ids = _light_list;
+    offset = _offset;
     num_lights = _num_lights;
     EmitVertex();
 

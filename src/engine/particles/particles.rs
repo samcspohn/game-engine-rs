@@ -130,6 +130,7 @@ pub struct ParticleBuffers {
     pub avail_count: Subbuffer<u32>,
     // pub buffer_0: Subbuffer<i32>,
     pub indirect: Subbuffer<[DispatchIndirectCommand]>,
+    pub particle_lighting: Subbuffer<[u32]>,
 }
 
 pub struct ParticlesSystem {
@@ -212,7 +213,7 @@ impl ParticleRenderPipeline {
                 ]);
                 let binding = layout_create_info.set_layouts[0]
                     .bindings
-                    .get_mut(&16)
+                    .get_mut(&12)
                     .unwrap();
                 binding.binding_flags |= DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT;
                 binding.descriptor_count = 16;
@@ -476,6 +477,7 @@ impl ParticlesSystem {
                 avail,
                 avail_count,
                 indirect,
+                particle_lighting: vk.buffer_array(65_536 * 32 + 1, MemoryTypeFilter::PREFER_DEVICE),
             },
             // render_pipeline,
             compute_pipeline,
@@ -977,6 +979,7 @@ impl ParticlesSystem {
         // }
         // let r = self.gpu_perf.node("particle render", builder);
         let pb = &self.particle_buffers;
+        builder.fill_buffer(pb.particle_lighting.clone(), 0);
         let uniform_sub_buffer = self.vk.allocate(gs::Data {
             view: cvd.view.into(),
             proj: cvd.proj.into(),
@@ -1008,13 +1011,14 @@ impl ParticlesSystem {
                 WriteDescriptorSet::buffer(7, pb.particle_next.clone()),
                 WriteDescriptorSet::buffer(8, transform),
                 WriteDescriptorSet::buffer(9, pb.particles.clone()),
+                WriteDescriptorSet::buffer(10, pb.particle_lighting.clone()),
                 WriteDescriptorSet::image_view_sampler(
-                    10,
+                    11,
                     pt.color_tex.0.clone(),
                     pt.color_tex.1.clone(),
                 ),
                 WriteDescriptorSet::image_view_sampler_array(
-                    16,
+                    12,
                     0,
                     pt.samplers.iter().map(|a| (a.0.clone() as _, a.1.clone())),
                 ),

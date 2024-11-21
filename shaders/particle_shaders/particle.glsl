@@ -1,3 +1,4 @@
+
 struct emitter {
     vec3 prev_pos;
     int alive;
@@ -26,7 +27,14 @@ struct particle {
     int emitter_id;
     uvec2 rot;
     float l;
+
 };
+    void set_rot(inout particle p, vec4 r) {
+        p.rot = uvec2(packHalf2x16(r.xy), packHalf2x16(r.zw));
+    }
+    vec4 get_rot(inout particle p) {
+        return vec4(unpackHalf2x16(p.rot.x), unpackHalf2x16(p.rot.y));
+    }
 struct particle_template {
     vec4 color;
 

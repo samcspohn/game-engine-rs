@@ -94,8 +94,8 @@ game-engine:
     ✔ make windows modular extensible @done(24-11-08 13:28)
     ✔ show list of available windows in menu bar->view @done(24-11-08 13:28)
   audio:
-    ☐ audio manager
-    ☐ audio asset
+    ✔ audio manager @done
+    ✔ audio asset @done
 refactor:
   ✔ restructure files @done(23-07-25 10:24)
   ✘ rework/solidify render pipeline with secondary command buffer. only update on change @cancelled(23-07-25 10:25)
@@ -109,4 +109,10 @@ refactor:
 revamp:
   ✔ editor ui @done(24-11-08 13:28)
   ☐ auto-compilation
+
+  ☐ render/model storage/shaders
+  ☐ add shadows
+  ☐ add post processing
+
+  ☐ particles/particle lighting
   
