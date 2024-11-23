@@ -137,6 +137,10 @@ pub(super) fn render_thread(
             }
             drop(get_gpu_metrics);
 
+            // particle_system.avail.read()
+
+            
+
             // let lighting_compute_nanos = vk.get_query(unsafe { &LIGHTING_COMPUTE_TIMESTAMP });
             // println!(
             //     "lighting compute: {} ms",

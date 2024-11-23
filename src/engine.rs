@@ -1204,6 +1204,7 @@ impl Engine {
                 }
             }
         }
+        self.particles_system.reduce_particles();
         drop(render_cameras);
         // drop(_cd);
         drop(world);

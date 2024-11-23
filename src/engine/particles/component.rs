@@ -37,7 +37,7 @@ impl Component for ParticleEmitter {
 
         let p = &sys.particles_system;
         p.emitter_inits.push(d);
-        p.max_particles.fetch_add(
+        p.max_curr_particles.fetch_add(
             unsafe { &*p.emitter_max_particles.get() }[self.template.id as usize].1,
             std::sync::atomic::Ordering::Relaxed,
         );

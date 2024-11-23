@@ -9,6 +9,8 @@ struct emitter {
     float emission;
     int template_id;
     int last;
+    int num_particles;
+    uint gen;
 };
 struct emitter_init {
     int transform_id;
@@ -27,6 +29,7 @@ struct particle {
     int emitter_id;
     uvec2 rot;
     float l;
+    uint gen;
 
 };
     void set_rot(inout particle p, vec4 r) {

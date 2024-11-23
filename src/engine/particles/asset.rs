@@ -43,7 +43,7 @@ pub struct ParticleTemplate {
     pub max_lifetime: f32,
     size: Vec2,
     pub(super) color_over_life: ColorGradient,
-    trail: bool,
+    pub trail: bool,
     billboard: bool,
     align_vel: bool,
     texture: AssetInstance<Texture>,

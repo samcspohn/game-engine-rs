@@ -259,6 +259,7 @@ impl EditorWindow for Hierarchy {
                             ui.label(format!("fps: {}", 1.0 / fps));
                         }
                         ui.label(format!("entities: {}", world.transforms.active()));
+                        ui.label(format!("max particles: {}", world.sys.particles_system.max_curr_particles.load(std::sync::atomic::Ordering::Relaxed)));
                         transform_hierarchy_ui(
                             // transforms,
                             self,

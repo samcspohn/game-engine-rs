@@ -1,6 +1,8 @@
 use std::{
     cell::{Cell, SyncUnsafeCell},
+    cmp::Reverse,
     collections::HashMap,
+    mem::transmute,
     sync::{
         atomic::{AtomicI32, AtomicU32, AtomicUsize, Ordering},
         Arc,
@@ -13,6 +15,7 @@ use crate::{
     engine::{
         atomic_vec::{self, AtomicVec},
         color_gradient::ColorGradient,
+        particles::shaders::cs::a,
         project::asset_manager::{Asset, AssetInstance, AssetManager, AssetManagerBase},
         rendering::{
             self,
@@ -44,6 +47,7 @@ use nalgebra_glm as glm;
 use ncollide3d::pipeline;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, MutexGuard};
+use rapier3d::na::ComplexField;
 use segvec::SegVec;
 use segvec::Slice;
 use serde::{Deserialize, Serialize};
@@ -137,10 +141,11 @@ pub struct ParticleBuffers {
 
 pub struct ParticlesSystem {
     pub sort: Mutex<ParticleSort>,
-    pub max_particles: AtomicU32,
+    pub max_curr_particles: AtomicU32,
+    pub max_particles: AtomicI32,
     pub emitter_inits: AtomicVec<cs::emitter_init>,
     pub emitter_deinits: AtomicVec<cs::emitter_init>,
-    pub particle_deinits: Mutex<BinaryHeap<(u64, u32)>>,
+    pub particle_deinits: Mutex<BinaryHeap<(Reverse<u64>, u32)>>,
     pub emitter_max_particles: SyncUnsafeCell<Vec<(u64, u32)>>, // precomputed max particles for each emitter
     pub burst_deinits_accum: SyncUnsafeCell<Vec<AtomicU32>>,
     pub particle_burts: AtomicVec<cs::burst>,
@@ -157,6 +162,7 @@ pub struct ParticlesSystem {
     // pub performance: PerformanceCounters,
     pub particle_textures: Arc<Mutex<ParticleTextures>>,
     pub gpu_perf: Arc<GpuPerf>,
+    pub start_time: Instant,
 }
 pub struct ParticleRenderPipeline {
     pub arc: Arc<GraphicsPipeline>,
@@ -363,8 +369,11 @@ impl ParticlesSystem {
         // avail_count
         let copy_buffer = vk.buffer_from_data(0u32);
         // Buffer::from_data(&vk.mem_alloc, buffer_usage_all(), false, 0i32).unwrap();
-        let avail_count = vk.buffer_from_data(0u32);
-        let alive_count = vk.buffer_from_data(0u32);
+        // let avail_count = vk.buffer_from_data(0u32);
+        // let alive_count = vk.buffer_from_data(0u32);
+
+        let avail_count = vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE);
+        let alive_count = vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE);
 
         // buffer 0
         // let buffer_0 = vk.buffer_from_data(0i32);
@@ -491,7 +500,8 @@ impl ParticlesSystem {
             emitter_inits: AtomicVec::new(),
             emitter_deinits: AtomicVec::new(),
             particle_deinits: Mutex::new(BinaryHeap::new()),
-            max_particles: AtomicU32::new(0 as u32),
+            max_curr_particles: AtomicU32::new(0u32),
+            max_particles: AtomicI32::new(max_particles),
             emitter_max_particles: SyncUnsafeCell::new(emitter_max_particles),
             burst_deinits_accum: SyncUnsafeCell::new(burst_deinits_accum),
             particle_burts: AtomicVec::new(),
@@ -525,6 +535,7 @@ impl ParticlesSystem {
             gpu_perf,
             // performance,
             particle_textures,
+            start_time: Instant::now(),
             // cycle: SyncUnsafeCell::new(0),
         }
     }
@@ -593,6 +604,96 @@ impl ParticlesSystem {
         transform_compute: &TransformCompute,
         time: &Time,
     ) {
+        {
+            let mut pb = self.particle_buffers.lock();
+            let m_particles = self.max_curr_particles.load_consume() as u64;
+            if pb.particles.len() < m_particles {
+                let new_size = m_particles.next_power_of_two();
+                self.max_particles.store(new_size as i32, Ordering::Relaxed);
+                // increase particle buffer size
+                let buf = self
+                    .vk
+                    .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(pb.particles.clone(), buf.clone()))
+                    .unwrap();
+                pb.particles = buf;
+
+                // increase particle template buffer size
+                let buf = self
+                    .vk
+                    .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        pb.particle_template_ids.clone(),
+                        buf.clone(),
+                    ))
+                    .unwrap();
+                pb.particle_template_ids = buf;
+
+                // increase particle position buffer size
+                let copy_buf =
+                    self.vk
+                        .buffer_from_iter((0..new_size as u32).map(|_| cs::pos_lif {
+                            pos: [0., 0., 0.],
+                            life: 0.,
+                        }));
+                let buf = self
+                    .vk
+                    .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(copy_buf, buf.clone()))
+                    .unwrap(); // todo: write shader to init
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        pb.particle_positions_lifes.clone(),
+                        buf.clone(),
+                    ))
+                    .unwrap();
+                pb.particle_positions_lifes = buf;
+
+                // increase particle next buffer size
+                let buf: Subbuffer<[i32]> = self
+                    .vk
+                    .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
+                // builder.fill_buffer(buf.clone(), ~0);
+                let buf2: Subbuffer<[u32]> = unsafe { transmute(buf.clone()) };
+                let d: u32 = unsafe { transmute(-1i32) };
+                builder.fill_buffer(buf2, d).unwrap();
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        pb.particle_next.clone(),
+                        buf.clone(),
+                    ))
+                    .unwrap();
+                pb.particle_next = buf;
+
+                // increase particle avail buffer size
+                let copy_buf = self.vk.buffer_from_iter(0..new_size as u32);
+                let buf = self
+                    .vk
+                    .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(copy_buf, buf.clone()))
+                    .unwrap();
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(pb.avail.clone(), buf.clone()))
+                    .unwrap();
+                pb.avail = buf;
+
+                // increase particle alive buffer size
+                let buf = self
+                    .vk
+                    .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(pb.alive.clone(), buf.clone()))
+                    .unwrap();
+                pb.alive = buf;
+
+                self.sort.lock().resize(new_size as i32);
+            }
+        }
+
         self.update_templates(builder);
         self.update_emitter_len(builder, particle_init_data.0);
         builder.bind_pipeline_compute(self.compute_pipeline.clone());
@@ -608,6 +709,7 @@ impl ParticlesSystem {
             particle_init_data.2,
             time,
         );
+
         self.emitter_init(
             builder,
             transform_compute.gpu_transforms.clone(),
@@ -626,6 +728,22 @@ impl ParticlesSystem {
         let a = self.gpu_perf.node("particle update", builder);
         self.particle_update(builder, transform_compute.gpu_transforms.clone(), time);
         a.end(builder);
+    }
+
+    pub fn reduce_particles(&self) {
+        // reduce particle count
+        let inst = Instant::now();
+        let inst_u64 = inst.duration_since(self.start_time.clone()).as_micros() as u64;
+        let mut particle_deinits = self.particle_deinits.lock();
+
+        while let Some((Reverse(inst), count)) = particle_deinits.peek() {
+            if inst < &inst_u64 {
+                let (_, count) = particle_deinits.pop().unwrap();
+                self.max_curr_particles.fetch_sub(count, Ordering::Relaxed);
+            } else {
+                break;
+            }
+        }
     }
 
     fn update_templates(&self, builder: &mut PrimaryCommandBuffer) {
@@ -648,7 +766,13 @@ impl ParticlesSystem {
             for (id, a) in self.particle_template_manager.lock().assets_id.iter() {
                 let a = a.lock();
                 let time_offset = Duration::from_secs_f32(a.max_lifetime).as_micros() as u64;
-                v[*id as usize] = (time_offset, (a.emission_rate * a.max_lifetime) as u32);
+                v[*id as usize] = (
+                    time_offset,
+                    (a.emission_rate * a.max_lifetime).ceil() as u32,
+                );
+                if a.trail {
+                    v[*id as usize].1 += 1;
+                }
                 *pt.get_mut(id) = a.gen_particle_template(&mut ptex);
                 colors.push(a.color_over_life.to_color_array());
             }
@@ -679,18 +803,21 @@ impl ParticlesSystem {
         let pb = self.particle_buffers.lock();
         let max_len = num_emitters.next_power_of_two();
         if pb.emitters.lock().len() < max_len as u64 {
-            let emitters = self.vk.buffer_array(
+            let buf = self.vk.buffer_array(
                 max_len as vulkano::DeviceSize,
                 MemoryTypeFilter::PREFER_DEVICE,
             );
+            let a: Subbuffer<[u32]> = unsafe { transmute(buf.clone()) };
+
+            builder.fill_buffer(a, 0u32).unwrap();
 
             builder
                 .copy_buffer(CopyBufferInfo::buffers(
                     pb.emitters.lock().clone(),
-                    emitters.clone(),
+                    buf.clone(),
                 ))
                 .unwrap();
-            *pb.emitters.lock() = emitters;
+            *pb.emitters.lock() = buf;
         }
     }
 
@@ -701,14 +828,17 @@ impl ParticlesSystem {
         particle_bursts: Vec<cs::burst>,
         time: &Time,
     ) {
-        let inst_u64 = Instant::now().elapsed().as_micros() as u64;
+        let inst_u64 = Instant::now()
+            .duration_since(self.start_time.clone())
+            .as_micros() as u64;
         let burst_deinits_accum = unsafe { &*self.burst_deinits_accum.get() };
         for (id, count) in burst_deinits_accum.iter().enumerate() {
             if count.load(Ordering::Relaxed) > 0 {
                 let time_offset = { unsafe { &*self.emitter_max_particles.get() } }[id as usize].0;
-                self.particle_deinits
-                    .lock()
-                    .push((inst_u64 + time_offset, count.load(Ordering::Relaxed)));
+                self.particle_deinits.lock().push((
+                    Reverse(inst_u64 + time_offset),
+                    count.load(Ordering::Relaxed),
+                ));
                 count.store(0, Ordering::Relaxed);
             }
         }
@@ -793,20 +923,13 @@ impl ParticlesSystem {
             }
             buffer
         };
-        let inst = Instant::now();
-        let inst_u64 = inst.elapsed().as_micros() as u64;
+        let inst_u64 = Instant::now()
+            .duration_since(self.start_time.clone())
+            .as_micros() as u64;
         let mut particle_deinits = self.particle_deinits.lock();
-
-        while let Some((inst, count)) = particle_deinits.peek() {
-            if inst < &inst_u64 {
-                let (_, count) = particle_deinits.pop().unwrap();
-                self.max_particles.fetch_sub(count, Ordering::Relaxed);
-            } else {
-                break;
-            }
-        }
         for (id, count) in emitter_deinit_accum.iter() {
-            let time_offset = particle_deinits.push((inst_u64 + v[*id as usize].0, *count));
+            let time_offset =
+                particle_deinits.push((Reverse(inst_u64 + v[*id as usize].0), *count));
         }
         // let emitter_deinits = self.vk.buffer_from_iter(emitter_deinits);
         // let emitter_deinits = self
@@ -936,72 +1059,6 @@ impl ParticlesSystem {
     ) {
         let mut pb = self.particle_buffers.lock();
         let max_particles: i32 = self.max_particles.load_consume() as i32;
-
-        let m_particles = max_particles as u64;
-        if pb.particles.len() < m_particles {
-            let new_size = m_particles.next_power_of_two();
-            // increase particle buffer size
-            let buf = self
-                .vk
-                .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
-            builder.copy_buffer(CopyBufferInfo::buffers(pb.particles.clone(), buf.clone()));
-            pb.particles = buf;
-
-            // increase particle template buffer size
-            let buf = self
-                .vk
-                .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
-            builder.copy_buffer(CopyBufferInfo::buffers(
-                pb.particle_template_ids.clone(),
-                buf.clone(),
-            ));
-            pb.particle_template_ids = buf;
-
-            // increase particle position buffer size
-            let copy_buf = self
-                .vk
-                .buffer_from_iter((0..new_size as u32).map(|_| cs::pos_lif {
-                    pos: [0., 0., 0.],
-                    life: 0.,
-                }));
-            let buf = self
-                .vk
-                .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
-            builder.copy_buffer(CopyBufferInfo::buffers(copy_buf, buf.clone())); // todo: write shader to init
-            builder.copy_buffer(CopyBufferInfo::buffers(
-                pb.particle_positions_lifes.clone(),
-                buf.clone(),
-            ));
-            pb.particle_positions_lifes = buf;
-
-            // increase particle next buffer size
-            let buf = self
-                .vk
-                .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
-            builder.copy_buffer(CopyBufferInfo::buffers(
-                pb.particle_next.clone(),
-                buf.clone(),
-            ));
-            pb.particle_next = buf;
-
-            // increase particle avail buffer size
-            let copy_buf = self.vk.buffer_from_iter(0..new_size as u32);
-            let buf = self
-                .vk
-                .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
-            builder.copy_buffer(CopyBufferInfo::buffers(copy_buf, buf.clone()));
-            builder.copy_buffer(CopyBufferInfo::buffers(pb.avail.clone(), buf.clone()));
-            pb.avail = buf;
-
-            // increase particle alive buffer size
-            let buf = self
-                .vk
-                .buffer_array(new_size, MemoryTypeFilter::PREFER_DEVICE);
-            pb.alive = buf;
-
-            self.sort.lock().resize(new_size as i32);
-        }
-
         let mut uniform_data = cs::Data {
             num_jobs: max_particles,
             dt: time.dt,

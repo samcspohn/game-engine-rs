@@ -163,6 +163,7 @@ impl ParticleSort {
         input: &Input,
         max_particles: i32
     ) {
+        let max_particles = max_particles;
         let s = self.gpu_perf.node("particle sort", builder);
         // let max_particles: i32 = *_MAX_PARTICLES;
         static mut FRUSTUM: scs::Frustum = scs::Frustum {
