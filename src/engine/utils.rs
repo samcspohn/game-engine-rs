@@ -50,6 +50,7 @@ pub mod pipeline;
 pub mod radix_sort;
 pub mod perf;
 pub mod gpu_perf;
+pub mod gradient;
 // fn mat3_quat(m: &Mat3) -> Quat {
 //     let m00 = m[0];
 //     let m01 = m[1];

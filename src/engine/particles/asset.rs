@@ -16,12 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        color_gradient::ColorGradient,
-        prelude::Inspectable_,
-        project::asset_manager::{Asset, AssetInstance, AssetManager},
-        rendering::texture::{Texture, TextureManager},
-        storage::_Storage,
-        world::World,
+        color_gradient::ColorGradient, prelude::Inspectable_, project::asset_manager::{Asset, AssetInstance, AssetManager}, rendering::texture::{Texture, TextureManager}, storage::_Storage, utils::gradient::Gradient, world::World
     },
 };
 
@@ -48,6 +43,7 @@ pub struct ParticleTemplate {
     align_vel: bool,
     texture: AssetInstance<Texture>,
     recieve_lighting: bool,
+    size_over_life: Gradient,
 }
 
 lazy_static! {
@@ -67,6 +63,7 @@ impl Default for ParticleTemplate {
             max_lifetime: 1.,
             size: vec2(1., 1.),
             color_over_life: ColorGradient::new(),
+            size_over_life: Gradient::new(),
             trail: false,
             billboard: true,
             align_vel: false,
@@ -112,6 +109,10 @@ where
         // ui.add(egui::DragValue::new(self.0));s
     });
 }
+lazy_static! {
+    static ref GRADIENT_TEST: Mutex<Gradient> = Mutex::new(Gradient::new());
+}
+// static mut GRADIENT_TEST: Gradient = Gradient::new();
 impl Inspectable_ for ParticleTemplate {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -200,6 +201,9 @@ impl Inspectable_ for ParticleTemplate {
             if self.color_over_life.edit(ui).changed() {
                 TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
             }
+        });
+        field(ui, "size over life", |ui| {
+            GRADIENT_TEST.lock().edit(ui);
         });
         if Ins(&mut self.texture).inspect("texture", ui, &_world.sys) {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
