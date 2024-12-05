@@ -14,8 +14,8 @@ impl Gradient {
     pub fn new() -> Self {
         Self {
             spline: Spline::from_vec(vec![
-                Key::new(0.0, 0.0, Interpolation::Bezier(0.5)),
-                Key::new(1.0, 1.0, Interpolation::Bezier(0.5)),
+                Key::new(0.0, 0.0, Interpolation::StrokeBezier(0.5, 0.5)),
+                Key::new(1.0, 1.0, Interpolation::StrokeBezier(0.5, 0.5)),
             ]),
         }
     }
@@ -69,7 +69,7 @@ impl Gradient {
 
             (0..100).for_each(|i| {
                 // let v = self.get_value(i as f32 / 10.0).unwrap_or(0.0);
-                let v = self.spline.sample(i as f32 / 100.0).unwrap_or(0.0);
+                let v = self.spline.clamped_sample(i as f32 / 100.0).unwrap_or(0.0);
                 // println!("{}: {}", i, v);
                 if let Some(last) = last {
                     ui.painter().line_segment(
@@ -116,13 +116,16 @@ impl Gradient {
             if point_picker && unsafe { SELECTED_POINT.is_some() } {
                 // Do nothing, point is already selected
             } else {
+                let t = (response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width();
                 self.spline.add(Key::new(
-                    ((response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width()),
+                    t,
                     (response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height(),
-                    Interpolation::Linear,
+                    Interpolation::StrokeBezier(0.5, 0.5),
                 ));
+                
                 unsafe {
-                    SELECTED_POINT = Some(self.spline.keys().len() - 1);
+                    SELECTED_POINT = None;
+                    // SELECTED_POINT = Some(self.spline.keys().iter().position(|key| key.t == t).unwrap());
                 }
                 response.mark_changed();
             }
@@ -142,13 +145,16 @@ impl Gradient {
             if let Some(index) = unsafe { SELECTED_POINT } {
                 let key = self.spline.get_mut(index).unwrap();
                 self.spline.remove(index);
+                let t = ((response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width()).clamp(0.0, 1.0);
                 self.spline.add(Key::new(
-                    ((response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width())
-                        .clamp(0.0, 1.0),
+                    t,
                     ((response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height())
                         .clamp(0.0, 1.0),
-                    Interpolation::Bezier(0.5),
+                    Interpolation::StrokeBezier(0.5, 0.5),
                 ));
+                unsafe {
+                    SELECTED_POINT = Some(self.spline.keys().iter().position(|key| key.t == t).unwrap());
+                }
                 // if let Some(key) = self.spline.get_mut(index) {
                 //     key.t += response.drag_delta().x / rect.width();
                 //     key.t = key.t.clamp(0.0, 1.0);
