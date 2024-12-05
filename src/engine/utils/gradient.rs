@@ -14,26 +14,26 @@ impl Gradient {
     pub fn new() -> Self {
         Self {
             spline: Spline::from_vec(vec![
-                Key::new(0.0, 0.0, Interpolation::Linear),
-                Key::new(1.0, 1.0, Interpolation::Linear),
+                Key::new(0.0, 0.0, Interpolation::Bezier(0.5)),
+                Key::new(1.0, 1.0, Interpolation::Bezier(0.5)),
             ]),
         }
     }
 
-    pub fn add_color_stop(&mut self, t: f32, value: f32) {
-        self.spline
-            .add(Key::new(t, value, Interpolation::Linear));
-    }
+    // pub fn add_color_stop(&mut self, t: f32, value: f32) {
+    //     self.spline
+    //         .add(Key::new(t, value, Interpolation::Linear));
+    // }
 
-    pub fn remove_color_stop(&mut self, t: f32) {
-        if let Some(index) = self.spline.keys().iter().position(|key| key.t == t) {
-            self.spline.remove(index);
-        }
-    }
+    // pub fn remove_color_stop(&mut self, t: f32) {
+    //     if let Some(index) = self.spline.keys().iter().position(|key| key.t == t) {
+    //         self.spline.remove(index);
+    //     }
+    // }
 
-    pub fn get_value(&self, t: f32) -> Option<f32> {
-        self.spline.sample(t)
-    }
+    // pub fn get_value(&self, t: f32) -> Option<f32> {
+    //     self.spline.sample(t)
+    // }
 
     pub fn edit(&mut self, ui: &mut egui::Ui) -> egui::Response {
         const POINT_SIZE: f32 = 4.0;
@@ -67,17 +67,17 @@ impl Gradient {
                 .rect(rect, 0.0, visuals.bg_fill, visuals.bg_stroke);
             let mut last = None;
 
-            (0..10).map(|i| {
+            (0..100).for_each(|i| {
                 // let v = self.get_value(i as f32 / 10.0).unwrap_or(0.0);
-                let v = self.spline.sample(i as f32 / 10.0).unwrap_or(0.0);
-                println!("{}: {}", i, v);
+                let v = self.spline.sample(i as f32 / 100.0).unwrap_or(0.0);
+                // println!("{}: {}", i, v);
                 if let Some(last) = last {
                     ui.painter().line_segment(
                         [
-                            Pos2::new(rect.left() + (i - 1) as f32 / 10.0 * rect.width(), rect.top() + last * rect.height()),
-                            Pos2::new(rect.left() + i as f32 / 10.0 * rect.width(), rect.top() + v * rect.height())
+                            Pos2::new(rect.left() + (i - 1) as f32 / 99.0 * rect.width(), rect.top() + last * rect.height()),
+                            Pos2::new(rect.left() + i as f32 / 99.0 * rect.width(), rect.top() + v * rect.height())
                         ],
-                        Stroke::new(4.0, Color32::RED)
+                        Stroke::new(POINT_SIZE / 2.0, Color32::RED)
                     );
                 }
                 last = Some(v);
@@ -147,7 +147,7 @@ impl Gradient {
                         .clamp(0.0, 1.0),
                     ((response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height())
                         .clamp(0.0, 1.0),
-                    Interpolation::Linear,
+                    Interpolation::Bezier(0.5),
                 ));
                 // if let Some(key) = self.spline.get_mut(index) {
                 //     key.t += response.drag_delta().x / rect.width();
