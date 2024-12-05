@@ -1,22 +1,115 @@
 use egui::{Color32, Pos2, Stroke, Ui};
 use egui_plot::{Line, Plot, PlotPoints};
 use serde::{Deserialize, Serialize};
-use splines::{Interpolation, Key, Spline};
+use splines::{Interpolate, Interpolation, Key, Spline};
 
 use crate::engine::particles::shaders::cs::i;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Gradient {
-    spline: Spline<f32, f32>,
+    spline: Spline<f32, MyType>,
+    id_gen: usize,
+}
+
+// impl<(f32, usize)> Interpolate<(f32,usize) {
+//     fn lerp(&self, other: &Self, t: f32) -> Self {
+//         (self.0 * (1.0 - t) + other.0 * t, self.1)
+//     }
+
+//     fn step(t: T, threshold: T, a: Self, b: Self) -> Self {
+//         todo!()
+//     }
+
+//     fn cosine(t: T, a: Self, b: Self) -> Self {
+//         todo!()
+//     }
+
+//     fn cubic_hermite(t: T, x: (T, Self), a: (T, Self), b: (T, Self), y: (T, Self)) -> Self {
+//         todo!()
+//     }
+
+//     fn quadratic_bezier(t: T, a: Self, u: Self, b: Self) -> Self {
+//         todo!()
+//     }
+
+//     fn cubic_bezier(t: T, a: Self, u: Self, v: Self, b: Self) -> Self {
+//         todo!()
+//     }
+
+//     fn cubic_bezier_mirrored(t: T, a: Self, u: Self, v: Self, b: Self) -> Self {
+//         todo!()
+//     }
+// }
+#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
+struct MyType(f32, usize);
+
+impl Interpolate<f32> for MyType {
+    fn step(t: f32, threshold: f32, a: Self, b: Self) -> Self {
+        let a0 = a.0;
+        let b0 = b.0;
+        let result = f32::step(t, threshold, a0, b0);
+        Self(result, a.1)
+    }
+
+    fn lerp(t: f32, a: Self, b: Self) -> Self {
+        let result = a.0 * (1.0 - t) + b.0 * t;
+        Self(result, a.1)
+    }
+
+    fn cosine(t: f32, a: Self, b: Self) -> Self {
+        let result = (1.0 - (t * std::f32::consts::PI).cos()) / 2.0;
+        Self(result, a.1)
+    }
+
+    fn cubic_hermite(
+        t: f32,
+        x: (f32, Self),
+        a: (f32, Self),
+        b: (f32, Self),
+        y: (f32, Self),
+    ) -> Self {
+        let result = f32::cubic_hermite(
+            t,
+            (x.0, x.1 .0),
+            (a.0, a.1 .0),
+            (b.0, b.1 .0),
+            (y.0, y.1 .0),
+        );
+        Self(result, a.1 .1)
+    }
+
+    fn quadratic_bezier(t: f32, a: Self, u: Self, b: Self) -> Self {
+        let result = f32::quadratic_bezier(t, a.0, u.0, b.0);
+        Self(result, a.1)
+    }
+
+    fn cubic_bezier(t: f32, a: Self, u: Self, v: Self, b: Self) -> Self {
+        let result = f32::cubic_bezier(t, a.0, u.0, v.0, b.0);
+        Self(result, a.1)
+    }
+
+    fn cubic_bezier_mirrored(t: f32, a: Self, u: Self, v: Self, b: Self) -> Self {
+        let result = f32::cubic_bezier_mirrored(t, a.0, u.0, v.0, b.0);
+        Self(result, a.1)
+    }
 }
 
 impl Gradient {
     pub fn new() -> Self {
         Self {
             spline: Spline::from_vec(vec![
-                Key::new(0.0, 0.0, Interpolation::StrokeBezier(0.5, 0.5)),
-                Key::new(1.0, 1.0, Interpolation::StrokeBezier(0.5, 0.5)),
+                Key::new(
+                    0.0,
+                    MyType(0.0, 0),
+                    Interpolation::StrokeBezier(MyType(0.5, 0), MyType(0.5, 0)),
+                ),
+                Key::new(
+                    1.0,
+                    MyType(1.0, 1),
+                    Interpolation::StrokeBezier(MyType(0.5, 0), MyType(0.5, 0)),
+                ),
             ]),
+            id_gen: 2,
         }
     }
 
@@ -58,7 +151,7 @@ impl Gradient {
         // Plot::new("Spline").show(ui, |plot_ui| {
         //     plot_ui.line(line);
         // });
-       
+
         let mut point_picker = false;
         static mut SELECTED_POINT: Option<usize> = None;
         if ui.is_rect_visible(rect) {
@@ -69,26 +162,35 @@ impl Gradient {
 
             (0..100).for_each(|i| {
                 // let v = self.get_value(i as f32 / 10.0).unwrap_or(0.0);
-                let v = self.spline.clamped_sample(i as f32 / 100.0).unwrap_or(0.0);
+                let v = self
+                    .spline
+                    .clamped_sample(i as f32 / 100.0)
+                    .unwrap_or(MyType(0.0, 0))
+                    .0;
                 // println!("{}: {}", i, v);
                 if let Some(last) = last {
                     ui.painter().line_segment(
                         [
-                            Pos2::new(rect.left() + (i - 1) as f32 / 99.0 * rect.width(), rect.top() + last * rect.height()),
-                            Pos2::new(rect.left() + i as f32 / 99.0 * rect.width(), rect.top() + v * rect.height())
+                            Pos2::new(
+                                rect.left() + (i - 1) as f32 / 99.0 * rect.width(),
+                                rect.top() + last * rect.height(),
+                            ),
+                            Pos2::new(
+                                rect.left() + i as f32 / 99.0 * rect.width(),
+                                rect.top() + v * rect.height(),
+                            ),
                         ],
-                        Stroke::new(POINT_SIZE / 2.0, Color32::RED)
+                        Stroke::new(POINT_SIZE / 2.0, Color32::RED),
                     );
                 }
                 last = Some(v);
-    
             });
             // ui.painter().line_segment([Pos2::new(rect.left(),rect.top()), Pos2::new(rect.right(), rect.bottom())], Stroke::new(4.0, Color32::BLUE));
-            for (i, key) in self.spline.keys().iter().enumerate() {
+            for key in self.spline.keys().iter() {
                 ui.painter().circle_filled(
                     egui::pos2(
                         rect.left() + key.t * rect.width(),
-                        rect.top() + key.value * rect.height(),
+                        rect.top() + key.value.0 * rect.height(),
                     ),
                     POINT_SIZE,
                     egui::Color32::RED,
@@ -96,17 +198,17 @@ impl Gradient {
                 let b = ui.rect_contains_pointer(egui::Rect::from_min_max(
                     egui::pos2(
                         rect.left() + key.t * rect.width() - POINT_SIZE / 2.,
-                        rect.top() + key.value * rect.height() - POINT_SIZE / 2.,
+                        rect.top() + key.value.0 * rect.height() - POINT_SIZE / 2.,
                     ),
                     egui::pos2(
                         rect.left() + key.t * rect.width() + POINT_SIZE / 2.,
-                        rect.top() + key.value * rect.height() + POINT_SIZE / 2.,
+                        rect.top() + key.value.0 * rect.height() + POINT_SIZE / 2.,
                     ),
                 ));
                 point_picker |= b;
-                if b && ui.input(|i| i.pointer.primary_clicked()) {
+                if b && ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
                     unsafe {
-                        SELECTED_POINT = Some(i);
+                        SELECTED_POINT = Some(key.value.1);
                     }
                 }
             }
@@ -117,15 +219,19 @@ impl Gradient {
                 // Do nothing, point is already selected
             } else {
                 let t = (response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width();
+                let id = self.id_gen;
+                self.id_gen += 1;
                 self.spline.add(Key::new(
                     t,
-                    (response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height(),
-                    Interpolation::StrokeBezier(0.5, 0.5),
+                    MyType(
+                        (response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height(),
+                        id,
+                    ),
+                    Interpolation::StrokeBezier(MyType(0.5, 0), MyType(0.5, 0)),
                 ));
-                
                 unsafe {
+                    // SELECTED_POINT = Some(id);
                     SELECTED_POINT = None;
-                    // SELECTED_POINT = Some(self.spline.keys().iter().position(|key| key.t == t).unwrap());
                 }
                 response.mark_changed();
             }
@@ -138,23 +244,24 @@ impl Gradient {
                     }
                 }
             }
-        } else if response.drag_released() {
+        } else if response.drag_released()
+            || ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+        {
             unsafe { SELECTED_POINT = None }
             response.mark_changed();
         } else if response.dragged() {
-            if let Some(index) = unsafe { SELECTED_POINT } {
-                let key = self.spline.get_mut(index).unwrap();
-                self.spline.remove(index);
-                let t = ((response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width()).clamp(0.0, 1.0);
-                self.spline.add(Key::new(
-                    t,
-                    ((response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height())
-                        .clamp(0.0, 1.0),
-                    Interpolation::StrokeBezier(0.5, 0.5),
-                ));
-                unsafe {
-                    SELECTED_POINT = Some(self.spline.keys().iter().position(|key| key.t == t).unwrap());
-                }
+            if let Some(selected) = unsafe { SELECTED_POINT } {
+                let index = self.spline.keys().iter().position(|key| key.value.1 == selected).unwrap();
+                let mut key = self.spline.remove(index).unwrap();
+                let t = ((response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width())
+                    .clamp(0.0, 1.0);
+                key.t = t;
+                key.value.0 =
+                    ((response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height()).clamp(0.0, 1.0);
+                self.spline.add(key);
+                // unsafe {
+                //     SELECTED_POINT = Some(key.value.1);
+                // }
                 // if let Some(key) = self.spline.get_mut(index) {
                 //     key.t += response.drag_delta().x / rect.width();
                 //     key.t = key.t.clamp(0.0, 1.0);
