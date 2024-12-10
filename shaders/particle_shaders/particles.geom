@@ -26,7 +26,11 @@ layout(set = 0, binding = 6) buffer pti { int template_ids[]; };
 layout(set = 0, binding = 7) buffer _n { int next[]; };
 layout(set = 0, binding = 8) buffer t { transform transforms[]; };
 layout(set = 0, binding = 9) buffer p { particle particles[]; };
-layout(set = 0, binding = 10) buffer b10 { uint offset; uint particle_lighting[]; } _pl_;
+layout(set = 0, binding = 10) buffer b10 {
+    uint offset;
+    uint particle_lighting[];
+}
+_pl_;
 layout(set = 0, binding = 4) uniform Data {
     mat4 view;
     mat4 cam_inv_rot;
@@ -86,6 +90,7 @@ void main() {
     } else {   // not trail / billboard / aligned to velocity
         // l1 = l2 = 1. - get_life(p_l[i]);
         l1 = l2 = 1. - p_l[i].life;
+        size *= clamp(templ.size_over_lifetime[255 - int(l1 * 255)], 0.0, 1.0);
         vec4 rot;
         // uint a = templ.billboard & templ.align_vel << 1;
         // switch (a) {
@@ -120,7 +125,7 @@ void main() {
             // uvec2 urot = particles[i].rot;
             // rot = vec4(unpackHalf2x16(urot.x), unpackHalf2x16(urot.y));
         }
-        model = translate(pos) * rotate(rot) * scale(vec3(templ.scale.x, templ.scale.y, 1));
+        model = translate(pos) * rotate(rot) * scale(vec3(size.x, size.y, 1));
     }
 
     vec4 scr_pt = proj * view * model * vec4(0, 0, 0, 1);
@@ -142,7 +147,6 @@ void main() {
     for (int i = 0; i < _num_lights; ++i) {
         _pl_.particle_lighting[(_offset + i) % (1 << 16)] = _light_list[i];
     }
-
 
     gl_Position = get_position(mvp, 0);
     v_pos = (model * vert_pos[0]).xyz;

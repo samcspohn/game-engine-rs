@@ -59,6 +59,7 @@ struct particle_template {
     uint recieve_lighting;
     uint padding2;
     uint padding3;
+    float size_over_lifetime[256];
     // vec4 color_life[256];
 };
 struct pos_lif {

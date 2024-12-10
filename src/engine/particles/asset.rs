@@ -94,6 +94,7 @@ impl ParticleTemplate {
             recieve_lighting: if self.recieve_lighting { 1 } else { 0 },
             padding2: 0,
             padding3: 0,
+            size_over_lifetime: self.size_over_life.to_array(),
             // _dummy0: Default::default(),
         }
     }
@@ -203,7 +204,8 @@ impl Inspectable_ for ParticleTemplate {
             }
         });
         field(ui, "size over life", |ui| {
-            GRADIENT_TEST.lock().edit(ui);
+            self.size_over_life.edit(ui);
+            // GRADIENT_TEST.lock().edit(ui);
         });
         if Ins(&mut self.texture).inspect("texture", ui, &_world.sys) {
             TEMPLATE_UPDATE.store(true, Ordering::Relaxed);

@@ -1,4 +1,4 @@
-use egui::{Color32, Pos2, Stroke, Ui};
+use egui::{Align2, Color32, FontId, Pos2, Stroke, Ui};
 use egui_plot::{Line, Plot, PlotPoints};
 use serde::{Deserialize, Serialize};
 use splines::{Interpolate, Interpolation, Key, Spline};
@@ -98,21 +98,24 @@ impl Gradient {
     pub fn new() -> Self {
         Self {
             spline: Spline::from_vec(vec![
-                Key::new(
-                    0.0,
-                    MyType(0.0, 0),
-                    Interpolation::StrokeBezier(MyType(0.5, 0), MyType(0.5, 0)),
-                ),
-                Key::new(
-                    1.0,
-                    MyType(1.0, 1),
-                    Interpolation::StrokeBezier(MyType(0.5, 0), MyType(0.5, 0)),
-                ),
+                Key::new(0.0, MyType(0.0, 0), Interpolation::Linear),
+                Key::new(1.0, MyType(1.0, 1), Interpolation::Linear),
             ]),
             id_gen: 2,
         }
     }
-
+    pub fn to_array(&self) -> [f32; 256] {
+        let mut a = [0.0; 256];
+        for i in (0..256) {
+            // reverse as lifetime is 1.0 to 0.0
+            a[i] = self
+                .spline
+                .clamped_sample(i as f32 / 255.0)
+                .unwrap_or(MyType(0.0, 0))
+                .0;
+        }
+        a
+    }
     // pub fn add_color_stop(&mut self, t: f32, value: f32) {
     //     self.spline
     //         .add(Key::new(t, value, Interpolation::Linear));
@@ -172,12 +175,12 @@ impl Gradient {
                     ui.painter().line_segment(
                         [
                             Pos2::new(
-                                rect.left() + (i - 1) as f32 / 99.0 * rect.width(),
-                                rect.top() + last * rect.height(),
+                                rect.right() + (i - 1) as f32 / 99.0 * rect.width(),
+                                rect.bottom() - last * rect.height(),
                             ),
                             Pos2::new(
                                 rect.left() + i as f32 / 99.0 * rect.width(),
-                                rect.top() + v * rect.height(),
+                                rect.bottom() - v * rect.height(),
                             ),
                         ],
                         Stroke::new(POINT_SIZE / 2.0, Color32::RED),
@@ -185,28 +188,59 @@ impl Gradient {
                 }
                 last = Some(v);
             });
-            // ui.painter().line_segment([Pos2::new(rect.left(),rect.top()), Pos2::new(rect.right(), rect.bottom())], Stroke::new(4.0, Color32::BLUE));
+            ui.painter().line_segment(
+                [
+                    Pos2::new(rect.left(), rect.top()),
+                    Pos2::new(rect.right(), rect.bottom()),
+                ],
+                Stroke::new(4.0, Color32::BLUE),
+            );
+            ui.painter().circle(
+                Pos2::new(rect.left(), rect.top()),
+                5.0,
+                Color32::DARK_RED,
+                Stroke::new(1.0, Color32::BLACK),
+            );
+            ui.painter().circle(
+                Pos2::new(rect.right(), rect.bottom()),
+                5.0,
+                Color32::DARK_BLUE,
+                Stroke::new(1.0, Color32::BLACK),
+            );
             for key in self.spline.keys().iter() {
                 ui.painter().circle_filled(
                     egui::pos2(
                         rect.left() + key.t * rect.width(),
-                        rect.top() + key.value.0 * rect.height(),
+                        rect.bottom() - key.value.0 * rect.height(),
                     ),
                     POINT_SIZE,
                     egui::Color32::RED,
                 );
+                ui.painter().text(
+                    Pos2::new(
+                        rect.left() + key.t * rect.width(),
+                        rect.bottom() - key.value.0 * rect.height(),
+                    ),
+                    Align2::LEFT_TOP,
+                    format!("{}", key.value.0),
+                    FontId::monospace(11.0),
+                    Color32::LIGHT_GRAY,
+                );
                 let b = ui.rect_contains_pointer(egui::Rect::from_min_max(
                     egui::pos2(
                         rect.left() + key.t * rect.width() - POINT_SIZE / 2.,
-                        rect.top() + key.value.0 * rect.height() - POINT_SIZE / 2.,
+                        rect.bottom() - key.value.0 * rect.height() - POINT_SIZE / 2.,
                     ),
                     egui::pos2(
                         rect.left() + key.t * rect.width() + POINT_SIZE / 2.,
-                        rect.top() + key.value.0 * rect.height() + POINT_SIZE / 2.,
+                        rect.bottom() - key.value.0 * rect.height() + POINT_SIZE / 2.,
                     ),
                 ));
                 point_picker |= b;
-                if b && ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+                if b && ui.input(|i| {
+                    i.pointer.button_down(egui::PointerButton::Primary)
+                        || i.pointer.button_down(egui::PointerButton::Secondary)
+                }) {
                     unsafe {
                         SELECTED_POINT = Some(key.value.1);
                     }
@@ -227,7 +261,7 @@ impl Gradient {
                         (response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height(),
                         id,
                     ),
-                    Interpolation::StrokeBezier(MyType(0.5, 0), MyType(0.5, 0)),
+                    Interpolation::Linear,
                 ));
                 unsafe {
                     // SELECTED_POINT = Some(id);
@@ -251,13 +285,19 @@ impl Gradient {
             response.mark_changed();
         } else if response.dragged() {
             if let Some(selected) = unsafe { SELECTED_POINT } {
-                let index = self.spline.keys().iter().position(|key| key.value.1 == selected).unwrap();
+                let index = self
+                    .spline
+                    .keys()
+                    .iter()
+                    .position(|key| key.value.1 == selected)
+                    .unwrap();
                 let mut key = self.spline.remove(index).unwrap();
                 let t = ((response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width())
                     .clamp(0.0, 1.0);
                 key.t = t;
-                key.value.0 =
-                    ((response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height()).clamp(0.0, 1.0);
+                key.value.0 = ((rect.bottom() - response.interact_pointer_pos().unwrap().y)
+                    / rect.height())
+                .clamp(0.0, 1.0);
                 self.spline.add(key);
                 // unsafe {
                 //     SELECTED_POINT = Some(key.value.1);
