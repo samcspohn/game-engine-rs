@@ -110,7 +110,7 @@ impl Gradient {
             // reverse as lifetime is 1.0 to 0.0
             a[i] = self
                 .spline
-                .clamped_sample(i as f32 / 255.0)
+                .clamped_sample((255 - i) as f32 / 255.0)
                 .unwrap_or(MyType(0.0, 0))
                 .0;
         }
@@ -175,7 +175,7 @@ impl Gradient {
                     ui.painter().line_segment(
                         [
                             Pos2::new(
-                                rect.right() + (i - 1) as f32 / 99.0 * rect.width(),
+                                rect.left() + (i - 1) as f32 / 99.0 * rect.width(),
                                 rect.bottom() - last * rect.height(),
                             ),
                             Pos2::new(
@@ -258,7 +258,7 @@ impl Gradient {
                 self.spline.add(Key::new(
                     t,
                     MyType(
-                        (response.interact_pointer_pos().unwrap().y - rect.top()) / rect.height(),
+                        (rect.bottom() - response.interact_pointer_pos().unwrap().y) / rect.height(),
                         id,
                     ),
                     Interpolation::Linear,
