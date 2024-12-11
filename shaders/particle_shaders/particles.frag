@@ -12,6 +12,7 @@ layout(location = 3) in vec2 uv2;
 layout(location = 4) in vec3 v_pos;
 layout(location = 5) in flat uint num_lights;
 layout(location = 6) in flat uint offset;
+layout(location = 7) in float y;
 // layout(location = 6) in flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
 layout(location = 0) out vec4 FragColor;
 
@@ -30,14 +31,29 @@ layout(set = 0, binding = 4) uniform Data {
     vec4 cam_rot;
     vec2 screen_dims;
 };
-layout(set = 0, binding = 10) buffer b10 { uint offset; uint particle_lighting[]; } _pl_;
+layout(set = 0, binding = 10) buffer b10 {
+    uint offset;
+    uint particle_lighting[];
+}
+_pl_;
 layout(set = 0, binding = 11) uniform sampler2D color_over_life;
 
 layout(set = 0, binding = 12) uniform sampler2D[] s;
 void main() {
 #define _templ templates[templ_id]
     // particle_template templ = templates[templ_id];
-    vec4 col = texture(nonuniformEXT(s[_templ.tex_id]), uv);
+    float _y = 1.0f;
+    if (_templ.trail == 1) {
+        float size_l = _templ.size_over_lifetime[255 - int(life * 255)];
+        _y = abs(y * 2.0f - 1.0f);
+        if (_y > size_l) {
+            discard;
+        }
+        _y = y * 2.0f - 1.0f;
+        _y = _y / size_l;
+        _y = (_y + 1.0f) / 2.0f;
+    }
+    vec4 col = texture(nonuniformEXT(s[_templ.tex_id]), uv * vec2(1.0, _y));
     vec4 col2 = texture(color_over_life, uv2);
     // if (col.a < 0.01 || col2.a < 0.01) {
     //     discard;

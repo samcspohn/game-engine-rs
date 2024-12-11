@@ -15,6 +15,7 @@ layout(location = 3) out vec2 uv2;
 layout(location = 4) out vec3 v_pos;
 layout(location = 5) out flat uint num_lights;
 layout(location = 6) out flat uint offset;
+layout(location = 7) out float y;
 // layout(location = 6) out flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
 
 // layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
@@ -46,6 +47,7 @@ const vec4 vert_pos[4] = {vec4(-1., 1., 0.0, 1.0), vec4(-1., -1., 0.0, 1.0), vec
 const vec2 vert_uv[4] = {vec2(0., 1.), vec2(1, 1.), vec2(0., 0.), vec2(1., 0.)};
 vec4 get_position(in mat4 mvp, int vert_id) {
     vec4 vert = vert_pos[vert_id];
+    y = vert.x * 0.5 + 0.5;
     return mvp * vert;   // vec4(-.5, .5, 0.0, 1.0);
 }
 
@@ -157,6 +159,7 @@ void main() {
     // light_ids = _light_list;
     offset = _offset;
     num_lights = _num_lights;
+    // y = -1;
     EmitVertex();
 
     gl_Position = get_position(mvp, 1);
