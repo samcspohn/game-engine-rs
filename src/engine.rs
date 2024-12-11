@@ -994,10 +994,15 @@ impl Engine {
 
         let particle_init_data = (emitter_len, emitter_inits, emitter_deinits, particle_bursts);
 
+        let time_scale = if (input.get_key(&VirtualKeyCode::J)) {
+            0.1f32
+        } else {
+            1f32
+        };
         let _recreate_swapchain = window_size.is_some();
         let editor_size = *EDITOR_WINDOW_DIM.lock();
         self.time.time += self.time.dt as f64;
-        self.time.dt = self.frame_time.elapsed().as_secs_f64() as f32;
+        self.time.dt = self.frame_time.elapsed().as_secs_f64() as f32 * time_scale;
 
         self.fps_queue.push_back(self.time.dt);
         if self.fps_queue.len() > 100 {

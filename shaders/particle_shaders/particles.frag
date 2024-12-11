@@ -53,7 +53,7 @@ void main() {
         _y = _y / size_l;
         _y = (_y + 1.0f) / 2.0f;
     }
-    vec4 col = texture(nonuniformEXT(s[_templ.tex_id]), uv * vec2(1.0, _y));
+    vec4 col = texture(nonuniformEXT(s[_templ.tex_id]), uv);
     vec4 col2 = texture(color_over_life, uv2);
     // if (col.a < 0.01 || col2.a < 0.01) {
     //     discard;
