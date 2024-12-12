@@ -92,7 +92,7 @@ void main() {
     } else {   // not trail / billboard / aligned to velocity
         // l1 = l2 = 1. - get_life(p_l[i]);
         l1 = l2 = 1. - p_l[i].life;
-        size *= clamp(templ.size_over_lifetime[255 - int(l1 * 255)], 0.0, 1.0);
+        size *= clamp(templ.size_over_lifetime[int(l1 * 255)], 0.0, 1.0);
         vec4 rot;
         // uint a = templ.billboard & templ.align_vel << 1;
         // switch (a) {

@@ -3,7 +3,7 @@ use egui_plot::{Line, Plot, PlotPoints};
 use serde::{Deserialize, Serialize};
 use splines::{Interpolate, Interpolation, Key, Spline};
 
-use crate::engine::particles::shaders::cs::i;
+use crate::engine::particles::shaders::cs::{i, p};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Gradient {
@@ -107,10 +107,9 @@ impl Gradient {
     pub fn to_array(&self) -> [f32; 256] {
         let mut a = [0.0; 256];
         for i in (0..256) {
-            // reverse as lifetime is 1.0 to 0.0
             a[i] = self
                 .spline
-                .clamped_sample((255 - i) as f32 / 255.0)
+                .clamped_sample(i as f32 / 255.0)
                 .unwrap_or(MyType(0.0, 0))
                 .0;
         }
@@ -240,7 +239,8 @@ impl Gradient {
                 if b && ui.input(|i| {
                     i.pointer.button_down(egui::PointerButton::Primary)
                         || i.pointer.button_down(egui::PointerButton::Secondary)
-                }) {
+                }) && unsafe { SELECTED_POINT.is_none() }
+                {
                     unsafe {
                         SELECTED_POINT = Some(key.value.1);
                     }
@@ -249,6 +249,7 @@ impl Gradient {
         }
 
         if response.clicked() {
+            // add
             if point_picker && unsafe { SELECTED_POINT.is_some() } {
                 // Do nothing, point is already selected
             } else {
@@ -258,7 +259,8 @@ impl Gradient {
                 self.spline.add(Key::new(
                     t,
                     MyType(
-                        (rect.bottom() - response.interact_pointer_pos().unwrap().y) / rect.height(),
+                        (rect.bottom() - response.interact_pointer_pos().unwrap().y)
+                            / rect.height(),
                         id,
                     ),
                     Interpolation::Linear,
@@ -270,9 +272,16 @@ impl Gradient {
                 response.mark_changed();
             }
         } else if response.secondary_clicked() {
+            // remove
             if point_picker {
                 unsafe {
-                    if let Some(index) = SELECTED_POINT {
+                    if let Some(selected) = SELECTED_POINT {
+                        let index = self
+                            .spline
+                            .keys()
+                            .iter()
+                            .position(|key| key.value.1 == selected)
+                            .unwrap();
                         self.spline.remove(index);
                         SELECTED_POINT = None;
                     }
@@ -284,6 +293,7 @@ impl Gradient {
             unsafe { SELECTED_POINT = None }
             response.mark_changed();
         } else if response.dragged() {
+            // move
             if let Some(selected) = unsafe { SELECTED_POINT } {
                 let index = self
                     .spline
@@ -299,15 +309,6 @@ impl Gradient {
                     / rect.height())
                 .clamp(0.0, 1.0);
                 self.spline.add(key);
-                // unsafe {
-                //     SELECTED_POINT = Some(key.value.1);
-                // }
-                // if let Some(key) = self.spline.get_mut(index) {
-                //     key.t += response.drag_delta().x / rect.width();
-                //     key.t = key.t.clamp(0.0, 1.0);
-                //     key.value += response.drag_delta().y / rect.height();
-                //     key.value = key.value.clamp(0.0, 1.0);
-                // }
             }
         }
 

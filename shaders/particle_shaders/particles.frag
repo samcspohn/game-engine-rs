@@ -44,7 +44,7 @@ void main() {
     // particle_template templ = templates[templ_id];
     float _y = 1.0f;
     if (_templ.trail == 1) {
-        float size_l = _templ.size_over_lifetime[255 - int(life * 255)];
+        float size_l = _templ.size_over_lifetime[int(life * 255)];
         _y = abs(y * 2.0f - 1.0f);
         if (_y > size_l) {
             discard;
