@@ -684,6 +684,30 @@ float rand(in vec2 xy, in float seed) {
     xy += vec2(1);
     return fract(tan(distance(xy * PHI, xy) * sin(seed)) * xy.x);
 }
+// IbukiHash by Andante (https://twitter.com/andanteyk)
+// This work is marked with CC0 1.0. To view a copy of this license, visit https://creativecommons.org/publicdomain/zero/1.0/
+precision highp float;
+
+// returns [0, 1).
+// v is assumed to be an integer
+float ibuki(vec4 v)
+{
+    const uvec4 mult = 
+        uvec4(0xae3cc725, 0x9fe72885, 0xae36bfb5, 0x82c1fcad);
+
+    uvec4 u = uvec4(v);
+    u *= mult;
+    u ^= u.wxyz ^ u >> 13; 
+    u *= mult;
+
+    uint r = u.x + u.y + u.z + u.w;
+    r ^= r >> 11;
+    r = (r * r) ^ r;
+        
+    return float(r) * 2.3283064365386962890625e-10;
+}
+
+
 struct rng {
     vec2 r;
     float s;

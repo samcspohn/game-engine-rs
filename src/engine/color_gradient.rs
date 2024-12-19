@@ -1,4 +1,4 @@
-use egui::{Color32, Rect, TextureId};
+use egui::{Color32, Pos2, Rect, TextureId};
 use nalgebra_glm as glm;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -93,64 +93,140 @@ impl ColorGradient {
             v: 1.0,
             a: 1.0,
         };
+        let popup_id = ui.auto_id_with("popup1");
+
+        let visuals = ui.style().interact(&response);
         if ui.is_rect_visible(rect) {
-            let visuals = ui.style().interact(&response);
             // ui.painter()
             //     .rect(rect, 0.0, visuals.bg_fill, visuals.bg_stroke);
             ui.painter().image(tex_id, rect, uv, Color32::WHITE);
-            for (x, y) in &mut self.nodes {
-                ui.painter().add(egui::Shape::convex_polygon(
-                    // paint triangles
-                    vec![
-                        egui::pos2(rect.left() + y.0 * rect.width() - 6., rect.top()), // top left
-                        egui::pos2(rect.left() + y.0 * rect.width() + 6., rect.top()), // top right
-                        egui::pos2(rect.left() + y.0 * rect.width(), rect.top() + 9.), // bottom tip
-                    ],
-                    egui::Color32::from_rgba_unmultiplied(
-                        (y.1[0] * 255.) as u8,
-                        (y.1[1] * 255.) as u8,
-                        (y.1[2] * 255.) as u8,
-                        (y.1[3] * 255.) as u8,
-                    ),
-                    egui::Stroke::new(
-                        visuals.fg_stroke.width / 2.,
-                        egui::Color32::from_rgb(255, 255, 255),
-                    ),
-                ));
-                let b = ui.rect_contains_pointer(egui::Rect::from_min_max(
-                    egui::pos2(rect.left() + y.0 * rect.width() - 8., rect.top()), // top left
-                    egui::pos2(rect.left() + y.0 * rect.width() + 8., rect.bottom()), // bottom tip
-                ));
-                color_picker |= b;
-                if b && (ui.input(|i| i.pointer.primary_clicked())
-                    || ui.input(|i| i.pointer.secondary_clicked()))
-                {
-                    unsafe {
-                        RGBA_UNMUL = y.1;
-                        key = *x;
-                        let rgba = egui::Rgba::from_rgba_premultiplied(
-                            RGBA_UNMUL[0],
-                            RGBA_UNMUL[1],
-                            RGBA_UNMUL[2],
-                            RGBA_UNMUL[3],
-                        );
-
-                        hsva = egui::epaint::Hsva::from(rgba);
-                    }
-                }
+            if response.clicked() {
+                ui.memory_mut(|m| m.toggle_popup(popup_id));
             }
-        }
+            // if response.clicked() {
+            //     egui::Window::new("Gradient Editor").show(ui.ctx(), |ui| {
+            //         ui.label("Hello World!");
+            //     });
+            // }
 
-        let popup_id = ui.auto_id_with("popup");
-        const COLOR_SLIDER_WIDTH: f32 = 210.0;
+            // const COLOR_SLIDER_WIDTH: f32 = 210.0;
+            // if ui.memory(|m| m.is_popup_open(popup_id)) {
+
+            // for (x, y) in &mut self.nodes {
+            //     ui.painter().add(egui::Shape::convex_polygon(
+            //         // paint triangles
+            //         vec![
+            //             egui::pos2(rect.left() + y.0 * rect.width() - 6., rect.top()), // top left
+            //             egui::pos2(rect.left() + y.0 * rect.width() + 6., rect.top()), // top right
+            //             egui::pos2(rect.left() + y.0 * rect.width(), rect.top() + 9.), // bottom tip
+            //         ],
+            //         egui::Color32::from_rgba_unmultiplied(
+            //             (y.1[0] * 255.) as u8,
+            //             (y.1[1] * 255.) as u8,
+            //             (y.1[2] * 255.) as u8,
+            //             (y.1[3] * 255.) as u8,
+            //         ),
+            //         egui::Stroke::new(
+            //             visuals.fg_stroke.width / 2.,
+            //             egui::Color32::from_rgb(255, 255, 255),
+            //         ),
+            //     ));
+            //     let b = ui.rect_contains_pointer(egui::Rect::from_min_max(
+            //         egui::pos2(rect.left() + y.0 * rect.width() - 8., rect.top()), // top left
+            //         egui::pos2(rect.left() + y.0 * rect.width() + 8., rect.bottom()), // bottom tip
+            //     ));
+            //     color_picker |= b;
+            //     if b && (ui.input(|i| i.pointer.primary_clicked())
+            //         || ui.input(|i| i.pointer.secondary_clicked()))
+            //     {
+            //         unsafe {
+            //             RGBA_UNMUL = y.1;
+            //             key = *x;
+            //             let rgba = egui::Rgba::from_rgba_premultiplied(
+            //                 RGBA_UNMUL[0],
+            //                 RGBA_UNMUL[1],
+            //                 RGBA_UNMUL[2],
+            //                 RGBA_UNMUL[3],
+            //             );
+
+            //             hsva = egui::epaint::Hsva::from(rgba);
+            //         }
+            //     }
+            // }
+        }
+        let mut rect = Rect::from_min_size(Pos2::default(), egui::vec2(0., 0.));
         if ui.memory(|m| m.is_popup_open(popup_id)) {
             let area_response = egui::Area::new(popup_id)
                 .order(egui::Order::Foreground)
-                .fixed_pos(egui::pos2(rect.left(), rect.bottom()))
+                .default_pos(Pos2::default())
+                // .fixed_pos(egui::pos2(rect.left(), rect.bottom()))
                 .constrain(true)
                 .show(ui.ctx(), |ui| {
-                    ui.spacing_mut().slider_width = COLOR_SLIDER_WIDTH;
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        // let desired_size = ui.spacing().interact_size.y * egui::vec2(10.0, 1.0);
+                        let desired_size = egui::vec2(400.0, 40.0);
+                        let (rect1, mut response) = ui.allocate_exact_size(
+                            desired_size,
+                            egui::Sense {
+                                click: true,
+                                drag: true,
+                                focusable: true,
+                            },
+                        );
+                        rect = rect1;
+                        ui.painter().image(tex_id, rect1, uv, Color32::WHITE);
+                        for (x, y) in &mut self.nodes {
+                            ui.painter().add(egui::Shape::convex_polygon(
+                                // paint triangles
+                                vec![
+                                    egui::pos2(
+                                        rect1.left() + y.0 * rect1.width() - 6.,
+                                        rect1.top(),
+                                    ), // top left
+                                    egui::pos2(
+                                        rect1.left() + y.0 * rect1.width() + 6.,
+                                        rect1.top(),
+                                    ), // top right
+                                    egui::pos2(
+                                        rect1.left() + y.0 * rect1.width(),
+                                        rect1.top() + 9.,
+                                    ), // bottom tip
+                                ],
+                                egui::Color32::from_rgba_unmultiplied(
+                                    (y.1[0] * 255.) as u8,
+                                    (y.1[1] * 255.) as u8,
+                                    (y.1[2] * 255.) as u8,
+                                    (y.1[3] * 255.) as u8,
+                                ),
+                                egui::Stroke::new(
+                                    visuals.fg_stroke.width / 2.,
+                                    egui::Color32::from_rgb(255, 255, 255),
+                                ),
+                            ));
+                            let b = ui.rect_contains_pointer(egui::Rect::from_min_max(
+                                egui::pos2(rect1.left() + y.0 * rect1.width() - 8., rect1.top()), // top left
+                                egui::pos2(rect1.left() + y.0 * rect1.width() + 8., rect1.bottom()), // bottom tip
+                            ));
+                            color_picker |= b;
+                            if b && (ui.input(|i| i.pointer.primary_clicked())
+                                || ui.input(|i| i.pointer.secondary_clicked()))
+                            {
+                                unsafe {
+                                    RGBA_UNMUL = y.1;
+                                    key = *x;
+                                    let rgba = egui::Rgba::from_rgba_premultiplied(
+                                        RGBA_UNMUL[0],
+                                        RGBA_UNMUL[1],
+                                        RGBA_UNMUL[2],
+                                        RGBA_UNMUL[3],
+                                    );
+
+                                    hsva = egui::epaint::Hsva::from(rgba);
+                                }
+                            }
+                        }
+                        const COLOR_SLIDER_WIDTH: f32 = 210.0;
+                        ui.spacing_mut().slider_width = COLOR_SLIDER_WIDTH;
                         if egui::color_picker::color_picker_hsva_2d(
                             ui,
                             unsafe { &mut hsva },
@@ -173,9 +249,44 @@ impl ColorGradient {
 
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) || area_response.clicked_elsewhere() {
                 ui.memory_mut(|m| m.close_popup());
-                unsafe { key = -1 }
             }
         }
+
+        // let popup_id = ui.auto_id_with("popup");
+        // const COLOR_SLIDER_WIDTH: f32 = 210.0;
+        // if ui.memory(|m| m.is_popup_open(popup_id)) {
+        //     let area_response = egui::Area::new(popup_id)
+        //         .order(egui::Order::Foreground)
+        //         .fixed_pos(egui::pos2(rect.left(), rect.bottom()))
+        //         .constrain(true)
+        //         .show(ui.ctx(), |ui| {
+        //             ui.spacing_mut().slider_width = COLOR_SLIDER_WIDTH;
+        //             egui::Frame::popup(ui.style()).show(ui, |ui| {
+        //                 if egui::color_picker::color_picker_hsva_2d(
+        //                     ui,
+        //                     unsafe { &mut hsva },
+        //                     egui::color_picker::Alpha::BlendOrAdditive,
+        //                 ) {
+        //                     let rgba = unsafe { egui::Rgba::from(hsva) };
+        //                     unsafe {
+        //                         RGBA_UNMUL = rgba.to_array();
+        //                     }
+        //                     if let Some(a) = unsafe { self.nodes.get_mut(&key) } {
+        //                         unsafe {
+        //                             a.1 = RGBA_UNMUL;
+        //                         }
+        //                     }
+        //                     // button_response.mark_changed();
+        //                 }
+        //             });
+        //         })
+        //         .response;
+
+        //     if ui.input(|i| i.key_pressed(egui::Key::Escape)) || area_response.clicked_elsewhere() {
+        //         ui.memory_mut(|m| m.close_popup());
+        //         unsafe { key = -1 }
+        //     }
+        // }
         if response.clicked() {
             if color_picker && unsafe { self.nodes.contains_key(&key) } {
                 ui.memory_mut(|m| m.toggle_popup(popup_id));
