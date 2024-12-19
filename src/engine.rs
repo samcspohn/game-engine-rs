@@ -1109,6 +1109,7 @@ impl Engine {
             particle_init_data,
             &self.transform_compute.read(),
             &self.time,
+            &mut self.gui,
         );
         drop(particle_update);
 

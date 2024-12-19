@@ -1,3 +1,4 @@
+use egui::{Color32, Rect, TextureId};
 use nalgebra_glm as glm;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -71,7 +72,9 @@ impl ColorGradient {
         }
         a
     }
-    pub fn edit(&mut self, ui: &mut egui::Ui) -> egui::Response {
+    pub fn edit(&mut self, ui: &mut egui::Ui, tex_id: TextureId, uv: Rect) -> egui::Response {
+        // egui::Window::new("gradient").show(ui.ctx(), |ui| {
+
         let desired_size = ui.spacing().interact_size.y * egui::vec2(10.0, 1.0);
         let (rect, mut response) = ui.allocate_exact_size(
             desired_size,
@@ -92,8 +95,9 @@ impl ColorGradient {
         };
         if ui.is_rect_visible(rect) {
             let visuals = ui.style().interact(&response);
-            ui.painter()
-                .rect(rect, 0.0, visuals.bg_fill, visuals.bg_stroke);
+            // ui.painter()
+            //     .rect(rect, 0.0, visuals.bg_fill, visuals.bg_stroke);
+            ui.painter().image(tex_id, rect, uv, Color32::WHITE);
             for (x, y) in &mut self.nodes {
                 ui.painter().add(egui::Shape::convex_polygon(
                     // paint triangles

@@ -43,6 +43,8 @@ use crate::{
 
 use crossbeam::{atomic::AtomicConsume, queue::SegQueue};
 use dary_heap::BinaryHeap;
+use egui::TextureId;
+use egui_winit_vulkano::Gui;
 use nalgebra_glm as glm;
 use ncollide3d::pipeline;
 use once_cell::sync::Lazy;
@@ -67,7 +69,7 @@ use vulkano::{
     },
     device::Device,
     format::Format,
-    image::{sampler::Sampler, view::ImageView},
+    image::{sampler::{Filter, Sampler, SamplerCreateInfo}, view::ImageView},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     padded::Padded,
     pipeline::{
@@ -113,6 +115,9 @@ use super::{
         gs, scs,
     },
 };
+
+pub static mut PARTICLE_COL_OVER_LIFE_TEX: TextureId = TextureId::Managed(0);
+pub static mut NUM_TEMPLATES: usize = 1;
 
 pub struct PerformanceCounters {
     pub update_particles: i32,
@@ -603,6 +608,7 @@ impl ParticlesSystem {
         particle_init_data: (usize, Vec<emitter_init>, Vec<emitter_init>, Vec<burst>),
         transform_compute: &TransformCompute,
         time: &Time,
+        gui: &mut Gui,
     ) {
         {
             let mut pb = self.particle_buffers.lock();
@@ -694,7 +700,7 @@ impl ParticlesSystem {
             }
         }
 
-        self.update_templates(builder);
+        self.update_templates(builder, gui);
         self.update_emitter_len(builder, particle_init_data.0);
         builder.bind_pipeline_compute(self.compute_pipeline.clone());
         self.particle_bursts(
@@ -746,7 +752,7 @@ impl ParticlesSystem {
         }
     }
 
-    fn update_templates(&self, builder: &mut PrimaryCommandBuffer) {
+    fn update_templates(&self, builder: &mut PrimaryCommandBuffer, gui: &mut Gui) {
         let pb = self.particle_buffers.lock();
         let mut pt = self.particle_templates.lock();
         if TEMPLATE_UPDATE.load(Ordering::Relaxed) {
@@ -763,8 +769,10 @@ impl ParticlesSystem {
             let mut ptex = self.particle_textures.lock();
             let mut colors: Vec<[[u8; 4]; 256]> = Vec::new();
             // colors.push([[255u8;4];256]);
+            let mut count = 0;
             for (id, a) in self.particle_template_manager.lock().assets_id.iter() {
-                let a = a.lock();
+                let mut a = a.lock();
+                a.index = count;
                 let time_offset = Duration::from_secs_f32(a.max_lifetime).as_micros() as u64;
                 v[*id as usize] = (
                     time_offset,
@@ -775,11 +783,20 @@ impl ParticlesSystem {
                 }
                 *pt.get_mut(id) = a.gen_particle_template(&mut ptex);
                 colors.push(a.color_over_life.to_color_array());
+                count += 1;
             }
             println!("colors len: {}", colors.len());
             println!("template len: {}", pt.data.len());
 
             ptex.color_tex = ParticleTextures::color_tex(colors.as_slice(), &self.vk, builder);
+            unsafe {
+                PARTICLE_COL_OVER_LIFE_TEX = gui.register_user_image_view(ptex.color_tex.0.clone(), SamplerCreateInfo {
+                    mag_filter: Filter::Nearest,
+                    min_filter: Filter::Nearest,
+                   ..Default::default()
+                });
+                NUM_TEMPLATES = count
+            }
         }
 
         let copy_buffer = self.vk.buffer_from_iter(pt.data.iter().copied());

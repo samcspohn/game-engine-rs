@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use egui::{Pos2, Rect};
 use id::*;
 use lazy_static::lazy_static;
 use nalgebra_glm::{vec2, Vec2};
@@ -16,12 +17,19 @@ use serde::{Deserialize, Serialize};
 use crate::{
     editor::inspectable::{Inpsect, Ins},
     engine::{
-        color_gradient::ColorGradient, prelude::Inspectable_, project::asset_manager::{Asset, AssetInstance, AssetManager}, rendering::texture::{Texture, TextureManager}, storage::_Storage, utils::gradient::Gradient, world::World
+        color_gradient::ColorGradient,
+        prelude::Inspectable_,
+        project::asset_manager::{Asset, AssetInstance, AssetManager},
+        rendering::texture::{Texture, TextureManager},
+        storage::_Storage,
+        utils::gradient::Gradient,
+        world::World,
     },
 };
 
 use super::{
     particle_textures::ParticleTextures,
+    particles::{NUM_TEMPLATES, PARTICLE_COL_OVER_LIFE_TEX},
     shaders::cs::{self, particle_template},
 };
 
@@ -44,6 +52,8 @@ pub struct ParticleTemplate {
     texture: AssetInstance<Texture>,
     recieve_lighting: bool,
     size_over_life: Gradient,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub index: usize,
 }
 
 lazy_static! {
@@ -70,6 +80,7 @@ impl Default for ParticleTemplate {
             dispersion: 1.,
             texture: unsafe { *DEFAULT_TEXTURE.get() },
             recieve_lighting: false,
+            index: 0,
         }
     }
 }
@@ -110,9 +121,9 @@ where
         // ui.add(egui::DragValue::new(self.0));s
     });
 }
-lazy_static! {
-    static ref GRADIENT_TEST: Mutex<Gradient> = Mutex::new(Gradient::new());
-}
+// lazy_static! {
+//     static ref GRADIENT_TEST: Mutex<Gradient> = Mutex::new(Gradient::new());
+// }
 // static mut GRADIENT_TEST: Gradient = Gradient::new();
 impl Inspectable_ for ParticleTemplate {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -199,7 +210,18 @@ impl Inspectable_ for ParticleTemplate {
         //     }
         // });
         field(ui, "color over life", |ui| {
-            if self.color_over_life.edit(ui).changed() {
+            if self
+                .color_over_life
+                .edit(
+                    ui,
+                    unsafe { PARTICLE_COL_OVER_LIFE_TEX },
+                    Rect::from_min_max(
+                        Pos2::new(0.0, self.index as f32 / unsafe { NUM_TEMPLATES } as f32),
+                        Pos2::new(1.0, self.index as f32 / unsafe { NUM_TEMPLATES } as f32),
+                    ),
+                )
+                .changed()
+            {
                 TEMPLATE_UPDATE.store(true, Ordering::Relaxed);
             }
         });
