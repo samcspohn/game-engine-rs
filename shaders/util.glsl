@@ -87,6 +87,20 @@ struct BoundingLine {
     int front;   // positive value points to BoundingLine, negative points to light
     int back;
 };
+struct BoundingSphere {
+    vec3 center;
+    float radius;
+    float r2;
+    int left;
+    int right;
+};
+// Replace BoundingSphere struct with BoundingBox
+struct BoundingBox {
+    uvec3 min;
+    int left;
+    uvec3 max;
+    int right;
+};
 
 uint float_to_uint(float f) {
     // uint _f = floatBitsToUint(f);

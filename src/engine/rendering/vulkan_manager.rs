@@ -19,7 +19,8 @@ use vulkano::{
     },
     command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
-        AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, PrimaryAutoCommandBuffer,
+        PrimaryCommandBufferAbstract,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{
@@ -35,7 +36,7 @@ use vulkano::{
     },
     query::{QueryControlFlags, QueryPool, QueryPoolCreateInfo, QueryResultFlags, QueryType},
     swapchain::{Surface, Swapchain, SwapchainCreateInfo},
-    sync::{PipelineStage, Sharing},
+    sync::{GpuFuture, PipelineStage, Sharing},
     NonZeroDeviceSize, Version, VulkanLibrary,
 };
 use vulkano_win::VkSurfaceBuild;
@@ -164,7 +165,7 @@ impl VulkanManager {
     }
     pub fn buffer_from_iter<T, I>(&self, iter: I) -> Subbuffer<[T]>
     where
-        T: BufferContents,
+        T: BufferContents + Copy,
         I: IntoIterator<Item = T>,
         I::IntoIter: ExactSizeIterator,
     {
@@ -182,7 +183,28 @@ impl VulkanManager {
             iter,
         )
         .unwrap();
-        buf
+        let buf2: Subbuffer<[T]> = self.buffer_array(buf.len(), MemoryTypeFilter::PREFER_DEVICE);
+
+        let mut builder = AutoCommandBufferBuilder::primary(
+            &self.comm_alloc,
+            self.queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        builder
+            .copy_buffer(CopyBufferInfo::buffers(buf, buf2.clone()))
+            .unwrap();
+        builder
+            .build()
+            .unwrap()
+            .execute(self.queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+        // builder.copy_buffer(CopyBufferInfo::buffers()).unwrap();
+        buf2
     }
     pub fn sub_buffer_allocator(&self) -> SubbufferAllocator {
         let sub_alloc = SubbufferAllocator::new(
@@ -512,6 +534,7 @@ impl VulkanManager {
         }
 
         // todo!();
-        ((query_results[1] - query_results[0]) as f64 * self.device.physical_device().properties().timestamp_period as f64) as u64
+        ((query_results[1] - query_results[0]) as f64
+            * self.device.physical_device().properties().timestamp_period as f64) as u64
     }
 }

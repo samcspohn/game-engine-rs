@@ -139,19 +139,25 @@ void main() {
     // get light list
     uint _light_list[MAX_LIGHTS_PER_PARTICLE];
     uint _num_lights = 0;
-    if (templ.recieve_lighting == 1) get_light_list(screen_ratio, pos, cam_pos, length(size), _light_list, _num_lights);
+    vec4 _v_pos[4] = {model * vert_pos[0], model * vert_pos[1], model * vert_pos[2], model * vert_pos[3]};
+    AABB aabb;
+    aabb._min = min(_v_pos[0].xyz, min(_v_pos[1].xyz, min(_v_pos[2].xyz, _v_pos[3].xyz)));
+    aabb._max = max(_v_pos[0].xyz, max(_v_pos[1].xyz, max(_v_pos[2].xyz, _v_pos[3].xyz)));
+    // aabb._min = aabb._max = pos;
+    if (templ.recieve_lighting == 1) get_light_list_bvh(screen_ratio, aabb, cam_pos, _light_list, _num_lights);
     // float offset = 0.5 / float(num_templates);
     float tid = float(_templ_id + 0.5);
     float color_id = tid / float(num_templates);
     mat4 mvp = proj * view * model;
 
-    uint _offset = atomicAdd(_pl_.offset, _num_lights) % (1 << 16);
+    // uint _offset = 0;
+    uint _offset = atomicAdd(_pl_.offset, _num_lights) % (1 << 22);
     for (int i = 0; i < _num_lights; ++i) {
-        _pl_.particle_lighting[(_offset + i) % (1 << 16)] = _light_list[i];
+        _pl_.particle_lighting[(_offset + i) % (1 << 22)] = _light_list[i];
     }
 
     gl_Position = get_position(mvp, 0);
-    v_pos = (model * vert_pos[0]).xyz;
+    v_pos = _v_pos[0].xyz;
     templ_id = template_ids[i];
     uv = vert_uv[0];
     uv2 = vec2(l1, color_id);
@@ -163,7 +169,7 @@ void main() {
     EmitVertex();
 
     gl_Position = get_position(mvp, 1);
-    v_pos = (model * vert_pos[1]).xyz;
+    v_pos = _v_pos[1].xyz;
     templ_id = template_ids[i];
     uv = vert_uv[1];
     uv2 = vec2(l2, color_id);
@@ -174,7 +180,7 @@ void main() {
     EmitVertex();
 
     gl_Position = get_position(mvp, 2);
-    v_pos = (model * vert_pos[2]).xyz;
+    v_pos = _v_pos[2].xyz;
     templ_id = template_ids[i];
     uv = vert_uv[2];
     uv2 = vec2(l1, color_id);
@@ -185,7 +191,7 @@ void main() {
     EmitVertex();
 
     gl_Position = get_position(mvp, 3);
-    v_pos = (model * vert_pos[3]).xyz;
+    v_pos = _v_pos[3].xyz;
     templ_id = template_ids[i];
     uv = vert_uv[3];
     uv2 = vec2(l2, color_id);

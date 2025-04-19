@@ -1176,6 +1176,7 @@ impl Engine {
                     self.lighting_system.lights.lock().clone(),
                     light_templates.clone(),
                     lc.bounding_line_hierarchy.lock().clone(),
+                    lc.bvh.lock().clone(),
                     self.particles_system.clone(),
                     transforms_buf.clone(),
                     rm.pipeline.clone(),

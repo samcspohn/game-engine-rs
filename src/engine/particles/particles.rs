@@ -69,7 +69,10 @@ use vulkano::{
     },
     device::Device,
     format::Format,
-    image::{sampler::{Filter, Sampler, SamplerCreateInfo}, view::ImageView},
+    image::{
+        sampler::{Filter, Sampler, SamplerCreateInfo},
+        view::ImageView,
+    },
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     padded::Padded,
     pipeline::{
@@ -527,8 +530,7 @@ impl ParticlesSystem {
                 avail,
                 avail_count,
                 indirect,
-                particle_lighting: vk
-                    .buffer_array(65_536 * 32 + 1, MemoryTypeFilter::PREFER_DEVICE),
+                particle_lighting: vk.buffer_array(1 << 22 + 1, MemoryTypeFilter::PREFER_DEVICE),
             }),
             // render_pipeline,
             compute_pipeline,
@@ -790,11 +792,14 @@ impl ParticlesSystem {
 
             ptex.color_tex = ParticleTextures::color_tex(colors.as_slice(), &self.vk, builder);
             unsafe {
-                PARTICLE_COL_OVER_LIFE_TEX = gui.register_user_image_view(ptex.color_tex.0.clone(), SamplerCreateInfo {
-                    mag_filter: Filter::Nearest,
-                    min_filter: Filter::Nearest,
-                   ..Default::default()
-                });
+                PARTICLE_COL_OVER_LIFE_TEX = gui.register_user_image_view(
+                    ptex.color_tex.0.clone(),
+                    SamplerCreateInfo {
+                        mag_filter: Filter::Nearest,
+                        min_filter: Filter::Nearest,
+                        ..Default::default()
+                    },
+                );
                 NUM_TEMPLATES = count
             }
         }
@@ -1226,6 +1231,7 @@ impl ParticlesSystem {
         light_templates: Subbuffer<[crate::engine::rendering::pipeline::fs::lightTemplate]>,
         light_ids: Subbuffer<[u32]>,
         light_blh: Subbuffer<[rendering::lighting::lighting_compute::cs::BoundingLine]>,
+        light_bvh: Subbuffer<[rendering::lighting::lighting_compute::cs::BoundingBox]>,
         tiles: Subbuffer<[lt::tile]>,
     ) {
         // static mut RENDER_QUERY: Lazy<i32> = Lazy::new(|| -1);
@@ -1296,9 +1302,18 @@ impl ParticlesSystem {
             [
                 WriteDescriptorSet::buffer(0, light_templates),
                 WriteDescriptorSet::buffer(1, lights),
-                WriteDescriptorSet::buffer(2, tiles),
+                // WriteDescriptorSet::buffer(2, tiles),
                 // WriteDescriptorSet::buffer(3, light_ids),
-                WriteDescriptorSet::buffer(4, light_blh),
+                // WriteDescriptorSet::buffer(4, light_blh),
+                WriteDescriptorSet::buffer(5, light_bvh),
+
+                // tiles
+                // WriteDescriptorSet::buffer(0, light_templates),
+                // WriteDescriptorSet::buffer(1, lights),
+                // // WriteDescriptorSet::buffer(2, tiles),
+                // // WriteDescriptorSet::buffer(3, light_ids),
+                // // WriteDescriptorSet::buffer(4, light_blh),
+                // WriteDescriptorSet::buffer(5, light_bvh),
             ],
             [],
         )

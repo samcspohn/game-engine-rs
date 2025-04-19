@@ -53,7 +53,7 @@ impl ColorGradient {
         }
         for x in sorted.windows(2) {
             let b = (x[0].0 * N as f32) as usize;
-            let e = (x[1].0 * N as f32) as usize;
+            let e = ((x[1].0 * N as f32) as usize).min(N);
             let mut start = glm::make_vec4(&x[0].1);
             let step = (glm::make_vec4(&x[1].1) - start) / (e - b) as f32;
             for i in b..e {
@@ -156,6 +156,7 @@ impl ColorGradient {
         }
         let mut rect = Rect::from_min_size(Pos2::default(), egui::vec2(0., 0.));
         if ui.memory(|m| m.is_popup_open(popup_id)) {
+            let mut popup = None;
             let area_response = egui::Area::new(popup_id)
                 .order(egui::Order::Foreground)
                 .default_pos(Pos2::default())
@@ -174,6 +175,8 @@ impl ColorGradient {
                             },
                         );
                         rect = rect1;
+                        popup = Some(response);
+                        println!("rect1: {:?}", rect1);
                         ui.painter().image(tex_id, rect1, uv, Color32::WHITE);
                         for (x, y) in &mut self.nodes {
                             ui.painter().add(egui::Shape::convex_polygon(
@@ -250,6 +253,62 @@ impl ColorGradient {
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) || area_response.clicked_elsewhere() {
                 ui.memory_mut(|m| m.close_popup());
             }
+            if let Some(popup) = popup {
+                if popup.clicked() {
+                    println!("clicked");
+                    if color_picker && unsafe { self.nodes.contains_key(&key) } {
+                        ui.memory_mut(|m| m.toggle_popup(popup_id));
+                    } else {
+                        println!(
+                            "{}",
+                            (rect.left() - popup.interact_pointer_pos().unwrap().x) / rect.width()
+                        );
+                        self.nodes.insert(
+                            self.id_gen,
+                            (
+                                ((popup.interact_pointer_pos().unwrap().x - rect.left())
+                                    / rect.width()),
+                                [1.0, 1.0, 1.0, 1.0],
+                            ),
+                        );
+                        unsafe {
+                            key = self.id_gen;
+                            RGBA_UNMUL = [1.0, 1.0, 1.0, 1.0];
+                            let rgba = egui::Rgba::from_rgba_premultiplied(
+                                RGBA_UNMUL[0],
+                                RGBA_UNMUL[1],
+                                RGBA_UNMUL[2],
+                                RGBA_UNMUL[3],
+                            );
+
+                            hsva = egui::epaint::Hsva::from(rgba);
+                        }
+                        self.id_gen += 1;
+                        ui.memory_mut(|m| m.toggle_popup(popup_id));
+
+                        response.mark_changed();
+                    }
+                }
+                if popup.secondary_clicked() {
+                    if color_picker {
+                        // ui.memory().toggle_popup(popup_id);
+                        unsafe {
+                            if self.nodes.remove(&key).is_some() {}
+                            if ui.memory(|m| m.is_popup_open(popup_id)) {
+                                key = -1;
+                            }
+                        }
+                    }
+                } else if popup.drag_released() {
+                    unsafe { key = -1 }
+                    response.mark_changed();
+                } else if popup.dragged() {
+                    if let Some(a) = unsafe { self.nodes.get_mut(&key) } {
+                        a.0 += popup.drag_delta().x / rect.width();
+                        a.0 = a.0.clamp(0.0, 255. / 256.);
+                    }
+                }
+            }
         }
 
         // let popup_id = ui.auto_id_with("popup");
@@ -288,55 +347,7 @@ impl ColorGradient {
         //     }
         // }
         if response.clicked() {
-            if color_picker && unsafe { self.nodes.contains_key(&key) } {
-                ui.memory_mut(|m| m.toggle_popup(popup_id));
-            } else {
-                println!(
-                    "{}",
-                    (rect.left() - response.interact_pointer_pos().unwrap().x) / rect.width()
-                );
-                self.nodes.insert(
-                    self.id_gen,
-                    (
-                        ((response.interact_pointer_pos().unwrap().x - rect.left()) / rect.width()),
-                        [1.0, 1.0, 1.0, 1.0],
-                    ),
-                );
-                unsafe {
-                    key = self.id_gen;
-                    RGBA_UNMUL = [1.0, 1.0, 1.0, 1.0];
-                    let rgba = egui::Rgba::from_rgba_premultiplied(
-                        RGBA_UNMUL[0],
-                        RGBA_UNMUL[1],
-                        RGBA_UNMUL[2],
-                        RGBA_UNMUL[3],
-                    );
-
-                    hsva = egui::epaint::Hsva::from(rgba);
-                }
-                self.id_gen += 1;
-                ui.memory_mut(|m| m.toggle_popup(popup_id));
-
-                response.mark_changed();
-            }
-        } else if response.secondary_clicked() {
-            if color_picker {
-                // ui.memory().toggle_popup(popup_id);
-                unsafe {
-                    if self.nodes.remove(&key).is_some() {}
-                    if ui.memory(|m| m.is_popup_open(popup_id)) {
-                        key = -1;
-                    }
-                }
-            }
-        } else if response.drag_released() {
-            unsafe { key = -1 }
-            response.mark_changed();
-        } else if response.dragged() {
-            if let Some(a) = unsafe { self.nodes.get_mut(&key) } {
-                a.0 += response.drag_delta().x / rect.width();
-                a.0 = a.0.clamp(0.0, 255. / 256.);
-            }
+            ui.memory_mut(|m| m.toggle_popup(popup_id));
         }
 
         response

@@ -737,6 +737,7 @@ impl CameraData {
         lights: Subbuffer<[lt::light]>,
         light_templates: Subbuffer<[fs::lightTemplate]>,
         bounding_line_hierarchy: Subbuffer<[cs::BoundingLine]>,
+        light_bvh: Subbuffer<[cs::BoundingBox]>,
         // end lights
         particles: Arc<ParticlesSystem>,
         transform_buf: TransformBuf,
@@ -1073,6 +1074,7 @@ impl CameraData {
                     light_templates.clone(),
                     light_list.clone(),
                     bounding_line_hierarchy.clone(),
+                    light_bvh.clone(),
                     tiles.clone(),
                 );
 

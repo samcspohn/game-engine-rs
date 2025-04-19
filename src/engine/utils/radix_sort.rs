@@ -129,7 +129,7 @@ impl RadixSort {
 
         // const NUM_BLOCKS: u32 = 256;
 
-        let global_invocation_size = max_elements.mul(4).div_ceil(NUM_BLOCKS_PER_WORKGROUP);
+        let global_invocation_size = max_elements.div_ceil(NUM_BLOCKS_PER_WORKGROUP);
         let num_workgroups = global_invocation_size.div_ceil(WORKGROUP_SIZE);
         let histogram_size = num_workgroups.mul(NUM_BUCKETS);
 
@@ -149,7 +149,10 @@ impl RadixSort {
         //     g_num_workgroups: num_workgroups,
         // });
         if histogram_size > self.histograms.len() as u32 {
-            self.histograms = vk.buffer_array(histogram_size as u64, MemoryTypeFilter::PREFER_DEVICE);
+            self.histograms = vk.buffer_array(
+                histogram_size.next_power_of_two() as u64,
+                MemoryTypeFilter::PREFER_DEVICE,
+            );
         }
 
         let hist_layout = self

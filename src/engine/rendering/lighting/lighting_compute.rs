@@ -1,7 +1,7 @@
 use std::u32;
 use std::{ops::Mul, sync::Arc};
 
-use cs::blh_;
+use cs::{blh_, light, BoundingBox};
 use glm::vec3;
 use nalgebra_glm as glm;
 use nalgebra_glm::{Mat4, Vec3};
@@ -33,6 +33,7 @@ use vulkano::{
 use crate::engine::particles::shaders::cs::p;
 use crate::engine::rendering::component::ur::r;
 use crate::engine::rendering::component::Indirect;
+use crate::engine::transform_compute::cs::m;
 use crate::engine::utils::gpu_perf::GpuPerf;
 use crate::engine::utils::{gpu_perf, radix_sort};
 use crate::engine::{
@@ -91,12 +92,20 @@ pub struct LightingCompute {
     light_list: Mutex<Subbuffer<[u32]>>,
     light_tile_ids: Mutex<Subbuffer<[u32]>>,
     pub(crate) light_list2: Mutex<Subbuffer<[u32]>>,
+    // new 3d bvh
+    morton_codes: Subbuffer<[u32]>,
+    light_ids: Mutex<Subbuffer<[u32]>>,
+    morton_encoded: Mutex<Subbuffer<[u32]>>,
+    pub(crate) light_ids2: Mutex<Subbuffer<[u32]>>,
+    morton_encoded2: Mutex<Subbuffer<[u32]>>,
+    pub(crate) bvh: Mutex<Subbuffer<[cs::BoundingBox]>>,
     light_tile_ids2: Mutex<Subbuffer<[u32]>>,
     pub(crate) bounding_line_hierarchy: Mutex<Subbuffer<[cs::BoundingLine]>>,
     blh_flags: Mutex<Subbuffer<[u32]>>,
     // pub(crate) blh_start_end: Mutex<Subbuffer<[f32]>>,
     light_offsets: Subbuffer<[u32]>,
     light_counter: Subbuffer<radix_sort::cs1::PC>,
+    light_counter2: Subbuffer<radix_sort::cs1::PC>,
     pub(crate) radix_sort: Arc<Mutex<crate::engine::utils::radix_sort::RadixSort>>,
     pub(crate) gpu_perf: Arc<utils::gpu_perf::GpuPerf>,
 }
@@ -195,9 +204,24 @@ impl LightingCompute {
                 vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE),
             ),
             blh_flags: Mutex::new(vk.buffer_array(4, MemoryTypeFilter::PREFER_DEVICE)),
+            morton_codes: vk.buffer_from_iter((0..(1 << 11)).into_iter().map(|i| {
+                // separate the bits of i by 3
+                let mut x: u32 = 0;
+                for j in 0..11 {
+                    let bit = (i >> j) & 1;
+                    x |= bit << (j * 3);
+                }
+                x
+            })),
+            light_ids: Mutex::new(vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)),
+            morton_encoded: Mutex::new(vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)),
+            light_ids2: Mutex::new(vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)),
+            morton_encoded2: Mutex::new(vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)),
+            bvh: Mutex::new(vk.buffer_array(1, MemoryTypeFilter::PREFER_DEVICE)),
             // blh_start_end: Mutex::new(vk.buffer_array(16, MemoryTypeFilter::PREFER_DEVICE)),
             light_offsets: vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE),
             light_counter: vk.buffer(MemoryTypeFilter::PREFER_DEVICE),
+            light_counter2: vk.buffer(MemoryTypeFilter::PREFER_DEVICE),
             tiles: Mutex::new(vk.buffer_array(NUM_TILES, MemoryTypeFilter::PREFER_DEVICE)),
             radix_sort: Arc::new(Mutex::new(
                 crate::engine::utils::radix_sort::RadixSort::new(vk.clone()),
@@ -258,15 +282,21 @@ impl LightingCompute {
                 WriteDescriptorSet::buffer(7, tiles.clone()),
                 WriteDescriptorSet::buffer(8, self.light_tile_ids.lock().clone()),
                 WriteDescriptorSet::buffer(15, self.light_list.lock().clone()),
+                WriteDescriptorSet::buffer(16, self.light_tile_ids2.lock().clone()),
                 WriteDescriptorSet::buffer(9, self.light_list2.lock().clone()),
                 // WriteDescriptorSet::buffer(10, self.light_offsets.clone()),
                 WriteDescriptorSet::buffer(11, self.light_counter.clone()),
-                WriteDescriptorSet::buffer(12, self.blh_flags.lock().clone()),
+                WriteDescriptorSet::buffer(14, indirect.clone()),
                 // WriteDescriptorSet::buffer(12, self.visible_lights.lock().clone()),
                 // WriteDescriptorSet::buffer(13, self.visible_lights_c.clone()),
-                WriteDescriptorSet::buffer(14, indirect.clone()),
-                WriteDescriptorSet::buffer(16, self.light_tile_ids2.lock().clone()),
                 WriteDescriptorSet::buffer(10, self.bounding_line_hierarchy.lock().clone()),
+                WriteDescriptorSet::buffer(12, self.blh_flags.lock().clone()),
+                WriteDescriptorSet::buffer(17, self.morton_codes.clone()),
+                WriteDescriptorSet::buffer(18, self.light_ids.lock().clone()),
+                WriteDescriptorSet::buffer(19, self.morton_encoded.lock().clone()),
+                WriteDescriptorSet::buffer(20, self.bvh.lock().clone()),
+                WriteDescriptorSet::buffer(21, self.light_ids2.lock().clone()),
+                WriteDescriptorSet::buffer(22, self.light_counter2.clone()),
                 // WriteDescriptorSet::buffer(17, self.blh_start_end.lock().clone()),
             ],
             [],
@@ -383,6 +413,7 @@ impl LightingCompute {
         light_templates: Subbuffer<[fs::lightTemplate]>,
         num_lights: i32,
     ) {
+        // upsize buffers if needed
         {
             let mut light_list = self.light_list.lock();
             let mut light_tile_ids = self.light_tile_ids.lock();
@@ -390,44 +421,81 @@ impl LightingCompute {
             let mut light_tile_ids2 = self.light_tile_ids2.lock();
             let mut bounding_line_hierarchy = self.bounding_line_hierarchy.lock();
             let mut blh_flags = self.blh_flags.lock();
+            let mut light_ids = self.light_ids.lock();
+            let mut morton_encoded = self.morton_encoded.lock();
+            let mut morton_encoded2 = self.morton_encoded2.lock();
+            let mut light_ids2 = self.light_ids2.lock();
+            let mut bvh = self.bvh.lock();
             // let mut blh_start_end = self.blh_start_end.lock();
             // let mut visible_lights = self.visible_lights.lock();
-            if (num_lights * 4 > light_list.len() as i32) {
+            if (num_lights > light_ids.len() as i32) {
+                let new_size = (num_lights as u64).next_power_of_two();
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    new_size * 4,
                     MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *light_list = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    new_size * 4,
                     MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *light_tile_ids = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    new_size * 4,
                     MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *light_list2 = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    new_size * 4,
                     MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *light_tile_ids2 = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    new_size * 4,
                     MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *bounding_line_hierarchy = buf;
 
                 let buf = self.vk.buffer_array(
-                    (num_lights as u64).next_power_of_two() * 4,
+                    new_size * 4,
                     MemoryTypeFilter::PREFER_DEVICE,
                 );
                 *blh_flags = buf;
+                
+                // bvh buffers
+                let buf = self.vk.buffer_array(
+                    new_size,
+                    MemoryTypeFilter::PREFER_DEVICE,
+                );
+                *light_ids = buf;
+
+                let buf = self.vk.buffer_array(
+                    new_size,
+                    MemoryTypeFilter::PREFER_DEVICE,
+                );
+                *morton_encoded = buf;
+
+                let buf = self.vk.buffer_array(
+                    new_size,
+                    MemoryTypeFilter::PREFER_DEVICE,
+                );
+                *morton_encoded2 = buf;
+
+                let buf = self.vk.buffer_array(
+                    new_size,
+                    MemoryTypeFilter::PREFER_DEVICE,
+                );
+                *light_ids2 = buf;
+
+                let buf = self.vk.buffer_array(
+                    new_size,
+                    MemoryTypeFilter::PREFER_DEVICE,
+                );
+                *bvh = buf;
             }
         }
         let mut uni = lt::Data {
@@ -547,21 +615,23 @@ impl LightingCompute {
                 },
             )
             .unwrap();
+        builder
+            .update_buffer(
+                self.light_counter2.clone(),
+                &radix_sort::cs1::PC {
+                    g_num_elements: 0,
+                    g_num_workgroups: 0,
+                },
+            )
+            .unwrap();
 
-        let make_tile_list = self.gpu_perf.node("make tile list", builder);
+        let make_light_list = self.gpu_perf.node("make light lists", builder);
         build_stage(
-            builder, num_lights, None, // Some(indirect.clone().slice(0..1)),
-            None, 3,
+            builder, num_lights, None, None, 3,
         );
-        make_tile_list.end(builder);
-        // build_stage(
-        //     builder,
-        //     -1,
-        //     Some(indirect.clone().slice(0..1)),
-        //     None,
-        //     4,
-        // );
-        build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 10);
+        make_light_list.end(builder);
+
+        build_stage(builder, 1, None, Some(indirect.clone().slice(0..=1)), 4);
         build_stage(builder, 74, None, None, 5);
         // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 6);
         // radix sort
@@ -574,8 +644,8 @@ impl LightingCompute {
             // let mut visible_lights = self.visible_lights.lock();
             self.radix_sort.lock().sort(
                 self.vk.clone(),
-                num_lights as u32,
-                indirect.clone().slice(1..2),
+                (num_lights as u32).mul(4),
+                indirect.clone().slice(0..=0),
                 self.light_counter.clone(),
                 &mut *light_tile_ids,
                 &mut *light_list,
@@ -585,11 +655,48 @@ impl LightingCompute {
             );
         }
         l_s.end(builder);
+
+        let l_s = self.gpu_perf.node("lights sort 2", builder);
+        {
+            let mut light_ids = self.light_ids.lock();
+            let mut morton_encoded = self.morton_encoded.lock();
+            let mut light_ids2 = self.light_ids2.lock();
+            let mut morten_encoded2 = self.morton_encoded2.lock();
+            self.radix_sort.lock().sort(
+                self.vk.clone(),
+                num_lights as u32,
+                indirect.clone().slice(1..=1),
+                self.light_counter2.clone(),
+                &mut *morton_encoded,
+                &mut *light_ids,
+                &mut *morten_encoded2,
+                &mut *light_ids2,
+                builder,
+            );
+        }
+        l_s.end(builder);
+
+        build_stage(builder, 1, None, Some(indirect.clone().slice(0..=1)), 6);
+        build_stage(builder, num_lights * 4, None, None, 7);
+        
+        builder
+        .fill_buffer(self.blh_flags.lock().clone(), 0)
+        .unwrap();
+    
         let light_bsh = self.gpu_perf.node("light blh", builder);
-        build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 9);
-        build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 7);
-        build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 8);
+        build_stage(builder, -1, Some(indirect.clone().slice(0..=0)), None, 8);
         light_bsh.end(builder);
         lc2.end(builder);
+
+        builder
+            .fill_buffer(self.blh_flags.lock().clone(), 0)
+            .unwrap();
+
+
+        let light_bvh = self.gpu_perf.node("light bvh", builder);
+        // build_stage(builder, 1, None, Some(indirect.clone().slice(1..2)), 9);
+        // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 7);
+        build_stage(builder, -1, Some(indirect.clone().slice(1..=1)), None, 9);
+        light_bvh.end(builder);
     }
 }
