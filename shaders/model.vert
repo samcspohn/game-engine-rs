@@ -1,23 +1,22 @@
-#version 450
+#version 460
+#extension GL_ARB_shader_draw_parameters : require
 #include "util.glsl"
+
+
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
-// layout(location = 3) in uint bone_weight_offset;
-// layout(location = 4) in uint bone_weight_count;
-// layout(location = 3) in int id;
-
-// The per-instance data.
-// layout(location = 3) in vec3 pos;
 
 layout(location = 0) out vec3 v_normal;
 layout(location = 1) out vec2 coords;
 layout(location = 2) out vec3 v_pos;
 layout(location = 3) out vec3 _v;
+layout(location = 4) flat out int draw_id;
 
 layout(set = 0, binding = 0) buffer tr { MVP mvp[]; };
-layout(set = 0, binding = 1) buffer id { ivec2 ids[]; };
+// layout(set = 0, binding = 1) buffer id { ivec2 renderers[]; };
+layout(set = 2, binding = 0) buffer id { ivec2 renderers[]; };
 layout(set = 0, binding = 2) buffer b { vec4 bones[]; };
 struct bone_weight {
     int bone_id;
@@ -33,7 +32,7 @@ layout(set = 0, binding = 5) buffer bwo { uvec2 bone_weight_offsets_counts[]; };
 void main() {
     mat4 vertex_offset = identity();
     int _id = gl_InstanceIndex;
-    int id = ids[_id].x;
+    int id = renderers[_id].x;
 
     if (has_skeleton == 1) {
         mat4 z = {
@@ -44,7 +43,7 @@ void main() {
         };
         vertex_offset = z;
         for (uint i = bone_weight_offsets_counts[gl_VertexIndex].x; i < bone_weight_offsets_counts[gl_VertexIndex].x + bone_weight_offsets_counts[gl_VertexIndex].y; ++i) {
-            int raw_offset = ids[_id].y * num_bones + bone_vertex_weights[i].bone_id;
+            int raw_offset = renderers[_id].y * num_bones + bone_vertex_weights[i].bone_id;
             int b = raw_offset * 3; // 3 vec4 per matrix
             vertex_offset[0] += bones[b] * bone_vertex_weights[i].weight;
             vertex_offset[1] += bones[b + 1] * bone_vertex_weights[i].weight;
@@ -62,6 +61,7 @@ void main() {
     _v = v.xyz;
     // mat4 mvp = mvp[id];
     gl_Position = mvp[id].mvp * vertex_offset * vec4(position, 1.0);
+    draw_id = gl_DrawID; 
 
     // gl_Position.z *= -1;
     // gl_Position.y *= -1;

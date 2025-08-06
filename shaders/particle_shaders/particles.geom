@@ -16,6 +16,7 @@ layout(location = 4) out vec3 v_pos;
 layout(location = 5) out flat uint num_lights;
 layout(location = 6) out flat uint offset;
 layout(location = 7) out float y;
+layout(location = 8) out float screen_coverage;
 // layout(location = 6) out flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
 
 // layout(set = 0, binding = 0) buffer _p { pos_lif p_l[]; };
@@ -140,20 +141,52 @@ void main() {
     uint _light_list[MAX_LIGHTS_PER_PARTICLE];
     uint _num_lights = 0;
     vec4 _v_pos[4] = {model * vert_pos[0], model * vert_pos[1], model * vert_pos[2], model * vert_pos[3]};
+
+     // Calculate screen coverage of the particle
+    float _screen_coverage = 0.0;
+    {
+        // Project all four corners to screen space
+        vec4 screen_pos[4];
+        vec2 screen_coords[4];
+        
+        for (int v = 0; v < 4; v++) {
+            screen_pos[v] = proj * view * _v_pos[v];
+            screen_coords[v] = (screen_pos[v].xy / screen_pos[v].w) * 0.5 + 0.5;
+            screen_coords[v] *= screen_dims;
+        }
+        
+        // Calculate screen area using shoelace formula for a quadrilateral
+        // A = 1/2 * |∑(x_i * y_{i+1} - x_{i+1} * y_i)|
+        float area = 0.0;
+        for (int i = 0; i < 4; i++) {
+            int j = (i + 1) % 4;
+            area += screen_coords[i].x * screen_coords[j].y;
+            area -= screen_coords[j].x * screen_coords[i].y;
+        }
+        
+        _screen_coverage = abs(area) * 0.5;
+        
+        // Normalize by screen area if needed
+        _screen_coverage /= (screen_dims.x * screen_dims.y);
+
+    }
+
     AABB aabb;
     aabb._min = min(_v_pos[0].xyz, min(_v_pos[1].xyz, min(_v_pos[2].xyz, _v_pos[3].xyz)));
     aabb._max = max(_v_pos[0].xyz, max(_v_pos[1].xyz, max(_v_pos[2].xyz, _v_pos[3].xyz)));
+
+
     // aabb._min = aabb._max = pos;
-    if (templ.recieve_lighting == 1) get_light_list_bvh(screen_ratio, aabb, cam_pos, _light_list, _num_lights);
+    if (templ.recieve_lighting == 1) get_light_list_bvh(screen_ratio, aabb, cam_pos, _light_list, _num_lights, int(MAX_LIGHTS_PER_PARTICLE), min(1.0, _screen_coverage * 10000.0));
     // float offset = 0.5 / float(num_templates);
     float tid = float(_templ_id + 0.5);
     float color_id = tid / float(num_templates);
     mat4 mvp = proj * view * model;
 
     // uint _offset = 0;
-    uint _offset = atomicAdd(_pl_.offset, _num_lights) % (1 << 22);
+    uint _offset = atomicAdd(_pl_.offset, _num_lights) % (1 << 18);
     for (int i = 0; i < _num_lights; ++i) {
-        _pl_.particle_lighting[(_offset + i) % (1 << 22)] = _light_list[i];
+        _pl_.particle_lighting[(_offset + i) % (1 << 18)] = _light_list[i];
     }
 
     gl_Position = get_position(mvp, 0);
@@ -165,6 +198,7 @@ void main() {
     // light_ids = _light_list;
     offset = _offset;
     num_lights = _num_lights;
+    screen_coverage = _screen_coverage;
     // y = -1;
     EmitVertex();
 
@@ -177,6 +211,7 @@ void main() {
     // light_ids = _light_list;
     offset = _offset;
     num_lights = _num_lights;
+    screen_coverage = _screen_coverage;
     EmitVertex();
 
     gl_Position = get_position(mvp, 2);
@@ -188,6 +223,7 @@ void main() {
     // light_ids = _light_list;
     offset = _offset;
     num_lights = _num_lights;
+    screen_coverage = _screen_coverage;
     EmitVertex();
 
     gl_Position = get_position(mvp, 3);
@@ -199,6 +235,7 @@ void main() {
     // light_ids = _light_list;
     offset = _offset;
     num_lights = _num_lights;
+    screen_coverage = _screen_coverage;
     EmitVertex();
 
     // EndPrimitive();

@@ -56,7 +56,11 @@ use crate::{
         rendering::{component::ur, debug, lighting::lighting_compute::cs::li},
         time::Time,
         transform_compute::TransformCompute,
-        utils::{self, perf::Perf},
+        utils::{
+            self,
+            gpu_perf::{self, GpuPerf},
+            perf::Perf,
+        },
         world::{
             component::Component,
             transform::{Transform, TransformBuf},
@@ -758,85 +762,185 @@ impl CameraData {
         time: &Time,
         skeletal_data: &HashMap<i32, Subbuffer<[[[f32; 4]; 3]]>>,
         playing_game: bool,
+        gpu_perf: Arc<GpuPerf>,
         // debug: &mut DebugSystem,
     ) -> Option<Arc<Image>> {
         assets.get_manager(|model_manager: &ModelManager| {
             assets.get_manager(|texture_manager: &TextureManager| {
                 transform_compute.update_mvp(builder, cvd.view, cvd.proj, transform_buf);
 
-                if !offset_vec.is_empty() {
-                    let offsets_buffer = vk.buffer_from_iter(offset_vec);
-                    // Buffer::from_iter(&vk.mem_alloc, buffer_usage_all(), false, offset_vec).unwrap();
+                // if !offset_vec.is_empty() {
+                //     let offsets_buffer = vk.buffer_from_iter(offset_vec);
+                // Buffer::from_iter(&vk.mem_alloc, buffer_usage_all(), false, offset_vec).unwrap();
+                let num_indirect_draws = rm.indirect.len() as u32;
+                let workgroup_size = 128; // 128 instances per workgroup
+                let num_workgroups = num_indirect_draws.div_ceil(workgroup_size) as u32;
+                {
+                    if rm.indirect_buffer.len() < rm.indirect.len() as u64
+                        || rm.temp_sums.len() < num_workgroups as u64
                     {
-                        // per camera
-                        // puffin::profile_scope!("update renderers: stage 1");
-                        // stage 1
-                        let uniforms = self.vk.allocate(ur::Data {
-                            num_jobs: rrd.transforms_len,
-                            stage: 1.into(),
-                            view: cvd.view.into(),
-                            // _dummy0: Default::default(),
-                        });
-                        // {
-                        //     puffin::profile_scope!("update renderers: stage 1: uniform data");
-                        //     let data = ur::Data {
-                        //         num_jobs: rd.transforms_len,
-                        //         stage: 1.into(),
-                        //         view: cvd.view.into(),
-                        //         // _dummy0: Default::default(),
-                        //     };
-                        //     let u = rm.uniform.lock().allocate_sized().unwrap();
-                        //     *u.write().unwrap() = data;
-                        //     u
-                        // };
-                        if !rm.indirect.data.is_empty() {
-                            rm.indirect_buffer = vk.buffer_from_iter(rm.indirect.data.clone());
-                        }
-                        let update_renderers_set = {
-                            puffin::profile_scope!("update renderers: stage 1: descriptor set");
-                            PersistentDescriptorSet::new(
-                                &vk.desc_alloc,
-                                renderer_pipeline
-                                    .layout()
-                                    .set_layouts()
-                                    .get(0) // 0 is the index of the descriptor set.
-                                    .unwrap()
-                                    .clone(),
-                                [
-                                    WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
-                                    WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
-                                    WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
-                                    WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
-                                    WriteDescriptorSet::buffer(
-                                        4,
-                                        transform_compute.gpu_transforms.clone(),
-                                    ),
-                                    WriteDescriptorSet::buffer(5, offsets_buffer),
-                                    WriteDescriptorSet::buffer(6, uniforms),
-                                ],
-                                [],
+                        // use iter to retain vertex/index offsets
+                        rm.indirect_buffer = vk.buffer_from_iter(rm.indirect.iter().cloned());
+                        rm.temp_sums =
+                            vk.buffer_array(num_workgroups as u64, MemoryTypeFilter::PREFER_DEVICE);
+                    }
+                    let update_renderers_set = {
+                        puffin::profile_scope!("update renderers: stage 1: descriptor set");
+                        PersistentDescriptorSet::new(
+                            &vk.desc_alloc,
+                            renderer_pipeline
+                                .layout()
+                                .set_layouts()
+                                .get(0) // 0 is the index of the descriptor set.
+                                .unwrap()
+                                .clone(),
+                            [
+                                WriteDescriptorSet::buffer(0, rm.updates_gpu.clone()),
+                                WriteDescriptorSet::buffer(1, rm.transform_ids_gpu.clone()),
+                                WriteDescriptorSet::buffer(2, rm.renderers_gpu.clone()),
+                                WriteDescriptorSet::buffer(3, rm.indirect_buffer.clone()),
+                                WriteDescriptorSet::buffer(
+                                    4,
+                                    transform_compute.gpu_transforms.clone(),
+                                ),
+                                WriteDescriptorSet::buffer(5, rm.temp_sums.clone()),
+                                // WriteDescriptorSet::buffer(6, uniforms),
+                            ],
+                            [],
+                        )
+                        .unwrap()
+                    };
+
+                    {
+                        puffin::profile_scope!("update renderers: stage 1: bind pipeline/dispatch");
+                        let update_gpu_perf = gpu_perf.node("update renderers", builder);
+                        builder
+                            .bind_pipeline_compute(renderer_pipeline.clone())
+                            .unwrap()
+                            .bind_descriptor_sets(
+                                PipelineBindPoint::Compute,
+                                renderer_pipeline.layout().clone(),
+                                0, // Bind this descriptor set to index 0.
+                                update_renderers_set,
                             )
                             .unwrap()
-                        };
-                        {
-                            puffin::profile_scope!(
-                                "update renderers: stage 1: bind pipeline/dispatch"
-                            );
+                            // reset counts
+                            .push_constants(
+                                renderer_pipeline.layout().clone(),
+                                0,
+                                ur::Data {
+                                    num_jobs: rm.indirect.len() as i32,
+                                    stage: (-1).into(),
+                                    view: cvd.view.into(),
+                                    pass: 0.into(),
+                                },
+                            )
+                            .unwrap()
+                            .dispatch([rm.indirect.len().div_ceil(128) as u32, 1, 1])
+                            .unwrap()
+                            // sum total instances
+                            .push_constants(
+                                renderer_pipeline.layout().clone(),
+                                0,
+                                ur::Data {
+                                    num_jobs: rrd.transforms_len as i32,
+                                    stage: (-2).into(),
+                                    view: cvd.view.into(),
+                                    pass: 0.into(),
+                                },
+                            )
+                            .unwrap()
+                            .dispatch([rrd.transforms_len.div_ceil(128) as u32, 1, 1])
+                            .unwrap()
+                            // .push_constants(renderer_pipeline.layout().clone(), 0, ur::Data {
+                            //     num_jobs: 128 as i32,
+                            //     stage: 1.into(),
+                            //     view: cvd.view.into(),
+                            //     pass: 0.into(),
+                            //     // _dummy0: Default::default(),
+                            // }).unwrap()
+                            // .dispatch([1, 1, 1]);
+                            // prefix sum
+                            .push_constants(
+                                renderer_pipeline.layout().clone(),
+                                0,
+                                ur::Data {
+                                    num_jobs: num_indirect_draws as i32,
+                                    stage: (1).into(),
+                                    view: cvd.view.into(),
+                                    pass: 0.into(),
+                                    // _dummy0: Default::default(),
+                                },
+                            )
+                            .unwrap()
+                            .dispatch([num_workgroups, 1, 1])
+                            .unwrap();
+                        if num_workgroups > 1 {
                             builder
-                                .bind_pipeline_compute(renderer_pipeline.clone())
-                                .unwrap()
-                                .bind_descriptor_sets(
-                                    PipelineBindPoint::Compute,
+                                .push_constants(
                                     renderer_pipeline.layout().clone(),
-                                    0, // Bind this descriptor set to index 0.
-                                    update_renderers_set,
+                                    0,
+                                    ur::Data {
+                                        num_jobs: 128 as i32,
+                                        stage: (1).into(),
+                                        view: cvd.view.into(),
+                                        pass: 1.into(),
+                                        // _dummy0: Default::default(),
+                                    },
                                 )
                                 .unwrap()
-                                .dispatch([rrd.transforms_len as u32 / 128 + 1, 1, 1])
+                                .dispatch([1, 1, 1])
+                                .unwrap()
+                                .push_constants(
+                                    renderer_pipeline.layout().clone(),
+                                    0,
+                                    ur::Data {
+                                        num_jobs: num_indirect_draws as i32,
+                                        stage: (1).into(),
+                                        view: cvd.view.into(),
+                                        pass: 2.into(),
+                                        // _dummy0: Default::default(),
+                                    },
+                                )
+                                .unwrap()
+                                .dispatch([num_workgroups, 1, 1])
                                 .unwrap();
                         }
+
+                        // reset indirect instance count
+                        builder
+                            .push_constants(
+                                renderer_pipeline.layout().clone(),
+                                0,
+                                ur::Data {
+                                    num_jobs: rm.indirect.len() as i32,
+                                    stage: (-3).into(),
+                                    view: cvd.view.into(),
+                                    pass: 0.into(),
+                                    // _dummy0: Default::default(),
+                                },
+                            )
+                            .unwrap()
+                            .dispatch([rm.indirect.len().div_ceil(128) as u32, 1, 1])
+                            .unwrap()
+                            .push_constants(
+                                renderer_pipeline.layout().clone(),
+                                0,
+                                ur::Data {
+                                    num_jobs: rrd.transforms_len as i32,
+                                    stage: 2.into(),
+                                    view: cvd.view.into(),
+                                    pass: 0.into(),
+                                    // _dummy0: Default::default(),
+                                },
+                            )
+                            .unwrap()
+                            .dispatch([rrd.transforms_len.div_ceil(128), 1, 1])
+                            .unwrap();
+                        update_gpu_perf.end(builder);
                     }
                 }
+                // }
                 let particle_sort = perf.node("particle sort");
                 particles.sort.lock().sort(
                     // per camera
@@ -925,55 +1029,106 @@ impl CameraData {
                 let render_models = perf.node("render models");
                 let mut offset = 0;
                 let max = rm.renderers_gpu.len();
-                for (_ind_id, m_id) in rrd.indirect_model.iter() {
-                    if let Some(model_indr) = rrd.model_indirect.get(m_id) {
-                        for (i, indr) in model_indr.iter().enumerate() {
-                            if indr.id == *_ind_id {
-                                if let Some(mr) = mm.assets_id.get(m_id) {
-                                    let mr = mr.lock();
-                                    if indr.count == 0 {
-                                        continue;
-                                    }
-                                    let indirect_buffer = rm
-                                        .indirect_buffer
-                                        .clone()
-                                        .slice(indr.id as u64..(indr.id + 1) as u64);
-                                    let renderer_buffer = rm.renderers_gpu.clone().slice(
-                                        offset
-                                            ..(offset + indr.count as u64)
-                                                .min(rm.renderers_gpu.len()),
-                                    );
-                                    self.rend.bind_mesh(
-                                        &texture_manager,
-                                        builder,
-                                        vk.desc_alloc.clone(),
-                                        renderer_buffer.clone(),
-                                        transform_compute.mvp.clone(),
-                                        // lights
-                                        light_len,
-                                        lights.clone(),
-                                        light_templates.clone(),
-                                        tiles.clone(),
-                                        cvd.dimensions,
-                                        bounding_line_hierarchy.clone(),
-                                        // end lights
-                                        transform_compute.gpu_transforms.clone(),
-                                        &mr.model.meshes[i],
-                                        indirect_buffer.clone(),
-                                        cvd.cam_pos.clone(),
-                                        light_list.clone(),
-                                        skeletal_data.get(&m_id),
-                                        mr.model.has_skeleton,
-                                        empty.clone(),
-                                        mr.model.bone_info.len() as i32,
-                                    );
-                                }
-                                offset += indr.count as u64;
-                                break;
-                            }
-                        }
-                    }
-                }
+                let renderer_buffer = rm.renderers_gpu.clone();
+                self.rend.bind_mesh(
+                    &texture_manager,
+                    builder,
+                    vk.desc_alloc.clone(),
+                    renderer_buffer.clone(),
+                    transform_compute.mvp.clone(),
+                    // lights
+                    light_len,
+                    lights.clone(),
+                    light_templates.clone(),
+                    tiles.clone(),
+                    cvd.dimensions,
+                    bounding_line_hierarchy.clone(),
+                    // end lights
+                    transform_compute.gpu_transforms.clone(),
+                    cvd.cam_pos.clone(),
+                    light_list.clone(),
+                    // skeletal_data.get(&m_id),
+                    None,
+                    false,
+                    empty.clone(),
+                    0, // mr.model.bone_info.len() as i32,
+                    &rm,
+                );
+                let texture_ids_buf = self.vk.buffer_from_iter(rm.texture_ids.iter().map(|i| *i));
+                let transform_ids_set = PersistentDescriptorSet::new(
+                    &vk.desc_alloc,
+                    self.rend
+                        .pipeline
+                        .layout()
+                        .set_layouts()
+                        .get(2) // 2 is the index of the descriptor set.
+                        .unwrap()
+                        .clone(),
+                    [
+                        WriteDescriptorSet::buffer(0, renderer_buffer.clone()),
+                        WriteDescriptorSet::buffer(1, texture_ids_buf),
+                    ],
+                    [],
+                )
+                .unwrap();
+                let indirect_buffer = rm.indirect_buffer.clone();
+                builder
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Graphics,
+                        self.rend.pipeline.layout().clone(),
+                        2,
+                        transform_ids_set,
+                    )
+                    .unwrap();
+                builder.draw_indexed_indirect(indirect_buffer).unwrap();
+                // for (_ind_id, m_id) in rrd.indirect_model.iter() {
+                //     if let Some(model_indr) = rrd.model_indirect.get(m_id) {
+                //         // for (i, indr) in model_indr.iter().enumerate() {
+                //         // if indr.id == *_ind_id {
+                //         let indr = model_indr.get(_ind_id).unwrap();
+                //         if let Some(mr) = mm.assets_id.get(m_id) {
+                //             let mr = mr.lock();
+                //             if indr.count == 0 {
+                //                 continue;
+                //             }
+                //             let indirect_buffer = rm
+                //                 .indirect_buffer
+                //                 .clone()
+                //                 .slice(indr.id as u64..(indr.id + 1) as u64);
+                //             let renderer_buffer = rm.renderers_gpu.clone().slice(
+                //                 offset..(offset + indr.count as u64).min(rm.renderers_gpu.len()),
+                //             );
+                //             self.rend.bind_mesh(
+                //                 &texture_manager,
+                //                 builder,
+                //                 vk.desc_alloc.clone(),
+                //                 renderer_buffer.clone(),
+                //                 transform_compute.mvp.clone(),
+                //                 // lights
+                //                 light_len,
+                //                 lights.clone(),
+                //                 light_templates.clone(),
+                //                 tiles.clone(),
+                //                 cvd.dimensions,
+                //                 bounding_line_hierarchy.clone(),
+                //                 // end lights
+                //                 transform_compute.gpu_transforms.clone(),
+                //                 &mr.model.meshes[indr.index],
+                //                 indirect_buffer.clone(),
+                //                 cvd.cam_pos.clone(),
+                //                 light_list.clone(),
+                //                 skeletal_data.get(&m_id),
+                //                 mr.model.has_skeleton,
+                //                 empty.clone(),
+                //                 mr.model.bone_info.len() as i32,
+                //             );
+                //         }
+                //         offset += indr.count as u64;
+                //         // break;
+                //         // }
+                //         // }
+                //     }
+                // }
                 drop(render_models);
                 // }
                 let render_jobs_perf = perf.node("render jobs");

@@ -7,8 +7,8 @@ use crate::{
         physics::PhysicsData,
         prelude::{Inspectable_, VulkanManager},
         rendering::{
-            component::{ur::o, Renderer},
-            model::ModelManager,
+            component::Renderer,
+            model::{ModelManager, ALL_INDICES, ALL_VERTICES},
         },
         world::transform::TRANSFORMS,
     },
@@ -215,7 +215,7 @@ impl EditorWindow for SceneWindow {
                             if !unsafe { **v.get() } {
                                 continue;
                             }
-                            let model_id = renderer.lock().get_model().id;
+                            let model_id = renderer.lock().unwrap().get_model().id;
                             let transform = unsafe { (*TRANSFORMS).get(*id.get()).unwrap() };
 
                             if !scene_collsion_mesh_map.contains_key(&model_id) {
@@ -227,27 +227,37 @@ impl EditorWindow for SceneWindow {
                                         .iter()
                                         .map(|mesh| {
                                             let collider = ncollide3d::shape::TriMesh::new(
-                                                mesh.vertices
-                                                    .iter()
-                                                    .cloned()
-                                                    .map(|v| {
-                                                        Point3::new(
-                                                            v.position[0],
-                                                            v.position[1],
-                                                            v.position[2],
-                                                        )
-                                                    })
-                                                    .collect(),
-                                                mesh.indices
-                                                    .chunks(3)
-                                                    .map(|i| {
-                                                        Point3::new(
-                                                            i[0] as usize,
-                                                            i[1] as usize,
-                                                            i[2] as usize,
-                                                        )
-                                                    })
-                                                    .collect(),
+                                                // mesh.vertices
+                                                unsafe {
+                                                    &ALL_VERTICES[mesh.vertex_offset as usize
+                                                        ..mesh.vertex_offset as usize
+                                                            + mesh.vertex_count as usize]
+                                                }
+                                                .iter()
+                                                .cloned()
+                                                .map(|v| {
+                                                    Point3::new(
+                                                        v.position[0],
+                                                        v.position[1],
+                                                        v.position[2],
+                                                    )
+                                                })
+                                                .collect(),
+                                                // mesh.indices
+                                                unsafe {
+                                                    &ALL_INDICES[mesh.index_offset as usize
+                                                        ..mesh.index_offset as usize
+                                                            + mesh.index_count as usize]
+                                                }
+                                                .chunks(3)
+                                                .map(|i| {
+                                                    Point3::new(
+                                                        i[0] as usize,
+                                                        i[1] as usize,
+                                                        i[2] as usize,
+                                                    )
+                                                })
+                                                .collect(),
                                                 None,
                                             );
                                             let aabb = (

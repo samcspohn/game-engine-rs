@@ -379,7 +379,7 @@ impl World {
     // }
     pub fn get_components<T: 'static + Component + ID_trait, U>(&self, g_id: i32, func: U)
     where
-        U: FnOnce(Vec<&Mutex<T>>),
+        U: FnOnce(Vec<&std::sync::Mutex<T>>),
     {
         let Some(ent) = self.transforms.entity.get(g_id as usize) else {
             return;
@@ -392,7 +392,7 @@ impl World {
         };
         let a = stor.1.read();
         let b = unsafe { a.as_any().downcast_ref_unchecked::<Storage<T>>() };
-        let mut _v: Vec<&Mutex<T>> = vec![];
+        let mut _v: Vec<&std::sync::Mutex<T>> = vec![];
         match c {
             entity::Components::Id(id) => {
                 _v.push(&b.data.get(*id as usize).unwrap().1);

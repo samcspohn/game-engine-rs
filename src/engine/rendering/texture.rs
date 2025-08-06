@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use egui::TextureId;
 use id::{ID_trait, ID};
+use image;
+use parking_lot::Mutex;
+use regex::bytes;
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::{
@@ -27,12 +30,210 @@ use crate::{
 
 pub type TextureManager = AssetManager<Arc<VulkanManager>, Texture>;
 
-#[derive(ID)]
+pub static mut TEXTURE_ARRAY: Vec<(Arc<ImageView>, Arc<Sampler>)> = Vec::new();
+
+impl TextureManager {
+    pub fn from_data(
+        &mut self,
+        bytes: &[u8],
+        width: u32,
+        height: u32,
+        tex_name: &str,
+    ) -> i32 {
+        // AssetManager::from_data(vk, textures)
+
+         // let _file = std::path::Path::new(file);
+        if let Some(id) = self.assets.get_mut(tex_name) {
+            *id
+        } else {
+            let id = self.id_gen;
+            self.id_gen += 1;
+            self.assets.insert(tex_name.into(), id);
+            self.assets_r.insert(id, tex_name.into());
+            self.assets_id.insert(
+                id,
+                Arc::new(Mutex::new(Texture::from_data(
+                    tex_name,
+                    bytes,
+                    width,
+                    height,
+                    &self.const_params, // vk.clone(),
+                ))),
+            );
+            id
+        }
+
+    }
+
+    // Load texture from embedded texture reference
+    pub fn from_embedded_texture(&mut self, embedded_texture: &russimp::material::Texture, file_prefix: &str) -> i32 {
+        let tex_name = format!("{}/{}", file_prefix, embedded_texture.filename);
+        println!("Loading embedded texture: {}", tex_name);
+        // Check if already loaded
+        if let Some(id) = self.assets.get(&tex_name) {
+            return *id;
+        }
+
+        // If not loaded, attempt to load the texture
+        let texture = Texture::from_embedded_texture(embedded_texture, file_prefix, &self.const_params);
+        let id = self.id_gen;
+        self.id_gen += 1;
+        self.assets.insert(tex_name.clone(), id);
+        self.assets_r.insert(id, tex_name);
+        self.assets_id.insert(id, Arc::new(Mutex::new(texture)));
+        id
+    }
+
+    pub fn from_texture(
+        &mut self,
+        tex: &Texture,
+    ) -> i32 {
+        // Check if texture is already loaded
+        if let Some(id) = self.assets.get(&tex.file) {
+            return *id;
+        }
+
+        // If not loaded, create a new texture and add it to the manager
+        let id = self.id_gen;
+        self.id_gen += 1;
+        self.assets.insert(tex.file.clone(), id);
+        self.assets_r.insert(id, tex.file.clone());
+        self.assets_id.insert(id, Arc::new(Mutex::new(tex.clone())));
+        id
+    }
+
+    // Load texture from raw buffer data (fallback)
+    pub fn from_buffer_data(&mut self, data: &[u8], tex_name: &str, width: u32, height: u32) -> i32 {
+        // let tex_name = format!("buffer_texture_{}", data.len());
+        
+        // Check if already loaded
+        if let Some(id) = self.assets.get(tex_name) {
+            return *id;
+        }
+
+        // self::texture_from_bytes(self.const_params.clone(), data, width, height)
+        self.from_data(data, width, height, tex_name)
+
+        // // Try to decode as image
+        // if let Ok(img) = image::load_from_memory(data) {
+        //     let pixels: Vec<u8> = img.to_rgba8().iter().cloned().collect();
+        //     self.from_data(&pixels, img.width(), img.height(), &tex_name)
+        // } else {
+        //     println!("Failed to decode buffer data as image");
+        //     -1
+        // }
+        // match image::load_from_memory(data) {
+        //     Ok(img) => {
+        //         let pixels: Vec<u8> = img.to_rgba8().iter().cloned().collect();
+        //         self.from_data(&pixels, img.width(), img.height(), &tex_name)
+        //     }
+        //     Err(e) => {
+        //         // println!("Failed to decode buffer data as image: {}", e);
+        //         panic!("Failed to decode buffer data as image: {}", e);
+        //     }
+        // }
+
+    }
+    
+}
+
+static mut DEFAULT_TEXTURE: Option<Texture> = None;
+
+#[derive(ID, Clone)]
 pub struct Texture {
     pub file: String,
     pub image: Arc<ImageView>,
     pub sampler: Arc<Sampler>,
+    pub index: usize,
     // ui_id: Option<TextureId>,
+}
+
+impl Texture {
+    pub fn from_embedded_texture(embedded_texture: &russimp::material::Texture, file_prefix: &str, vk: &VulkanManager) -> Texture {
+        let tex_name = format!("{}/{}", file_prefix, embedded_texture.filename);
+        println!("Loading embedded texture: {}", tex_name);
+        // Check if already loaded
+
+        match &embedded_texture.data {
+            russimp::material::DataContent::Bytes(compressed_data) => {
+                // Compressed texture data (PNG, JPG, etc.)
+                // Try to load with format hint first
+                let result = if !embedded_texture.ach_format_hint.is_empty() {
+                    // Convert format hint to image format
+                    let format = match embedded_texture.ach_format_hint.to_lowercase().as_str() {
+                        "png" => image::ImageFormat::Png,
+                        "jpg" | "jpeg" => image::ImageFormat::Jpeg,
+                        "bmp" => image::ImageFormat::Bmp,
+                        "tga" => image::ImageFormat::Tga,
+                        "dds" => image::ImageFormat::Dds,
+                        "hdr" => image::ImageFormat::Hdr,
+                        "webp" => image::ImageFormat::WebP,
+                        _ => {
+                            println!("Unknown format hint: {}, trying auto-detection", embedded_texture.ach_format_hint);
+                            // Fall back to auto-detection
+                            return match image::load_from_memory(compressed_data) {
+                                Ok(img) => {
+                                    let pixels: Vec<u8> = img.to_rgba8().iter().cloned().collect();
+                                    Self::from_data(&tex_name, &pixels, img.width(), img.height(), vk)
+                            }
+                            Err(e) => {
+                                panic!("Failed to decode embedded compressed texture: {}", e);
+                            }
+                        };
+                        }
+                    };
+                    
+                    // Try loading with the specific format
+                    image::load_from_memory_with_format(compressed_data, format)
+                } else {
+                    // No format hint, try auto-detection
+                    image::load_from_memory(compressed_data)
+                };
+
+                match result {
+                    Ok(img) => {
+                        // Compress texture by factor of 4 (divide dimensions by 2)
+                        let compressed_img = img.resize(
+                            img.width() / 2,
+                            img.height() / 2,
+                            image::imageops::FilterType::Lanczos3
+                        );
+                        let pixels: Vec<u8> = compressed_img.to_rgba8().iter().cloned().collect();
+                        Self::from_data(&tex_name, &pixels, compressed_img.width(), compressed_img.height(), vk)
+                    }
+                    Err(e) => {
+                        panic!("Failed to decode embedded compressed texture: {}", e);
+                    }
+                }
+            }
+            russimp::material::DataContent::Texel(texels) => {
+                // Raw RGBA pixel data
+                let pixels: Vec<u8> = texels.iter()
+                    .flat_map(|texel| [texel.r, texel.g, texel.b, texel.a])
+                    .collect();
+                Self::from_data(&tex_name, &pixels, embedded_texture.width, embedded_texture.height, vk)
+            }
+        }
+    }
+    pub fn from_data(
+        id: &str,
+        bytes: &[u8],
+        width: u32,
+        height: u32,
+        vk: &VulkanManager,
+    ) -> Self {
+        let (image, sampler) = texture_from_bytes(vk, bytes, width, height);
+        let index = unsafe {
+            TEXTURE_ARRAY.push((image.clone(), sampler.clone()));
+            TEXTURE_ARRAY.len() - 1
+        };
+        Texture {
+            file: id.into(),
+            image,
+            sampler,
+            index,
+        }
+    }
 }
 impl Inspectable_ for Texture {
     fn inspect(&mut self, _ui: &mut egui::Ui, _world: &mut World) -> bool {
@@ -55,7 +256,7 @@ impl Inspectable_ for Texture {
 }
 
 pub fn texture_from_bytes(
-    vk: Arc<VulkanManager>,
+    vk: &VulkanManager,
     data: &[u8],
     width: u32,
     height: u32,
@@ -313,16 +514,31 @@ impl Asset<Texture, (Arc<VulkanManager>)> for Texture {
 
             // let _ = uploads.end().unwrap().execute(vk.queue.clone()).unwrap();
             let (image, sampler) =
-                texture_from_bytes(params.clone(), &pixels, img.width(), img.height());
-
-            Texture {
+                texture_from_bytes(&params, &pixels, img.width(), img.height());
+            let index = unsafe {
+                TEXTURE_ARRAY.push((image.clone(), sampler.clone()));
+                TEXTURE_ARRAY.len() - 1
+            };
+            let t = Texture {
                 file: path.into(),
                 image,
                 sampler,
-                // ui_id: None,
+                index,
+            };
+            if unsafe { DEFAULT_TEXTURE.is_none() } {
+                unsafe {
+                    DEFAULT_TEXTURE = Some(t.clone());
+                }
             }
+            t
         } else {
-            panic!("file not found{}: ", path)
+            let t = unsafe {
+                DEFAULT_TEXTURE
+                    .clone()
+                    .expect("Default texture not set, cannot load texture from file")
+            };
+            t
+            // panic!("file not found{}: ", path)
         }
 
         // let (device, queue, mem) = params;

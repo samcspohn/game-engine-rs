@@ -7,6 +7,10 @@ use vulkano::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         DrawIndexedIndirectCommand, PrimaryAutoCommandBuffer, PrimaryCommandBufferAbstract,
     },
+    descriptor_set::layout::{
+        DescriptorBindingFlags, DescriptorSetLayout, DescriptorSetLayoutBinding,
+        DescriptorSetLayoutCreateInfo, DescriptorType,
+    },
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, DescriptorSet, PersistentDescriptorSet,
         WriteDescriptorSet,
@@ -46,17 +50,19 @@ use crate::engine::{
 use self::fs::light;
 
 use super::{
-    lighting::lighting_compute::{
+    component::SharedRendererData, lighting::lighting_compute::{
         cs,
         lt::{self, tile},
-    },
-    model::{Mesh, Normal, _Vertex, UV},
-    texture::{self, TextureManager},
+    }, model::{
+        Mesh, Normal, _Vertex, ALL_INDICES_BUFFER, ALL_NORMALS_BUFFER, ALL_UVS_BUFFER,
+        ALL_VERTEX_BUFFER, UV,
+    }, texture::{self, TextureManager}
 };
 
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
+        spirv_version: "1.5",
         path: "shaders/model.vert",
         // types_meta: {
         //     use bytemuck::{Pod, Zeroable};
@@ -69,6 +75,7 @@ pub mod vs {
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
+        spirv_version: "1.5",
         path: "shaders/model.frag"
     }
 }
@@ -119,27 +126,6 @@ impl RenderPipeline {
         render_pass: Arc<RenderPass>,
         // use_msaa: bool,
     ) -> RenderPipeline {
-        // let vs = vs::load(vk.device.clone())
-        //     .unwrap()
-        //     .entry_point("main")
-        //     .unwrap();
-        // let fs = fs::load(vk.device.clone())
-        //     .unwrap()
-        //     .entry_point("main")
-        //     .unwrap();
-
-        // let pipeline = utils::pipeline::graphics_pipeline(
-        //     vk.clone(),
-        //     &[vs, fs],
-        //     &[
-        //         _Vertex::per_vertex(),
-        //         Normal::per_vertex(),
-        //         UV::per_vertex(),
-        //     ],
-        //     |g| {},
-        //     render_pass.clone(),
-        // );
-
         let vs = vs::load(vk.device.clone())
             .unwrap()
             .entry_point("main")
@@ -158,8 +144,8 @@ impl RenderPipeline {
         .unwrap();
 
         let stages = [
-            PipelineShaderStageCreateInfo::new(vs),
-            PipelineShaderStageCreateInfo::new(fs),
+            PipelineShaderStageCreateInfo::new(vs.clone()),
+            PipelineShaderStageCreateInfo::new(fs.clone()),
         ];
 
         let layout = PipelineLayout::new(
@@ -172,27 +158,52 @@ impl RenderPipeline {
 
         let subpass = Subpass::from(render_pass.clone(), sub_pass_index).unwrap();
 
-        let pipeline = GraphicsPipeline::new(
+        let mut layout_create_info = PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages);
+        let binding = layout_create_info.set_layouts[0]
+            .bindings
+            .get_mut(&8)
+            .unwrap();
+        binding.binding_flags |= DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT;
+        binding.descriptor_count = 1024; // max number of textures
+        let pipeline_layout = PipelineLayout::new(
             vk.device.clone(),
-            None,
-            GraphicsPipelineCreateInfo {
-                stages: stages.into_iter().collect(),
-                vertex_input_state: Some(vertex_input_state),
-                input_assembly_state: Some(InputAssemblyState::default()),
-                viewport_state: Some(ViewportState::default()),
-                rasterization_state: Some(RasterizationState::default().cull_mode(CullMode::Back)),
-                multisample_state: Some(MultisampleState::default()),
-                color_blend_state: Some(ColorBlendState::with_attachment_states(
-                    subpass.num_color_attachments(),
-                    ColorBlendAttachmentState::default(),
-                )),
-                depth_stencil_state: Some(DepthStencilState::simple_depth_test()),
-                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-                subpass: Some(subpass.into()),
-                ..GraphicsPipelineCreateInfo::layout(layout)
-            },
+            layout_create_info
+                .into_pipeline_layout_create_info(vk.device.clone())
+                .unwrap(),
         )
         .unwrap();
+
+        let mut g = GraphicsPipelineCreateInfo {
+            stages: stages.into_iter().collect(),
+            vertex_input_state: Some(vertex_input_state),
+            input_assembly_state: Some(InputAssemblyState::default()),
+            viewport_state: Some(ViewportState::default()),
+            rasterization_state: Some(RasterizationState::default().cull_mode(CullMode::Back)),
+            multisample_state: Some(MultisampleState::default()),
+            color_blend_state: Some(ColorBlendState::with_attachment_states(
+                subpass.num_color_attachments(),
+                ColorBlendAttachmentState::default(),
+            )),
+            depth_stencil_state: Some(DepthStencilState::simple_depth_test()),
+            dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+            subpass: Some(subpass.into()),
+            ..GraphicsPipelineCreateInfo::layout(layout)
+        };
+        g.layout = pipeline_layout.clone();
+        let pipeline = GraphicsPipeline::new(vk.device.clone(), None, g).unwrap();
+        // let pipeline = utils::pipeline::graphics_pipeline(
+        //     vk.clone(),
+        //     &[vs.clone(), fs.clone()],
+        //     &[
+        //         _Vertex::per_vertex(),
+        //         Normal::per_vertex(),
+        //         UV::per_vertex(),
+        //     ],
+        //     |g| {
+        //         g.layout = pipeline_layout.clone();
+        //     },
+        //     render_pass.clone(),
+        // );
         let mut builder = AutoCommandBufferBuilder::primary(
             &vk.comm_alloc,
             vk.queue.queue_family_index(),
@@ -201,7 +212,7 @@ impl RenderPipeline {
         .unwrap();
 
         let (def_texture, def_sampler) =
-            texture::texture_from_bytes(vk.clone(), &vec![255_u8, 255, 255, 255], 1, 1);
+            texture::texture_from_bytes(&vk, &vec![255_u8, 255, 255, 255], 1, 1);
         RenderPipeline {
             // _vs: vs,
             // _fs: fs,
@@ -235,60 +246,109 @@ impl RenderPipeline {
         bounding_line_hierarchy: Subbuffer<[cs::BoundingLine]>,
         /////
         transforms: Subbuffer<[transform]>,
-        mesh: &Mesh,
-        indirect_buffer: Subbuffer<[DrawIndexedIndirectCommand]>,
+        // mesh: &Mesh,
+        // indirect_buffer: Subbuffer<[DrawIndexedIndirectCommand]>,
         cam_pos: Vec3,
         light_list: Subbuffer<[u32]>,
         skeleton: Option<&Subbuffer<[[[f32; 4]; 3]]>>,
         has_skeleton: bool,
         empty: Subbuffer<[i32]>,
         num_bones: i32,
+        rd: &SharedRendererData,
     ) -> &RenderPipeline {
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
-        let mut descriptors = Vec::new();
+        static mut SET: Option<Arc<PersistentDescriptorSet>> = None;
+        static mut texture_count: u32 = 0;
+        static mut transform_count: u32 = 0;
+        static mut light_count: u32 = 0;
+        static mut mesh_count: u32 = 0;
+        static mut SCREEN_DIMS: [f32; 2] = [0.0, 0.0];
 
-        descriptors.push(WriteDescriptorSet::buffer(0, mvp_buffer));
+        if unsafe { SET.is_none() }
+            || unsafe { texture_count } != texture_manager.assets_id.len() as u32
+            || unsafe { transform_count } != transforms.len() as u32
+            // || unsafe { light_count } != lights.len() as u32
+            || unsafe { SCREEN_DIMS } != screen_dims
+            || unsafe { mesh_count } != instance_buffer.len() as u32
+        {
+            let mut descriptors = Vec::new();
 
-        descriptors.push(WriteDescriptorSet::buffer(1, instance_buffer));
-        // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
-        let uniform = self.vk.allocate(fs::Data { screen_dims });
-        let vs_uniform = self.vk.allocate(vs::UniformBufferObject {
-            has_skeleton: if has_skeleton { 1 } else { 0 },
-            num_bones,
-        });
-        if let Some(skel) = skeleton {
-            descriptors.push(WriteDescriptorSet::buffer(2, skel.clone()));
-        } else {
-            descriptors.push(WriteDescriptorSet::buffer(2, empty.clone()));
-        }
-        if let Some(buf) = mesh.bone_weights_buffer.as_ref() {
-            descriptors.push(WriteDescriptorSet::buffer(3, buf.clone()));
-        } else {
+            descriptors.push(WriteDescriptorSet::buffer(0, mvp_buffer));
+
+            // descriptors.push(WriteDescriptorSet::buffer(1, instance_buffer));
+            // descriptors.push(WriteDescriptorSet::buffer(3, transforms));
+            let uniform = self.vk.allocate(fs::Data { screen_dims });
+            let vs_uniform = self.vk.allocate(vs::UniformBufferObject {
+                has_skeleton: if has_skeleton { 1 } else { 0 },
+                num_bones,
+            });
+            if let Some(skel) = skeleton {
+                descriptors.push(WriteDescriptorSet::buffer(2, skel.clone()));
+            } else {
+                descriptors.push(WriteDescriptorSet::buffer(2, empty.clone()));
+            }
+            // if let Some(buf) = mesh.bone_weights_buffer.as_ref() {
+            //     descriptors.push(WriteDescriptorSet::buffer(3, buf.clone()));
+            // } else {
             descriptors.push(WriteDescriptorSet::buffer(3, empty.clone()));
-        }
-        descriptors.push(WriteDescriptorSet::buffer(4, vs_uniform));
-        descriptors.push(WriteDescriptorSet::buffer(
-            5,
-            mesh.bone_weights_offsets_counts_buf.clone(),
-        ));
-        // descriptors.push(WriteDescriptorSet::buffer(6, bounding_line_hierarchy));
+            // }
+            descriptors.push(WriteDescriptorSet::buffer(4, vs_uniform));
+            // descriptors.push(WriteDescriptorSet::buffer(
+            //     5,
+            //     mesh.bone_weights_offsets_counts_buf.clone(),
+            // ));
+            descriptors.push(WriteDescriptorSet::buffer(5, empty.clone()));
+            // descriptors.push(WriteDescriptorSet::buffer(6, bounding_line_hierarchy));
 
-        if let Some(texture) = mesh.texture.as_ref() {
-            let texture = texture_manager.get_id(texture).unwrap().lock();
-            descriptors.push(WriteDescriptorSet::image_view_sampler(
-                7,
-                texture.image.clone(),
-                texture.sampler.clone(),
-            ));
-        } else {
-            descriptors.push(WriteDescriptorSet::image_view_sampler(
-                7,
-                self.def_texture.clone(),
-                self.def_sampler.clone(),
-            ));
+            // if let Some(texture) = mesh.texture.as_ref() {
+            //     let texture = texture_manager.get_id(texture).unwrap().lock();
+            //     descriptors.push(WriteDescriptorSet::image_view_sampler(
+            //         7,
+            //         texture.image.clone(),
+            //         texture.sampler.clone(),
+            //     ));
+            // } else {
+            //     descriptors.push(WriteDescriptorSet::image_view_sampler(
+            //         7,
+            //         self.def_texture.clone(),
+            //         self.def_sampler.clone(),
+            //     ));
+            // }
+            descriptors.push(WriteDescriptorSet::buffer(7, uniform));
+
+            // Get textures and handle variable count
+            // let textures: Vec<(Arc<ImageView>, Arc<Sampler>)> = texture_manager
+            //     .assets_id
+            //     .iter()
+            //     .map(|(_, tex)| {
+            //         let texture = tex.lock();
+            //         (texture.image.clone(), texture.sampler.clone())
+            //     })
+            //     .collect();
+
+            unsafe { texture_count = texture::TEXTURE_ARRAY.len() as u32 };
+            unsafe { transform_count = transforms.len() as u32 };
+            unsafe { light_count = lights.len() as u32 };
+            unsafe { SCREEN_DIMS = screen_dims };
+            // println!("Textures: {}", texture_count);
+
+            let textures = WriteDescriptorSet::image_view_sampler_array(8, 0, unsafe { texture::TEXTURE_ARRAY.iter().cloned() });
+            descriptors.push(textures);
+            // Create descriptor set with variable count
+            unsafe {
+                SET = Some(
+                    PersistentDescriptorSet::new_variable(
+                        &desc_allocator,
+                        layout.clone(),
+                        unsafe { texture_count } as u32,
+                        descriptors,
+                        [],
+                    )
+                    .unwrap(),
+                );
+            }
         }
-        descriptors.push(WriteDescriptorSet::buffer(8, uniform));
 
         let light_layout = self.pipeline.layout().set_layouts().get(1).unwrap();
         let light_desc = PersistentDescriptorSet::new(
@@ -305,48 +365,50 @@ impl RenderPipeline {
         )
         .unwrap();
 
+        // let set =
+        //     PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors, []).unwrap();
+
         // descriptors.push(WriteDescriptorSet::buffer(14, mesh.bone_weights_counts_buf.clone()));
         let pc = Into::<[f32; 3]>::into(cam_pos);
-        if let Ok(set) =
-            PersistentDescriptorSet::new(&desc_allocator, layout.clone(), descriptors, [])
-        {
-            builder
-                .bind_descriptor_sets(
-                    PipelineBindPoint::Graphics,
-                    self.pipeline.layout().clone(),
-                    0,
-                    set,
-                )
-                .unwrap()
-                .bind_descriptor_sets(
-                    PipelineBindPoint::Graphics,
-                    self.pipeline.layout().clone(),
-                    1,
-                    light_desc,
-                )
-                .unwrap()
-                .bind_vertex_buffers(
-                    0,
-                    (
-                        mesh.vertex_buffer.clone(),
-                        mesh.normals_buffer.clone(),
-                        mesh.uvs_buffer.clone(),
-                        // mesh.bone_weights_offsets_buf.clone(),
-                        // mesh.bone_weights_counts_buf.clone(),
-                        // instance_buffer.clone(),
-                    ),
-                )
-                .unwrap()
-                // .bind_vertex_buffers(1, transforms_buffer.data.clone())
-                .bind_index_buffer(mesh.index_buffer.clone())
-                .unwrap()
-                .push_constants(self.pipeline.layout().clone(), 0, pc)
-                .unwrap()
-                .draw_indexed_indirect(indirect_buffer)
-                .unwrap();
-        } else {
-            println!("failed to create descriptor set");
-        }
+
+        builder
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.pipeline.layout().clone(),
+                0,
+                unsafe { SET.clone().unwrap() },
+            )
+            .unwrap()
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.pipeline.layout().clone(),
+                1,
+                light_desc,
+            )
+            .unwrap()
+            .bind_vertex_buffers(
+                0,
+                (
+                    unsafe { ALL_VERTEX_BUFFER.as_ref().unwrap().clone() },
+                    unsafe { ALL_NORMALS_BUFFER.as_ref().unwrap().clone() },
+                    unsafe { ALL_UVS_BUFFER.as_ref().unwrap().clone() },
+                    // mesh.vertex_buffer.clone(),
+                    // mesh.normals_buffer.clone(),
+                    // mesh.uvs_buffer.clone(),
+                    // mesh.bone_weights_offsets_buf.clone(),
+                    // mesh.bone_weights_counts_buf.clone(),
+                    // instance_buffer.clone(),
+                ),
+            )
+            .unwrap()
+            // .bind_vertex_buffers(1, transforms_buffer.data.clone())
+            .bind_index_buffer(unsafe { ALL_INDICES_BUFFER.as_ref().unwrap().clone() })
+            .unwrap()
+            .push_constants(self.pipeline.layout().clone(), 0, pc)
+            .unwrap();
+        // .draw_indexed_indirect(indirect_buffer)
+        // .unwrap();
+
         self
     }
 }

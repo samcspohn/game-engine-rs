@@ -7,7 +7,7 @@
 const int _light_quadtree_offsets[8] = {0, 1, 5, 21, 85, 341, 1365, 5461};
 const int _light_quadtree_widths[7] = {1, 2, 4, 8, 16, 32, 64};
 // const int half_widths_r[5] = {16, 8, 4, 2, 1};
-
+float sqr(float x) { return x * x; }
 // some credit to https://www.3dgep.com/forward-plus/#Forward Jeremiah van Oosten
 struct Plane {
     vec3 N;    // Plane normal.

@@ -1,23 +1,29 @@
 // extern crate assimp;
 
+use core::panic;
 use std::{
     borrow::Borrow,
+    cell::RefCell,
     collections::{BTreeMap, HashMap},
     mem::transmute,
-    ops::Sub,
+    ops::{Deref, Sub},
     rc::Rc,
-    sync::Arc, u16::MAX,
+    sync::Arc,
+    u16::MAX,
 };
 
 // use ai::import::Importer;
 // use assimp as ai;
 // use bytemuck::{Pod, Zeroable};
 use crate::engine::{
+    particles::shaders::cs::al,
     prelude::{Component, Inpsect, Ins},
     project::asset_manager::AssetInstance,
+    rendering::texture::Texture,
+    utils,
 };
 use force_send_sync::SendSync;
-use glium::buffer::Content;
+use glium::{buffer::Content, vertex};
 use glm::{float_bits_to_int, IVec2};
 use id::*;
 use parking_lot::{Mutex, RwLock};
@@ -44,10 +50,17 @@ use crate::{
         VulkanManager,
     },
 };
+use rayon::prelude::*;
 use vulkano::{
     buffer::{subbuffer::BufferWriteGuard, Buffer, BufferContents, Subbuffer},
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, DrawIndexedIndirectCommand,
+        PrimaryCommandBufferAbstract,
+    },
     memory::allocator::{MemoryAllocator, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::graphics::vertex_input::Vertex,
+    sync::GpuFuture,
+    DeviceSize,
 };
 use vulkano::{device::Device, impl_vertex};
 // impl_vertex!(glm::Vec3, position);
@@ -99,25 +112,49 @@ pub struct Normal {
 
 #[derive(Clone)]
 pub struct Mesh {
-    pub vertices: Vec<_Vertex>, // TODO: change to [f32;3]
-    pub normals: Vec<Normal>,
-    pub uvs: Vec<UV>,
-    pub indices: Vec<u32>,
+    // pub vertices: Vec<_Vertex>, // TODO: change to [f32;3]
+    // pub normals: Vec<Normal>,
+    // pub uvs: Vec<UV>,
+    // pub indices: Vec<u32>,
     // pub bone_ids: Vec<smallvec::SmallVec<[u16; 4]>>,
     pub vertex_bones: Vec<IVec2>,
     pub bone_weight_offsets: Vec<u32>,
     pub aabb: (Vec3, Vec3),
 
-    pub vertex_buffer: Subbuffer<[_Vertex]>,
-    pub uvs_buffer: Subbuffer<[UV]>,
-    pub index_buffer: Subbuffer<[u32]>,
-    pub normals_buffer: Subbuffer<[Normal]>,
+    // pub vertex_buffer: Subbuffer<[_Vertex]>,
+    // pub uvs_buffer: Subbuffer<[UV]>,
+    // pub index_buffer: Subbuffer<[u32]>,
+    // pub normals_buffer: Subbuffer<[Normal]>,
+    pub vertex_offset: u32,
+    pub vertex_count: u32, // number of vertices in this mesh
+    // pub normals_offset: u32,
+    // pub uvs_offset: u32,
+    pub index_offset: u32,
+    pub index_count: u32, // number of indices in this mesh
+    // pub indirect_command: DrawIndexedIndirectCommand,
+    pub indirect_index: usize,
     pub bone_weights_offsets_counts_buf: Subbuffer<[[u32; 2]]>,
     // pub bone_weights_counts_buf: Subbuffer<[u32]>,
     pub bone_weights_buffer: Option<Subbuffer<[[i32; 2]]>>,
     pub texture: Option<i32>,
 }
 
+pub static mut ALL_VERTICES: Vec<_Vertex> = Vec::new();
+pub static mut ALL_NORMALS: Vec<Normal> = Vec::new();
+pub static mut ALL_UVS: Vec<UV> = Vec::new();
+pub static mut ALL_INDICES: Vec<u32> = Vec::new();
+
+pub static mut ALL_VERTEX_BUFFER: Option<Subbuffer<[_Vertex]>> = None;
+pub static mut ALL_NORMALS_BUFFER: Option<Subbuffer<[Normal]>> = None;
+pub static mut ALL_UVS_BUFFER: Option<Subbuffer<[UV]>> = None;
+pub static mut ALL_INDICES_BUFFER: Option<Subbuffer<[u32]>> = None;
+
+pub fn force_update_mesh_buffers(vk: &VulkanManager) {
+    unsafe { ALL_VERTEX_BUFFER = Some(vk.buffer_from_iter(unsafe { ALL_VERTICES.clone() })) };
+    unsafe { ALL_NORMALS_BUFFER = Some(vk.buffer_from_iter(unsafe { ALL_NORMALS.clone() })) };
+    unsafe { ALL_UVS_BUFFER = Some(vk.buffer_from_iter(unsafe { ALL_UVS.clone() })) };
+    unsafe { ALL_INDICES_BUFFER = Some(vk.buffer_from_iter(unsafe { ALL_INDICES.clone() })) };
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BoneInfo {
     pub offset: Mat4,
@@ -175,6 +212,7 @@ impl Model {
         path: &str,
         texture_manager: Arc<Mutex<TextureManager>>,
         vk: &VulkanManager,
+        renderers: &mut SharedRendererData,
     ) -> Model {
         let _path = std::path::Path::new(path);
         let model = russimp::scene::Scene::from_file(
@@ -239,6 +277,39 @@ impl Model {
 
         let mut _meshes = Vec::new();
         println!("here");
+
+        let mut tex_map = HashMap::new();
+        for mat in scene.materials.iter() {
+            // println!("texture: {:?}", mat.textures);
+            // println!("properties: {:?}", mat.properties);
+            for tex in mat.textures.iter() {
+                if *tex.0 != TextureType::Diffuse {
+                    continue; // Only process diffuse textures
+                }
+                let tex_val: &russimp::material::Texture = &tex.1.deref().borrow();
+                tex_map.entry(tex_val.filename.clone()).or_insert(unsafe {
+                    force_send_sync::SendSync::new(std::ptr::addr_of!(*tex_val))
+                });
+            }
+        }
+        {
+            rayon::scope(|s| {
+                for tex in tex_map.into_iter() {
+                    // Do something with the texture map
+                    let tex_man = &texture_manager;
+                    s.spawn(move |_| {
+                        let tex = Texture::from_embedded_texture(
+                            unsafe { &**tex.1 },
+                            _path.parent().unwrap().to_str().unwrap(),
+                            vk,
+                        );
+                        tex_man.lock().from_texture(&tex);
+                    });
+                    // tex_man.from_embedded_texture(&tex.1.1.deref().borrow(), _path.parent().unwrap().to_str().unwrap());
+                }
+            });
+        }
+
         for mesh in scene.meshes.iter() {
             if let Some(mesh) = Mesh::load_mesh(
                 &mesh,
@@ -247,6 +318,7 @@ impl Model {
                 texture_manager.clone(),
                 &_path,
                 vk,
+                renderers,
             ) {
                 _meshes.push(mesh);
             }
@@ -303,12 +375,20 @@ impl Mesh {
         texture_manager: Arc<Mutex<TextureManager>>,
         _path: &std::path::Path,
         vk: &VulkanManager,
+        renderers: &mut SharedRendererData,
     ) -> Option<Mesh> {
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-        let mut normals = Vec::new();
-        let mut uvs = Vec::new();
+        // let mut vertices = Vec::new();
+        // let mut indices = Vec::new();
+        // let mut normals = Vec::new();
+        // let mut uvs = Vec::new();
         let mut vertex_bones = Vec::new();
+
+        let index_offset = unsafe { ALL_INDICES.len() as u32 };
+        let vertex_offset = unsafe { ALL_VERTICES.len() as u32 };
+        if mesh.vertices.len() == 0 {
+            println!("Mesh has no vertices, skipping");
+            return None;
+        }
 
         // let mesh = &m.mesh;
         let mut skip = false;
@@ -317,9 +397,11 @@ impl Mesh {
                 skip = true;
                 break;
             }
-            indices.push(face.0[0]);
-            indices.push(face.0[2]);
-            indices.push(face.0[1]);
+            unsafe {
+                ALL_INDICES.push(face.0[0]);
+                ALL_INDICES.push(face.0[2]);
+                ALL_INDICES.push(face.0[1]);
+            }
         }
         if skip {
             return None;
@@ -333,23 +415,56 @@ impl Mesh {
             min.x = min.x.min(v.x);
             min.y = min.y.min(v.y);
             min.z = min.z.min(v.z);
-            
-            vertices.push(_Vertex {
-                position: [v.x, v.y, v.z],
-            });
+
+            unsafe {
+                ALL_VERTICES.push(_Vertex {
+                    position: [v.x, v.y, v.z],
+                })
+            };
         }
 
-        for n in mesh.normals.iter() {
-            normals.push(Normal {
-                normal: [n.x, n.y, n.z],
-            });
+        if mesh.normals.len() == 0 {
+            unsafe {
+                ALL_NORMALS.extend(vec![
+                    Normal {
+                        normal: [0.0, 1.0, 0.0],
+                    };
+                    mesh.vertices.len()
+                ]);
+            }
+        } else {
+            for n in mesh.normals.iter() {
+                unsafe {
+                    ALL_NORMALS.push(Normal {
+                        normal: [n.x, n.y, n.z],
+                    })
+                };
+            }
         }
 
-        for tex_coords in mesh.texture_coords.iter() {
-            if let Some(tex_coords) = tex_coords {
-                for uv in tex_coords {
-                    uvs.push(UV { uv: [uv.x, uv.y] }); // TODO: support multiple uvs
+        if mesh.texture_coords.len() == 0 {
+            unsafe {
+                ALL_UVS.extend(vec![UV { uv: [0.0, 0.0] }; mesh.vertices.len()]);
+            }
+        } else {
+            for tex_coords in mesh.texture_coords.iter() {
+                if let Some(tex_coords) = tex_coords {
+                    for uv in tex_coords {
+                        unsafe {
+                            ALL_UVS.push(UV { uv: [uv.x, uv.y] });
+                        } // TODO: support multiple uvs
+                    }
+                    break;
                 }
+            }
+        }
+        if unsafe { ALL_UVS.len() } < unsafe { ALL_VERTICES.len() } {
+            // Fill remaining uvs with [0.0, 0.0]
+            unsafe {
+                ALL_UVS.extend(vec![
+                    UV { uv: [0.0, 0.0] };
+                    unsafe { ALL_VERTICES.len() } - ALL_UVS.len()
+                ]);
             }
         }
 
@@ -369,7 +484,7 @@ impl Mesh {
         // let mut vert_weight = vertex_weights.iter();
         // let mut vert = vert_weight.next();
         let mut bone_weight_offsets = Vec::new();
-        for i in 0..vertices.len() as u32 {
+        for i in 0..(unsafe { ALL_VERTICES.len() } as u32 - vertex_offset) {
             bone_weight_offsets.push(offset);
             if let Some(weights) = vertex_weights.get(&i) {
                 // if *vw.0 == i {
@@ -383,10 +498,131 @@ impl Mesh {
             }
         }
 
-        let vertex_buffer = vk.buffer_from_iter(vertices.clone());
-        let uvs_buffer = vk.buffer_from_iter(uvs.clone());
-        let normals_buffer = vk.buffer_from_iter(normals.clone());
-        let index_buffer = vk.buffer_from_iter(indices.clone());
+        // let vertex_buffer = vk.buffer_from_iter(vertices.clone());
+        // if uvs.len() == 0 {
+        //     uvs = vec![UV { uv: [0.0, 0.0] }; vertices.len()];
+        // }
+        // let uvs_buffer = vk.buffer_from_iter(uvs.clone());
+        // let normals_buffer = vk.buffer_from_iter(normals.clone());
+        // let index_buffer = vk.buffer_from_iter(indices.clone());
+        if unsafe { ALL_INDICES_BUFFER.is_none() } {
+            unsafe {
+                ALL_VERTEX_BUFFER = Some(vk.buffer_from_iter(unsafe { ALL_VERTICES.clone() }))
+            };
+            unsafe {
+                ALL_NORMALS_BUFFER = Some(vk.buffer_from_iter(unsafe { ALL_NORMALS.clone() }))
+            };
+            unsafe { ALL_UVS_BUFFER = Some(vk.buffer_from_iter(unsafe { ALL_UVS.clone() })) };
+            unsafe {
+                ALL_INDICES_BUFFER = Some(vk.buffer_from_iter(unsafe { ALL_INDICES.clone() }))
+            };
+        }
+
+        if let (Some(all_vertex_buffer), Some(all_indices_buffer)) =
+            unsafe { (ALL_VERTEX_BUFFER.as_ref(), ALL_INDICES_BUFFER.as_ref()) }
+        {
+            let mut builder = AutoCommandBufferBuilder::primary(
+                &vk.comm_alloc,
+                vk.queue.queue_family_index(),
+                CommandBufferUsage::OneTimeSubmit,
+            )
+            .unwrap();
+            if all_vertex_buffer.len() < unsafe { ALL_VERTICES.len() as DeviceSize }
+                || all_indices_buffer.len() < unsafe { ALL_INDICES.len() as DeviceSize }
+            {
+                // resize vertices
+                let new_len = unsafe { ALL_VERTICES.len().next_power_of_two() as u64 };
+                let new_buffer = vk.buffer_array(new_len, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        unsafe { ALL_VERTEX_BUFFER.as_ref().unwrap().clone() },
+                        new_buffer.clone(),
+                    ))
+                    .unwrap();
+                unsafe { ALL_VERTEX_BUFFER = Some(new_buffer) };
+
+                // resize normals
+                let new_normals_buffer = vk.buffer_array(new_len, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        unsafe { ALL_NORMALS_BUFFER.as_ref().unwrap().clone() },
+                        new_normals_buffer.clone(),
+                    ))
+                    .unwrap();
+                unsafe { ALL_NORMALS_BUFFER = Some(new_normals_buffer) };
+
+                // resize uvs
+                let new_uvs_buffer = vk.buffer_array(new_len, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        unsafe { ALL_UVS_BUFFER.as_ref().unwrap().clone() },
+                        new_uvs_buffer.clone(),
+                    ))
+                    .unwrap();
+                unsafe { ALL_UVS_BUFFER = Some(new_uvs_buffer) };
+
+                // resize indices
+                let new_len = unsafe { ALL_INDICES.len().next_power_of_two() as u64 };
+                let new_indices_buffer = vk.buffer_array(new_len, MemoryTypeFilter::PREFER_DEVICE);
+                builder
+                    .copy_buffer(CopyBufferInfo::buffers(
+                        unsafe { ALL_INDICES_BUFFER.as_ref().unwrap().clone() },
+                        new_indices_buffer.clone(),
+                    ))
+                    .unwrap();
+                unsafe { ALL_INDICES_BUFFER = Some(new_indices_buffer) };
+            }
+
+            let buf = vk.buffer_from_iter(unsafe {
+                ALL_VERTICES[vertex_offset as usize..].iter().cloned()
+            });
+            builder
+                .copy_buffer(CopyBufferInfo::buffers(
+                    buf,
+                    all_vertex_buffer.clone().slice(vertex_offset as u64..),
+                ))
+                .unwrap();
+
+            // Copy normals
+            let normals_buf = vk
+                .buffer_from_iter(unsafe { ALL_NORMALS[vertex_offset as usize..].iter().cloned() });
+            let all_normals_buffer = unsafe { ALL_NORMALS_BUFFER.as_ref().unwrap().clone() };
+            builder
+                .copy_buffer(CopyBufferInfo::buffers(
+                    normals_buf,
+                    all_normals_buffer.slice(vertex_offset as u64..).clone(),
+                ))
+                .unwrap();
+
+            // Copy uvs
+            let uvs_buf =
+                vk.buffer_from_iter(unsafe { ALL_UVS[vertex_offset as usize..].iter().cloned() });
+            let all_uvs_buffer = unsafe { ALL_UVS_BUFFER.as_ref().unwrap().clone() };
+            builder
+                .copy_buffer(CopyBufferInfo::buffers(
+                    uvs_buf,
+                    all_uvs_buffer.slice(vertex_offset as u64..).clone(),
+                ))
+                .unwrap();
+
+            // Copy indices
+            let indices_buf = vk
+                .buffer_from_iter(unsafe { ALL_INDICES[index_offset as usize..].iter().cloned() });
+            builder
+                .copy_buffer(CopyBufferInfo::buffers(
+                    indices_buf,
+                    all_indices_buffer.clone().slice(index_offset as u64..),
+                ))
+                .unwrap();
+
+            let command_buffer = builder.build().unwrap();
+            command_buffer
+                .execute(vk.queue.clone())
+                .unwrap()
+                .then_signal_fence_and_flush()
+                .unwrap();
+        }
+
         let bone_weights_buffer: Option<Subbuffer<[[i32; 2]]>> = if vertex_bones.len() == 0 {
             None
         } else {
@@ -425,27 +661,91 @@ impl Mesh {
         //     scene.materials.get(mesh.material_index as usize)
         // );
         if let Some(mat) = scene.materials.get(mesh.material_index as usize) {
-            for prop in &mat.properties {
-                // println!("prop.key: {}, prop.data: {:?}", prop.key, prop.data);
-                if prop.semantic == TextureType::Diffuse {
-                    let a = || {
-                        println!("prop: {:?}", prop);
-                    };
-                    match &prop.data {
-                        russimp::material::PropertyTypeInfo::Buffer(_) => a(),
-                        russimp::material::PropertyTypeInfo::IntegerArray(_) => a(),
-                        russimp::material::PropertyTypeInfo::FloatArray(_) => a(),
-                        russimp::material::PropertyTypeInfo::String(s) => {
-                            let diff_path: &str =
-                                &(_path.parent().unwrap().to_str().unwrap().to_string() + "/" + &s);
-                            println!("diffuse path: {}", diff_path);
-                            texture = Some(texture_manager.lock().from_file(diff_path));
-                            println!("{}, {:?}", diff_path, texture);
-                        }
-                    }
-                    // prop.semantic == "Diffuse"
+            if let Some(tex) = mat.textures.get(&TextureType::Diffuse) {
+                let tex_val: &russimp::material::Texture = &tex.deref().borrow();
+                // if tex_val.filename.starts_with("*") {
+
+                //     // Embedded texture
+                //     let embedded_texture_ref = tex_val.deref().borrow();
+                //     texture = Some(texture_manager.lock().from_embedded_texture(
+                //         &*embedded_texture_ref,
+                //         _path.parent().unwrap().to_str().unwrap(),
+                //     ));
+                // } else {
+                if !tex_val.filename.starts_with("*") {
+                    // External texture file
+                    let diff_path: &str = &(_path.parent().unwrap().to_str().unwrap().to_string()
+                        + "/"
+                        + &tex_val.filename);
+                    println!("Loading external diffuse texture: {}", diff_path);
+                    texture = Some(texture_manager.lock().from_file(diff_path));
                 }
             }
+            if texture.is_none() {
+                for prop in &mat.properties {
+                    // println!("prop.key: {}, prop.data: {:?}", prop.key, prop.data);
+                    match prop.semantic {
+                        TextureType::Diffuse => {
+                            match &prop.data {
+                                russimp::material::PropertyTypeInfo::String(s) => {
+                                    // Check if it's an embedded texture reference (starts with "*")
+                                    if s.starts_with("*") {
+                                        continue; // Skip embedded textures for now
+                                                  // Extract embedded texture index
+                                                  // if let Ok(texture_index) = s[1..].parse::<usize>() {
+                                                  //     // For embedded textures, we need to access them through material.textures
+                                                  //     if let Some(embedded_texture_rc) = mat.textures.get(&TextureType::Diffuse) {
+                                                  //         println!("Loading embedded diffuse texture at index: {}", texture_index);
+                                                  //         let embedded_texture_ref = (**embedded_texture_rc).borrow();
+                                                  //         texture = Some(texture_manager.lock().from_embedded_texture(&*embedded_texture_ref, _path.parent().unwrap().to_str().unwrap()));
+                                                  //         println!("Loaded embedded texture: {:?}", texture);
+                                                  //     } else {
+                                                  //         println!("Embedded texture not found in material.textures");
+                                                  //     }
+                                                  // } else {
+                                                  //     println!("Failed to parse embedded texture index from: {}", s);
+                                                  // }
+                                    } else {
+                                        // External texture file
+                                        let diff_path: &str = &(_path
+                                            .parent()
+                                            .unwrap()
+                                            .to_str()
+                                            .unwrap()
+                                            .to_string()
+                                            + "/"
+                                            + &s);
+                                        println!("Loading external diffuse texture: {}", diff_path);
+                                        texture = Some(texture_manager.lock().from_file(diff_path));
+                                        println!("Loaded external texture: {:?}", texture);
+                                    }
+                                }
+                                russimp::material::PropertyTypeInfo::Buffer(data) => {
+                                    // Direct embedded texture data in buffer
+                                    println!("Loading diffuse texture from direct buffer data");
+                                    // panic!("Direct buffer data loading not implemented");
+                                    // texture = Some(texture_manager.lock().from_buffer_data(data, &prop.key,prop.));
+                                    println!("Loaded texture from buffer: {:?}", texture);
+                                }
+                                _ => {
+                                    println!(
+                                        "Unsupported diffuse texture data type: {:?}",
+                                        prop.data
+                                    );
+                                }
+                            }
+                        }
+                        TextureType::Specular => {
+                            println!("specular texture: {:?}", prop.data);
+                        }
+                        TextureType::Normals => {
+                            println!("normal texture: {:?}", prop.data);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // }
             // for (_type, tex) in &mat.textures {
             //     println!("diffuse path: {:?}, {}", _type, tex.borrow().filename);
             //     if *_type == TextureType::Diffuse {
@@ -468,24 +768,41 @@ impl Mesh {
             //     println!("{}, {:?}", diff_path, texture);
             // }
         }
-        let aabb = (
-            min,
-            max,
-        );
+        let aabb = (min, max);
         println!("aabb: {:?}", aabb);
         // }
+        let indirect_index = renderers.indirect.len();
+        renderers.indirect.push(DrawIndexedIndirectCommand {
+            index_count: unsafe { ALL_INDICES.len() as u32 - index_offset },
+            instance_count: 0,
+            first_index: index_offset,
+            vertex_offset,
+            first_instance: 0,
+        });
+        let tex_man_l = texture_manager.lock();
+        let tex_man: &TextureManager = &*tex_man_l;
+        let tex = tex_man.assets_id.get(texture.as_ref().unwrap_or(&0)).map(|tex| {
+            tex.lock().index
+        }).unwrap();
+        renderers.texture_ids.push(tex as i32);
+        renderers.indirect_counts.push(0);
 
         return Some(Mesh {
-            vertices,
-            uvs,
-            indices,
-            normals,
+            // vertices,
+            // uvs,
+            // indices,
+            // normals,
             vertex_bones,
             bone_weight_offsets,
-            vertex_buffer,
-            uvs_buffer,
-            normals_buffer,
-            index_buffer,
+            // vertex_buffer,
+            // uvs_buffer,
+            // normals_buffer,
+            // index_buffer,
+            vertex_offset: vertex_offset.clone(),
+            vertex_count: unsafe { ALL_VERTICES.len() as u32 - vertex_offset },
+            index_offset,
+            indirect_index,
+            index_count: unsafe { ALL_INDICES.len() as u32 - index_offset },
             texture,
             bone_weights_buffer,
             bone_weights_offsets_counts_buf: bone_weights_offsets_counts_buffer,
@@ -497,7 +814,10 @@ impl Mesh {
     }
 }
 
-use super::{component::buffer_usage_all, texture::TextureManager};
+use super::{
+    component::{buffer_usage_all, SharedRendererData},
+    texture::TextureManager,
+};
 #[derive(ID)]
 pub struct ModelRenderer {
     pub file: String,
@@ -505,12 +825,25 @@ pub struct ModelRenderer {
     pub count: u32,
 }
 
-impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)> for ModelRenderer {
+impl
+    Asset<
+        ModelRenderer,
+        (
+            Arc<Mutex<TextureManager>>,
+            Arc<VulkanManager>,
+            Arc<RwLock<SharedRendererData>>,
+        ),
+    > for ModelRenderer
+{
     fn from_file(
         file: &str,
-        params: &(Arc<Mutex<TextureManager>>, Arc<VulkanManager>),
+        params: &(
+            Arc<Mutex<TextureManager>>,
+            Arc<VulkanManager>,
+            Arc<RwLock<SharedRendererData>>,
+        ),
     ) -> ModelRenderer {
-        let model = Model::load_model(file, params.0.clone(), &params.1);
+        let model = Model::load_model(file, params.0.clone(), &params.1, &mut params.2.write());
         ModelRenderer {
             file: file.into(),
             model,
@@ -518,8 +851,16 @@ impl Asset<ModelRenderer, (Arc<Mutex<TextureManager>>, Arc<VulkanManager>)> for 
         }
     }
 
-    fn reload(&mut self, file: &str, params: &(Arc<Mutex<TextureManager>>, Arc<VulkanManager>)) {
-        let _mesh = Model::load_model(file, params.0.clone(), &params.1);
+    fn reload(
+        &mut self,
+        file: &str,
+        params: &(
+            Arc<Mutex<TextureManager>>,
+            Arc<VulkanManager>,
+            Arc<RwLock<SharedRendererData>>,
+        ),
+    ) {
+        let _mesh = Model::load_model(file, params.0.clone(), &params.1, &mut params.2.write());
     }
 }
 
@@ -546,8 +887,14 @@ impl Inspectable_ for ModelRenderer {
     }
 }
 
-pub type ModelManager =
-    asset_manager::AssetManager<(Arc<Mutex<TextureManager>>, Arc<VulkanManager>), ModelRenderer>;
+pub type ModelManager = asset_manager::AssetManager<
+    (
+        Arc<Mutex<TextureManager>>,
+        Arc<VulkanManager>,
+        Arc<RwLock<SharedRendererData>>,
+    ),
+    ModelRenderer,
+>;
 
 #[derive(Default, Clone)]
 pub struct Skeleton {
@@ -667,7 +1014,9 @@ fn calc_interpolated_quat(t: &Vec<QuatKey>, time: f64) -> Quat {
                 // start + factor as f32 * delta
                 // glm::scale(&scaling, out)
             })
-            .collect::<Vec<Quat>>().pop().unwrap_or(quat(0., 0., 0., 1.))
+            .collect::<Vec<Quat>>()
+            .pop()
+            .unwrap_or(quat(0., 0., 0., 1.))
     }
 }
 impl Skeleton {

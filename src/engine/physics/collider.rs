@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::{collections::HashMap, mem::transmute};
 
 use crate::engine::project::asset_manager::AssetInstance;
-use crate::engine::rendering::model::{ModelManager, ModelRenderer};
+use crate::engine::rendering::model::{ModelManager, ModelRenderer, ALL_INDICES, ALL_VERTICES};
 use crate::engine::world::NewCollider;
 use crate::engine::{prelude::*, project::asset_manager::drop_target};
 use force_send_sync::SendSync;
@@ -57,15 +57,20 @@ impl _ColliderType {
                                 if let Some(_id) = m.assets_id.get(&id) {
                                     unsafe {
                                         let model = m.assets_id.get(id).unwrap().lock();
-                                        let verts = model.model.meshes[0]
-                                            .vertices
+                                        let m = &model.model.meshes[0];
+                                        let verts = 
+                                        // model.model.meshes[0]
+                                        //     .vertices
+                                        unsafe { &ALL_VERTICES[m.vertex_offset as usize..(m.vertex_offset as usize + m.vertex_count as usize)] }
                                             .iter()
                                             .map(|f| {
                                                 point![f.position[0], f.position[1], f.position[2]]
                                             })
                                             .collect();
-                                        let indices = model.model.meshes[0]
-                                            .indices
+                                        let indices = 
+                                        // model.model.meshes[0]
+                                        //     .indices
+                                        unsafe { &ALL_INDICES[m.index_offset as usize..m.index_offset as usize + m.index_count as usize] }
                                             .chunks(3)
                                             .map(|f| [f[0], f[1], f[2]])
                                             .collect::<Vec<[u32; 3]>>();
@@ -189,8 +194,11 @@ impl Component for _Collider {
                                             let mut mesh_map = sys.mesh_map.lock();
                                             if !mesh_map.contains_key(_id) {
                                                 let model = m.assets_id.get(_id).unwrap().lock();
-                                                let verts = model.model.meshes[0]
-                                                    .vertices
+                                                let m = &model.model.meshes[0];
+                                                let verts = 
+                                                // model.model.meshes[0]
+                                                //     .vertices
+                                                unsafe { &ALL_VERTICES[m.vertex_offset as usize..(m.vertex_offset as usize + m.vertex_count as usize)] }
                                                     .iter()
                                                     .map(|f| {
                                                         point![
@@ -200,8 +208,10 @@ impl Component for _Collider {
                                                         ]
                                                     })
                                                     .collect();
-                                                let indices = model.model.meshes[0]
-                                                    .indices
+                                                let indices = 
+                                                // model.model.meshes[0]
+                                                //     .indices
+                                                unsafe { &ALL_INDICES[m.index_offset as usize..m.index_offset as usize + m.index_count as usize] }
                                                     .chunks(3)
                                                     .map(|f| [f[0], f[1], f[2]])
                                                     .collect::<Vec<[u32; 3]>>();

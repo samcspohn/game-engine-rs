@@ -1,4 +1,6 @@
-#version 450
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_ARB_shader_draw_parameters : require
 #include "util.glsl"
 #include "lighting/lighting.glsl"
 
@@ -8,18 +10,23 @@ layout(location = 0) in vec3 v_normal;
 layout(location = 1) in vec2 coords;
 layout(location = 2) in vec3 v_pos;
 layout(location = 3) in vec3 _v;
+layout(location = 4) flat in int draw_id;  
 layout(location = 0) out vec4 f_color;
 
-layout(set = 0, binding = 7) uniform sampler2D tex;
-layout(set = 0, binding = 8) uniform Data { vec2 screen_dims; };
+layout(set = 0, binding = 7) uniform Data { vec2 screen_dims; };
+layout(set = 0, binding = 8) uniform sampler2D textures[];
 
+layout(set = 2, binding = 1) buffer _texture_ids {
+    int texture_ids[];
+};
 layout(push_constant) uniform Constants { vec3 cam_pos; };
 
 void main() {
+    int tex_id = texture_ids[draw_id];
     vec4 total_light = vec4(vec3(0.05), 1.0f);
     float brightness = dot(normalize(v_normal), normalize(LIGHT)) * 0.3;
     total_light += vec4(vec3(brightness), 1.0f);
     total_light.a = 1.0f;
     total_light.rgb += calc_light(v_pos, v_normal, cam_pos, screen_dims);
-    f_color = texture(tex, coords) * total_light;   // min(brightness + 0.8, 1.0);
+    f_color = texture(textures[nonuniformEXT(tex_id)], coords) * total_light;   // min(brightness + 0.8, 1.0);
 }

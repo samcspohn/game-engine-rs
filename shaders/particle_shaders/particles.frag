@@ -13,6 +13,7 @@ layout(location = 4) in vec3 v_pos;
 layout(location = 5) in flat uint num_lights;
 layout(location = 6) in flat uint offset;
 layout(location = 7) in float y;
+layout(location = 8) in float screen_coverage;
 // layout(location = 6) in flat uint[MAX_LIGHTS_PER_PARTICLE] light_ids;
 layout(location = 0) out vec4 FragColor;
 
@@ -66,7 +67,7 @@ void main() {
         total_light = vec4(vec3(0.3), 1.0f);
 
         for (int i = 0; i < num_lights; ++i) {
-            uint l_id = _pl_.particle_lighting[(offset + i) % (1 << 22)];
+            uint l_id = _pl_.particle_lighting[(offset + i) % (1 << 18)];
             total_light.rgb += CalcPointLight_p(l_id, v_pos).rgb;
         }
         // total_light = vec4(vec3(num_lights / 255), 1.0f);

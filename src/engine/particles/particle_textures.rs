@@ -82,7 +82,7 @@ impl ParticleTextures {
         //     },
         // )
         // .unwrap();
-        texture::texture_from_bytes(vk.clone(), &pixels, 256, colors.len() as u32)
+        texture::texture_from_bytes(&vk, &pixels, 256, colors.len() as u32)
         // (image_view, sampler)
     }
     pub fn new(
@@ -101,12 +101,24 @@ impl ParticleTextures {
         if let Some(id) = self.textures.get(&tex.id) {
             *id
         } else {
-            let id = self.id;
+            let mut id = self.id;
             self.id += 1;
             self.textures.insert(tex.id, id);
             let tm = self.tex_man.lock();
-            let a = tm.get_id(&tex.id).unwrap().lock();
-            self.samplers.push((a.image.clone(), a.sampler.clone()));
+            if let Some(id) = tm.get_id(&tex.id) {
+                let a = id.lock();
+                self.samplers.push((a.image.clone(), a.sampler.clone()));
+            } else {
+                self.id -= 1; // Rollback id if texture not found
+                id = 0; // Default to 0 if texture not found
+                if let Some(id) = tm.get_id(&0) {
+                    let a = id.lock();
+                    self.samplers.push((a.image.clone(), a.sampler.clone()));
+                }
+                // panic!("Texture with id {} not found in TextureManager", tex.id);
+            }
+            // let a = tm.get_id(&tex.id).unwrap().lock();
+            // self.samplers.push((a.image.clone(), a.sampler.clone()));
             id
         }
     }

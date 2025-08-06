@@ -7,12 +7,13 @@ use std::{
 use crossbeam::queue::SegQueue;
 use force_send_sync::SendSync;
 use nalgebra_glm::{Quat, Vec3};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use rapier3d::{
     geometry::{ColliderBuilder, ColliderHandle},
     na::Point3,
     prelude::{QueryPipeline, RigidBodyHandle},
 };
+use std::sync::Mutex;
 use vulkano::command_buffer::{
     allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
     SecondaryAutoCommandBuffer,
@@ -47,9 +48,9 @@ use super::{NewCollider, NewRigidBody};
 
 pub struct System<'a> {
     pub audio: &'a AudioSystem,
-    pub mesh_map: Arc<Mutex<HashMap<i32, ColliderBuilder>>>,
+    pub mesh_map: Arc<parking_lot::Mutex<HashMap<i32, ColliderBuilder>>>,
     // pub skeleton_manager: &'a HashMap<i32,_Storage<Mutex<Skeleton>>>,
-    pub proc_collider: &'a Mutex<HashMap<i32, Arc<Mutex<_Collider>>>>,
+    pub proc_collider: &'a parking_lot::Mutex<HashMap<i32, Arc<parking_lot::Mutex<_Collider>>>>,
     pub proc_mesh_id: &'a AtomicI32,
     pub physics: &'a PhysicsData,
     pub defer: &'a Defer,
@@ -139,7 +140,7 @@ impl<'a> System<'a> {
         //     .insert(id, ColliderBuilder::trimesh(points, indeces));
         self.proc_collider.lock().insert(
             id,
-            Arc::new(Mutex::new(_Collider {
+            Arc::new(parking_lot::Mutex::new(_Collider {
                 _type: _ColliderType::TriMeshUnint((points.into(), indeces.into(), id)),
                 handle: ColliderHandle::invalid(),
             })),

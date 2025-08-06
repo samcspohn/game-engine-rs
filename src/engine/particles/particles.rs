@@ -443,7 +443,7 @@ impl ParticlesSystem {
             .unwrap();
 
         let (def_texture, def_sampler) =
-            texture::texture_from_bytes(vk.clone(), &[255_u8, 255, 255, 255], 1, 1);
+            texture::texture_from_bytes(&vk, &[255_u8, 255, 255, 255], 1, 1);
 
         // build buffer
         let command_buffer = builder.build().unwrap();
@@ -530,7 +530,7 @@ impl ParticlesSystem {
                 avail,
                 avail_count,
                 indirect,
-                particle_lighting: vk.buffer_array(1 << 22 + 1, MemoryTypeFilter::PREFER_DEVICE),
+                particle_lighting: vk.buffer_array(1 << 18 + 1, MemoryTypeFilter::PREFER_DEVICE),
             }),
             // render_pipeline,
             compute_pipeline,

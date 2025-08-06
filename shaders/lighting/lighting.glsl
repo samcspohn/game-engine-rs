@@ -287,8 +287,7 @@ vec3 calc_light_p(vec3 v_pos, vec3 cam_pos, vec2 screen_dims) {
 #endif
 
 const uint MAX_LIGHTS_PER_PARTICLE = 128;
-float sqr(float x) { return x * x; }
-void get_light_list_bvh(vec2 screen_ratio, AABB aabb, vec3 cam_pos, inout uint light_ids[MAX_LIGHTS_PER_PARTICLE], inout uint lit_times) {
+void get_light_list_bvh(vec2 screen_ratio, AABB aabb, vec3 cam_pos, inout uint light_ids[MAX_LIGHTS_PER_PARTICLE], inout uint lit_times, int max_lights, float bias) {
     lit_times = 0;
     const uint max_p_lit = 8;
     // float z = distance(cam_pos, v_pos);
@@ -303,7 +302,7 @@ void get_light_list_bvh(vec2 screen_ratio, AABB aabb, vec3 cam_pos, inout uint l
     uvec3 aabb_max = uvec3(float_to_uint(aabb._max.x), float_to_uint(aabb._max.y), float_to_uint(aabb._max.z));
     vec3 aabb_center = (aabb._min + aabb._max) * 0.5;
 
-    while (stack_ptr > 0 && lit_times < MAX_LIGHTS_PER_PARTICLE) {
+    while (stack_ptr > 0 && lit_times < MAX_LIGHTS_PER_PARTICLE && lit_times < max_lights) {
         uint bvh_ptr = stack[--stack_ptr];
 
         if (bvh_ptr >= bvh.length()) break;   // Check for out-of-bounds access
@@ -340,7 +339,7 @@ void get_light_list_bvh(vec2 screen_ratio, AABB aabb, vec3 cam_pos, inout uint l
             if (front < -1) {   // front is a light id
                 int l_id = -front - 2;
                 vec3 light_pos = lights[l_id].pos;
-                float radius = lights[l_id].radius;
+                float radius = lights[l_id].radius * bias;
                 
                 // Test if light sphere intersects with query AABB
                 vec3 closest_point = max(aabb._min, min(light_pos, aabb._max));
@@ -357,7 +356,7 @@ void get_light_list_bvh(vec2 screen_ratio, AABB aabb, vec3 cam_pos, inout uint l
             if (back < -1) {   // back is a light id
                 int l_id = -back - 2;
                 vec3 light_pos = lights[l_id].pos;
-                float radius = lights[l_id].radius;
+                float radius = lights[l_id].radius * bias;
                 
                 // Test if light sphere intersects with query AABB
                 vec3 closest_point = max(aabb._min, min(light_pos, aabb._max));

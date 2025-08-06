@@ -336,6 +336,11 @@ impl VulkanManager {
             runtime_descriptor_array: true,
             descriptor_binding_variable_descriptor_count: true,
             dynamic_rendering: true,
+            descriptor_indexing: true,
+            shader_sampled_image_array_dynamic_indexing: true,
+            shader_sampled_image_array_non_uniform_indexing: true,
+            multi_draw_indirect: true,
+            shader_draw_parameters: true,
             ..Features::empty()
         };
         let (device, mut queues) = Device::new(

@@ -12,7 +12,8 @@ use bitvec::vec::BitVec;
 use crossbeam::{epoch::Atomic, queue::SegQueue};
 use force_send_sync::SendSync;
 use id::ID_trait;
-use parking_lot::Mutex;
+// use parking_lot::Mutex;
+use std::sync::{Arc, Mutex};
 use rayon::prelude::*;
 use segvec::SegVec;
 use serde::{Deserialize, Serialize};
@@ -183,7 +184,7 @@ impl<
         self.data.iter().zip(self.valid.iter()).for_each(|(d, v)| {
             if unsafe { **v.get() } {
                 let id: i32 = unsafe { *d.0.get() };
-                let mut d = d.1.lock();
+                let mut d = d.1.lock().unwrap();
                 f(id, &mut d);
             }
         });
@@ -240,7 +241,7 @@ impl<
 
         (0..last).into_par_iter().for_each(|i| {
             if unsafe { **self.valid[i].get() } {
-                let mut d = self.data[i].1.lock();
+                let mut d = self.data[i].1.lock().unwrap();
                 let t_id = unsafe { *self.data[i].0.get() };
                 f(t_id,&mut d);
             }
@@ -278,7 +279,7 @@ impl<
             *self.valid[id as usize].get() = Padded(true);
             *self.data[id as usize].0.get() = transform;
         };
-        *self.data[id as usize].1.lock() = d;
+        *self.data[id as usize].1.lock().unwrap() = d;
     }
     fn push_t(&mut self, transform: i32, d: T) {
         self.data
@@ -434,21 +435,22 @@ impl<
         self._erase(i);
     }
     fn deinit(&self, transform: &Transform, i: i32, sys: &Sys) {
-        self.data[i as usize].1.lock().deinit(transform, i, sys);
+        self.data[i as usize].1.lock().unwrap().deinit(transform, i, sys);
     }
     fn init(&self, transform: &Transform, i: i32, sys: &Sys) {
-        self.data[i as usize].1.lock().init(transform, i, sys);
+        self.data[i as usize].1.lock().unwrap().init(transform, i, sys);
     }
     fn on_start(&self, transform: &Transform, i: i32, sys: &System) {
-        self.data[i as usize].1.lock().on_start(transform, sys);
+        self.data[i as usize].1.lock().unwrap().on_start(transform, sys);
     }
     fn on_destroy(&self, transform: &Transform, i: i32, sys: &System) {
-        self.data[i as usize].1.lock().on_destroy(transform, sys);
+        self.data[i as usize].1.lock().unwrap().on_destroy(transform, sys);
     }
     fn inspect(&self, transform: &Transform, i: i32, ui: &mut egui::Ui, sys: &Sys) {
         self.data[i as usize]
             .1
             .lock()
+            .unwrap()
             .inspect(transform, i, ui, sys);
     }
 
@@ -466,13 +468,13 @@ impl<
     }
 
     fn copy(&mut self, t: i32, i: i32) -> i32 {
-        let p = self.data[i as usize].1.lock().clone();
+        let p = self.data[i as usize].1.lock().unwrap().clone();
 
         self.insert(t, p)
     }
 
     fn serialize(&self, i: i32) -> serde_yaml::Value {
-        serde_yaml::to_value(&*self.data[i as usize].1.lock()).unwrap()
+        serde_yaml::to_value(&*self.data[i as usize].1.lock().unwrap()).unwrap()
     }
     fn clear(&mut self, transforms: &Transforms, sys: &Sys) {
         self.par_for_each(|id, d| {

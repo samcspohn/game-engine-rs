@@ -601,7 +601,7 @@ impl LightingCompute {
             DispatchIndirectCommand { x: 1, y: 1, z: 1 },
         ]);
 
-        let lc2 = self.gpu_perf.node("lights tile compute", builder);
+        let lc2 = self.gpu_perf.node("full lights compute", builder);
         // builder.update_buffer(self.visible_lights_c.clone(), &0);
         builder
             .fill_buffer(self.light_list.lock().clone(), u32::MAX)
@@ -686,7 +686,6 @@ impl LightingCompute {
         let light_bsh = self.gpu_perf.node("light blh", builder);
         build_stage(builder, -1, Some(indirect.clone().slice(0..=0)), None, 8);
         light_bsh.end(builder);
-        lc2.end(builder);
 
         builder
             .fill_buffer(self.blh_flags.lock().clone(), 0)
@@ -698,5 +697,7 @@ impl LightingCompute {
         // build_stage(builder, -1, Some(indirect.clone().slice(1..2)), None, 7);
         build_stage(builder, -1, Some(indirect.clone().slice(1..=1)), None, 9);
         light_bvh.end(builder);
+        lc2.end(builder);
+
     }
 }

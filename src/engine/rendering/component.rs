@@ -53,7 +53,7 @@ use super::{
 pub struct Renderer {
     model_id: AssetInstance<ModelRenderer>,
     #[serde(skip_serializing, skip_deserializing)]
-    id: Vec<i32>,
+    transformIds: Vec<i32>,
     #[serde(skip_serializing, skip_deserializing)]
     pub skeleton: Option<i32>,
 }
@@ -64,49 +64,44 @@ impl Renderer {
 }
 impl Component for Renderer {
     fn init(&mut self, transform: &Transform, _id: i32, sys: &Sys) {
-        let mut rm = sys.renderer_manager.write();
-        let mut model_indirect = rm.model_indirect.write();
-        let mut ind_id = if let Some(ind) = model_indirect.get_mut(&self.model_id.id) {
-            ind.iter_mut()
-                .map(|ind| {
-                    ind.count += 1;
-                    ind.id
-                })
-                .collect::<Vec<i32>>()
-        } else {
-            let mut vec = Vec::new();
-            let ind_id = sys.assets_manager.get_manager(|m: &ModelManager| {
-                m.assets_id
-                    .get(&self.model_id.id)
-                    .and_then(|l| {
-                        let l = l.lock();
-                        let ids = l
-                            .model
-                            .meshes
-                            .iter()
-                            .map(|mesh| {
-                                let id = rm.shr_data.write().indirect.emplace(
-                                    DrawIndexedIndirectCommand {
-                                        index_count: mesh.indices.len() as u32,
-                                        instance_count: 0,
-                                        first_index: 0,
-                                        vertex_offset: 0,
-                                        first_instance: 0,
-                                    },
-                                );
-                                vec.push(Indirect { id, count: 1 });
-                                rm.indirect_model.write().insert(id, self.model_id.id);
-                                id
-                            })
-                            .collect();
-                        Some(ids)
+        let ind_id = {
+            let mut rm = sys.renderer_manager.write();
+            let mut model_indirect = rm.model_indirect.write();
+            let indirect_counts = &mut rm.shr_data.write().indirect_counts;
+
+            if let Some(ind) = model_indirect.get_mut(&self.model_id.id) {
+                ind.iter()
+                    .map(|ind_id| {
+                        indirect_counts[*ind_id as usize] += 1;
+                        *ind_id
                     })
-                    .unwrap()
-            });
-            model_indirect.insert(self.model_id.id, vec);
-            ind_id
+                    .collect::<Vec<i32>>()
+            } else {
+                let ind_id = sys.assets_manager.get_manager(|m: &ModelManager| {
+                    m.assets_id
+                        .get(&self.model_id.id)
+                        .and_then(|l| {
+                            let l = l.lock();
+                            let ids: Vec<_> = l
+                                .model
+                                .meshes
+                                .iter()
+                                .map(|mesh| {
+                                    let id = mesh.indirect_index as i32;
+                                    indirect_counts[id as usize] += 1;
+                                    id
+                                })
+                                .collect();
+                            Some(ids)
+                        })
+                        .unwrap()
+                });
+                model_indirect.insert(self.model_id.id, ind_id.clone());
+                ind_id
+            }
         };
-        drop(model_indirect);
+        let mut rm = sys.renderer_manager.write();
+
         let skeleton = sys.assets_manager.get_manager(|m: &ModelManager| {
             m.assets_id
                 .get(&self.model_id.id)
@@ -136,13 +131,14 @@ impl Component for Renderer {
             });
         }
 
-        self.id = ind_id
+        self.transformIds = ind_id // reference to transform ids
             .into_iter()
             .map(|id| {
                 let _id = rm.transforms.emplace(ur::transform_id {
                     indirect_id: id,
                     id: transform.id,
                     skeleton_id: self.skeleton.unwrap_or(-1),
+                    padding: 0,
                 });
                 rm.updates.insert(
                     _id,
@@ -150,6 +146,7 @@ impl Component for Renderer {
                         indirect_id: id,
                         id: transform.id,
                         skeleton_id: self.skeleton.unwrap_or(-1),
+                        padding: 0,
                     },
                 );
                 _id
@@ -158,22 +155,26 @@ impl Component for Renderer {
     }
     fn deinit(&mut self, _transform: &Transform, _id: i32, sys: &Sys) {
         let mut rm = sys.renderer_manager.write();
-        // reduce count in indirect
-        if let Some(model_ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
-            for ind in model_ind {
-                ind.count -= 1;
+        {
+            let indirect_counts = &mut rm.shr_data.write().indirect_counts;
+            // reduce count in indirect
+            if let Some(model_ind) = rm.model_indirect.write().get_mut(&self.model_id.id) {
+                for ind in model_ind {
+                    indirect_counts[*ind as usize] -= 1;
+                }
             }
         }
-        for id in &self.id {
+        for tid in &self.transformIds {
             rm.updates.insert(
-                *id,
+                *tid,
                 ur::transform_id {
                     indirect_id: -1,
                     id: -1,
                     skeleton_id: -1,
+                    padding: 0,
                 },
             );
-            rm.transforms.erase(*id);
+            rm.transforms.erase(*tid);
         }
         if let Some(skel) = self.skeleton {
             sys.skeletons_manager
@@ -222,6 +223,7 @@ pub mod ur {
 pub struct Indirect {
     pub id: i32,
     pub count: i32,
+    // pub index: usize,
 }
 
 // #[repr(C)]
@@ -232,9 +234,9 @@ pub struct Indirect {
 // }
 
 pub struct RendererData {
-    pub model_indirect: BTreeMap<i32, Vec<Indirect>>,
-    pub indirect_model: BTreeMap<i32, i32>,
-    pub transforms_len: i32,
+    // pub model_indirect: BTreeMap<i32, Vec<i32>>,
+    // pub indirect_model: BTreeMap<i32, i32>,
+    pub transforms_len: u32,
 
     pub updates: Vec<i32>,
 }
@@ -243,9 +245,11 @@ pub struct SharedRendererData {
     pub transform_ids_gpu: Subbuffer<[ur::transform_id]>,
     pub renderers_gpu: Subbuffer<[[i32; 2]]>,
     pub updates_gpu: Subbuffer<[i32]>,
-    pub indirect: _Storage<DrawIndexedIndirectCommand>,
+    pub indirect: Vec<DrawIndexedIndirectCommand>,
+    pub texture_ids: Vec<i32>,
+    pub indirect_counts: Vec<i32>,
     pub indirect_buffer: Subbuffer<[DrawIndexedIndirectCommand]>,
-
+    pub temp_sums: Subbuffer<[i32]>,
     pub vk: Arc<VulkanManager>,
     pub shader: Arc<ShaderModule>,
     pub pipeline: Arc<ComputePipeline>,
@@ -265,8 +269,7 @@ impl SharedRendererData {
         // let rm = self;
         if self.transform_ids_gpu.len() < rd.transforms_len as u64 {
             let len = rd.transforms_len;
-            let max_len = (len as f32 + 1.).log2().ceil();
-            let max_len = 2_u32.pow(max_len as u32);
+            let max_len = (rd.transforms_len as usize).next_power_of_two();
 
             let copy_buffer = self.transform_ids_gpu.clone();
             unsafe {
@@ -284,89 +287,78 @@ impl SharedRendererData {
                 ))
                 .unwrap();
         }
-        // if !self.indirect.data.is_empty() { // don't need here
-        //     self.indirect_buffer = vk.buffer_from_iter(self.indirect.data.clone());
-        // }
 
         let mut offset_vec = Vec::new();
         let mut offset = 0;
-        for (ind_id, m_id) in rd.indirect_model.iter() {
-            if let Some(model_ind) = rd.model_indirect.get(m_id) {
-                for ind in model_ind.iter() {
-                    if ind.id == *ind_id {
-                        offset_vec.push(offset);
-                        offset += ind.count;
-                        break;
-                    }
-                }
+
+        // for count in self.indirect_counts.iter() {
+        //     offset_vec.push(offset);
+        //     offset += *count;
+        // }
+        // if !offset_vec.is_empty() {
+        // let offsets_buffer = vk.buffer_from_iter(offset_vec.clone()); // don't need here
+
+        {
+            puffin::profile_scope!("update renderers: stage 0");
+            let update_num = rd.updates.len() / 4;
+            let mut rd_updates = Vec::new();
+            std::mem::swap(&mut rd_updates, &mut rd.updates);
+            if update_num > 0 {
+                self.updates_gpu = vk.buffer_from_iter(rd_updates);
             }
-        }
-        if !offset_vec.is_empty() {
-            // let offsets_buffer = vk.buffer_from_iter(offset_vec.clone()); // don't need here
 
-            {
-                puffin::profile_scope!("update renderers: stage 0");
-                let update_num = rd.updates.len() / 4;
-                let mut rd_updates = Vec::new();
-                std::mem::swap(&mut rd_updates, &mut rd.updates);
-                if update_num > 0 {
-                    self.updates_gpu = vk.buffer_from_iter(rd_updates);
-                }
-                // stage 0
-                // let uniforms = self.uniform.lock().allocate_sized().unwrap();
-                let data = ur::Data {
-                    num_jobs: update_num as i32,
-                    stage: 0.into(),
-                    view: Default::default(),
-                    // _dummy0: Default::default(),
-                };
-                // *uniforms.write().unwrap() = data;
-                let uniforms = self.vk.allocate(data);
-
-                let update_renderers_set = PersistentDescriptorSet::new(
-                    &vk.desc_alloc,
-                    renderer_pipeline
-                        .layout()
-                        .set_layouts()
-                        .get(0) // 0 is the index of the descriptor set.
-                        .unwrap()
-                        .clone(),
-                    [
-                        // 0 is the binding of the data in this set. We bind the `DeviceLocalBuffer` of vertices here.
-                        WriteDescriptorSet::buffer(0, self.updates_gpu.clone()),
-                        WriteDescriptorSet::buffer(1, self.transform_ids_gpu.clone()),
-                        WriteDescriptorSet::buffer(2, self.renderers_gpu.clone()),
-                        WriteDescriptorSet::buffer(3, self.indirect_buffer.clone()),
-                        WriteDescriptorSet::buffer(4, transform_compute.gpu_transforms.clone()),
-                        WriteDescriptorSet::buffer(5, self.indirect_buffer.clone()),
-                        WriteDescriptorSet::buffer(6, uniforms),
-                    ],
-                    [],
-                )
-                .unwrap();
-
-                builder
-                    .bind_descriptor_sets(
-                        PipelineBindPoint::Compute,
-                        renderer_pipeline.layout().clone(),
-                        0, // Bind this descriptor set to index 0.
-                        update_renderers_set,
-                    )
+            let update_renderers_set = PersistentDescriptorSet::new(
+                &vk.desc_alloc,
+                renderer_pipeline
+                    .layout()
+                    .set_layouts()
+                    .get(0)
                     .unwrap()
-                    .dispatch([update_num as u32 / 128 + 1, 1, 1])
-                    .unwrap();
-            }
-            offset_vec
-        } else {
-            Vec::new()
+                    .clone(),
+                [
+                    WriteDescriptorSet::buffer(0, self.updates_gpu.clone()),
+                    WriteDescriptorSet::buffer(1, self.transform_ids_gpu.clone()),
+                    WriteDescriptorSet::buffer(2, self.renderers_gpu.clone()),
+                    WriteDescriptorSet::buffer(3, self.indirect_buffer.clone()),
+                    WriteDescriptorSet::buffer(4, transform_compute.gpu_transforms.clone()),
+                    WriteDescriptorSet::buffer(5, self.indirect_buffer.clone()),
+                ],
+                [],
+            )
+            .unwrap();
+
+            builder
+                .bind_descriptor_sets(
+                    PipelineBindPoint::Compute,
+                    renderer_pipeline.layout().clone(),
+                    0,
+                    update_renderers_set,
+                )
+                .unwrap()
+                .push_constants(
+                    renderer_pipeline.layout().clone(),
+                    0,
+                    ur::Data {
+                        num_jobs: update_num as i32,
+                        stage: 0.into(),
+                        view: Default::default(),
+                        pass: 0.into(),
+                    },
+                )
+                .unwrap()
+                .dispatch([update_num as u32 / 128 + 1, 1, 1])
+                .unwrap();
         }
+        offset_vec
+        // } else {
+        //     Vec::new()
+        // }
     }
 }
 
 pub struct RendererManager {
-    pub model_indirect: RwLock<BTreeMap<i32, Vec<Indirect>>>,
-    pub indirect_model: RwLock<BTreeMap<i32, i32>>,
-
+    pub model_indirect: RwLock<BTreeMap<i32, Vec<i32>>>,
+    // pub indirect_model: RwLock<BTreeMap<i32, i32>>,
     pub transforms: _Storage<ur::transform_id>,
     pub updates: HashMap<i32, ur::transform_id>,
     pub shr_data: Arc<RwLock<SharedRendererData>>,
@@ -382,58 +374,16 @@ pub fn buffer_usage_all() -> BufferUsage {
         | BufferUsage::INDEX_BUFFER
         | BufferUsage::VERTEX_BUFFER
         | BufferUsage::INDIRECT_BUFFER
-    // BufferUsage {
-    //     transfer_src: true,
-    //     transfer_dst: true,
-    //     uniform_texel_buffer: true,
-    //     storage_texel_buffer: true,
-    //     uniform_buffer: true,
-    //     storage_buffer: true,
-    //     index_buffer: true,
-    //     vertex_buffer: true,
-    //     indirect_buffer: true,
-    //     shader_device_address: true,
-    //     ..Default::default()
-    // }
 }
 
 impl RendererManager {
     pub fn new(vk: Arc<VulkanManager>) -> RendererManager {
         let shader = ur::load(vk.device.clone()).unwrap();
-
-        // Create compute-pipeline for applying compute shader to vertices.
-        // let pipeline = vulkano::pipeline::ComputePipeline::new(
-        //     vk.device.clone(),
-        //     shader.entry_point("main").unwrap(),
-        //     &(),
-        //     None,
-        //     |_| {},
-        // )
-        // .expect("Failed to create compute shader");
-
-        // let pipeline = {
-        //     let cs = shader
-        //         .entry_point("main")
-        //         .unwrap();
-        //     let stage = PipelineShaderStageCreateInfo::new(cs);
-        //     let layout = PipelineLayout::new(
-        //         vk.device.clone(),
-        //         PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
-        //             .into_pipeline_layout_create_info(vk.device.clone()),
-        //     )
-        //     .unwrap();
-        //     ComputePipeline::new(
-        //         vk.device.clone(),
-        //         None,
-        //         ComputePipelineCreateInfo::stage_layout(stage, layout),
-        //     )
-        //     .unwrap()
-        // };
         let pipeline = utils::pipeline::compute_pipeline(vk.clone(), shader.clone());
 
         RendererManager {
             model_indirect: RwLock::new(BTreeMap::new()),
-            indirect_model: RwLock::new(BTreeMap::new()),
+            // indirect_model: RwLock::new(BTreeMap::new()),
             updates: HashMap::new(),
             transforms: _Storage::new(),
             shr_data: Arc::new(RwLock::new(SharedRendererData {
@@ -441,10 +391,12 @@ impl RendererManager {
                     indirect_id: -1,
                     id: -1,
                     skeleton_id: -1,
+                    padding: 0,
                 }]),
                 renderers_gpu: vk.buffer_from_iter(vec![[0, 0]]),
                 updates_gpu: vk.buffer_from_iter(vec![0]),
-                indirect: _Storage::new(),
+                indirect: Vec::new(),
+                indirect_counts: Vec::new(),
                 indirect_buffer: vk.buffer_from_iter(vec![DrawIndexedIndirectCommand {
                     index_count: 0,
                     instance_count: 0,
@@ -452,45 +404,48 @@ impl RendererManager {
                     vertex_offset: 0,
                     first_instance: 0,
                 }]),
+                temp_sums: vk.buffer_from_iter(vec![0]),
+                // offsets_buffer: vk.buffer_from_iter(vec![0]),
                 shader,
                 pipeline,
                 vk: vk.clone(),
+                texture_ids: Vec::new(),
                 // uniform: Mutex::new(vk.sub_buffer_allocator()),
             })),
         }
     }
     pub(crate) fn get_renderer_data(&mut self) -> RendererData {
         let renderer_data = RendererData {
-            model_indirect: self
-                .model_indirect
-                .read()
-                .iter()
-                .map(|(k, v)| (*k, v.iter().copied().collect()))
-                .collect(),
-            indirect_model: self
-                .indirect_model
-                .read()
-                .iter()
-                .map(|(k, v)| (*k, *v))
-                .collect(),
+            // model_indirect: self
+            //     .model_indirect
+            //     .read()
+            //     .iter()
+            //     .map(|(k, v)| (*k, v.clone()))
+            //     .collect(),
+            // indirect_model: self
+            //     .indirect_model
+            //     .read()
+            //     .iter()
+            //     .map(|(k, v)| (*k, *v))
+            //     .collect(),
             updates: self
                 .updates
                 .iter()
                 .flat_map(|(id, t)| vec![*id, t.indirect_id, t.id, t.skeleton_id].into_iter())
                 .collect(),
-            transforms_len: self.transforms.data.len() as i32,
+            transforms_len: self.transforms.data.len() as u32,
         };
         self.updates.clear();
         renderer_data
     }
     pub(crate) fn clear(&mut self) {
         self.transforms.clear();
-        let mut m = self.model_indirect.write();
-        for (_, m) in m.iter_mut() {
-            for i in m.iter_mut() {
-                i.count = 0;
-            }
-        }
+        // let mut m = self.model_indirect.write();
+        // for (_, m) in m.iter_mut() {
+        //     for ind in m.iter_mut() {
+        //         *ind = 0;
+        //     }
+        // }
         // self.model_indirect.write().clear();
         // self.indirect_model.write().clear();
     }
@@ -519,7 +474,7 @@ impl Renderer {
     pub fn new(model_id: i32) -> Renderer {
         Renderer {
             model_id: AssetInstance::<ModelRenderer>::new(model_id),
-            id: [0].into_iter().collect(),
+            transformIds: [0].into(),
             skeleton: None,
         }
     }

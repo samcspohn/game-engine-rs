@@ -31,7 +31,7 @@ use rapier3d::{
     na::{ComplexField, UnitQuaternion},
     prelude::*,
 };
-use rendering::{camera::CAMERA_LIST, component::RendererManager};
+use rendering::{camera::CAMERA_LIST, component::RendererManager, model, texture};
 use serde::{Deserialize, Serialize};
 
 use rayon::prelude::*;
@@ -39,7 +39,7 @@ use rayon::prelude::*;
 use nalgebra_glm::{self as glm, Mat4};
 use parking_lot::{Mutex, RwLock};
 use thincollections::thin_map::ThinMap;
-use utils::gpu_perf::{self, GpuPerf};
+use utils::{gpu_perf::{self, GpuPerf}, perf};
 use vulkano::{
     buffer::{allocator::SubbufferAllocator, Subbuffer},
     command_buffer::{
@@ -374,9 +374,19 @@ impl Engine {
             (vk.clone()),
             &["png", "jpeg"],
         )));
+        // create default texture
+        {
+            let mut texture_manager = texture_manager.lock();
+            let pixels = vec![255u8; 4]; // RGBA
+            texture_manager.from_data(pixels.as_slice(), 1, 1, "default");
+
+            texture_manager.from_file((engine_dir.to_str().unwrap().to_owned() + "/default/particle.png").as_str());
+        }
+        let renderer_manager = Arc::new(RwLock::new(RendererManager::new(vk.clone())));
+
         let model_manager = Arc::new(Mutex::new(ModelManager::new(
-            (texture_manager.clone(), vk.clone()),
-            &["obj", "dae", "fbx"],
+            (texture_manager.clone(), vk.clone(), renderer_manager.read().shr_data.clone()),
+            &["obj", "dae", "fbx", "glb", "gltf"],
         )));
         let recompiled = Arc::new(AtomicBool::new(false));
         let rs_manager = Arc::new(Mutex::new(runtime_compilation::RSManager::new(
@@ -398,7 +408,6 @@ impl Engine {
 
         let (particles_system, lighting_system) =
             init_systems(&vk, texture_manager.clone(), gpu_perf.clone());
-        let renderer_manager = Arc::new(RwLock::new(RendererManager::new(vk.clone())));
         let light_manager = Arc::new(Mutex::new(LightTemplateManager::new(
             (lighting_system.light_templates.clone()),
             &["lgt"],
@@ -592,18 +601,7 @@ impl Engine {
         // )
     }
     pub fn init(&mut self) {
-        self.project = if let Ok(s) = std::fs::read_to_string("project.yaml") {
-            // {
-            let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
-            self.file_watcher.files = project.files.clone();
-            self.assets_manager.deserialize(&project.assets);
-            self.file_watcher.init(self.assets_manager.clone());
-            // }
-            // serialize::deserialize(&mut world.lock());
-            project
-        } else {
-            Project::default()
-        };
+
         // TODO: remove in favor of placeholder component
         let mut args = vec!["build"];
         args.push("--lib");
@@ -618,6 +616,20 @@ impl Engine {
             // .env("RUSTFLAGS", "-Z threads=16")
             .status()
             .unwrap();
+
+        self.project = if let Ok(s) = std::fs::read_to_string("project.yaml") {
+            // {
+            let project: Project = serde_yaml::from_str(s.as_str()).unwrap();
+            self.file_watcher.files = project.files.clone();
+            self.assets_manager.deserialize(&project.assets);
+            self.file_watcher.init(self.assets_manager.clone());
+            // }
+            // serialize::deserialize(&mut world.lock());
+            project
+        } else {
+            Project::default()
+        };
+        
         self.file_watcher.get_updates(self.assets_manager.clone());
 
         let emitter_max_particles =
@@ -751,6 +763,7 @@ impl Engine {
 
     pub fn update_sim(&mut self) -> bool {
         let full_frame_time = self.perf.node("full frame time");
+        let perf1 = self.perf.node("perf1");
         self.input_interrupt.send(0);
         let (events, input, window_size, should_exit) = self.input.recv().unwrap();
         for event in events {
@@ -838,6 +851,8 @@ impl Engine {
         };
         world.update_cameras();
 
+        drop(perf1);
+        let perf2 = self.perf.node("perf2");
         // let mut world = self.world.lock();
 
         // drop(world_sim);
@@ -885,6 +900,8 @@ impl Engine {
                 self.game_mode | self.playing_game,
             )
         });
+        drop(_gui);
+
         if _playing_game && _playing_game != self.playing_game {
             // save current state of scene before play
             serialize(&world, "temp_scene");
@@ -898,7 +915,8 @@ impl Engine {
             serialize::deserialize(&mut world, "temp_scene");
             fs::remove_file("temp_scene");
         }
-
+        drop(perf2);
+        let perf3 = self.perf.node("perf3");
         // if !(self.game_mode | self.playing_game) {
         //     cam_datas = vec![cd.clone()];
         //     // let cd = self.cam_data.clone();
@@ -985,10 +1003,10 @@ impl Engine {
             self.vk.window().inner_size()
         };
         let gui_commands = unsafe {
-            SendSync::new(
+            // SendSync::new(
                 self.gui
-                    .draw_on_subpass_image([_window_size.width, _window_size.height]),
-            )
+                    .draw_on_subpass_image([_window_size.width, _window_size.height])
+            // )
         };
         drop(_get_gui_commands);
 
@@ -1034,6 +1052,14 @@ impl Engine {
                 PARTICLE_DEBUG = !PARTICLE_DEBUG;
             }
         }
+        if (input.get_key(&VirtualKeyCode::LControl)
+            && input.get_key(&VirtualKeyCode::LAlt)
+            && input.get_key_down(&VirtualKeyCode::R))
+        {
+            model::force_update_mesh_buffers(&vk);
+        }
+        drop(perf3);
+        let perf4 = self.perf.node("perf4");
         // begin rendering
         let clean_up = self.perf.node("wait for render");
         // previous_frame_end.as_mut().unwrap().cleanup_finished();
@@ -1086,7 +1112,8 @@ impl Engine {
         if suboptimal {
             *recreate_swapchain = true;
         }
-
+        drop(perf4);
+        let perf5 = self.perf.node("perf5");
         let mut rm = self.shared_render_data.write();
 
         self.transform_compute
@@ -1116,14 +1143,9 @@ impl Engine {
         let update_renderers = self.perf.node("update renderers");
         // compute shader renderers
         let offset_vec = {
-            // puffin::profile_scope!("process renderers");
             let renderer_pipeline = rm.pipeline.clone();
 
             builder.bind_pipeline_compute(renderer_pipeline.clone());
-
-            // if !lock_cull {
-            //     cull_view = view.clone();
-            // }
 
             rm.update(
                 &mut renderer_data,
@@ -1147,18 +1169,13 @@ impl Engine {
             self.transform_compute.read().gpu_transforms.clone(),
             light_templates.clone(),
         );
-
+        drop(perf5);
+        let perf6 = self.perf.node("perf6");
         let render_cameras = self.perf.node("render camera(s)");
         // let mut game_image = None;
         let mut camera_list = CAMERA_LIST.cameras.lock();
         for (_, cam) in camera_list.iter_mut() {
             if let Some(cvd) = cam.camera_view_data.pop_front() {
-                // let dims = if self.game_mode {
-                //     framebuffers[0].0.dimensions().width_height()
-                // } else {
-                //     *EDITOR_WINDOW_DIM.lock()
-                // };
-                // cam.resize(dims, vk.clone());
                 self.lighting_compute.write().update_lights_2(
                     &mut builder,
                     self.lighting_system.lights.lock().clone(),
@@ -1195,6 +1212,7 @@ impl Engine {
                     &self.time,
                     &skeletons,
                     self.playing_game,
+                    self.gpu_perf.clone(),
                     // debug,
                 );
                 if cam.texture_id.is_none() {
@@ -1211,11 +1229,12 @@ impl Engine {
                 }
             }
         }
+        drop(perf6);
+        let perf7 = self.perf.node("perf7");
         self.particles_system.reduce_particles();
         drop(render_cameras);
         // drop(_cd);
         drop(world);
-        drop(_gui);
         self.file_watcher.get_updates(self.assets_manager.clone());
 
         if self.recompile.load(Ordering::Relaxed) {
@@ -1306,7 +1325,7 @@ impl Engine {
         // }
 
         // engine.perf.update("_ begin render pass".into(), Instant::now() - _inst);
-        let gui_commands = gui_commands.unwrap();
+        // let gui_commands = gui_commands;
 
         builder
             .begin_render_pass(

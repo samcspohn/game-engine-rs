@@ -10,7 +10,7 @@ use vulkano::command_buffer::{
 };
 
 pub type SecondaryCommandBuffer =
-    AutoCommandBufferBuilder<SecondaryAutoCommandBuffer, Arc<StandardCommandBufferAllocator>>;
+    Arc<SecondaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>>;
 pub type PrimaryCommandBuffer = AutoCommandBufferBuilder<
     PrimaryAutoCommandBuffer<Arc<StandardCommandBufferAllocator>>,
     Arc<StandardCommandBufferAllocator>,
@@ -46,11 +46,11 @@ pub fn path_format(entry: &std::path::PathBuf) -> String {
     f_name
 }
 
-pub mod pipeline;
-pub mod radix_sort;
-pub mod perf;
 pub mod gpu_perf;
 pub mod gradient;
+pub mod perf;
+pub mod pipeline;
+pub mod radix_sort;
 // fn mat3_quat(m: &Mat3) -> Quat {
 //     let m00 = m[0];
 //     let m01 = m[1];

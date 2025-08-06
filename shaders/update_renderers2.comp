@@ -13,6 +13,7 @@ struct transform_id {
     int indirect_id;
     int id;
     int skeleton_id;
+    int padding;
     // vec2 padding;
 };
 
@@ -21,16 +22,169 @@ layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0) buffer u { int updates[]; };
 layout(set = 0, binding = 1) buffer _t { transform_id transform_ids[]; };
 layout(set = 0, binding = 2) buffer r { ivec2 renderers[]; };
-layout(set = 0, binding = 3) buffer a {
-    VkDrawIndexedIndirectCommand indirect[];
-};
+layout(set = 0, binding = 3) buffer a { VkDrawIndexedIndirectCommand indirect[]; };
 layout(set = 0, binding = 4) buffer t { transform transforms[]; };
-layout(set = 0, binding = 5) buffer o { int offsets[]; };
-layout(set = 0, binding = 6) uniform Data {
+// layout(set = 0, binding = 5) buffer temp { uint temp_sums[]; }; // Temporary buffer for workgroup sums
+layout(push_constant) uniform Data {
     int num_jobs;
     int stage;
     mat4 view;
+    int pass;   // For multi-pass prefix sum: 0=local scan, 1=scan sums, 2=add offsets
 };
+
+// Auxiliary buffer for storing workgroup sums
+// Note: You'll need to add this buffer binding to your descriptor set
+layout(set = 0, binding = 5, std430) restrict buffer WorkgroupSumsBuffer { uint workgroupSums[]; };
+
+// Shared memory for local operations within workgroup
+shared uint sharedData[gl_WorkGroupSize.x];
+shared uint workgroupSum;
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+// Up-sweep phase of scan (reduce phase)
+void upSweep() {
+    uint tid = gl_LocalInvocationID.x;
+    uint stride = 1;
+
+    // Build sum tree
+    for (uint d = gl_WorkGroupSize.x >> 1; d > 0; d >>= 1) {
+        barrier();
+        if (tid < d) {
+            uint ai = stride * (2 * tid + 1) - 1;
+            uint bi = stride * (2 * tid + 2) - 1;
+            sharedData[bi] += sharedData[ai];
+        }
+        stride <<= 1;
+    }
+}
+
+// Down-sweep phase of scan
+void downSweep() {
+    uint tid = gl_LocalInvocationID.x;
+    uint stride = gl_WorkGroupSize.x;
+
+    // Clear root and store workgroup sum
+    if (tid == 0) {
+        workgroupSum = sharedData[gl_WorkGroupSize.x - 1];
+        sharedData[gl_WorkGroupSize.x - 1] = 0;
+    }
+
+    // Traverse down tree building scan
+    for (uint d = 1; d < gl_WorkGroupSize.x; d <<= 1) {
+        stride >>= 1;
+        barrier();
+        if (tid < d) {
+            uint ai = stride * (2 * tid + 1) - 1;
+            uint bi = stride * (2 * tid + 2) - 1;
+
+            uint temp = sharedData[ai];
+            sharedData[ai] = sharedData[bi];
+            sharedData[bi] += temp;
+        }
+    }
+}
+
+// Perform local prefix sum within workgroup
+void localScan() {
+    upSweep();
+    downSweep();
+}
+
+// =============================================================================
+// MAIN ALGORITHM PASSES
+// =============================================================================
+
+// Pass 0: Local scan within each workgroup
+void pass0_localScan() {
+    uint globalId = gl_GlobalInvocationID.x;
+    uint localId = gl_LocalInvocationID.x;
+    uint workgroupId = gl_WorkGroupID.x;
+
+    // Load firstInstance data into shared memory
+    if (globalId < uint(num_jobs)) {
+        sharedData[localId] = indirect[globalId].firstInstance;
+    } else {
+        sharedData[localId] = 0;   // Padding for out-of-bounds elements
+    }
+
+    barrier();
+
+    // Perform local scan
+    localScan();
+
+    barrier();
+
+    // Write results back to firstInstance field
+    if (globalId < uint(num_jobs)) {
+        indirect[globalId].firstInstance = sharedData[localId];
+    }
+
+    // Store workgroup sum for next pass
+    if (localId == 0 && workgroupId < workgroupSums.length()) {
+        workgroupSums[workgroupId] = workgroupSum;
+    }
+}
+
+// Pass 1: Global scan of workgroup sums
+void pass1_globalScan() {
+    uint localId = gl_LocalInvocationID.x;
+    uint workgroupId = gl_WorkGroupID.x;
+    // uint globalId = workgroupId * gl_WorkGroupSize.x + localId;
+
+    // Calculate number of workgroups from previous pass
+    // uint workgroupCount = (uint(num_jobs) + gl_WorkGroupSize.x - 1) / gl_WorkGroupSize.x;
+
+    uint localSum = 0;
+    float localSumSize = float(workgroupSums.length()) / float(gl_WorkGroupSize.x);
+    // uint sum = 0;
+    uint startIndex = uint(localSumSize * float(localId));
+    uint endIndex = uint(localSumSize * float(localId + 1));
+
+    localSum = workgroupSums[startIndex];
+    workgroupSums[startIndex] = 0; // Clear the first element for the scan
+
+    for (uint i = startIndex + 1; i < endIndex && i < workgroupSums.length(); ++i) {
+        uint temp = workgroupSums[i];
+        workgroupSums[i] = localSum;
+        localSum += temp;
+    }
+
+    // Load workgroup sums
+    // if (localId < workgroupCount && localId < workgroupSums.length()) {
+    sharedData[localId] = localSum;
+    // } else {
+    //     sharedData[localId] = 0;
+    // }
+
+    barrier();
+
+    // Perform scan on workgroup sums
+    localScan();
+
+    barrier();
+
+    // // Write scanned sums back
+    // if (localId < workgroupCount && localId < workgroupSums.length()) {
+    //     workgroupSums[localId] += sharedData[localId];
+    // }
+    for (uint i = startIndex; i < endIndex && i < workgroupSums.length(); ++i) {
+        workgroupSums[i] += sharedData[localId];
+    }
+}
+
+// Pass 2: Add global offsets to local results
+void pass2_addGlobal() {
+    uint globalId = gl_GlobalInvocationID.x;
+    uint workgroupId = gl_WorkGroupID.x;
+
+    if (globalId < uint(num_jobs) && workgroupId > 0 && (workgroupId - 1) < workgroupSums.length()) {
+        // Add the accumulated sum from previous workgroups
+        indirect[globalId].firstInstance += workgroupSums[workgroupId - 1];
+    }
+}
 
 void main() {
     const uint id = gl_GlobalInvocationID.x;
@@ -46,21 +200,96 @@ void main() {
             transform_ids[t_id].indirect_id = ind_id;
             transform_ids[t_id].id = r_id;
             transform_ids[t_id].skeleton_id = s_id;
-            // transform_id trans_id;
-            // trans_id.indirect_id = ind_id;
-            // trans_id.id = r_id;
-            // transform_ids[t_id] = trans_id;
         } break;
-        case 1:
+        case -1: {
+            // reset counts
+            indirect[id].instanceCount = 0;
+            indirect[id].firstInstance = 0;
+        } break;
+        case -2: {
+            // for (int i = int(id) * 32; i < (int(id) + 1) * 32 && i < num_jobs; ++i) {
+            //     if (transform_ids[i].id == -1) {
+            //         continue; // Skip invalid transforms
+            //     }
+            //     int ind_id = transform_ids[i].indirect_id;
+            //     // Use instanceCount temporarily to store counts
+            //     atomicAdd(indirect[ind_id].firstInstance, 1);
+            // }
+            if (transform_ids[id].id != -1) {
+                int ind_id = transform_ids[id].indirect_id;
+                atomicAdd(indirect[ind_id].firstInstance, 1);
+            }
+        } break;
+        case 1: {
+
+            // uint localId = gl_LocalInvocationID.x;
+            // // workgroupSums[localId] = 0; // Initialize shared memory for this workgroup
+            // // if (id == 0) {
+            // //     uint sum = indirect[0].firstInstance;
+            // //     indirect[0].firstInstance = 0;
+            // //     for (uint i = 1; i < indirect.length(); ++i) {
+            // //         uint temp = indirect[i].firstInstance;
+            // //         indirect[i].firstInstance = sum;
+            // //         sum += temp;
+            // //     }
+            // // }
+            // uint startIndex = uint(float(indirect.length() * localId) / float(gl_WorkGroupSize.x));
+            // uint endIndex = uint(float(indirect.length() * (localId + 1)) / float(gl_WorkGroupSize.x));
+
+            // uint localSum = indirect[startIndex].firstInstance;
+            // indirect[startIndex].firstInstance = 0;
+            // for (uint i = startIndex + 1; i < endIndex && i < indirect.length(); ++i) {
+            //     uint temp = indirect[i].firstInstance;
+            //     indirect[i].firstInstance = localSum;
+            //     localSum += temp;
+            // }
+            // sharedData[localId] = localSum;
+            // barrier();
+
+            // if (localId == 0) {
+            //     uint globalSum = sharedData[0];
+            //     sharedData[0] = 0;
+            //     for (uint i = 1; i < gl_WorkGroupSize.x; ++i) {
+            //         uint temp = sharedData[i];
+            //         sharedData[i] = globalSum;
+            //         globalSum += temp;
+            //     }
+            // }
+            // barrier();
+            // workgroupSums[0] = 0;
+            // for (uint i = startIndex; i < endIndex && i < indirect.length(); ++i) {
+            //     indirect[i].firstInstance += sharedData[localId];
+            // }
+            switch (pass) {
+            case 0:
+                pass0_localScan();
+                break;
+            case 1:
+                pass1_globalScan();
+                break;
+            case 2:
+                pass2_addGlobal();
+                break;
+            }
+        } break;
+        case -3: {
+            // reset instanceCount before stage 2 (after prefix sum is complete)
+            indirect[id].instanceCount = 0;
+        } break;
+        case 2:
             int t_id = transform_ids[id].id;
             int ind_id = transform_ids[id].indirect_id;
             int skeleton_id = transform_ids[id].skeleton_id;
             // && (view * vec4(transforms[t_id].position, 1)).z < 0.f
-            if (t_id != -1 &&
-                (view * vec4(transforms[t_id].position, 1)).z < 0.f) {
-                uint r_id = atomicAdd(indirect[ind_id].instanceCount, 1);
-                renderers[offsets[ind_id] + r_id].x = t_id;
-                renderers[offsets[ind_id] + r_id].y = skeleton_id;
+            // if (t_id != -1 &&
+            //     (view * vec4(transforms[t_id].position, 1)).z < 0.f) {
+            float x = transforms[t_id].position.x;
+            if (t_id != -1) {
+                uint r_id = atomicAdd(indirect[ind_id].instanceCount, 1);   // Reset instanceCount to 0 before this stage
+
+                // Use firstInstance as the offset directly
+                renderers[indirect[ind_id].firstInstance + r_id].x = t_id;
+                renderers[indirect[ind_id].firstInstance + r_id].y = skeleton_id;
             }
             break;
         }
